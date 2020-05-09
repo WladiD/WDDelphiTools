@@ -75,12 +75,12 @@ end;
 
 begin
   try
-    if ParamCount = 0 then
-      ShowUsage
-    else if ParamCount = 1 then
+    if ParamCount = 1 then
       PrintVersion(ParamStr(1), '')
     else if ParamCount = 2 then
-      PrintVersion(ParamStr(1), ParamStr(2));
+      PrintVersion(ParamStr(1), ParamStr(2))
+    else
+      ShowUsage;
   except
     on E: Exception do
       Writeln(E.ClassName, ': ', E.Message);
