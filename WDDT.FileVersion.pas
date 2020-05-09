@@ -4,7 +4,9 @@ interface
 
 uses
   Winapi.Windows,
-  System.SysUtils;
+  Winapi.ImageHlp,
+  System.SysUtils,
+  System.DateUtils;
 
 type
   {**
@@ -80,10 +82,10 @@ type
     class function ToString(const Version64: Int64; IncludeBuild, IncludeRelease,
       IncludeMinor: Boolean): string; static;
 
-    function FileVersionToString(IncludeBuild: Boolean = FALSE; IncludeRelease: Boolean = True;
+    function FileVersionToString(IncludeBuild: Boolean = False; IncludeRelease: Boolean = True;
       IncludeMinor: Boolean = True): string;
 
-    function ProductVersionToString(IncludeBuild: Boolean = FALSE; IncludeRelease: Boolean = True;
+    function ProductVersionToString(IncludeBuild: Boolean = False; IncludeRelease: Boolean = True;
       IncludeMinor: Boolean = True): string;
 
     property FileVersion32: Integer read GetFileVersion32;
@@ -107,12 +109,31 @@ implementation
 
 constructor TFileVersion.Create(const FileName: TFileName);
 var
-  Size, Size2:DWord;
-  Pt:Pointer;
-  Info:^TVSFixedFileInfo;
-  FileTime:TFILETIME;
-  SystemTime:TSYSTEMTIME;
+  Size, Size2: DWord;
+  Pt: Pointer;
+  Info: ^TVSFixedFileInfo;
+  FileTime: TFILETIME;
+  SystemTime: TSYSTEMTIME;
+
+  function GetBuildDatePE: TDateTime;
+  var
+    LI: TLoadedImage;
+    FileNameAnsi: AnsiString;
+  begin
+    FileNameAnsi := AnsiString(FileName);
+    if MapAndLoad(PAnsiChar(FileNameAnsi), nil, @LI, False, True) then
+    begin
+      Result := LI.FileHeader.FileHeader.TimeDateStamp / SecsPerDay + UnixDateDelta;
+      Result := TTimeZone.Local.ToLocalTime(Result);
+      UnMapAndLoad(@LI);
+    end
+    else
+      Result := 0;
+  end;
+
 begin
+  FFileVersion64 := 0;
+  FProductVersion64 := 0;
   FBuildDateTime := 0;
   if FileName = '' then
     Exit;
@@ -142,6 +163,10 @@ begin
       FreeMem(Pt);
     end;
   end;
+
+  // Next method to get the build date, if VerQueryValue don't return it
+  if FBuildDateTime = 0 then
+    FBuildDateTime := GetBuildDatePE;
 end;
 
 constructor TFileVersion.Create(FileVersion64, ProductVersion64: Int64; BuildDateTime: TDateTime);
