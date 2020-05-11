@@ -13,7 +13,5 @@ begin
   Application.Initialize;
   Application.MainFormOnTaskbar := True;
   Application.CreateForm(TMainForm, MainForm);
-  Application.CreateForm(TCtrlBackspaceExampleForm, CtrlBackspaceExampleForm);
-  Application.CreateForm(TCheckboxGroupExampleForm, CheckboxGroupExampleForm);
   Application.Run;
 end.

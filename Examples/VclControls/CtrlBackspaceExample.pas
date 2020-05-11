@@ -30,9 +30,6 @@ type
     procedure EditEnter(Sender: TObject);
   end;
 
-var
-  CtrlBackspaceExampleForm: TCtrlBackspaceExampleForm;
-
 implementation
 
 {$R *.dfm}

@@ -38,9 +38,6 @@ type
     procedure AlphaCheckBoxClick(Sender: TObject);
   end;
 
-var
-  CheckboxGroupExampleForm: TCheckboxGroupExampleForm;
-
 implementation
 
 {$R *.dfm}

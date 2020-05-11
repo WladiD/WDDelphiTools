@@ -25,7 +25,7 @@ type
     procedure CheckboxGroupExampleButtonClick(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
   private
-    procedure ShowExample(ExampleForm: TForm);
+    procedure ShowExample(ExampleFormClass: TFormClass);
   end;
 
 var
@@ -39,14 +39,30 @@ uses
 
 {$R *.dfm}
 
+procedure TMainForm.ShowExample(ExampleFormClass: TFormClass);
+var
+  ExampleForm: TCustomForm;
+  ExampleFormCast: TForm absolute ExampleForm;
+begin
+  if not HasChildFormByClass(Self, ExampleFormClass, ExampleForm) then
+  begin
+    ExampleForm := ExampleFormClass.Create(Self);
+    ExampleForm.PopupParent := Self;
+    ExampleFormCast.OnKeyDown := FormKeyDown;
+    ExampleForm.KeyPreview := True;
+  end;
+
+  ExampleForm.Show;
+end;
+
 procedure TMainForm.CheckboxGroupExampleButtonClick(Sender: TObject);
 begin
-  ShowExample(CheckboxGroupExampleForm);
+  ShowExample(TCheckboxGroupExampleForm);
 end;
 
 procedure TMainForm.CtrlBackspaceExampleButtonClick(Sender: TObject);
 begin
-  ShowExample(CtrlBackspaceExampleForm);
+  ShowExample(TCtrlBackspaceExampleForm);
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
@@ -70,14 +86,6 @@ begin
       Key := 0;
     end;
   end;
-end;
-
-procedure TMainForm.ShowExample(ExampleForm: TForm);
-begin
-  ExampleForm.OnKeyDown := FormKeyDown;
-  ExampleForm.KeyPreview := True;
-  ExampleForm.PopupParent := Self;
-  ExampleForm.Show;
 end;
 
 end.
