@@ -38,7 +38,16 @@ object MainForm: TMainForm
     Caption = 'HandleCheckboxGroup'
     TabOrder = 1
     OnClick = CheckboxGroupExampleButtonClick
-    ExplicitLeft = 6
-    ExplicitTop = 18
+  end
+  object DeepCloneComponentExampleButton: TButton
+    AlignWithMargins = True
+    Left = 3
+    Top = 102
+    Width = 322
+    Height = 40
+    Align = alTop
+    Caption = 'DeepCloneComponent'
+    TabOrder = 2
+    OnClick = DeepCloneComponentExampleButtonClick
   end
 end

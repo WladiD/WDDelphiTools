@@ -21,9 +21,11 @@ type
   TMainForm = class(TForm)
     CtrlBackspaceExampleButton: TButton;
     CheckboxGroupExampleButton: TButton;
+    DeepCloneComponentExampleButton: TButton;
     procedure CtrlBackspaceExampleButtonClick(Sender: TObject);
     procedure CheckboxGroupExampleButtonClick(Sender: TObject);
     procedure FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
+    procedure DeepCloneComponentExampleButtonClick(Sender: TObject);
   private
     procedure ShowExample(ExampleFormClass: TFormClass);
   end;
@@ -35,7 +37,8 @@ implementation
 
 uses
   CtrlBackspaceExample,
-  CheckboxGroupExample;
+  CheckboxGroupExample,
+  DeepCloneComponentExample;
 
 {$R *.dfm}
 
@@ -50,6 +53,7 @@ begin
     ExampleForm.PopupParent := Self;
     ExampleFormCast.OnKeyDown := FormKeyDown;
     ExampleForm.KeyPreview := True;
+    ExampleFormCast.Position := poMainFormCenter;
   end;
 
   ExampleForm.Show;
@@ -63,6 +67,11 @@ end;
 procedure TMainForm.CtrlBackspaceExampleButtonClick(Sender: TObject);
 begin
   ShowExample(TCtrlBackspaceExampleForm);
+end;
+
+procedure TMainForm.DeepCloneComponentExampleButtonClick(Sender: TObject);
+begin
+  ShowExample(TDeepCloneComponentExampleForm);
 end;
 
 procedure TMainForm.FormKeyDown(Sender: TObject; var Key: Word; Shift: TShiftState);
