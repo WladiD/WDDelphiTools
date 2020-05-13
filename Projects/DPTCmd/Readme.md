@@ -10,6 +10,7 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
   DelphiVersion
     D2007
     D10.1
+    D10.3
 
   Mode
     RemovePackagesBySourceDir SourceDir
