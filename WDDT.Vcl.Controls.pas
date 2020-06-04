@@ -353,6 +353,9 @@ function HasAssignedLabel(Control: TControl; out FoundLabel: TCustomLabel): Bool
 var
   cc: Integer;
   TempControl: TControl;
+  ParentFormWC: TWinControl;
+  ParentForm: TCustomForm absolute ParentFormWC;
+  TempComponent: TComponent;
 begin
   Result := True;
 
@@ -364,6 +367,22 @@ begin
     begin
       FoundLabel := TCustomLabel(TempControl);
       Exit;
+    end;
+  end;
+
+  // If no label was found on the same parent control level, then we try to find them
+  // from components in the containing form
+  if HasParentControlByClass(Control, TCustomForm, ParentFormWC) then
+  begin
+    for cc := 0 to ParentForm.ComponentCount - 1 do
+    begin
+      TempComponent := ParentForm.Components[cc];
+      if (TempComponent is TCustomLabel) and
+        (TCustomLabelAccess(TempComponent).FocusControl = Control) then
+      begin
+        FoundLabel := TCustomLabelAccess(TempComponent);
+        Exit;
+      end;
     end;
   end;
 
