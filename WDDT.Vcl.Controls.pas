@@ -41,7 +41,12 @@ function HasScrollableScrollbar(Control: TControl; Kind: TScrollBarKind;
 function HasControlMouseWheelSupport(AControl: TComponent;
   AdditionalAccepts: array of TComponentClass): Boolean;
 
+function LocalDeactivateOnClick(Control: TControl): IInterface;
+
 implementation
+
+type
+  TControlRobin = class(TControl);
 
 // Implementiert das von Windows bekannte Verhalten in Eingabefeldern bei [STRG] + [Backspace]
 //
@@ -534,6 +539,37 @@ begin
     Result := IsAcceptedByAdditionalAccepts;
 end;
 
+type
+  TOnClickDeactivator = class(TInterfacedObject)
+  private
+    FControl: TControl;
+    FOnClick: TNotifyEvent;
+  public
+    constructor Create(Control: TControl);
+    destructor Destroy; override;
+  end;
+
+// Deactivates the OnClick event handler for the passed control, as long the returned interface
+// is active. This means, that if you call this function in a method without a assign of the
+// returned interface, it will be released by the Delphi reference counting mechanism at the
+// end of your method automatically.
+//
+// Example:
+// <code>
+// procedure TForm1.Button1Click(Sender: TObject);
+// begin
+//   LocalDeactivateOnClick(TButton(Sender)); // <-- The OnClick event handler of the button is instantly deactivated
+//   // Now you can be sure, that this event handler can't be called twice,
+//   // f.i. by a double click (when message handling involved)
+//   YourCode;
+//   YourStuff;
+// end; // <-- Here the OnClick event handler will be automatically restored
+// </code>
+function LocalDeactivateOnClick(Control: TControl): IInterface;
+begin
+  Result := TOnClickDeactivator.Create(Control);
+end;
+
 { TFormMouseWheelMediator }
 
 constructor TFormMouseWheelMediator.Create(AOwner: TComponent);
@@ -566,6 +602,21 @@ begin
 
   if not Handled and Assigned(FPrevOnMouseWheel) then
     FPrevOnMouseWheel(Sender, Shift, WheelDelta, MousePos, Handled);
+end;
+
+{ TOnClickDeactivator }
+
+constructor TOnClickDeactivator.Create(Control: TControl);
+begin
+  FControl := Control;
+  FOnClick := TControlRobin(FControl).OnClick;
+  TControlRobin(FControl).OnClick := nil;
+end;
+
+destructor TOnClickDeactivator.Destroy;
+begin
+  TControlRobin(FControl).OnClick := FOnClick;
+  inherited Destroy;
 end;
 
 end.
