@@ -3,10 +3,13 @@ unit WDDT.MobileTools;
 interface
 
 uses
-  System.SysUtils,
+  System.SysUtils
+{$IFDEF ANDROID},
   FMX.Helpers.Android,
+  Androidapi.JNI.App,
   Androidapi.Helpers,
-  Androidapi.JNI.GraphicsContentViewText;
+  Androidapi.JNI.GraphicsContentViewText
+{$ENDIF};
 
 type
   TMobileTools = class
@@ -38,7 +41,7 @@ begin
 {$ENDIF}
 end;
 
-// Die Lösung basiert auf https://stackoverflow.com/questions/34802583/wanting-to-keep-the-screen-on-in-delphi-app-on-android
+// Solution is based on <https://stackoverflow.com/questions/34802583/wanting-to-keep-the-screen-on-in-delphi-app-on-android>
 class procedure TMobileTools.SetKeepScreenOn(Value: Boolean);
 begin
 {$IFDEF ANDROID}
