@@ -4,9 +4,11 @@ interface
 
 uses
   Winapi.Windows,
+  Winapi.Messages,
   System.SysUtils,
   System.Classes,
   System.Math,
+  System.Generics.Collections,
   Vcl.Controls,
   Vcl.ExtCtrls,
   Vcl.Forms,
@@ -41,7 +43,39 @@ function HasScrollableScrollbar(Control: TControl; Kind: TScrollBarKind;
 function HasControlMouseWheelSupport(AControl: TComponent;
   AdditionalAccepts: array of TComponentClass): Boolean;
 
+function LocalDeactivateOnClick(Control: TControl): IInterface;
+
+type
+  TTabJunctions = class(TComponent)
+  private
+    type
+    TTabJunctionEntry = record
+      FromControl: TWinControl;
+      ToControl: TWinControl;
+    end;
+    TTabJunctionList = TList<TTabJunctionEntry>;
+
+    var
+    FPrevWndProc: TWndMethod;
+    FTargetForm: TCustomForm;
+    FTabJunctions: TTabJunctionList;
+
+    procedure LocalWndProc(var Message: TMessage);
+
+  public
+    constructor Create(Owner: TComponent); override;
+    destructor Destroy; override;
+
+    procedure AddJunction(FromControl, ToControl: TWinControl);
+
+    procedure Activate;
+    procedure Deactivate;
+  end;
+
 implementation
+
+type
+  TControlRobin = class(TControl);
 
 // Implementiert das von Windows bekannte Verhalten in Eingabefeldern bei [STRG] + [Backspace]
 //
@@ -534,6 +568,37 @@ begin
     Result := IsAcceptedByAdditionalAccepts;
 end;
 
+type
+  TOnClickDeactivator = class(TInterfacedObject)
+  private
+    FControl: TControl;
+    FOnClick: TNotifyEvent;
+  public
+    constructor Create(Control: TControl);
+    destructor Destroy; override;
+  end;
+
+// Deactivates the OnClick event handler for the passed control, as long the returned interface
+// is active. This means, that if you call this function in a method without a assign of the
+// returned interface, it will be released by the Delphi reference counting mechanism at the
+// end of your method automatically.
+//
+// Example:
+// <code>
+// procedure TForm1.Button1Click(Sender: TObject);
+// begin
+//   LocalDeactivateOnClick(TButton(Sender)); // <-- The OnClick event handler of the button is instantly deactivated
+//   // Now you can be sure, that this event handler can't be called twice,
+//   // f.i. by a double click (when message handling involved)
+//   YourCode;
+//   YourStuff;
+// end; // <-- Here the OnClick event handler will be automatically restored
+// </code>
+function LocalDeactivateOnClick(Control: TControl): IInterface;
+begin
+  Result := TOnClickDeactivator.Create(Control);
+end;
+
 { TFormMouseWheelMediator }
 
 constructor TFormMouseWheelMediator.Create(AOwner: TComponent);
@@ -566,6 +631,133 @@ begin
 
   if not Handled and Assigned(FPrevOnMouseWheel) then
     FPrevOnMouseWheel(Sender, Shift, WheelDelta, MousePos, Handled);
+end;
+
+{ TOnClickDeactivator }
+
+constructor TOnClickDeactivator.Create(Control: TControl);
+begin
+  FControl := Control;
+  FOnClick := TControlRobin(FControl).OnClick;
+  TControlRobin(FControl).OnClick := nil;
+end;
+
+destructor TOnClickDeactivator.Destroy;
+begin
+  TControlRobin(FControl).OnClick := FOnClick;
+  inherited Destroy;
+end;
+
+{ TTabJunctions }
+
+constructor TTabJunctions.Create(Owner: TComponent);
+begin
+  inherited Create(Owner);
+
+  if Assigned(Owner) and (Owner is TCustomForm) then
+    FTargetForm := TCustomForm(Owner)
+  else
+    raise Exception.Create('Passed Owner must be a TCustomForm descendant');
+
+  FTabJunctions := TTabJunctionList.Create;
+end;
+
+destructor TTabJunctions.Destroy;
+begin
+  Deactivate;
+  FTabJunctions.Free;
+
+  inherited Destroy;
+end;
+
+type
+  TWinControlRobin = class(TWinControl);
+
+procedure TTabJunctions.LocalWndProc(var Message: TMessage);
+
+var
+  GoForward: Boolean;
+
+  function HasJunction: Boolean;
+  var
+    JumpToControl: TWinControl;
+    TJEntry: TTabJunctionEntry;
+  begin
+    JumpToControl := nil;
+
+    for TJEntry in FTabJunctions do
+    begin
+      if GoForward and (TJEntry.FromControl = FTargetForm.ActiveControl) then
+      begin
+        JumpToControl := TJEntry.ToControl;
+        Break;
+      end
+      else if not GoForward and (TJEntry.ToControl = FTargetForm.ActiveControl) then
+      begin
+        JumpToControl := TJEntry.FromControl;
+        Break;
+      end;
+    end;
+
+    Result := Assigned(JumpToControl) and JumpToControl.Visible and JumpToControl.Enabled;
+
+    if Result then
+      JumpToControl.SetFocus;
+  end;
+
+  function DialogKeyMessageHandled: Boolean;
+  var
+    DialogKeyMsg: TCMDialogKey absolute Message;
+  begin
+    Result := False;
+    if (GetKeyState(VK_MENU) >= 0) and (DialogKeyMsg.CharCode = VK_TAB) then
+    begin
+      if GetKeyState(VK_CONTROL) >= 0 then
+      begin
+        GoForward := GetKeyState(VK_SHIFT) >= 0;
+        if not HasJunction then
+          TWinControlRobin(FTargetForm).SelectNext(FTargetForm.ActiveControl, GoForward, True);
+        Result := True;
+      end;
+    end;
+  end;
+
+var
+  Handled: Boolean;
+begin
+  Handled := (Message.Msg = CM_DIALOGKEY) and DialogKeyMessageHandled;
+
+  if Assigned(FPrevWndProc) and not Handled then
+    FPrevWndProc(Message)
+end;
+
+procedure TTabJunctions.AddJunction(FromControl, ToControl: TWinControl);
+var
+  Entry: TTabJunctionEntry;
+begin
+  Entry.FromControl := FromControl;
+  Entry.ToControl := ToControl;
+  FTabJunctions.Add(Entry);
+end;
+
+function SameWndMethod(A, B: TWndMethod): Boolean;
+begin
+  Result := @A = @B;
+end;
+
+procedure TTabJunctions.Activate;
+begin
+  if not SameWndMethod(FTargetForm.WindowProc, LocalWndProc) then
+  begin
+    FPrevWndProc := FTargetForm.WindowProc;
+    FTargetForm.WindowProc := LocalWndProc;
+  end;
+end;
+
+procedure TTabJunctions.Deactivate;
+begin
+  if SameWndMethod(FTargetForm.WindowProc, LocalWndProc) then
+    FTargetForm.WindowProc := FPrevWndProc;
 end;
 
 end.
