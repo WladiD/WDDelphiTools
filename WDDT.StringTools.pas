@@ -1,4 +1,4 @@
-unit WDDT.StringTools;
+﻿unit WDDT.StringTools;
 
 interface
 
