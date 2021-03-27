@@ -76,10 +76,11 @@ type
   // Splits strings and numbers in to a TNaturalArray, outputing something like: ['asd',123,'cat'].
   function GetNaturalString(Str: string): TNaturalArray;
   var
-    i, l, j: Int32;
+    i, L, j: Int32;
     IsText: Boolean;
     Temp: String;
   begin
+    Result := nil;
     Temp := '';
     L := Length(Str);
     j := 0;
@@ -102,16 +103,19 @@ type
           Continue;
       end;
 
-      SetLength(Result, j + 1);
-      Result[j].IsText := IsText;
+      if Defined(Temp) then
+      begin
+        SetLength(Result, j + 1);
+        Result[j].IsText := IsText;
 
-      if IsText then
-        Result[j].Text := Temp
-      else
-        Result[j].Number := StrToInt(Temp);
+        if IsText then
+          Result[j].Text := Temp
+        else
+          Result[j].Number := StrToInt(Temp);
 
-      Inc(j);
-      Temp := '';
+        Inc(j);
+        Temp := '';
+      end;
     end;
   end;
 
@@ -133,7 +137,7 @@ begin
 
   Result := 0;
 
-  for cc := 0 to LengthMin do
+  for cc := 0 to LengthMin - 1 do
   begin
     if (not ListA[cc].IsText) and (not ListB[cc].IsText) then
       Result := ListA[cc].Number - ListB[cc].Number

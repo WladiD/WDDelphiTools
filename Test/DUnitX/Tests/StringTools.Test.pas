@@ -16,6 +16,7 @@ type
     [TestCase('TestA','9,8,7,6,5,4,3,2,1|1,2,3,4,5,6,7,8,9', '|')]
     [TestCase('TestB','"Level: 10","Level: 1","Level: 5"|"Level: 1","Level: 5","Level: 10"', '|')]
     [TestCase('TestC','"Level: 10 C","Level: 1","Level: 10 B","Level: 10 A","Level: 5","Level: 2"|"Level: 1","Level: 2","Level: 5","Level: 10 A","Level: 10 B","Level: 10 C"', '|')]
+    [TestCase('NothingToSort','1,1|1,1', '|')]
     procedure Samples(const SortCommaText, ExpectedCommaText: string);
   end;
 
