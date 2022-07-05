@@ -8,7 +8,8 @@ uses
   CheckboxGroupExample in 'CheckboxGroupExample.pas' {CheckboxGroupExampleForm},
   WDDT.Vcl.RTTI in '..\..\WDDT.Vcl.RTTI.pas',
   DeepCloneComponentExample in 'DeepCloneComponentExample.pas' {DeepCloneComponentExampleForm},
-  WDDT.RTTI in '..\..\WDDT.RTTI.pas';
+  WDDT.RTTI in '..\..\WDDT.RTTI.pas',
+  WDDT.StringTools in '..\..\WDDT.StringTools.pas';
 
 {$R *.res}
 

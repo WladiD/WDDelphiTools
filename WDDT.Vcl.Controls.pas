@@ -14,13 +14,15 @@ uses
   Vcl.Forms,
   Vcl.StdCtrls,
   Vcl.Dialogs,
-  Vcl.Graphics;
+  Vcl.Graphics,
+
+  WDDT.StringTools;
 
 procedure PerformCtrlBackspaceAction(CustomEdit: TCustomEdit);
 function CursorRow(Memo: TMemo): Integer;
 procedure UnSelect(TargetControl: TControl);
 function GetControlsBoundBox(Parent: TWinControl): TRect;
-procedure AddComboTextToMFU(ComboBox: TComboBox);
+procedure AddComboTextToMFU(ComboBox: TComboBox; NewItemsOnTop: Boolean = False);
 function CalcRequiredControlHeight(Parent: TWinControl): Integer;
 function GetSystemMessageIcon(Value: TMsgDlgType): TIcon;
 procedure SetGeneralMouseWheelHandler(TargetForm: TForm);
@@ -44,6 +46,8 @@ function HasControlMouseWheelSupport(AControl: TComponent;
   AdditionalAccepts: array of TComponentClass): Boolean;
 
 function LocalDeactivateOnClick(Control: TControl): IInterface;
+function LocalDeactivateOnChange(Edit: TCustomEdit): IInterface; overload;
+function LocalDeactivateOnChange(Combo: TCustomCombo): IInterface; overload;
 
 type
   TTabJunctions = class(TComponent)
@@ -76,6 +80,8 @@ implementation
 
 type
   TControlRobin = class(TControl);
+  TCustomEditRobin = class(TCustomEdit);
+  TCustomComboRobin = class(TCustomCombo);
 
 // Implementiert das von Windows bekannte Verhalten in Eingabefeldern bei [STRG] + [Backspace]
 //
@@ -201,19 +207,26 @@ end;
 // Fügt den aktuellen Text der Combobox zu seiner Liste hinzu, wenn er dort noch nicht existiert
 // oder schiebt ihn um eine Position höher, falls er sich bereits in der Liste befindet.
 //
+// Wenn NewItemsOnTop True ist, dann wird der neue Eintrag an 1. Stelle eingefügt, sonst angehängt.
+//
 // MFU = Most Frequent Used
-procedure AddComboTextToMFU(ComboBox: TComboBox);
+procedure AddComboTextToMFU(ComboBox: TComboBox; NewItemsOnTop: Boolean);
 var
   TextIndex: Integer;
   Text: string;
 begin
   Text := ComboBox.Text;
-  if Trim(Text) = '' then
+  if Empty(Text) then
     Exit;
 
   TextIndex := ComboBox.Items.IndexOf(Text);
   if TextIndex = -1 then
-    ComboBox.Items.Add(Text)
+  begin
+    if NewItemsOnTop then
+      ComboBox.Items.Insert(0, Text)
+    else
+      ComboBox.Items.Add(Text);
+  end
   else if TextIndex > 0 then
   begin
     ComboBox.Items.Exchange(TextIndex, TextIndex - 1);
@@ -578,6 +591,15 @@ type
     destructor Destroy; override;
   end;
 
+  TOnChangeDeactivator = class(TInterfacedObject)
+  private
+    FControl: TWinControl;
+    FOnChange: TNotifyEvent;
+  public
+    constructor Create(Control: TWinControl);
+    destructor Destroy; override;
+  end;
+
 // Deactivates the OnClick event handler for the passed control, as long the returned interface
 // is active. This means, that if you call this function in a method without a assign of the
 // returned interface, it will be released by the Delphi reference counting mechanism at the
@@ -597,6 +619,16 @@ type
 function LocalDeactivateOnClick(Control: TControl): IInterface;
 begin
   Result := TOnClickDeactivator.Create(Control);
+end;
+
+function LocalDeactivateOnChange(Edit: TCustomEdit): IInterface;
+begin
+  Result := TOnChangeDeactivator.Create(Edit);
+end;
+
+function LocalDeactivateOnChange(Combo: TCustomCombo): IInterface;
+begin
+  Result := TOnChangeDeactivator.Create(Combo);
 end;
 
 { TFormMouseWheelMediator }
@@ -645,6 +677,35 @@ end;
 destructor TOnClickDeactivator.Destroy;
 begin
   TControlRobin(FControl).OnClick := FOnClick;
+  inherited Destroy;
+end;
+
+{ TOnChangeDeactivator }
+
+constructor TOnChangeDeactivator.Create(Control: TWinControl);
+begin
+  FControl := Control;
+  if Control is TCustomEdit then
+  begin
+    FOnChange := TCustomEditRobin(FControl).OnChange;
+    TCustomEditRobin(FControl).OnChange := nil;
+  end
+  else if Control is TCustomCombo then
+  begin
+    FOnChange := TCustomComboRobin(FControl).OnChange;
+    TCustomComboRobin(FControl).OnChange := nil;
+  end
+  else
+    raise Exception.CreateFmt('"%s" is a not supported control type', [Control.ClassName]);
+end;
+
+destructor TOnChangeDeactivator.Destroy;
+begin
+  if FControl is TCustomEdit then
+    TCustomEditRobin(FControl).OnChange := FOnChange
+  else if FControl is TCustomCombo then
+    TCustomComboRobin(FControl).OnChange := FOnChange;
+
   inherited Destroy;
 end;
 
