@@ -18,6 +18,8 @@ function IfEmpty(const Source, ReplaceWith: string): string;
 
 function CompareStringNatural(const StringA, StringB: string): Integer;
 
+function RemoveMultipleSpaces(const Value: string): string;
+
 implementation
 
 // Returns True if no single visible character is contained, otherwise False
@@ -156,6 +158,28 @@ begin
 
   if Result = 0 then
     Result := LengthA - LengthB;
+end;
+
+// Replaces multiple spaces in a row with a single one
+function RemoveMultipleSpaces(const Value: string): string;
+var
+  LastIsSpace: Boolean;
+  I, Cnt: Integer;
+  Res: string;
+begin
+  SetLength(Res, Length(Value));
+  Cnt := 0;
+  LastIsSpace := False;
+  for I := 1 to Length(Value) do
+  begin
+    if LastIsSpace and (Value[I] = #32) then
+      Continue;
+    LastIsSpace := Value[I] = #32;
+    Inc(Cnt);
+    Res[Cnt] := Value[I];
+  end;
+  SetLength(Res, Cnt);
+  Result := Res;
 end;
 
 end.
