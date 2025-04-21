@@ -1,28 +1,33 @@
-unit WDDT.DelayedMethod;
+ï»¿unit WDDT.DelayedMethod;
 
 interface
 
 uses
+
+  Winapi.Messages,
+  Winapi.Windows,
+
   System.SysUtils,
   System.Classes,
-  Winapi.Messages,
-  Winapi.Windows;
+
+  Vcl.Forms;
+
 
 type
   TMethod = procedure of object;
 
-  // Klasse für die einfache Verwendung von verzögernden Methoden
+  // Klasse fÃ¼r die einfache Verwendung von verzÃ¶gernden Methoden
   //
   // Eine beliebige Methode ohne Parameter (TMethod) kann in einem Nachfolger von TComponent
-  // implementiert werden und an die Klassenmethode TDelayedMethod.Execute übergeben werden.
+  // implementiert werden und an die Klassenmethode TDelayedMethod.Execute Ã¼bergeben werden.
   //
-  // Der eigentliche Aufruf der verzögernden Methode erfolgt stets vom internen Timer aus, also
+  // Der eigentliche Aufruf der verzÃ¶gernden Methode erfolgt stets vom internen Timer aus, also
   // stets sauber aus dem obersten MessageHandler der Applikation.
   //
-  // Eine eindeutige Methode kann stets nur einmal hinzugefügt bzw. ausgeführt werden.
-  // Wurde zuvor die selbe Methode schon mal übergeben, so ersetzt der letzte Aufruf den vorherigen.
+  // Eine eindeutige Methode kann stets nur einmal hinzugefÃ¼gt bzw. ausgefÃ¼hrt werden.
+  // Wurde zuvor die selbe Methode schon mal Ã¼bergeben, so ersetzt der letzte Aufruf den vorherigen.
   //
-  // Man kann also folgendes ausführen...
+  // Man kann also folgendes ausfÃ¼hren...
   //
   // <code>
   // for cc := 0 to 100 do
@@ -33,12 +38,12 @@ type
   // </code>
   //
   // ...und trotzdem ist sichergestellt, dass die Methode MyObject.MethodA (nach 100ms) und
-  // MyObject.MethodB (nach 1sek) nur einmal ausgeführt werden.
+  // MyObject.MethodB (nach 1sek) nur einmal ausgefÃ¼hrt werden.
   //
-  // Damit man sich über die Freigabe nicht kümmern braucht, wurde die Klasse von TComponent
+  // Damit man sich Ã¼ber die Freigabe nicht kÃ¼mmern braucht, wurde die Klasse von TComponent
   // abgeleitet, um vom dessen Observer-Pattern gebrauch zu nehmen.
   // Konkret heisst es: Sollte der Implementierer der Methode freigegeben werden, so ist
-  // sichergestellt, dass keine seiner verzögernden Methoden ausgeführt wird und die zugehörigen
+  // sichergestellt, dass keine seiner verzÃ¶gernden Methoden ausgefÃ¼hrt wird und die zugehÃ¶rigen
   // TDelayedMethod-Instanzen automatisch freigegeben werden.
   TDelayedMethod = class(TComponent)
   private
@@ -64,9 +69,6 @@ type
   end;
 
 implementation
-
-uses
-  Forms;
 
 { TDelayedMethod }
 
@@ -96,10 +98,10 @@ begin
     Result := TComponent(SysMethod.Data);
 end;
 
-// Erstellt eine neue TDelayedMethod-Instanz mit der übergebenen Methode
+// Erstellt eine neue TDelayedMethod-Instanz mit der Ã¼bergebenen Methode
 //
-// Der Parameter Delay gibt die Dauer der Verzögerung in ms an. Standardwert ist 0 und bedeutet,
-// dass die Methode so schnell wie möglich (beim nächsten Durchlauf der Message-Queue) ausgeführt
+// Der Parameter Delay gibt die Dauer der VerzÃ¶gerung in ms an. Standardwert ist 0 und bedeutet,
+// dass die Methode so schnell wie mÃ¶glich (beim nÃ¤chsten Durchlauf der Message-Queue) ausgefÃ¼hrt
 // werden soll.
 //
 // Wichtig: Bitte die Beschreibung der Klasse beachten.
@@ -110,7 +112,7 @@ var
 begin
   Target := GetMethodComponent(Method);
   if not Assigned(Target) then
-    raise Exception.Create('Der Implementor der verzögernden Methode muss ein Nachfolger von TComponent sein.');
+    raise Exception.Create('Der Implementor der verzÃ¶gernden Methode muss ein Nachfolger von TComponent sein.');
 
   Stop(Method);
 
@@ -124,7 +126,7 @@ begin
   end;
 end;
 
-// Gibt die TDelayedMethod-Instanz im Implementierer der Methode für diese Methode frei
+// Gibt die TDelayedMethod-Instanz im Implementierer der Methode fÃ¼r diese Methode frei
 class procedure TDelayedMethod.Stop(Method: TMethod);
 var
   cc: Integer;
@@ -149,27 +151,27 @@ begin
   end;
 end;
 
-// Erstellt eine TDelayedMethod-Instanz für die übergebene anonyme Methode
+// Erstellt eine TDelayedMethod-Instanz fÃ¼r die Ã¼bergebene anonyme Methode
 //
 // Im Gegensatz zu einer klassischen Methode hat eine anonyme Methode keine implementierende
 // Klasse. Daher ist die Angabe eines Owner notwendig. Die erstellte Instanz wird dem Owner
-// hinzugefügt, um weiterhin vom zuverlässigen Observer-Pattern des TComponent zu
+// hinzugefÃ¼gt, um weiterhin vom zuverlÃ¤ssigen Observer-Pattern des TComponent zu
 // profitieren.
-// Eine weitere Eigenheit von anonymen Methoden ist, dass sie nicht zwingend eine Entität darstellt.
+// Eine weitere Eigenheit von anonymen Methoden ist, dass sie nicht zwingend eine EntitÃ¤t darstellt.
 // D.h. eine scheinbar identische anonyme Methode hat nicht zwingend die gleiche Adresse (Pointer).
-// Grob gesagt, es wird jedes mal eine neue Entität für ein und die selbe anonyme Methode erstellt,
-// wenn sich der Wert der zu fangenden Variablen von einer Deklaration zur nächsten ändert.
+// Grob gesagt, es wird jedes mal eine neue EntitÃ¤t fÃ¼r ein und die selbe anonyme Methode erstellt,
+// wenn sich der Wert der zu fangenden Variablen von einer Deklaration zur nÃ¤chsten Ã¤ndert.
 // Aus diesem Grund kann optional eine beliebige ID im Parameter AnonProcID angegeben werden, wenn
-// man sicherstellen möchte, dass diese Methode nur einmal verzögert aufgerufen werden soll.
+// man sicherstellen mÃ¶chte, dass diese Methode nur einmal verzÃ¶gert aufgerufen werden soll.
 // Wird AnonProcID nicht angegeben, wird der Pointer der Methode als ID verwendet und als Ergebnis
-// zurückgeliefert.
+// zurÃ¼ckgeliefert.
 class function TDelayedMethod.Execute(AnonProc: TProc; Owner: TComponent; Delay: Integer = 0;
   AnonProcID: NativeInt = 0): NativeInt;
 var
   DM: TDelayedMethod;
 begin
   if not Assigned(Owner) then
-    raise Exception.Create('Owner wird benötigt');
+    raise Exception.Create('Owner wird benÃ¶tigt');
 
   if AnonProcID = 0 then
     AnonProcID := NativeInt(@AnonProc);
