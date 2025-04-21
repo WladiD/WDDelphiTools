@@ -1,4 +1,4 @@
-unit WDDT.RTTI;
+﻿unit WDDT.RTTI;
 
 interface
 

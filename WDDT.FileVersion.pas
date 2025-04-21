@@ -1,4 +1,4 @@
-unit WDDT.FileVersion;
+﻿unit WDDT.FileVersion;
 
 interface
 
