@@ -16,35 +16,36 @@ uses
 type
   TMethod = procedure of object;
 
-  // Klasse für die einfache Verwendung von verzögernden Methoden
-  //
-  // Eine beliebige Methode ohne Parameter (TMethod) kann in einem Nachfolger von TComponent
-  // implementiert werden und an die Klassenmethode TDelayedMethod.Execute übergeben werden.
-  //
-  // Der eigentliche Aufruf der verzögernden Methode erfolgt stets vom internen Timer aus, also
-  // stets sauber aus dem obersten MessageHandler der Applikation.
-  //
-  // Eine eindeutige Methode kann stets nur einmal hinzugefügt bzw. ausgeführt werden.
-  // Wurde zuvor die selbe Methode schon mal übergeben, so ersetzt der letzte Aufruf den vorherigen.
-  //
-  // Man kann also folgendes ausführen...
-  //
-  // <code>
-  // for cc := 0 to 100 do
-  // begin
-  //   TDelayedMethod.Execute(MyObject.MethodA, 100);
-  //   TDelayedMethod.Execute(MyObject.MethodB, 1000);
-  // end;
-  // </code>
-  //
-  // ...und trotzdem ist sichergestellt, dass die Methode MyObject.MethodA (nach 100ms) und
-  // MyObject.MethodB (nach 1sek) nur einmal ausgeführt werden.
-  //
-  // Damit man sich über die Freigabe nicht kümmern braucht, wurde die Klasse von TComponent
-  // abgeleitet, um vom dessen Observer-Pattern gebrauch zu nehmen.
-  // Konkret heisst es: Sollte der Implementierer der Methode freigegeben werden, so ist
-  // sichergestellt, dass keine seiner verzögernden Methoden ausgeführt wird und die zugehörigen
-  // TDelayedMethod-Instanzen automatisch freigegeben werden.
+  /// <summary>Class for the simple use of delayed methods</summary>
+  /// <remarks>
+  ///   Any method without parameters (TMethod) can be implemented in a descendant of TComponent
+  ///   and passed to the class method TDelayedMethod.Execute.
+  ///
+  ///   The actual invocation of the delayed method is always performed by the internal timer,
+  ///   thus always cleanly from the application's top-level message handler.
+  ///
+  ///   A unique method can only be added or executed once at any time.
+  ///   If the same method was passed previously, the latest call replaces the previous one.
+  ///
+  ///   So, you can execute the following...
+  ///
+  ///   <code>
+  ///   for var Loop := 0 to 100 do
+  ///   begin
+  ///     TDelayedMethod.Execute(MyObject.MethodA, 100);
+  ///     TDelayedMethod.Execute(MyObject.MethodB, 1000);
+  ///   end;
+  ///   </code>
+  ///
+  ///   ...and it's still guaranteed that the method MyObject.MethodA (after 100ms) and
+  ///   MyObject.MethodB (after 1sec) will only be executed once.
+  ///
+  ///   To avoid having to worry about freeing, the class was derived from TComponent
+  ///   to make use of its Observer pattern.
+  ///   Specifically, this means: If the object implementing the method is freed, it is
+  ///   guaranteed that none of its delayed methods will be executed, and the corresponding
+  ///   TDelayedMethod instances are automatically freed.
+  /// </remarks>
   TDelayedMethod = class(TComponent)
   private
     FWindowHandle: HWND;
