@@ -170,7 +170,7 @@ begin
   end;
 end;
 
-// Liefert die Bounding-Box, die alle Child-Controls des übergebenen Parent-Controls berücksichtigt
+// Liefert die Bounding-Box, die alle Child-Controls des Ã¼bergebenen Parent-Controls berÃ¼cksichtigt
 //
 // Wenn keine Child-Controls vorhanden sind, so wird ein Rect (0, 0, 0, 0) geliefert.
 function GetControlsBoundBox(Parent: TWinControl): TRect;
@@ -204,10 +204,10 @@ begin
   end;
 end;
 
-// Fügt den aktuellen Text der Combobox zu seiner Liste hinzu, wenn er dort noch nicht existiert
-// oder schiebt ihn um eine Position höher, falls er sich bereits in der Liste befindet.
+// FÃ¼gt den aktuellen Text der Combobox zu seiner Liste hinzu, wenn er dort noch nicht existiert
+// oder schiebt ihn um eine Position hÃ¶her, falls er sich bereits in der Liste befindet.
 //
-// Wenn NewItemsOnTop True ist, dann wird der neue Eintrag an 1. Stelle eingefügt, sonst angehängt.
+// Wenn NewItemsOnTop True ist, dann wird der neue Eintrag an 1. Stelle eingefÃ¼gt, sonst angehÃ¤ngt.
 //
 // MFU = Most Frequent Used
 procedure AddComboTextToMFU(ComboBox: TComboBox; NewItemsOnTop: Boolean);
@@ -235,10 +235,10 @@ begin
   end;
 end;
 
-// Ermittelt die Höhe aller Controls, die die Ausrichtung (Align in [alTop, alBottom]) haben
+// Ermittelt die HÃ¶he aller Controls, die die Ausrichtung (Align in [alTop, alBottom]) haben
 //
 // Hinweise:
-// - Controls, die nicht ausgerichtet sind, werden bei dieser Berechnungsart nicht berücksichtigt.
+// - Controls, die nicht ausgerichtet sind, werden bei dieser Berechnungsart nicht berÃ¼cksichtigt.
 function CalcRequiredControlHeight(Parent: TWinControl): Integer;
 var
   cc: Integer;
@@ -265,7 +265,7 @@ end;
 // Liefert die System-Icons, die in Message-Dialogs verwendet werden
 //
 // Hinweise:
-// - Das gelieferte Icon muss außerhalb freigegeben werden
+// - Das gelieferte Icon muss auÃŸerhalb freigegeben werden
 // - Es kann auch der Wert nil geliefert werden
 function GetSystemMessageIcon(Value: TMsgDlgType): TIcon;
 const
@@ -302,7 +302,7 @@ type
       MousePos: TPoint; var Handled: Boolean);
   end;
 
-// Setzt einen Event-Handler für OnMouseWheel-Event einer Form
+// Setzt einen Event-Handler fÃ¼r OnMouseWheel-Event einer Form
 //
 // Der Handler implementiert das Scrollverhalten mittels des Mausrads in einer beliebigen
 // TScrollBox
@@ -334,8 +334,8 @@ begin
   Result := FALSE;
 end;
 
-// Sucht das erste TEdit-Control, welches den selben Parent hat, wie das übergebene RefControl
-// Wird als Rückgabewert True geliefert, so wird auch das gefundene Edit im Ausgabeparameter
+// Sucht das erste TEdit-Control, welches den selben Parent hat, wie das Ã¼bergebene RefControl
+// Wird als RÃ¼ckgabewert True geliefert, so wird auch das gefundene Edit im Ausgabeparameter
 // EditControl gesetzt.
 function HasFirstSiblingEdit(RefControl: TWinControl; out EditControl: TEdit): Boolean;
 var
@@ -346,8 +346,8 @@ begin
     EditControl := TEdit(FoundControl);
 end;
 
-// Sucht aufsteigend vom RefControl aus nach dem 1. Parent, welches der übergebenen Klasse
-// entspricht. Wird es fündig, liefert es True als Rückgabe und den entsprechenden Parent
+// Sucht aufsteigend vom RefControl aus nach dem 1. Parent, welches der Ã¼bergebenen Klasse
+// entspricht. Wird es fÃ¼ndig, liefert es True als RÃ¼ckgabe und den entsprechenden Parent
 // im Ausgabeparameter.
 function HasParentControlByClass(RefControl: TControl; RequestedParentClass: TWinControlClass;
   out FoundParentControl: TWinControl): Boolean;
@@ -371,7 +371,7 @@ begin
 end;
 
 // Findet die 1. Form anhand der Klasse RequestedFormClass, die der RefForm untergeordnet ist und
-// liefert es im Ausgabeparameter FoundChildForm, wenn der Rückgabewert True ist
+// liefert es im Ausgabeparameter FoundChildForm, wenn der RÃ¼ckgabewert True ist
 function HasChildFormByClass(RefForm: TCustomForm; RequestedFormClass: TCustomFormClass;
   out FoundChildForm: TCustomForm): Boolean;
 var
@@ -394,8 +394,8 @@ end;
 type
   TCustomLabelAccess = class(TCustomLabel);
 
-// Ermittelt das 1. Label, welches den selben Parent hat und als FocusControl für das im
-// 1. Parameter übergebenen Control fungiert.
+// Ermittelt das 1. Label, welches den selben Parent hat und als FocusControl fÃ¼r das im
+// 1. Parameter Ã¼bergebenen Control fungiert.
 function HasAssignedLabel(Control: TControl; out FoundLabel: TCustomLabel): Boolean;
 var
   cc: Integer;
@@ -436,10 +436,10 @@ begin
   Result := False;
 end;
 
-// Behandelt eine Menge an Checkboxen (CheckboxGroup) als exklusiv-checkable (ähnlich RadioButton)
+// Behandelt eine Menge an Checkboxen (CheckboxGroup) als exklusiv-checkable (Ã¤hnlich RadioButton)
 //
 // Im Parameter Sender sollte die aktuell zu behandelnde Checkbox, also die die aktuell ein Event
-// ausgelöst hat, übergeben werden.
+// ausgelÃ¶st hat, Ã¼bergeben werden.
 //
 // Beispiel:
 // <code>
@@ -459,7 +459,7 @@ begin
         CheckboxGroup[cc].Checked := False;
 end;
 
-// Leitet einen Klick auf ein Label an ein über TLabel.FocusControl verknüpftes Control (aktuell
+// Leitet einen Klick auf ein Label an ein Ã¼ber TLabel.FocusControl verknÃ¼pftes Control (aktuell
 // nur CheckBoxen) weiter
 procedure RouteLabelClick(Sender: TObject);
 var
@@ -480,7 +480,7 @@ begin
     RouteClickToCheckBox(TCheckBox(FocusControl));
 end;
 
-// Liefert bei allen Nachkömmlingen von TScrollingWinControl (z.B. TForm, TScrollBox) die Scrollbar
+// Liefert bei allen NachkÃ¶mmlingen von TScrollingWinControl (z.B. TForm, TScrollBox) die Scrollbar
 // im Ausgabeparamter ScrollBar, wenn die Funktion True liefert. Es werden nur sichtbare Scrollbars
 // geliefert.
 function HasScrollableScrollbar(Control: TControl; Kind: TScrollBarKind;
