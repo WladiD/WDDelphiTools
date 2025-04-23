@@ -83,13 +83,13 @@ begin
   end;
 end;
 
-// Überprüft, ob alle in RequiredProperties angegebenen Eigenschaften in RClass
+// ÃœberprÃ¼ft, ob alle in RequiredProperties angegebenen Eigenschaften in RClass
 // existieren. Falls dies der Fall ist (Result = True), dann liegen im Ausgabeparameter
-// Properties an exakt den gleichen Positionen die TRttiProperty-Instanzen an, über welche
+// Properties an exakt den gleichen Positionen die TRttiProperty-Instanzen an, Ã¼ber welche
 // wiederum auf die Zieleigenschaften einer Klasseninstanz zugegriffen werden kann.
 //
 // Wie man an den Parameter RClass ist im folgenden Beispiel ersichtlich. Bei Target handelt sich
-// um die Instanz auf wessen Eigenschaften man zugreifen möchte.
+// um die Instanz auf wessen Eigenschaften man zugreifen mÃ¶chte.
 // <code>
 // RC := TRttiContext.Create;
 // try
