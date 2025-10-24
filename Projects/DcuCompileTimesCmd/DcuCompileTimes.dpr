@@ -1,8 +1,9 @@
-﻿program LatestDateTimeDiffs;
+﻿program DcuCompileTimes;
 
 {$APPTYPE CONSOLE}
 
 uses
+
   System.SysUtils,
   System.IOUtils,
   System.Generics.Collections,
@@ -12,29 +13,23 @@ uses
   System.Math;
 
 type
+
   TFileInfo = record
-    Path: string;
+    Path: String;
     LastWriteTime: TDateTime;
     Diff: Int64;
   end;
 
 var
-  FileList: TList<TFileInfo>;
-  SearchMask: string;
-  Files: TStringDynArray;
-  I: Integer;
-  FileInfo: TFileInfo;
-  TotalDiff: Int64;
-
+  FileInfo  : TFileInfo;
+  FileList  : TList<TFileInfo>;
+  Files     : TStringDynArray;
+  I         : Integer;
+  SearchMask: String;
+  TotalDiff : Int64;
 begin
   try
-    if ParamCount < 1 then
-    begin
-      Writeln('Usage: LatestDateTimeDiffs.exe <filemask> [topcount]');
-      Exit;
-    end;
-
-    SearchMask := ParamStr(1);
+    SearchMask := '*.dcu';
 
     FileList := TList<TFileInfo>.Create;
     try
@@ -44,7 +39,7 @@ begin
       begin
         FileInfo.Path := Files[I];
         FileInfo.LastWriteTime := TFile.GetLastWriteTime(FileInfo.Path);
-        FileInfo.Diff := 0; // Initialisieren
+        FileInfo.Diff := 0;
         FileList.Add(FileInfo);
       end;
 
@@ -54,7 +49,7 @@ begin
         Exit;
       end;
 
-      // Nach Datum sortieren, um die Differenzen zu berechnen
+      // Sort by last write time
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
@@ -78,19 +73,7 @@ begin
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
 
-//      Writeln('Files sorted by modification date (newest first):');
-//      Writeln('---------------------------------------------------');
-//      for I := 0 to FileList.Count - 2 do
-//      begin
-//        Writeln(Format('%-40s (%d ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff]));
-//      end;
-//
-//      if FileList.Count > 0 then
-//        Writeln(Format('%-40s', [TPath.GetFileName(FileList[FileList.Count - 1].Path)]));
-//
-//      Writeln('---------------------------------------------------');
-
-      // Nach der größten Differenz sortieren
+      // Sort by diff
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
@@ -116,12 +99,9 @@ begin
 
       Writeln('---------------------------------------------------');
       Writeln(Format('Total time: %d ms', [TotalDiff]));
-
-
     finally
       FileList.Free;
     end;
-
   except
     on E: Exception do
       Writeln(E.ClassName, ': ', E.Message);
