@@ -1,4 +1,4 @@
-﻿program DcuCompileTimes;
+program DcuCompileTimes;
 
 {$APPTYPE CONSOLE}
 
@@ -10,15 +10,46 @@ uses
   System.DateUtils,
   System.Generics.Defaults,
   System.Types,
-  System.Math;
+  System.Math,
+  Winapi.Windows;
 
 type
 
   TFileInfo = record
     Path: String;
-    LastWriteTime: TDateTime;
+    LastWriteTime: Int64;
     Diff: Int64;
   end;
+
+function FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
+type
+  TULARGE_INTEGER = record
+    case Integer of
+      0: (LowPart: DWORD; HighPart: DWORD);
+      1: (QuadPart: Int64);
+  end;
+var
+  LI: TULARGE_INTEGER;
+begin
+  LI.LowPart := FileTime.dwLowDateTime;
+  LI.HighPart := FileTime.dwHighDateTime;
+  Result := LI.QuadPart;
+end;
+
+function GetFileLastWriteTime(const FilePath: String): TFileTime;
+var
+  FindData: TWin32FindData;
+  FindHandle: THandle;
+begin
+  FindHandle := FindFirstFile(PChar(FilePath), FindData);
+  if FindHandle <> INVALID_HANDLE_VALUE then
+  begin
+    Result := FindData.ftLastWriteTime;
+    FindClose(FindHandle);
+  end
+  else
+    RaiseLastOSError;
+end;
 
 var
   FileInfo  : TFileInfo;
@@ -38,7 +69,7 @@ begin
       for I := 0 to High(Files) do
       begin
         FileInfo.Path := Files[I];
-        FileInfo.LastWriteTime := TFile.GetLastWriteTime(FileInfo.Path);
+        FileInfo.LastWriteTime := FileTimeToLargeInteger(GetFileLastWriteTime(FileInfo.Path));
         FileInfo.Diff := 0;
         FileList.Add(FileInfo);
       end;
@@ -68,7 +99,7 @@ begin
       for I := 0 to FileList.Count - 2 do
       begin
         var CurrentFile := FileList[I];
-        CurrentFile.Diff := Abs(MilliSecondsBetween(FileList[I].LastWriteTime, FileList[I+1].LastWriteTime));
+        CurrentFile.Diff := Abs(FileList[I].LastWriteTime - FileList[I+1].LastWriteTime);
         FileList[I] := CurrentFile;
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
@@ -94,11 +125,11 @@ begin
       for I := 0 to FileList.Count - 1 do
       begin
         if FileList[I].Diff > 0 then
-          Writeln(Format('%-40s (%d ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff]));
+          Writeln(Format('%-40s (%.4f ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / 10000.0]));
       end;
 
       Writeln('---------------------------------------------------');
-      Writeln(Format('Total time: %d ms', [TotalDiff]));
+      Writeln(Format('Total time: %.4f ms', [TotalDiff / 10000.0]));
     finally
       FileList.Free;
     end;
