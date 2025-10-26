@@ -1,4 +1,4 @@
-program DcuCompileTimes;
+﻿program DcuCompileTimes;
 
 {$APPTYPE CONSOLE}
 
@@ -88,15 +88,8 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            if Left.LastWriteTime > Right.LastWriteTime then
-              Result := -1
-            else if Left.LastWriteTime < Right.LastWriteTime then
-              Result := 1
-            else
-              Result := 0;
-          end
-        )
-      );
+            Result := Right.LastWriteTime - Left.LastWriteTime;
+          end));
 
       TotalDiff := 0;
       for I := 0 to FileList.Count - 2 do
@@ -112,15 +105,8 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            if Left.Diff > Right.Diff then
-              Result := -1
-            else if Left.Diff < Right.Diff then
-              Result := 1
-            else
-              Result := 0;
-          end
-        )
-      );
+            Result := Right.Diff - Left.Diff;
+          end));
 
       Writeln('Files, sorted by generation time:');
       Writeln('---------------------------------------------------');
