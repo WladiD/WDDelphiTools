@@ -51,6 +51,9 @@ begin
     RaiseLastOSError;
 end;
 
+const
+  TicksPerMillisecond = 10000;
+
 var
   FileInfo  : TFileInfo;
   FileList  : TList<TFileInfo>;
@@ -125,11 +128,11 @@ begin
       for I := 0 to FileList.Count - 1 do
       begin
         if FileList[I].Diff > 0 then
-          Writeln(Format('%-40s (%.4f ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / 10000.0]));
+          Writeln(Format('%-40s (%.4f ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / TicksPerMillisecond]));
       end;
 
       Writeln('---------------------------------------------------');
-      Writeln(Format('Total time: %.4f ms', [TotalDiff / 10000.0]));
+      Writeln(Format('Total time: %.4f ms', [TotalDiff / TicksPerMillisecond]));
     finally
       FileList.Free;
     end;
