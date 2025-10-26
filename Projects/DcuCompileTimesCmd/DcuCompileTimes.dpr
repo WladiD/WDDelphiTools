@@ -59,6 +59,7 @@ var
   FileList  : TList<TFileInfo>;
   Files     : TStringDynArray;
   I         : Integer;
+  Median    : Int64;
   SearchMask: String;
   TotalDiff : Int64;
 begin
@@ -88,7 +89,7 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            Result := Right.LastWriteTime - Left.LastWriteTime;
+            Result := Sign(Right.LastWriteTime - Left.LastWriteTime);
           end));
 
       TotalDiff := 0;
@@ -105,20 +106,39 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            Result := Right.Diff - Left.Diff;
+            Result := Sign(Right.Diff - Left.Diff);
           end));
 
-      Writeln('Files, sorted by generation time:');
+      if FileList.Count > 0 then
+      begin
+        var MidIndex := FileList.Count div 2;
+        if (FileList.Count mod 2) = 1 then
+          Median := FileList[MidIndex].Diff
+        else
+          Median := (FileList[MidIndex - 1].Diff + FileList[MidIndex].Diff) div 2;
+      end
+      else
+        Median := 0;
+
+      Writeln(Format('Total time: %.4f ms', [TotalDiff / TicksPerMillisecond]));
+      if Median > 0 then
+        Writeln(Format('Median time: %.4f ms', [Median / TicksPerMillisecond]));
+      Writeln('---------------------------------------------------');
+      Writeln('Files, sorted by generation time (ms), factor to median (x):');
       Writeln('---------------------------------------------------');
 
       for I := 0 to FileList.Count - 1 do
       begin
         if FileList[I].Diff > 0 then
-          Writeln(Format('%-40s (%.4f ms)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / TicksPerMillisecond]));
+        begin
+          var Factor: Double := 0;
+          if Median > 0 then
+            Factor := FileList[I].Diff / Median;
+          Writeln(Format('%-40s (%.4f ms) (x%.2f)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / TicksPerMillisecond, Factor]));
+        end;
       end;
 
       Writeln('---------------------------------------------------');
-      Writeln(Format('Total time: %.4f ms', [TotalDiff / TicksPerMillisecond]));
     finally
       FileList.Free;
     end;
