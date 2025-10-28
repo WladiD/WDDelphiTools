@@ -32,7 +32,7 @@ Unlike some other compilers (like C++), the Delphi compiler always processes the
 
 ## Example Output
 
-```bash
+```console
 Total time: 128,1114 ms
 Median time: 5,0939 ms
 ---------------------------------------------------
@@ -50,4 +50,5 @@ TestInsight.DUnitX.dcu                   (4,0053 ms) (x0,79)
 Test.SlimSymbol.dcu                      (2,5042 ms) (x0,49)
 Test.SlimList.dcu                        (2,0347 ms) (x0,40)
 ---------------------------------------------------
+
 ```
