@@ -30,9 +30,20 @@ Unlike some other compilers (like C++), the Delphi compiler always processes the
 3.  Navigate (`cd`) to the directory containing your newly generated `.dcu` files (e.g., `Win32\Debug`).
 4.  Run the executable (`DcuCompileTimes.exe`) in that directory.
 
-## FilterMask Parameter
+## Command Line Arguments
 
-The tool now supports an optional `FilterMask` parameter. If provided as the first command-line argument, the output will be filtered to only show files matching this mask. Additionally, a "Mask time" will be displayed, representing the total compilation time for the filtered files, along with its percentage of the "Total time".
+```
+DcuCompileTimes.exe [FilterMask]
+
+Analyzes Delphi .dcu compilation times in the current directory.
+
+Arguments:
+  [FilterMask]  Optional. A file mask (e.g., "Base.*", "Base.Db.*") to filter
+                the displayed files and calculate a "Mask time" summary.
+
+Options:
+  --help, -h, ? Displays this help message.
+```
 
 ## Example Output
 
