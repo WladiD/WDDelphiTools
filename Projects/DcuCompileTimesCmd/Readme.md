@@ -26,13 +26,13 @@ Unlike some other compilers (like C++), the Delphi compiler always processes the
 ## Usage
 
 1.  To get accurate results, first perform a **full, clean "Build"** (not just "Compile") of your Delphi project.
-2.  Open a command prompt (CMD, PowerShell, etc.).
-3.  Navigate (`cd`) to the directory containing your newly generated `.dcu` files (e.g., `Win32\Debug` or `dcu\Win32\Release`).
+2.  Open a command prompt (CMD, PowerShell).
+3.  Navigate (`cd`) to the directory containing your newly generated `.dcu` files (e.g., `Win32\Debug`).
 4.  Run the executable (`DcuCompileTimes.exe`) in that directory.
 
 ## Example Output
 
-```bash
+```console
 Total time: 128,1114 ms
 Median time: 5,0939 ms
 ---------------------------------------------------
@@ -50,4 +50,6 @@ TestInsight.DUnitX.dcu                   (4,0053 ms) (x0,79)
 Test.SlimSymbol.dcu                      (2,5042 ms) (x0,49)
 Test.SlimList.dcu                        (2,0347 ms) (x0,40)
 ---------------------------------------------------
+
 ```
+
