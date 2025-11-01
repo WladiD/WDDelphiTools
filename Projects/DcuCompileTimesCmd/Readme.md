@@ -60,7 +60,7 @@ Median time: 6,4539 ms
 
 When using a filter mask, the output will include a "Mask time" line:
 
-`DcuCompileTimes.exe "Base.Db.*.dcu"`
+`DcuCompileTimes.exe "slim.*"`
 
 ```console
 ------------------------------------------------------------
