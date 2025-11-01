@@ -30,26 +30,50 @@ Unlike some other compilers (like C++), the Delphi compiler always processes the
 3.  Navigate (`cd`) to the directory containing your newly generated `.dcu` files (e.g., `Win32\Debug`).
 4.  Run the executable (`DcuCompileTimes.exe`) in that directory.
 
+## FilterMask Parameter
+
+The tool now supports an optional `FilterMask` parameter. If provided as the first command-line argument, the output will be filtered to only show files matching this mask. Additionally, a "Mask time" will be displayed, representing the total compilation time for the filtered files, along with its percentage of the "Total time".
+
 ## Example Output
 
 ```console
-Total time: 128,1114 ms
-Median time: 5,0939 ms
----------------------------------------------------
+------------------------------------------------------------
 Files, sorted by generation time (ms), factor to median (x):
----------------------------------------------------
-WDDT.DelayedMethod.dcu                   (48,5557 ms) (x9,53)
-Test.SlimFixture.dcu                     (30,9445 ms) (x6,07)
-Slim.Fixture.dcu                         (11,9477 ms) (x2,35)
-Test.SlimExec.dcu                        (7,0151 ms) (x1,38)
-Slim.Exec.dcu                            (6,8941 ms) (x1,35)
-Slim.Common.dcu                          (5,0980 ms) (x1,00)
-Slim.List.dcu                            (5,0898 ms) (x1,00)
-Slim.Symbol.dcu                          (4,0223 ms) (x0,79)
-TestInsight.DUnitX.dcu                   (4,0053 ms) (x0,79)
-Test.SlimSymbol.dcu                      (2,5042 ms) (x0,49)
-Test.SlimList.dcu                        (2,0347 ms) (x0,40)
----------------------------------------------------
+------------------------------------------------------------
+WDDT.DelayedMethod.dcu                   (49,0252 ms) (x7,60)
+Test.SlimSymbol.dcu                      (17,4356 ms) (x2,70)
+Slim.Fixture.dcu                         (11,9609 ms) (x1,85)
+Test.SlimExec.dcu                        (8,9239 ms) (x1,38)
+Slim.Common.dcu                          (7,0074 ms) (x1,09)
+TestInsight.DUnitX.dcu                   (6,9073 ms) (x1,07)
+Test.SlimFixture.dcu                     (6,0005 ms) (x0,93)
+Slim.Exec.dcu                            (4,9979 ms) (x0,77)
+Slim.List.dcu                            (4,9296 ms) (x0,76)
+Slim.Symbol.dcu                          (4,0528 ms) (x0,63)
+Test.SlimList.dcu                        (2,0642 ms) (x0,32)
+------------------------------------------------------------
+Total time : 123,3053 ms
+Median time: 6,4539 ms
+```
 
+## Example Output with FilterMask
+
+When using a filter mask, the output will include a "Mask time" line:
+
+`DcuCompileTimes.exe "Base.Db.*.dcu"`
+
+```console
+------------------------------------------------------------
+Files, sorted by generation time (ms), factor to median (x):
+------------------------------------------------------------
+Slim.Fixture.dcu                         (11,9609 ms) (x1,85)
+Slim.Common.dcu                          (7,0074 ms) (x1,09)
+Slim.Exec.dcu                            (4,9979 ms) (x0,77)
+Slim.List.dcu                            (4,9296 ms) (x0,76)
+Slim.Symbol.dcu                          (4,0528 ms) (x0,63)
+------------------------------------------------------------
+Total time : 123,3053 ms
+Median time: 6,4539 ms
+Mask time  : 32,9486 ms (26,72%)
 ```
 
