@@ -73,6 +73,21 @@ begin
       FilterMask := '';
     MaskTotalDiff := 0;
 
+    if SameText(FilterMask, '--help') or SameText(FilterMask, '-h') or (FilterMask = '?') then
+    begin
+      Writeln('DcuCompileTimes.exe [FilterMask]');
+      Writeln;
+      Writeln('Analyzes Delphi .dcu compilation times in the current directory.');
+      Writeln;
+      Writeln('Arguments:');
+      Writeln('  [FilterMask]  Optional. A file mask (e.g., "Base.*", "Base.Db.*") to filter');
+      Writeln('                the displayed files and calculate a "Mask time" summary.');
+      Writeln;
+      Writeln('Options:');
+      Writeln('  --help, -h, ? Displays this help message.');
+      Exit;
+    end;
+
     SearchMask := '*.dcu';
 
     FileList := TList<TFileInfo>.Create;
