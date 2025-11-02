@@ -1,4 +1,4 @@
-program DcuCompileTimes;
+﻿program DcuCompileTimes;
 
 {$APPTYPE CONSOLE}
 
@@ -21,6 +21,9 @@ type
     LastWriteTime: Int64;
     Diff: Int64;
   end;
+
+const
+  TicksPerMillisecond = 10000;
 
 function FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
 type
@@ -52,17 +55,55 @@ begin
     RaiseLastOSError;
 end;
 
-const
-  TicksPerMillisecond = 10000;
+function IsIncompleteBuild(const AFileList: TList<TFileInfo>): Boolean;
+var
+  DiffsSorted: TList<Int64>;
+  MedianDiff : Int64;
+  I          : Integer;
+begin
+  Result := False;
+  DiffsSorted := TList<Int64>.Create;
+  try
+    if AFileList.Count > 1 then
+    begin
+      // List of the diffs to find the median diff
+      for I := 0 to AFileList.Count - 2 do
+        DiffsSorted.Add(AFileList[I].Diff);
+      DiffsSorted.Sort;
+
+      if DiffsSorted.Count > 0 then
+        MedianDiff := DiffsSorted[DiffsSorted.Count div 2]
+      else
+        Exit;
+
+      if MedianDiff > 0 then
+      begin
+        // Find the first gap, which is a diff that is much larger than the median
+        for I := 0 to AFileList.Count - 2 do
+        begin
+          // Heuristic: A gap is a diff > 100x the median, and also at least 2 seconds absolute.
+          if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 2000) then
+            Exit(True);
+        end;
+      end;
+    end;
+  finally
+    DiffsSorted.Free;
+  end;
+end;
 
 var
+  DiffsSorted  : TList<Int64>;
   FileInfo     : TFileInfo;
   FileList     : TList<TFileInfo>;
   Files        : TStringDynArray;
-  FilterMask   : string;
+  FilterMask   : String;
+  HasFilterMask: Boolean;
   I            : Integer;
   MaskTotalDiff: Int64;
   Median       : Int64;
+  MedianDiff   : Int64;
+  OutlierIndex : Integer;
   SearchMask   : String;
   TotalDiff    : Int64;
 begin
@@ -72,6 +113,7 @@ begin
     else
       FilterMask := '';
     MaskTotalDiff := 0;
+    HasFilterMask:=FilterMask <> '';
 
     if SameText(FilterMask, '--help') or SameText(FilterMask, '-h') or (FilterMask = '?') then
     begin
@@ -125,6 +167,13 @@ begin
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
 
+      if IsIncompleteBuild(FileList) then
+      begin
+        Writeln('Error: Incomplete build detected. Please perform a full, clean build before running the tool.');
+        Writeln('Analysis aborted.');
+        Exit;
+      end;
+
       // Sort by diff
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
@@ -133,35 +182,29 @@ begin
             Result := Sign(Right.Diff - Left.Diff);
           end));
 
-      if FileList.Count > 0 then
-      begin
-        var MidIndex := FileList.Count div 2;
-        if (FileList.Count mod 2) = 1 then
-          Median := FileList[MidIndex].Diff
-        else
-          Median := (FileList[MidIndex - 1].Diff + FileList[MidIndex].Diff) div 2;
-      end
+      var MidIndex: Integer := FileList.Count div 2;
+      if (FileList.Count mod 2) = 1 then
+        Median := FileList[MidIndex].Diff
       else
-        Median := 0;
-
-      if FilterMask <> '' then
-      begin
-        for I := 0 to FileList.Count - 1 do
-        begin
-          if MatchesMask(TPath.GetFileName(FileList[I].Path), FilterMask) then
-            MaskTotalDiff := MaskTotalDiff + FileList[I].Diff;
-        end;
-      end;
+        Median := (FileList[MidIndex - 1].Diff + FileList[MidIndex].Diff) div 2;
 
       Writeln('------------------------------------------------------------');
       Writeln('Files, sorted by generation time (ms), factor to median (x):');
       Writeln('------------------------------------------------------------');
 
+      var PrintFile: Boolean := not HasFilterMask;
       for I := 0 to FileList.Count - 1 do
       begin
         if FileList[I].Diff > 0 then
         begin
-          if (FilterMask = '') or MatchesMask(TPath.GetFileName(FileList[I].Path), FilterMask) then
+          if HasFilterMask then
+          begin
+            PrintFile := MatchesMask(TPath.GetFileName(FileList[I].Path), FilterMask);
+            if PrintFile then
+              MaskTotalDiff := MaskTotalDiff + FileList[I].Diff;
+          end;
+
+          if PrintFile then
           begin
             var Factor: Double := 0;
             if Median > 0 then
@@ -176,7 +219,7 @@ begin
       Writeln(Format('Total time : %.4f ms', [TotalDiff / TicksPerMillisecond]));
       if Median > 0 then
         Writeln(Format('Median time: %.4f ms', [Median / TicksPerMillisecond]));
-      if FilterMask <> '' then
+      if HasFilterMask then
       begin
         var Percentage: Double := 0;
         if TotalDiff > 0 then
