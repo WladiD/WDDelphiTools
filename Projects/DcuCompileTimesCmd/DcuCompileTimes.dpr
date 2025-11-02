@@ -128,15 +128,16 @@ end;
 
 procedure PrintStats;
 begin
-  Writeln(Format('Total time : %.4f ms', [TotalDiff / TicksPerMillisecond]));
+  Writeln(Format('Total time  : %.4f ms', [TotalDiff / TicksPerMillisecond]));
   if Median > 0 then
-    Writeln(Format('Median time: %.4f ms', [Median / TicksPerMillisecond]));
+    Writeln(Format('Median time : %.4f ms', [Median / TicksPerMillisecond]));
   if HasFilterMask then
   begin
     var Percentage: Double := 0;
     if TotalDiff > 0 then
       Percentage := (MaskTotalDiff / TotalDiff) * 100;
-    Writeln(Format('Mask time  : %.4f ms (%.2f%%)', [MaskTotalDiff / TicksPerMillisecond, Percentage]));
+    Writeln(Format('Mask matches: %d',[PrintList.Count]));
+    Writeln(Format('Mask time   : %.4f ms (%.2f%%)', [MaskTotalDiff / TicksPerMillisecond, Percentage]));
   end;
 end;
 
