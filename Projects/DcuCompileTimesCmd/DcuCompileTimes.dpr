@@ -64,27 +64,26 @@ begin
   Result := False;
   DiffsSorted := TList<Int64>.Create;
   try
-    if AFileList.Count > 1 then
+    if AFileList.Count < 2 then
+      Exit;
+    // List of the diffs to find the median diff
+    for I := 0 to AFileList.Count - 2 do
+      DiffsSorted.Add(AFileList[I].Diff);
+    DiffsSorted.Sort;
+
+    if DiffsSorted.Count > 0 then
+      MedianDiff := DiffsSorted[DiffsSorted.Count div 2]
+    else
+      Exit;
+
+    if MedianDiff > 0 then
     begin
-      // List of the diffs to find the median diff
+      // Find the first gap, which is a diff that is much larger than the median
       for I := 0 to AFileList.Count - 2 do
-        DiffsSorted.Add(AFileList[I].Diff);
-      DiffsSorted.Sort;
-
-      if DiffsSorted.Count > 0 then
-        MedianDiff := DiffsSorted[DiffsSorted.Count div 2]
-      else
-        Exit;
-
-      if MedianDiff > 0 then
       begin
-        // Find the first gap, which is a diff that is much larger than the median
-        for I := 0 to AFileList.Count - 2 do
-        begin
-          // Heuristic: A gap is a diff > 100x the median, and also at least 2 seconds absolute.
-          if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 2000) then
-            Exit(True);
-        end;
+        // Heuristic: A gap is a diff > 100x the median, and also at least 2 seconds absolute.
+        if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 2000) then
+          Exit(True);
       end;
     end;
   finally
@@ -93,19 +92,56 @@ begin
 end;
 
 var
-  DiffsSorted  : TList<Int64>;
   FileInfo     : TFileInfo;
   FileList     : TList<TFileInfo>;
+  PrintList    : TList<TFileInfo>;
   Files        : TStringDynArray;
   FilterMask   : String;
   HasFilterMask: Boolean;
-  I            : Integer;
   MaskTotalDiff: Int64;
   Median       : Int64;
-  MedianDiff   : Int64;
-  OutlierIndex : Integer;
   SearchMask   : String;
   TotalDiff    : Int64;
+
+function CreatePrintList: TList<TFileInfo>;
+begin
+  Assert(HasFilterMask);
+
+  Result := TList<TFileInfo>.Create;
+  try
+    for var Loop: Integer := 0 to FileList.Count - 1 do
+    begin
+      if FileList[Loop].Diff > 0 then
+      begin
+        if MatchesMask(TPath.GetFileName(FileList[Loop].Path), FilterMask) then
+        begin
+          MaskTotalDiff := MaskTotalDiff + FileList[Loop].Diff;
+          Result.Add(FileList[Loop]);
+        end;
+      end;
+    end;
+  except
+    Result.Free;
+    raise;
+  end;
+end;
+
+procedure PrintStats;
+begin
+  Writeln(Format('Total time : %.4f ms', [TotalDiff / TicksPerMillisecond]));
+  if Median > 0 then
+    Writeln(Format('Median time: %.4f ms', [Median / TicksPerMillisecond]));
+  if HasFilterMask then
+  begin
+    var Percentage: Double := 0;
+    if TotalDiff > 0 then
+      Percentage := (MaskTotalDiff / TotalDiff) * 100;
+    Writeln(Format('Mask time  : %.4f ms (%.2f%%)', [MaskTotalDiff / TicksPerMillisecond, Percentage]));
+  end;
+end;
+
+var
+  I: Integer;
 begin
   try
     if ParamCount > 0 then
@@ -132,6 +168,7 @@ begin
 
     SearchMask := '*.dcu';
 
+    PrintList := nil;
     FileList := TList<TFileInfo>.Create;
     try
       Files := TDirectory.GetFiles('.', SearchMask);
@@ -188,46 +225,36 @@ begin
       else
         Median := (FileList[MidIndex - 1].Diff + FileList[MidIndex].Diff) div 2;
 
+      if HasFilterMask then
+        PrintList := CreatePrintList
+      else
+        PrintList := FileList;
+
+      if PrintList.Count >= 30 then
+        PrintStats;
+
       Writeln('------------------------------------------------------------');
       Writeln('Files, sorted by generation time (ms), factor to median (x):');
       Writeln('------------------------------------------------------------');
 
-      var PrintFile: Boolean := not HasFilterMask;
-      for I := 0 to FileList.Count - 1 do
+      for I := 0 to PrintList.Count - 1 do
       begin
-        if FileList[I].Diff > 0 then
+        if PrintList[I].Diff > 0 then
         begin
-          if HasFilterMask then
-          begin
-            PrintFile := MatchesMask(TPath.GetFileName(FileList[I].Path), FilterMask);
-            if PrintFile then
-              MaskTotalDiff := MaskTotalDiff + FileList[I].Diff;
-          end;
-
-          if PrintFile then
-          begin
-            var Factor: Double := 0;
-            if Median > 0 then
-              Factor := FileList[I].Diff / Median;
-            Writeln(Format('%-40s (%.4f ms) (x%.2f)', [TPath.GetFileName(FileList[I].Path), FileList[I].Diff / TicksPerMillisecond, Factor]));
-          end;
+          var Factor: Double := 0;
+          if Median > 0 then
+            Factor := PrintList[I].Diff / Median;
+          Writeln(Format('%-40s (%.4f ms) (x%.2f)', [TPath.GetFileName(PrintList[I].Path), PrintList[I].Diff / TicksPerMillisecond, Factor]));
         end;
       end;
 
       Writeln('------------------------------------------------------------');
+      PrintStats;
 
-      Writeln(Format('Total time : %.4f ms', [TotalDiff / TicksPerMillisecond]));
-      if Median > 0 then
-        Writeln(Format('Median time: %.4f ms', [Median / TicksPerMillisecond]));
-      if HasFilterMask then
-      begin
-        var Percentage: Double := 0;
-        if TotalDiff > 0 then
-          Percentage := (MaskTotalDiff / TotalDiff) * 100;
-        Writeln(Format('Mask time  : %.4f ms (%.2f%%)', [MaskTotalDiff / TicksPerMillisecond, Percentage]));
-      end;
     finally
-      FileList.Free;
+      PrintList.Free;
+      if PrintList<>FileList then
+        FileList.Free;
     end;
   except
     on E: Exception do
