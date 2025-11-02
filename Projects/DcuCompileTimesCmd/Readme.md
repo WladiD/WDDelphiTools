@@ -51,20 +51,20 @@ Options:
 ------------------------------------------------------------
 Files, sorted by generation time (ms), factor to median (x):
 ------------------------------------------------------------
-WDDT.DelayedMethod.dcu                   (49,0252 ms) (x7,60)
-Test.SlimSymbol.dcu                      (17,4356 ms) (x2,70)
-Slim.Fixture.dcu                         (11,9609 ms) (x1,85)
-Test.SlimExec.dcu                        (8,9239 ms) (x1,38)
-Slim.Common.dcu                          (7,0074 ms) (x1,09)
-TestInsight.DUnitX.dcu                   (6,9073 ms) (x1,07)
-Test.SlimFixture.dcu                     (6,0005 ms) (x0,93)
-Slim.Exec.dcu                            (4,9979 ms) (x0,77)
-Slim.List.dcu                            (4,9296 ms) (x0,76)
-Slim.Symbol.dcu                          (4,0528 ms) (x0,63)
-Test.SlimList.dcu                        (2,0642 ms) (x0,32)
+WDDT.DelayedMethod.dcu                   (85,5691 ms) (x5,90)
+Slim.Common.dcu                          (17,9975 ms) (x1,24)
+Test.SlimFixture.dcu                     (17,6438 ms) (x1,22)
+Slim.Fixture.dcu                         (17,0833 ms) (x1,18)
+Slim.List.dcu                            (16,4076 ms) (x1,13)
+Test.SlimSymbol.dcu                      (16,0207 ms) (x1,10)
+Test.SlimExec.dcu                        (13,0070 ms) (x0,90)
+TestInsight.DUnitX.dcu                   (11,2615 ms) (x0,78)
+Slim.Exec.dcu                            (10,0009 ms) (x0,69)
+Slim.Symbol.dcu                          (7,5044 ms) (x0,52)
+Test.SlimList.dcu                        (6,9247 ms) (x0,48)
 ------------------------------------------------------------
-Total time : 123,3053 ms
-Median time: 6,4539 ms
+Total time  : 219,4205 ms
+Median time : 14,5138 ms
 ```
 
 ## Example Output with FilterMask
@@ -77,14 +77,15 @@ When using a filter mask, the output will include a "Mask time" line:
 ------------------------------------------------------------
 Files, sorted by generation time (ms), factor to median (x):
 ------------------------------------------------------------
-Slim.Fixture.dcu                         (11,9609 ms) (x1,85)
-Slim.Common.dcu                          (7,0074 ms) (x1,09)
-Slim.Exec.dcu                            (4,9979 ms) (x0,77)
-Slim.List.dcu                            (4,9296 ms) (x0,76)
-Slim.Symbol.dcu                          (4,0528 ms) (x0,63)
+Slim.Common.dcu                          (17,9975 ms) (x1,24)
+Slim.Fixture.dcu                         (17,0833 ms) (x1,18)
+Slim.List.dcu                            (16,4076 ms) (x1,13)
+Slim.Exec.dcu                            (10,0009 ms) (x0,69)
+Slim.Symbol.dcu                          (7,5044 ms) (x0,52)
 ------------------------------------------------------------
-Total time : 123,3053 ms
-Median time: 6,4539 ms
-Mask time  : 32,9486 ms (26,72%)
+Total time  : 219,4205 ms
+Median time : 14,5138 ms
+Mask matches: 5
+Mask time   : 68,9937 ms (31,44%)
 ```
 
