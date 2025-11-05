@@ -55,39 +55,19 @@ begin
     RaiseLastOSError;
 end;
 
-function IsIncompleteBuild(const AFileList: TList<TFileInfo>): Boolean;
-var
-  DiffsSorted: TList<Int64>;
-  MedianDiff : Int64;
-  I          : Integer;
+function IsIncompleteBuild(const AFileList: TList<TFileInfo>; const AMedian: Int64): Boolean;
 begin
   Result := False;
-  DiffsSorted := TList<Int64>.Create;
-  try
-    if AFileList.Count < 2 then
-      Exit;
-    // List of the diffs to find the median diff
-    for I := 0 to AFileList.Count - 2 do
-      DiffsSorted.Add(AFileList[I].Diff);
-    DiffsSorted.Sort;
 
-    if DiffsSorted.Count > 0 then
-      MedianDiff := DiffsSorted[DiffsSorted.Count div 2]
-    else
-      Exit;
+  if (AFileList.Count < 2) or (AMedian <= 0) then
+    Exit;
 
-    if MedianDiff > 0 then
-    begin
-      // Find the first gap, which is a diff that is much larger than the median
-      for I := 0 to AFileList.Count - 2 do
-      begin
-        // Heuristic: A gap is a diff > 100x the median, and also at least 10 seconds absolute.
-        if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 10000) then
-          Exit(True);
-      end;
-    end;
-  finally
-    DiffsSorted.Free;
+  // Find the first gap, which is a diff that is much larger than the median
+  for var I: Integer := 0 to AFileList.Count - 2 do
+  begin
+    // Heuristic: A gap is a diff > 100x the median, and also at least 10 seconds absolute.
+    if (AFileList[I].Diff > AMedian * 100) and (AFileList[I].Diff > TicksPerMillisecond * 10000) then
+      Exit(True);
   end;
 end;
 
@@ -193,7 +173,7 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            Result := Right.LastWriteTime - Left.LastWriteTime;
+            Result := Sign(Right.LastWriteTime - Left.LastWriteTime);
           end));
 
       TotalDiff := 0;
@@ -203,13 +183,6 @@ begin
         CurrentFile.Diff := Abs(FileList[I].LastWriteTime - FileList[I+1].LastWriteTime);
         FileList[I] := CurrentFile;
         TotalDiff := TotalDiff + CurrentFile.Diff;
-      end;
-
-      if IsIncompleteBuild(FileList) then
-      begin
-        Writeln('Error: Incomplete build detected. Please perform a full, clean build before running the tool.');
-        Writeln('Analysis aborted.');
-        Exit;
       end;
 
       // Sort by diff
@@ -225,6 +198,13 @@ begin
         Median := FileList[MidIndex].Diff
       else
         Median := (FileList[MidIndex - 1].Diff + FileList[MidIndex].Diff) div 2;
+
+      if IsIncompleteBuild(FileList, Median) then
+      begin
+        Writeln('Error: Incomplete build detected. Please perform a full, clean build before running the tool.');
+        Writeln('Analysis aborted.');
+        Exit;
+      end;
 
       if HasFilterMask then
         PrintList := CreatePrintList
