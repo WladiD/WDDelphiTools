@@ -81,8 +81,8 @@ begin
       // Find the first gap, which is a diff that is much larger than the median
       for I := 0 to AFileList.Count - 2 do
       begin
-        // Heuristic: A gap is a diff > 100x the median, and also at least 2 seconds absolute.
-        if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 2000) then
+        // Heuristic: A gap is a diff > 100x the median, and also at least 10 seconds absolute.
+        if (AFileList[I].Diff > MedianDiff * 100) and (AFileList[I].Diff > TicksPerMillisecond * 10000) then
           Exit(True);
       end;
     end;
@@ -193,7 +193,7 @@ begin
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
-            Result := Sign(Right.LastWriteTime - Left.LastWriteTime);
+            Result := Right.LastWriteTime - Left.LastWriteTime;
           end));
 
       TotalDiff := 0;
