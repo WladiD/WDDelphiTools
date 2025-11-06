@@ -91,13 +91,10 @@ begin
   try
     for var Loop: Integer := 0 to FileList.Count - 1 do
     begin
-      if FileList[Loop].Diff > 0 then
+      if MatchesMask(TPath.GetFileName(FileList[Loop].Path), FilterMask) then
       begin
-        if MatchesMask(TPath.GetFileName(FileList[Loop].Path), FilterMask) then
-        begin
-          MaskTotalDiff := MaskTotalDiff + FileList[Loop].Diff;
-          Result.Add(FileList[Loop]);
-        end;
+        MaskTotalDiff := MaskTotalDiff + FileList[Loop].Diff;
+        Result.Add(FileList[Loop]);
       end;
     end;
   except
@@ -228,6 +225,11 @@ begin
           Writeln(Format('%-40s (%.4f ms) (x%.2f)', [TPath.GetFileName(PrintList[I].Path), PrintList[I].Diff / TicksPerMillisecond, Factor]));
         end;
       end;
+
+      var BuildStartRefFile: TFileInfo:=PrintList.Last;
+      if BuildStartRefFile.Diff=0 then
+        Writeln(Format('%s <- build start %s, no duration available',
+          [TPath.GetFileName(BuildStartRefFile.Path), DateTimeToStr(TFile.GetLastWriteTime(BuildStartRefFile.Path))]));
 
       Writeln('------------------------------------------------------------');
       PrintStats;
