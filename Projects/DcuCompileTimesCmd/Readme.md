@@ -33,7 +33,7 @@ Unlike some other compilers (like C++), the Delphi compiler always processes the
 ## Command Line Arguments
 
 ```
-DcuCompileTimes.exe [FilterMask]
+DcuCompileTimes.exe [Options] [FilterMask]
 
 Analyzes Delphi .dcu compilation times in the current directory.
 
@@ -43,6 +43,8 @@ Arguments:
 
 Options:
   --help, -h, ? Displays this help message.
+  --top-ns=n    Shows the top n namespaces by compile time.
+                n can be a number, "all", "0", or "off". Default is 10.
 ```
 
 ## Example Output
@@ -51,20 +53,26 @@ Options:
 ------------------------------------------------------------
 Files, sorted by generation time (ms), factor to median (x):
 ------------------------------------------------------------
-WDDT.DelayedMethod.dcu                   (85,5691 ms) (x5,90)
-Slim.Common.dcu                          (17,9975 ms) (x1,24)
-Test.SlimFixture.dcu                     (17,6438 ms) (x1,22)
-Slim.Fixture.dcu                         (17,0833 ms) (x1,18)
-Slim.List.dcu                            (16,4076 ms) (x1,13)
-Test.SlimSymbol.dcu                      (16,0207 ms) (x1,10)
-Test.SlimExec.dcu                        (13,0070 ms) (x0,90)
-TestInsight.DUnitX.dcu                   (11,2615 ms) (x0,78)
-Slim.Exec.dcu                            (10,0009 ms) (x0,69)
-Slim.Symbol.dcu                          (7,5044 ms) (x0,52)
-Test.SlimList.dcu                        (6,9247 ms) (x0,48)
+WDDT.DelayedMethod.dcu                   (47,4691 ms) (x8,02)
+Slim.Fixture.dcu                         (16,0846 ms) (x2,72)
+Test.SlimExec.dcu                        (7,0604 ms) (x1,19)
+Test.SlimFixture.dcu                     (6,5990 ms) (x1,11)
+Slim.Exec.dcu                            (6,3514 ms) (x1,07)
+Slim.Common.dcu                          (5,9580 ms) (x1,01)
+Slim.List.dcu                            (5,8812 ms) (x0,99)
+TestInsight.DUnitX.dcu                   (5,7495 ms) (x0,97)
+Slim.Symbol.dcu                          (5,0161 ms) (x0,85)
+Test.SlimSymbol.dcu                      (2,9430 ms) (x0,50)
+Test.SlimList.dcu                        (2,5139 ms) (x0,42)
+TestInsight.Client.dcu <- build start 09.11.2025 19:09:21
 ------------------------------------------------------------
-Total time  : 219,4205 ms
-Median time : 14,5138 ms
+Top Namespace Group Times:
+------------------------------------------------------------
+Slim.*                                   (39,2913 ms)(5 files)
+Test.*                                   (19,1163 ms)(4 files)
+------------------------------------------------------------
+Total time  : 111,6262 ms
+Median time : 5,9196 ms
 ```
 
 ## Example Output with FilterMask
@@ -77,15 +85,20 @@ When using a filter mask, the output will include a "Mask time" line:
 ------------------------------------------------------------
 Files, sorted by generation time (ms), factor to median (x):
 ------------------------------------------------------------
-Slim.Common.dcu                          (17,9975 ms) (x1,24)
-Slim.Fixture.dcu                         (17,0833 ms) (x1,18)
-Slim.List.dcu                            (16,4076 ms) (x1,13)
-Slim.Exec.dcu                            (10,0009 ms) (x0,69)
-Slim.Symbol.dcu                          (7,5044 ms) (x0,52)
+Slim.Fixture.dcu                         (16,0846 ms) (x2,72)
+Slim.Exec.dcu                            (6,3514 ms) (x1,07)
+Slim.Common.dcu                          (5,9580 ms) (x1,01)
+Slim.List.dcu                            (5,8812 ms) (x0,99)
+Slim.Symbol.dcu                          (5,0161 ms) (x0,85)
+TestInsight.Client.dcu <- build start 09.11.2025 19:09:21
 ------------------------------------------------------------
-Total time  : 219,4205 ms
-Median time : 14,5138 ms
+Top Namespace Group Times:
+------------------------------------------------------------
+Slim.*                                   (39,2913 ms)(5 files)
+------------------------------------------------------------
+Total time  : 111,6262 ms
+Median time : 5,9196 ms
 Mask matches: 5
-Mask time   : 68,9937 ms (31,44%)
+Mask time   : 39,2913 ms (35,20%)
 ```
 

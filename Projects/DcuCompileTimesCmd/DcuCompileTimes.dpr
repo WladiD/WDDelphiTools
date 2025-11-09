@@ -288,7 +288,7 @@ begin
 
     if HelpRequested then
     begin
-      Writeln('DcuCompileTimes.exe [--top-ns=n] [FilterMask]');
+      Writeln('DcuCompileTimes.exe [Options] [FilterMask]');
       Writeln;
       Writeln('Analyzes Delphi .dcu compilation times in the current directory.');
       Writeln;
