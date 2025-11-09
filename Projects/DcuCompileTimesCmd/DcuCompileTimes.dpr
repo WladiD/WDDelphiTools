@@ -396,7 +396,12 @@ begin
       end;
 
       // Use the stored OldestFileInList for the build start reference
-      if OldestFileInList.Path <> '' then
+      if
+        (OldestFileInList.Path <> '') and
+        (
+          not HasFilterMask or
+          MatchesMask(TPath.GetFileName(OldestFileInList.Path), FilterMask)
+        ) then
         Writeln(Format('%s <- build start %s',
           [TPath.GetFileName(OldestFileInList.Path), DateTimeToStr(TFile.GetLastWriteTime(OldestFileInList.Path))]));
 
