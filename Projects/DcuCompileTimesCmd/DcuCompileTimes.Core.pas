@@ -43,6 +43,9 @@ type
     property OldestFile: TFileInfo read FOldestFile;
   end;
 
+const
+  TicksPerMillisecond = 10000;
+
 implementation
 
 uses
@@ -168,28 +171,13 @@ begin
 end;
 
 function TDcuAnalyzer.GetNamespaceStats(const AFileList: TList<TFileInfo>): TDictionary<string, TNamespaceInfo>;
-  procedure AddNamespaceStat(const ANamespacePrefix: String; const AFileRec: TFileInfo);
-  var
-    Info: TNamespaceInfo;
-  begin
-    if Result.TryGetValue(ANamespacePrefix, Info) then
-    begin
-      Info.TotalTime := Info.TotalTime + AFileRec.Diff;
-      Inc(Info.FileCount);
-    end
-    else
-    begin
-      Info.TotalTime := AFileRec.Diff;
-      Info.FileCount := 1;
-    end;
-    Result.AddOrSetValue(ANamespacePrefix, Info);
-  end;
 var
   FileName       : String;
   FileRec        : TFileInfo;
+  Info           : TNamespaceInfo;
   J              : Integer;
   NamespacePrefix: String;
-  Parts          : TArray<string>;
+  Parts          : TArray<String>;
   SourceList     : TList<TFileInfo>;
 begin
   Result := TDictionary<String, TNamespaceInfo>.Create;
@@ -215,14 +203,24 @@ begin
         NamespacePrefix := NamespacePrefix + '.' + Parts[J]
       else
         NamespacePrefix := Parts[J];
-      AddNamespaceStat(NamespacePrefix, FileRec);
+
+      if Result.TryGetValue(NamespacePrefix, Info) then
+      begin
+        Info.TotalTime := Info.TotalTime + FileRec.Diff;
+        Inc(Info.FileCount);
+        Result[NamespacePrefix]:=Info;
+      end
+      else
+      begin
+        Info.TotalTime := FileRec.Diff;
+        Info.FileCount := 1;
+        Result.Add(NamespacePrefix, Info);
+      end;
     end;
   end;
 end;
 
 function TDcuAnalyzer.IsIncompleteBuild: Boolean;
-const
-  TicksPerMillisecond = 10000;
 begin
   Result := False;
 
