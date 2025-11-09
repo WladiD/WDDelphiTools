@@ -1,13 +1,15 @@
-unit DcuCompileTimes.Core;
+﻿unit DcuCompileTimes.Core;
 
 interface
 
 uses
+
   System.SysUtils,
   System.Generics.Collections,
   Winapi.Windows;
 
 type
+
   TFileInfo = record
     Path: String;
     LastWriteTime: Int64;
@@ -25,15 +27,15 @@ type
     FTotalDiff: Int64;
     FMedian: Int64;
     FOldestFile: TFileInfo;
-    FSearchPath: string;
-    FSearchMask: string;
+    FSearchPath: String;
+    FSearchMask: String;
     function GetFileLastWriteTime(const FilePath: String): TFileTime;
     function FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
   public
-    constructor Create(const ASearchPath: string; const ASearchMask: string = '*.dcu');
+    constructor Create(const ASearchPath: String; const ASearchMask: String = '*.dcu');
     destructor Destroy; override;
     procedure Execute;
-    function GetNamespaceStats: TDictionary<string, TNamespaceInfo>;
+    function GetNamespaceStats(const AFileList: TList<TFileInfo> = nil): TDictionary<string, TNamespaceInfo>;
     function IsIncompleteBuild: Boolean;
     property Files: TList<TFileInfo> read FFileList;
     property TotalTime: Int64 read FTotalDiff;
@@ -165,7 +167,7 @@ begin
     RaiseLastOSError;
 end;
 
-function TDcuAnalyzer.GetNamespaceStats: TDictionary<string, TNamespaceInfo>;
+function TDcuAnalyzer.GetNamespaceStats(const AFileList: TList<TFileInfo>): TDictionary<string, TNamespaceInfo>;
   procedure AddNamespaceStat(const ANamespacePrefix: String; const AFileRec: TFileInfo);
   var
     Info: TNamespaceInfo;
@@ -188,10 +190,16 @@ var
   J              : Integer;
   NamespacePrefix: String;
   Parts          : TArray<string>;
+  SourceList     : TList<TFileInfo>;
 begin
   Result := TDictionary<String, TNamespaceInfo>.Create;
 
-  for FileRec in FFileList do
+  if Assigned(AFileList) then
+    SourceList := AFileList
+  else
+    SourceList := FFileList;
+
+  for FileRec in SourceList do
   begin
     if FileRec.Diff <= 0 then
       Continue;

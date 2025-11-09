@@ -16,14 +16,11 @@ uses
   DcuCompileTimes.Core in 'DcuCompileTimes.Core.pas',
   DcuCompileTimes.Console in 'DcuCompileTimes.Console.pas';
 
-const
-  TicksPerMillisecond = 10000;
-
 var
   Analyzer: TDcuAnalyzer;
   Options: TAppOptions;
 
-function GetParams: TArray<string>;
+function GetParams: TArray<String>;
 var
   I: Integer;
 begin
@@ -59,7 +56,6 @@ begin
         Exit;
       end;
 
-      // Create a writer and print the results
       var Writer := TConsoleWriter.Create(Options, Analyzer);
       try
         Writer.PrintResults;

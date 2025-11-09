@@ -1,4 +1,4 @@
-unit DcuCompileTimes.Console;
+﻿unit DcuCompileTimes.Console;
 
 interface
 
@@ -97,8 +97,6 @@ constructor TConsoleWriter.Create(const AOptions: TAppOptions; const AAnalyzer: 
 begin
   FOptions := AOptions;
   FAnalyzer := AAnalyzer;
-  FPrintList := nil;
-  FMaskTotalDiff := 0;
 end;
 
 destructor TConsoleWriter.Destroy;
@@ -194,7 +192,7 @@ var
   end;
 
 begin
-  NamespaceStats := FAnalyzer.GetNamespaceStats;
+  NamespaceStats := FAnalyzer.GetNamespaceStats(FPrintList);
   try
     if (FOptions.TopNSValue < 0) or (NamespaceStats = nil) or (NamespaceStats.Count = 0) then
       Exit;
@@ -249,7 +247,7 @@ begin
   else
   begin
     FPrintList := TList<TFileInfo>.Create;
-    FPrintList.AddRAnge(FAnalyzer.Files);
+    FPrintList.AddRange(FAnalyzer.Files);
   end;
 
 
