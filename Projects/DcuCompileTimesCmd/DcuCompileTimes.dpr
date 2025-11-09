@@ -22,6 +22,11 @@ type
     Diff: Int64;
   end;
 
+  TNamespaceInfo = record
+    TotalTime: Int64;
+    FileCount: Integer;
+  end;
+
 const
   TicksPerMillisecond = 10000;
 
@@ -118,8 +123,79 @@ begin
   end;
 end;
 
+procedure ProcessNamespaceStats(const AFileList: TList<TFileInfo>; out ANamespaceStats: TDictionary<string, TNamespaceInfo>);
+var
+  FileName       : String;
+  FileRec        : TFileInfo;
+  Info           : TNamespaceInfo;
+  J              : Integer;
+  NamespacePrefix: String;
+  Parts          : TStringDynArray;
+begin
+  ANamespaceStats := TDictionary<String, TNamespaceInfo>.Create;
+
+  for FileRec in AFileList do
+  begin
+    if FileRec.Diff <= 0 then
+      Continue;
+
+    FileName := TPath.GetFileNameWithoutExtension(FileRec.Path);
+    Parts := FileName.Split(['.']);
+    if Length(Parts) <= 1 then
+      Exit;
+
+    NamespacePrefix := '';
+    for J := 0 to High(Parts) - 1 do
+    begin
+      if J > 0 then
+        NamespacePrefix := NamespacePrefix + '.' + Parts[J]
+      else
+        NamespacePrefix := Parts[J];
+
+      if ANamespaceStats.TryGetValue(NamespacePrefix, Info) then
+      begin
+        Info.TotalTime := Info.TotalTime + FileRec.Diff;
+        Inc(Info.FileCount);
+      end
+      else
+      begin
+        Info.TotalTime := FileRec.Diff;
+        Info.FileCount := 1;
+      end;
+      ANamespaceStats.AddOrSetValue(NamespacePrefix, Info);
+    end;
+  end;
+end;
+
+procedure PrintNamespaceStats(const ANamespaceStats: TDictionary<String, TNamespaceInfo>);
+var
+  Keys: TArray<string>;
+  Key : String;
+  Info: TNamespaceInfo;
+begin
+  if (ANamespaceStats = nil) or (ANamespaceStats.Count = 0) then
+    Exit;
+
+  Writeln('------------------------------------------------------------');
+  Writeln('Namespace Group Times (groups with >1 file):');
+  Writeln('------------------------------------------------------------');
+
+  Keys := ANamespaceStats.Keys.ToArray;
+  TArray.Sort<string>(Keys); // Sort keys alphabetically
+
+  for Key in Keys do
+  begin
+    Info := ANamespaceStats.Items[Key]; // Access directly
+    if Info.FileCount > 1 then
+    begin
+      Writeln(Format('%-40s (%.4f ms)(%d files)', [Key + '.*', Info.TotalTime / TicksPerMillisecond, Info.FileCount]));
+    end;
+  end;
+end;
+
 var
   I: Integer;
+  NamespaceStats: TDictionary<string, TNamespaceInfo>;
 begin
   try
     if ParamCount > 0 then
@@ -148,6 +224,7 @@ begin
 
     PrintList := nil;
     FileList := TList<TFileInfo>.Create;
+    NamespaceStats := nil;
     try
       Files := TDirectory.GetFiles('.', SearchMask);
 
@@ -185,6 +262,9 @@ begin
         FileList[I] := CurrentFile;
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
+
+      // Process and store namespace statistics
+      ProcessNamespaceStats(FileList, NamespaceStats);
 
       // Sort by diff (descending)
       FileList.Sort(
@@ -235,10 +315,14 @@ begin
         Writeln(Format('%s <- build start %s',
           [TPath.GetFileName(OldestFileInList.Path), DateTimeToStr(TFile.GetLastWriteTime(OldestFileInList.Path))]));
 
+      // Print namespace stats before the final summary
+      PrintNamespaceStats(NamespaceStats);
+
       Writeln('------------------------------------------------------------');
       PrintStats;
 
     finally
+      NamespaceStats.Free;
       PrintList.Free;
       if PrintList<>FileList then
         FileList.Free;
