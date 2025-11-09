@@ -161,9 +161,7 @@ begin
     if Length(Parts) <= 1 then
       Continue;
 
-    NamespacePrefix := '';
-    // Iterate up to the second to last part to get parent namespaces
-    for J := 0 to High(Parts) - 1 do
+    for J := 0 to High(Parts) do
     begin
       if J > 0 then
         NamespacePrefix := NamespacePrefix + '.' + Parts[J]
@@ -171,11 +169,6 @@ begin
         NamespacePrefix := Parts[J];
       AddNamespaceStat(NamespacePrefix, FileRec);
     end;
-
-    // Additionally, if the file name itself represents a namespace (i.e., it has dots),
-    // it should contribute to its own "namespace group".
-    if Length(Parts) > 1 then
-      AddNamespaceStat(NamespacePrefix, FileRec);
   end;
 end;
 
