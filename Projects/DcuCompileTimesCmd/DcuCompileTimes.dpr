@@ -87,6 +87,7 @@ var
   Median       : Int64;
   SearchMask   : String;
   TotalDiff    : Int64;
+  TopNSValue   : Integer;
 
 function CreatePrintList: TList<TFileInfo>;
 begin
@@ -172,45 +173,96 @@ begin
   end;
 end;
 
-procedure PrintNamespaceStats(const ANamespaceStats: TDictionary<String, TNamespaceInfo>);
+procedure PrintNamespaceStats(ANamespaceStats: TDictionary<String, TNamespaceInfo>);
 var
-  Keys: TArray<string>;
-  Key : String;
-  Info: TNamespaceInfo;
+  Info    : TNamespaceInfo;
+  StatList: TList<TPair<string, TNamespaceInfo>>;
+  Pair    : TPair<string, TNamespaceInfo>;
+  Limit   : Integer;
+  I       : Integer;
 begin
-  if (ANamespaceStats = nil) or (ANamespaceStats.Count = 0) then
+  if (TopNSValue < 0) or (ANamespaceStats = nil) or (ANamespaceStats.Count = 0) then
     Exit;
 
   Writeln('------------------------------------------------------------');
-  Writeln('Namespace Group Times (groups with >1 file):');
+  Writeln('Top Namespace Group Times:');
   Writeln('------------------------------------------------------------');
 
-  Keys := ANamespaceStats.Keys.ToArray;
-  TArray.Sort<string>(Keys);
+  // Copy to a list to sort by time
+  StatList := TList<TPair<string, TNamespaceInfo>>.Create;
+  try
+    StatList.AddRange(ANamespaceStats);
 
-  for Key in Keys do
-  begin
-    Info := ANamespaceStats.Items[Key];
-    if Info.FileCount > 1 then
-      Writeln(Format('%-40s (%.4f ms)(%d files)', [Key + '.*', Info.TotalTime / TicksPerMillisecond, Info.FileCount]));
+    // Sort by TotalTime descending
+    StatList.Sort(TComparer<TPair<String, TNamespaceInfo>>.Construct(
+      function(const Left, Right: TPair<String, TNamespaceInfo>): Integer
+      begin
+        Result := Sign(Right.Value.TotalTime - Left.Value.TotalTime);
+      end
+    ));
+
+    if (TopNSValue = 0) then // 0 means all
+      Limit := StatList.Count
+    else
+      Limit := Min(TopNSValue, StatList.Count);
+
+    for I := 0 to Limit - 1 do
+    begin
+      Pair := StatList[I];
+      Info := Pair.Value;
+      if Info.FileCount > 1 then
+        Writeln(Format('%-40s (%.4f ms)(%d files)', [Pair.Key + '.*', Pair.Value.TotalTime / TicksPerMillisecond, Pair.Value.FileCount]));
+    end;
+  finally
+    StatList.Free;
   end;
 end;
 
 var
   I: Integer;
-  NamespaceStats: TDictionary<string, TNamespaceInfo>;
+  NamespaceStats: TDictionary<String, TNamespaceInfo>;
 begin
   try
-    if ParamCount > 0 then
-      FilterMask := ParamStr(1)
-    else
-      FilterMask := '';
-    MaskTotalDiff := 0;
-    HasFilterMask:=FilterMask <> '';
+    FilterMask := '';
+    TopNSValue := 10; // Default
 
-    if SameText(FilterMask, '--help') or SameText(FilterMask, '-h') or (FilterMask = '?') then
+    var HelpRequested := False;
+    var PotentialFilterMask: String := '';
+
+    for I := 1 to ParamCount do
     begin
-      Writeln('DcuCompileTimes.exe [FilterMask]');
+      var Param := ParamStr(I);
+      if Param.StartsWith('--top-ns=') then
+      begin
+        var ValueStr := Param.Substring(9);
+        if SameText(ValueStr, 'off') then
+          TopNSValue := -1
+        else if SameText(ValueStr, 'all') or (ValueStr = '0') then
+          TopNSValue := 0
+        else if not TryStrToInt(ValueStr, TopNSValue) or (TopNSValue < 1) then
+        begin
+          Writeln('Error: Invalid value for --top-ns. Must be "off", "all", "0", or a positive integer.');
+          Exit;
+        end;
+      end
+      else if (Param = '--help') or (Param = '-h') or (Param = '?') then
+      begin
+        HelpRequested := True;
+      end
+      else
+      begin
+        // This is a non-option parameter, store it as a potential FilterMask.
+        // The last one encountered will be the final FilterMask.
+        PotentialFilterMask := Param;
+      end;
+    end;
+
+    // After the loop, assign the last encountered non-option parameter to FilterMask
+    FilterMask := PotentialFilterMask;
+
+    if HelpRequested then
+    begin
+      Writeln('DcuCompileTimes.exe [--top-ns=n] [FilterMask]');
       Writeln;
       Writeln('Analyzes Delphi .dcu compilation times in the current directory.');
       Writeln;
@@ -220,8 +272,13 @@ begin
       Writeln;
       Writeln('Options:');
       Writeln('  --help, -h, ? Displays this help message.');
+      Writeln('  --top-ns=n    Shows the top n namespaces by compile time.');
+      Writeln('                n can be a number, "all", "0", or "off". Default is 10.');
       Exit;
     end;
+
+    MaskTotalDiff := 0;
+    HasFilterMask := FilterMask <> '';
 
     SearchMask := '*.dcu';
 
@@ -292,7 +349,6 @@ begin
       else
         PrintList := FileList;
 
-      // Process and store namespace statistics
       NamespaceStats := CreateNamespaceStats(PrintList);
 
       if PrintList.Count >= 30 then
