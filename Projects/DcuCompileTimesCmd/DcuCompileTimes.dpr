@@ -38,18 +38,7 @@ begin
 
     if Options.HelpRequested then
     begin
-      Writeln('DcuCompileTimes.exe [Options] [FilterMask]');
-      Writeln;
-      Writeln('Analyzes Delphi .dcu compilation times in the current directory.');
-      Writeln;
-      Writeln('Arguments:');
-      Writeln('  [FilterMask]  Optional. A file mask (e.g., "Base.*", "Base.Db.*") to filter');
-      Writeln('                the displayed files and calculate a "Mask time" summary.');
-      Writeln;
-      Writeln('Options:');
-      Writeln('  --help, -h, ? Displays this help message.');
-      Writeln('  --top-ns=n    Shows the top n namespaces by compile time.');
-      Writeln('                n can be a number, "all", "0", or "off". Default is 10.');
+      TConsoleWriter.PrintHelp;
       Exit;
     end;
 
