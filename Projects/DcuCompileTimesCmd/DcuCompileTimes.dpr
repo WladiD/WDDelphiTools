@@ -124,10 +124,27 @@ begin
 end;
 
 procedure ProcessNamespaceStats(const AFileList: TList<TFileInfo>; out ANamespaceStats: TDictionary<string, TNamespaceInfo>);
+
+  procedure AddNamespaceStat(const ANamespacePrefix: String; const AFileRec: TFileInfo);
+  var
+    Info: TNamespaceInfo;
+  begin
+    if ANamespaceStats.TryGetValue(ANamespacePrefix, Info) then
+    begin
+      Info.TotalTime := Info.TotalTime + AFileRec.Diff;
+      Inc(Info.FileCount);
+    end
+    else
+    begin
+      Info.TotalTime := AFileRec.Diff;
+      Info.FileCount := 1;
+    end;
+    ANamespaceStats.AddOrSetValue(ANamespacePrefix, Info);
+  end;
+
 var
   FileName       : String;
   FileRec        : TFileInfo;
-  Info           : TNamespaceInfo;
   J              : Integer;
   NamespacePrefix: String;
   Parts          : TStringDynArray;
@@ -142,28 +159,23 @@ begin
     FileName := TPath.GetFileNameWithoutExtension(FileRec.Path);
     Parts := FileName.Split(['.']);
     if Length(Parts) <= 1 then
-      Exit;
+      Continue;
 
     NamespacePrefix := '';
+    // Iterate up to the second to last part to get parent namespaces
     for J := 0 to High(Parts) - 1 do
     begin
       if J > 0 then
         NamespacePrefix := NamespacePrefix + '.' + Parts[J]
       else
         NamespacePrefix := Parts[J];
-
-      if ANamespaceStats.TryGetValue(NamespacePrefix, Info) then
-      begin
-        Info.TotalTime := Info.TotalTime + FileRec.Diff;
-        Inc(Info.FileCount);
-      end
-      else
-      begin
-        Info.TotalTime := FileRec.Diff;
-        Info.FileCount := 1;
-      end;
-      ANamespaceStats.AddOrSetValue(NamespacePrefix, Info);
+      AddNamespaceStat(NamespacePrefix, FileRec);
     end;
+
+    // Additionally, if the file name itself represents a namespace (i.e., it has dots),
+    // it should contribute to its own "namespace group".
+    if Length(Parts) > 1 then
+      AddNamespaceStat(NamespacePrefix, FileRec);
   end;
 end;
 
@@ -263,9 +275,6 @@ begin
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
 
-      // Process and store namespace statistics
-      ProcessNamespaceStats(FileList, NamespaceStats);
-
       // Sort by diff (descending)
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
@@ -291,6 +300,9 @@ begin
         PrintList := CreatePrintList
       else
         PrintList := FileList;
+
+      // Process and store namespace statistics
+      ProcessNamespaceStats(PrintList, NamespaceStats);
 
       if PrintList.Count >= 30 then
         PrintStats;
