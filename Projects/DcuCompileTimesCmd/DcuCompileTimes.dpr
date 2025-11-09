@@ -174,12 +174,31 @@ begin
 end;
 
 procedure PrintNamespaceStats(ANamespaceStats: TDictionary<String, TNamespaceInfo>);
+
+  function IsRedundant(const AStat: TPair<String, TNamespaceInfo>; const AStatList: TList<TPair<string, TNamespaceInfo>>): Boolean;
+  var
+    OtherStat: TPair<string, TNamespaceInfo>;
+  begin
+    Result := False;
+    for OtherStat in AStatList do
+    begin
+      // Check if OtherStat is a more specific child of AStat
+      if (OtherStat.Key <> AStat.Key) and OtherStat.Key.StartsWith(AStat.Key + '.') then
+      begin
+        // And if the stats are identical
+        if (OtherStat.Value.TotalTime = AStat.Value.TotalTime) and (OtherStat.Value.FileCount = AStat.Value.FileCount) then
+          Exit(True); // Found a more specific child with identical stats, so AStat is redundant.
+      end;
+    end;
+  end;
+
 var
-  Info    : TNamespaceInfo;
-  StatList: TList<TPair<string, TNamespaceInfo>>;
-  Pair    : TPair<string, TNamespaceInfo>;
-  Limit   : Integer;
-  I       : Integer;
+  FinalList: TList<TPair<string, TNamespaceInfo>>;
+  I        : Integer;
+  Info     : TNamespaceInfo;
+  Limit    : Integer;
+  Pair     : TPair<string, TNamespaceInfo>;
+  StatList : TList<TPair<string, TNamespaceInfo>>;
 begin
   if (TopNSValue < 0) or (ANamespaceStats = nil) or (ANamespaceStats.Count = 0) then
     Exit;
@@ -189,31 +208,38 @@ begin
   Writeln('------------------------------------------------------------');
 
   // Copy to a list to sort by time
-  StatList := TList<TPair<string, TNamespaceInfo>>.Create;
+  StatList := TList<TPair<String, TNamespaceInfo>>.Create;
+  FinalList := TList<TPair<String, TNamespaceInfo>>.Create;
   try
-    StatList.AddRange(ANamespaceStats);
+    StatList.AddRange(ANamespaceStats.ToArray);
 
     // Sort by TotalTime descending
-    StatList.Sort(TComparer<TPair<String, TNamespaceInfo>>.Construct(
-      function(const Left, Right: TPair<String, TNamespaceInfo>): Integer
+    StatList.Sort(TComparer<TPair<string, TNamespaceInfo>>.Construct(
+      function(const Left, Right: TPair<string, TNamespaceInfo>): Integer
       begin
         Result := Sign(Right.Value.TotalTime - Left.Value.TotalTime);
       end
     ));
 
+    // Filter out redundant parent namespaces
+    for Pair in StatList do
+      if not IsRedundant(Pair, StatList) then
+        FinalList.Add(Pair);
+
     if (TopNSValue = 0) then // 0 means all
-      Limit := StatList.Count
+      Limit := FinalList.Count
     else
-      Limit := Min(TopNSValue, StatList.Count);
+      Limit := Min(TopNSValue, FinalList.Count);
 
     for I := 0 to Limit - 1 do
     begin
-      Pair := StatList[I];
+      Pair := FinalList[I];
       Info := Pair.Value;
       if Info.FileCount > 1 then
         Writeln(Format('%-40s (%.4f ms)(%d files)', [Pair.Key + '.*', Pair.Value.TotalTime / TicksPerMillisecond, Pair.Value.FileCount]));
     end;
   finally
+    FinalList.Free;
     StatList.Free;
   end;
 end;
