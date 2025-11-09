@@ -123,13 +123,13 @@ begin
   end;
 end;
 
-procedure ProcessNamespaceStats(const AFileList: TList<TFileInfo>; out ANamespaceStats: TDictionary<string, TNamespaceInfo>);
+function CreateNamespaceStats(const AFileList: TList<TFileInfo>): TDictionary<string, TNamespaceInfo>;
 
   procedure AddNamespaceStat(const ANamespacePrefix: String; const AFileRec: TFileInfo);
   var
     Info: TNamespaceInfo;
   begin
-    if ANamespaceStats.TryGetValue(ANamespacePrefix, Info) then
+    if Result.TryGetValue(ANamespacePrefix, Info) then
     begin
       Info.TotalTime := Info.TotalTime + AFileRec.Diff;
       Inc(Info.FileCount);
@@ -139,7 +139,7 @@ procedure ProcessNamespaceStats(const AFileList: TList<TFileInfo>; out ANamespac
       Info.TotalTime := AFileRec.Diff;
       Info.FileCount := 1;
     end;
-    ANamespaceStats.AddOrSetValue(ANamespacePrefix, Info);
+    Result.AddOrSetValue(ANamespacePrefix, Info);
   end;
 
 var
@@ -149,7 +149,7 @@ var
   NamespacePrefix: String;
   Parts          : TStringDynArray;
 begin
-  ANamespaceStats := TDictionary<String, TNamespaceInfo>.Create;
+  Result := TDictionary<String, TNamespaceInfo>.Create;
 
   for FileRec in AFileList do
   begin
@@ -186,15 +186,13 @@ begin
   Writeln('------------------------------------------------------------');
 
   Keys := ANamespaceStats.Keys.ToArray;
-  TArray.Sort<string>(Keys); // Sort keys alphabetically
+  TArray.Sort<string>(Keys);
 
   for Key in Keys do
   begin
-    Info := ANamespaceStats.Items[Key]; // Access directly
+    Info := ANamespaceStats.Items[Key];
     if Info.FileCount > 1 then
-    begin
       Writeln(Format('%-40s (%.4f ms)(%d files)', [Key + '.*', Info.TotalTime / TicksPerMillisecond, Info.FileCount]));
-    end;
   end;
 end;
 
@@ -295,7 +293,7 @@ begin
         PrintList := FileList;
 
       // Process and store namespace statistics
-      ProcessNamespaceStats(PrintList, NamespaceStats);
+      NamespaceStats := CreateNamespaceStats(PrintList);
 
       if PrintList.Count >= 30 then
         PrintStats;
