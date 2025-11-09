@@ -165,13 +165,17 @@ begin
         Exit;
       end;
 
-      // Sort by last write time
+      // Sort by last write time (descending, so oldest is last)
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
           begin
             Result := Sign(Right.LastWriteTime - Left.LastWriteTime);
           end));
+
+      var OldestFileInList: TFileInfo;
+      if FileList.Count > 0 then
+        OldestFileInList := FileList.Last; // Store the oldest file before further sorting
 
       TotalDiff := 0;
       for I := 0 to FileList.Count - 2 do
@@ -182,7 +186,7 @@ begin
         TotalDiff := TotalDiff + CurrentFile.Diff;
       end;
 
-      // Sort by diff
+      // Sort by diff (descending)
       FileList.Sort(
         TComparer<TFileInfo>.Construct(
           function(const Left, Right: TFileInfo): Integer
@@ -226,10 +230,10 @@ begin
         end;
       end;
 
-      var BuildStartRefFile: TFileInfo:=PrintList.Last;
-      if BuildStartRefFile.Diff=0 then
-        Writeln(Format('%s <- build start %s, no duration available',
-          [TPath.GetFileName(BuildStartRefFile.Path), DateTimeToStr(TFile.GetLastWriteTime(BuildStartRefFile.Path))]));
+      // Use the stored OldestFileInList for the build start reference
+      if OldestFileInList.Path <> '' then
+        Writeln(Format('%s <- build start %s',
+          [TPath.GetFileName(OldestFileInList.Path), DateTimeToStr(TFile.GetLastWriteTime(OldestFileInList.Path))]));
 
       Writeln('------------------------------------------------------------');
       PrintStats;
