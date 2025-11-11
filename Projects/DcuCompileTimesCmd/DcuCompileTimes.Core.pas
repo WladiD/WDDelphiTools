@@ -39,7 +39,7 @@ type
     FSearchMask: String;
     FFileProvider: IFileProvider;
   public
-    constructor Create(const ASearchPath: String; const ASearchMask: String = '*.dcu'; AFileProvider: IFileProvider = nil);
+    constructor Create(const ASearchPath: String; const ASearchMask: String = '*.dcu'; const AFileProvider: IFileProvider = nil);
     destructor Destroy; override;
     procedure Execute;
     function GetNamespaceStats(const AFileList: TList<TFileInfo> = nil): TDictionary<string, TNamespaceInfo>;
@@ -121,7 +121,7 @@ end;
 
 { TDcuAnalyzer }
 
-constructor TDcuAnalyzer.Create(const ASearchPath, ASearchMask: string; AFileProvider: IFileProvider);
+constructor TDcuAnalyzer.Create(const ASearchPath, ASearchMask: string; const AFileProvider: IFileProvider);
 begin
   FSearchPath := ASearchPath;
   FSearchMask := ASearchMask;
@@ -140,11 +140,11 @@ end;
 
 procedure TDcuAnalyzer.Execute;
 var
-  FileMetas: TArray<TFileMeta>;
-  I: Integer;
-  FileInfo: TFileInfo;
   CurrentFile: TFileInfo;
-  MidIndex: Integer;
+  FileInfo   : TFileInfo;
+  FileMetas  : TArray<TFileMeta>;
+  I          : Integer;
+  MidIndex   : Integer;
 begin
   FFileList.Clear;
   FTotalDiff := 0;
