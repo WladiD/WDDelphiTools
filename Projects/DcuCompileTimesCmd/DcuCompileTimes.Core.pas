@@ -143,7 +143,6 @@ var
   CurrentFile: TFileInfo;
   FileInfo   : TFileInfo;
   FileMetas  : TArray<TFileMeta>;
-  I          : Integer;
   MidIndex   : Integer;
 begin
   FFileList.Clear;
@@ -175,11 +174,11 @@ begin
     FOldestFile := FFileList.Last; // Store the oldest file before further sorting
 
   FTotalDiff := 0;
-  for I := 0 to FFileList.Count - 2 do
+  for var Loop: Integer := 0 to FFileList.Count - 2 do
   begin
-    CurrentFile := FFileList[I];
-    CurrentFile.Diff := Abs(FFileList[I].LastWriteTime - FFileList[I+1].LastWriteTime);
-    FFileList[I] := CurrentFile;
+    CurrentFile := FFileList[Loop];
+    CurrentFile.Diff := Abs(FFileList[Loop].LastWriteTime - FFileList[Loop+1].LastWriteTime);
+    FFileList[Loop] := CurrentFile;
     FTotalDiff := FTotalDiff + CurrentFile.Diff;
   end;
 
@@ -220,7 +219,6 @@ var
   FileName       : String;
   FileRec        : TFileInfo;
   Info           : TNamespaceInfo;
-  J              : Integer;
   NamespacePrefix: String;
   Parts          : TArray<String>;
   SourceList     : TList<TFileInfo>;
@@ -242,12 +240,12 @@ begin
     if Length(Parts) <= 1 then
       Continue;
 
-    for J := 0 to High(Parts) do
+    for var Loop: Integer := 0 to High(Parts) do
     begin
-      if J > 0 then
-        NamespacePrefix := NamespacePrefix + '.' + Parts[J]
+      if Loop > 0 then
+        NamespacePrefix := NamespacePrefix + '.' + Parts[Loop]
       else
-        NamespacePrefix := Parts[J];
+        NamespacePrefix := Parts[Loop];
 
       if Result.TryGetValue(NamespacePrefix, Info) then
       begin
