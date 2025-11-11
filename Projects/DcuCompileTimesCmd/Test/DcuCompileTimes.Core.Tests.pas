@@ -71,6 +71,7 @@ begin
     Assert.AreEqual(Int64(5000), Analyzer.Files[0].Diff div TicksPerMillisecond);
     Assert.AreEqual(Int64(2000), Analyzer.Files[1].Diff div TicksPerMillisecond);
     Assert.AreEqual(Int64(0), Analyzer.Files[2].Diff);
+    Assert.IsFalse(Analyzer.IsIncompleteBuild);
   finally
     Analyzer.Free;
   end;
