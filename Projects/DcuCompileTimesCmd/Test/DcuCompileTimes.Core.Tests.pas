@@ -23,7 +23,7 @@ type
   TAnalyzerTests = class(TObject)
   public
     [Test]
-    procedure TotalTimeCalculation;
+    procedure SampleA;
   end;
 
 implementation
@@ -49,25 +49,28 @@ end;
 
 { TAnalyzerTests }
 
-procedure TAnalyzerTests.TotalTimeCalculation;
+procedure TAnalyzerTests.SampleA;
 var
   Analyzer: TDcuAnalyzer;
-  ExpectedTotalTime: Int64;
 begin
   var MockProviderObj: TMockFileProvider := TMockFileProvider.Create;
   MockProviderObj.AddFileMeta('C:\build\UnitC.dcu', TicksPerSecond * 30); // Newest file
-  MockProviderObj.AddFileMeta('C:\build\UnitB.dcu', TicksPerSecond * 25); // Middle file
   MockProviderObj.AddFileMeta('C:\build\UnitA.dcu', TicksPerSecond * 23); // Oldest file
+  MockProviderObj.AddFileMeta('C:\build\UnitB.dcu', TicksPerSecond * 25); // Middle file
   var MockProvider: IFileProvider := MockProviderObj;
 
   Analyzer := TDcuAnalyzer.Create('C:\build', '*.dcu', MockProvider);
   try
+    Analyzer.Execute;
     // The expected total time is the sum of the differences:
     // (TimeC - TimeB) + (TimeB - TimeA)
     // (30s - 25s) + (25s - 23s) = 5s + 2s = 7 seconds
-    ExpectedTotalTime := 7 * TicksPerSecond;
-    Analyzer.Execute;
-    Assert.AreEqual(ExpectedTotalTime, Analyzer.TotalTime, 'TotalTime should be the sum of all diffs');
+    Assert.AreEqual(Int64(7 * TicksPerSecond), Analyzer.TotalTime, 'TotalTime should be the sum of all diffs');
+    Assert.AreEqual('C:\build\UnitA.dcu', Analyzer.OldestFile.Path);
+    Assert.AreEqual(3, Analyzer.Files.Count);
+    Assert.AreEqual(Int64(5000), Analyzer.Files[0].Diff div TicksPerMillisecond);
+    Assert.AreEqual(Int64(2000), Analyzer.Files[1].Diff div TicksPerMillisecond);
+    Assert.AreEqual(Int64(0), Analyzer.Files[2].Diff);
   finally
     Analyzer.Free;
   end;
