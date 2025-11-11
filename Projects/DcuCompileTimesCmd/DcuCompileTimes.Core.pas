@@ -3,12 +3,20 @@
 interface
 
 uses
-
   System.SysUtils,
   System.Generics.Collections,
   Winapi.Windows;
 
 type
+  TFileMeta = record
+    Path: String;
+    LastWriteTime: Int64;
+  end;
+
+  IFileProvider = interface
+    ['{E69751F8-E5C9-4B05-914F-32245439456C}']
+    function GetFiles(const ASearchPath, ASearchMask: string): TArray<TFileMeta>;
+  end;
 
   TFileInfo = record
     Path: String;
@@ -29,10 +37,9 @@ type
     FOldestFile: TFileInfo;
     FSearchPath: String;
     FSearchMask: String;
-    function GetFileLastWriteTime(const FilePath: String): TFileTime;
-    function FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
+    FFileProvider: IFileProvider;
   public
-    constructor Create(const ASearchPath: String; const ASearchMask: String = '*.dcu');
+    constructor Create(const ASearchPath: String; const ASearchMask: String = '*.dcu'; AFileProvider: IFileProvider = nil);
     destructor Destroy; override;
     procedure Execute;
     function GetNamespaceStats(const AFileList: TList<TFileInfo> = nil): TDictionary<string, TNamespaceInfo>;
@@ -55,13 +62,74 @@ uses
   System.DateUtils,
   System.Types;
 
+{ TFileSystemFileProvider }
+
+type
+  TFileSystemFileProvider = class(TInterfacedObject, IFileProvider)
+  private
+    function GetFileLastWriteTime(const FilePath: String): TFileTime;
+    function FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
+  public
+    function GetFiles(const ASearchPath, ASearchMask: string): TArray<TFileMeta>;
+  end;
+
+function TFileSystemFileProvider.FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
+type
+  TULARGE_INTEGER = record
+    case Integer of
+      0: (LowPart: DWORD; HighPart: DWORD);
+      1: (QuadPart: Int64);
+  end;
+var
+  LI: TULARGE_INTEGER;
+begin
+  LI.LowPart := FileTime.dwLowDateTime;
+  LI.HighPart := FileTime.dwHighDateTime;
+  Result := LI.QuadPart;
+end;
+
+function TFileSystemFileProvider.GetFileLastWriteTime(const FilePath: String): TFileTime;
+var
+  FindData: TWin32FindData;
+  FindHandle: THandle;
+begin
+  FindHandle := FindFirstFile(PChar(FilePath), FindData);
+  if FindHandle <> INVALID_HANDLE_VALUE then
+  begin
+    Result := FindData.ftLastWriteTime;
+    FindClose(FindHandle);
+  end
+  else
+    RaiseLastOSError;
+end;
+
+function TFileSystemFileProvider.GetFiles(const ASearchPath, ASearchMask: string): TArray<TFileMeta>;
+var
+  FilePaths: TArray<string>;
+  I: Integer;
+  Meta: TFileMeta;
+begin
+  FilePaths := TDirectory.GetFiles(ASearchPath, ASearchMask);
+  SetLength(Result, Length(FilePaths));
+  for I := 0 to High(FilePaths) do
+  begin
+    Meta.Path := FilePaths[I];
+    Meta.LastWriteTime := FileTimeToLargeInteger(GetFileLastWriteTime(Meta.Path));
+    Result[I] := Meta;
+  end;
+end;
+
 { TDcuAnalyzer }
 
-constructor TDcuAnalyzer.Create(const ASearchPath, ASearchMask: string);
+constructor TDcuAnalyzer.Create(const ASearchPath, ASearchMask: string; AFileProvider: IFileProvider);
 begin
   FSearchPath := ASearchPath;
   FSearchMask := ASearchMask;
   FFileList := TList<TFileInfo>.Create;
+  if Assigned(AFileProvider) then
+    FFileProvider := AFileProvider
+  else
+    FFileProvider := TFileSystemFileProvider.Create;
 end;
 
 destructor TDcuAnalyzer.Destroy;
@@ -72,18 +140,22 @@ end;
 
 procedure TDcuAnalyzer.Execute;
 var
-  Files: TArray<string>;
+  FileMetas: TArray<TFileMeta>;
   I: Integer;
   FileInfo: TFileInfo;
   CurrentFile: TFileInfo;
   MidIndex: Integer;
 begin
-  Files := TDirectory.GetFiles(FSearchPath, FSearchMask);
+  FFileList.Clear;
+  FTotalDiff := 0;
+  FMedian := 0;
 
-  for I := 0 to High(Files) do
+  FileMetas := FFileProvider.GetFiles(FSearchPath, FSearchMask);
+
+  for var Meta in FileMetas do
   begin
-    FileInfo.Path := Files[I];
-    FileInfo.LastWriteTime := FileTimeToLargeInteger(GetFileLastWriteTime(FileInfo.Path));
+    FileInfo.Path := Meta.Path;
+    FileInfo.LastWriteTime := Meta.LastWriteTime;
     FileInfo.Diff := 0;
     FFileList.Add(FileInfo);
   end;
@@ -122,11 +194,14 @@ begin
           Result := Sign(Right.Diff - Left.Diff);
         end));
 
-    MidIndex := TempList.Count div 2;
-    if (TempList.Count mod 2) = 1 then
-      FMedian := TempList[MidIndex].Diff
-    else
-      FMedian := (TempList[MidIndex - 1].Diff + TempList[MidIndex].Diff) div 2;
+    if TempList.Count > 0 then
+    begin
+      MidIndex := TempList.Count div 2;
+      if (TempList.Count mod 2) = 1 then
+        FMedian := TempList[MidIndex].Diff
+      else
+        FMedian := (TempList[MidIndex - 1].Diff + TempList[MidIndex].Diff) div 2;
+    end;
   finally
     TempList.Free;
   end;
@@ -138,36 +213,6 @@ begin
       begin
         Result := Sign(Right.Diff - Left.Diff);
       end));
-end;
-
-function TDcuAnalyzer.FileTimeToLargeInteger(const FileTime: TFileTime): Int64;
-type
-  TULARGE_INTEGER = record
-    case Integer of
-      0: (LowPart: DWORD; HighPart: DWORD);
-      1: (QuadPart: Int64);
-  end;
-var
-  LI: TULARGE_INTEGER;
-begin
-  LI.LowPart := FileTime.dwLowDateTime;
-  LI.HighPart := FileTime.dwHighDateTime;
-  Result := LI.QuadPart;
-end;
-
-function TDcuAnalyzer.GetFileLastWriteTime(const FilePath: String): TFileTime;
-var
-  FindData: TWin32FindData;
-  FindHandle: THandle;
-begin
-  FindHandle := FindFirstFile(PChar(FilePath), FindData);
-  if FindHandle <> INVALID_HANDLE_VALUE then
-  begin
-    Result := FindData.ftLastWriteTime;
-    FindClose(FindHandle);
-  end
-  else
-    RaiseLastOSError;
 end;
 
 function TDcuAnalyzer.GetNamespaceStats(const AFileList: TList<TFileInfo>): TDictionary<string, TNamespaceInfo>;
