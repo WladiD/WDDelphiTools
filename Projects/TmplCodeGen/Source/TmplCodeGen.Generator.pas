@@ -23,10 +23,12 @@ uses
   mormot.core.unicode,
   mormot.core.variants,
 
+  TmplCodeGen.Common,
   TmplCodeGen.PreProcess,
   TmplCodeGen.Utils;
 
 type
+
   TTmplCodeGen = class
   private
     FConfJson            : TDocVariantData;
@@ -48,13 +50,6 @@ type
   end;
 
 implementation
-
-const
-
-  ConfJsonFileApndx = '-conf.json';
-  OutputApndx = '.pas';
-  PartialApndx = '.part.pas';
-  TemplatesDir = 'TEMPLATES';
 
 { TTmplCodeGen }
 

@@ -14,6 +14,7 @@ uses
   System.Diagnostics,
   System.SysUtils,
 
+  TmplCodeGen.Common in 'TmplCodeGen.Common.pas',
   TmplCodeGen.Generator in 'TmplCodeGen.Generator.pas',
   TmplCodeGen.Includer in 'TmplCodeGen.Includer.pas',
   TmplCodeGen.PreProcess in 'TmplCodeGen.PreProcess.pas',

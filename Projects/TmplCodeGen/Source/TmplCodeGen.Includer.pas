@@ -15,6 +15,7 @@ uses
   System.RegularExpressions,
   System.SysUtils,
 
+  TmplCodeGen.Common,
   TmplCodeGen.Utils;
 
 type
@@ -29,10 +30,6 @@ type
   end;
 
 implementation
-
-const
-
-  IncludePartial = 'INCLUDE-PARTIAL';
 
 { TIncludePartials }
 

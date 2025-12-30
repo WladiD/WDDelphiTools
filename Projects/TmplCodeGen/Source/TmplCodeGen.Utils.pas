@@ -11,11 +11,9 @@ interface
 uses
 
   System.RegularExpressions,
-  System.SysUtils;
+  System.SysUtils,
 
-const
-
-  DefinePartial = 'DEFINE-PARTIAL';
+  TmplCodeGen.Common;
 
 function CreateRegExpr(const APartialStmt: String; AStartRegion: Boolean; const AExpectedParam: String = ''): String;
 function RemovePartialStmts(const AContent: String; const AStmts: Array of String): String;
