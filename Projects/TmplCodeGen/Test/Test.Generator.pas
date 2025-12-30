@@ -40,7 +40,6 @@ type
     FTestDir: String;
     FPrefix : String;
     procedure CreateCaseAMockEnvironment;
-    procedure CreateMockEnvironment;
     procedure ExecuteTmplCodeGen(const APrefix: String);
   public
     [Setup]
@@ -48,9 +47,9 @@ type
     [Teardown]
     procedure Teardown;
     [Test]
-    procedure TestProcessTemplate;
-    [Test]
     procedure TestProcessCaseA;
+    [Test]
+    procedure TestProcessPostFixParamsDefine;
   end;
 
 implementation
@@ -94,23 +93,6 @@ begin
   if TDirectory.Exists(FTestDir) then
     TDirectory.Delete(FTestDir, True);
   FLogger := nil;
-end;
-
-procedure TTestTmplCodeGen.CreateMockEnvironment;
-begin
-  // Create TEMPLATES directory
-  var TemplatesPath := TPath.Combine(FTestDir, TemplatesDir);
-  ForceDirectories(TemplatesPath);
-
-  // Create Mock Conf Json
-  var ConfJson := '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }';
-  TFile.WriteAllText(FPrefix + ConfJsonFileApndx, ConfJson);
-
-  // Create Mock Template
-  var TemplateContent := 'unit Test; interface // PostFixParamsDefine' + sLineBreak +
-                         'procedure Run(); // PostFixParamsDefine' + sLineBreak +
-                         'implementation end.';
-  TFile.WriteAllText(TPath.Combine(TemplatesPath, 'Main.pas.tmpl'), TemplateContent);
 end;
 
 procedure TTestTmplCodeGen.ExecuteTmplCodeGen(const APrefix: String);
@@ -187,30 +169,47 @@ begin
     ''');
 end;
 
-procedure TTestTmplCodeGen.TestProcessTemplate;
+procedure TTestTmplCodeGen.TestProcessPostFixParamsDefine;
 begin
-  CreateMockEnvironment;
+  var TemplatesPath := TPath.Combine(FTestDir, TemplatesDir);
+  ForceDirectories(TemplatesPath);
+
+  TFile.WriteAllText(FPrefix + ConfJsonFileApndx, '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }');
+
+  TFile.WriteAllText(TPath.Combine(TemplatesPath, 'Main.pas.tmpl'), '''
+    unit Test;
+    interface
+
+    procedure Run(); // PostFixParamsDefine
+    procedure SecondProc(const AFirst: String;); // PostFixParamsDefine
+
+    implementation
+    end.
+    ''');
 
   ExecuteTmplCodeGen('TestProj');
   var OutputFile := 'TestProj' + OutputApndx;
   Assert.IsTrue(TFile.Exists(OutputFile), 'Output file should be created');
 
   var Content := TFile.ReadAllText(OutputFile);
+
   // PostFixParamsDefine should remove empty parentheses
   Assert.IsFalse(Content.Contains('procedure Run();'), 'PostFix should have removed parentheses');
   Assert.IsTrue(Content.Contains('procedure Run;'), 'PostFix should have corrected procedure declaration');
+
+  // PostFixParamsDefine should remove last ";" in the argument list
+  Assert.IsFalse(Content.Contains('procedure SecondProc(const AFirst: String;);'), 'PostFix should have removed semicolon');
+  Assert.IsTrue(Content.Contains('procedure SecondProc(const AFirst: String);'), 'PostFix should have corrected procedure declaration');
 end;
 
 procedure TTestTmplCodeGen.TestProcessCaseA;
 begin
   CreateCaseAMockEnvironment;
 
-  // Process Base.Dictionary
   ExecuteTmplCodeGen('Base.Dictionary');
   Assert.IsTrue(TFile.Exists('Base.Dictionary.pas'), 'Base.Dictionary.pas should exist');
   Assert.IsTrue(TFile.Exists('Base.Dictionary-interface.part.pas'), 'Base.Dictionary-interface.part.pas should exist');
 
-  // Process Base.List
   ExecuteTmplCodeGen('Base.List');
   Assert.IsTrue(TFile.Exists('Base.List.pas'), 'Base.List.pas should exist');
   Assert.IsTrue(TFile.Exists('Base.List-interface.part.pas'), 'Base.List-interface.part.pas should exist');
