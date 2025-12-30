@@ -1,2 +1,15 @@
+*.dcu
 __recovery
 __history
+
+/Projects/**/*.identcache
+/Projects/**/*.dsk
+/Projects/**/*.dsv
+/Projects/**/*.local
+/Projects/**/*.~dsk
+
+/Projects/DcuCompileTimes/*.res
+/Projects/DcuCompileTimes/Test/*.exe
+/Projects/DcuCompileTimes/Test/*.res
+/Projects/DcuCompileTimes/Test/TestInsightSettings.ini
+/Projects/DcuCompileTimes/Test/dunitx-results.xml
