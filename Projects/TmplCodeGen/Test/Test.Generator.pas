@@ -36,7 +36,6 @@ type
   TTestTmplCodeGen = class
   private
     FLogger           : ILogger;
-    FPrefix           : String;
     FPrevPath         : String;
     FTestPath         : String;
     FTestTemplatesPath: String;
@@ -81,7 +80,6 @@ begin
   FLogger := TTestLogger.Create;
   FTestPath := TPath.Combine(TPath.GetTempPath, 'TmplCodeGenTest_' + TGuid.NewGuid.ToString);
   ForceDirectories(FTestPath);
-  FPrefix := TPath.Combine(FTestPath, 'TestProj');
 
   FTestTemplatesPath := TPath.Combine(FTestPath, TemplatesDir);
   ForceDirectories(FTestTemplatesPath);
@@ -172,7 +170,8 @@ end;
 
 procedure TTestTmplCodeGen.TestProcessPostFixParamsDefine;
 begin
-  TFile.WriteAllText(FPrefix + ConfJsonFileApndx, '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }');
+  TFile.WriteAllText(TPath.Combine(FTestPath, 'TestProj' + ConfJsonFileApndx),
+    '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }');
 
   TFile.WriteAllText(TPath.Combine(FTestTemplatesPath, 'Main.pas.tmpl'), '''
     unit Test;
