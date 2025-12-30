@@ -39,6 +39,7 @@ type
     FPrevPath         : String;
     FTestPath         : String;
     FTestTemplatesPath: String;
+    function  CountOccurrences(const AText, ASubString: String): Integer;
     procedure CreateCaseAMockEnvironment;
     procedure ExecuteTmplCodeGen(const APrefix: String);
   public
@@ -104,6 +105,19 @@ begin
     Generator.ProcessTemplate;
   finally
     Generator.Free;
+  end;
+end;
+
+function TTestTmplCodeGen.CountOccurrences(const AText, ASubString: String): Integer;
+var
+  PosIdx: Integer;
+begin
+  Result := 0;
+  PosIdx := Pos(ASubString, AText);
+  while PosIdx > 0 do
+  begin
+    Inc(Result);
+    PosIdx := Pos(ASubString, AText, PosIdx + Length(ASubString));
   end;
 end;
 
@@ -181,6 +195,15 @@ begin
     procedure SecondProc(const AFirst: String;); // PostFixParamsDefine
 
     implementation
+
+    procedure Run(); // PostFixParamsDefine
+    begin
+    end;
+
+    procedure SecondProc(const AFirst: String;); // PostFixParamsDefine
+    begin
+    end;
+
     end.
     ''');
 
@@ -192,11 +215,11 @@ begin
 
   // PostFixParamsDefine should remove empty parentheses
   Assert.IsFalse(Content.Contains('procedure Run();'), 'PostFix should have removed parentheses');
-  Assert.IsTrue(Content.Contains('procedure Run;'), 'PostFix should have corrected procedure declaration');
+  Assert.AreEqual(2, CountOccurrences(Content, 'procedure Run;'), 'Should occur twice (interface and implementation)');
 
   // PostFixParamsDefine should remove last ";" in the argument list
   Assert.IsFalse(Content.Contains('procedure SecondProc(const AFirst: String;);'), 'PostFix should have removed semicolon');
-  Assert.IsTrue(Content.Contains('procedure SecondProc(const AFirst: String);'), 'PostFix should have corrected procedure declaration');
+  Assert.AreEqual(2, CountOccurrences(Content, 'procedure SecondProc(const AFirst: String);'), 'Should occur twice (interface and implementation)');
 end;
 
 procedure TTestTmplCodeGen.TestProcessCaseA;
