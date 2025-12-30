@@ -71,8 +71,8 @@ begin
   begin
     StartMatch := StartRegEx.Match(TargetContent, StartMatchPos);
     EndMatch := EndRegEx.Match(TargetContent, StartMatchPos);
-    if not(StartMatch.Success and EndMatch.Success) then
-      raise Exception.CreateFmt('Keine %s-Regionen gefunden', [IncludePartial]);
+    if not (StartMatch.Success and EndMatch.Success) then
+      raise Exception.CreateFmt('No %s regions found', [IncludePartial]);
 
     StartIndex := StartMatch.Index + StartMatch.Length - 1;
     EndIndex := EndMatch.Index;

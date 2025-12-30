@@ -239,14 +239,14 @@ procedure TTmplCodeGen.ExportPartials(const AOutputContent: String);
     EndRegEx := TRegEx.Create(CreateRegExpr(DefinePartial, false, PartialName), [roIgnoreCase]);
     EndMatch := EndRegEx.Match(AOutputContent);
     if not EndMatch.Success then
-      raise Exception.CreateFmt('Schliessende Region für %s nicht gefunden',
+      raise Exception.CreateFmt('Closing region for %s not found',
         [PartialName]);
     PartialFileName := ChangeFileExt(FOutputFileName, '-' + PartialName + PartialApndx);
     StartIndex := AStartMatch.Index + AStartMatch.Length;
     EndIndex := EndMatch.Index;
 
     if EndIndex < StartIndex then
-      raise Exception.Create('Ungültige Fundstellen');
+      raise Exception.Create('Invalid match positions');
 
     Writeln('- ' + PartialFileName);
     PartialContent := Copy(AOutputContent, StartIndex, EndIndex - StartIndex);
@@ -277,7 +277,7 @@ begin
   EndMatches := EndRegEx.Matches(AOutputContent);
   if StartMatches.Count <> EndMatches.Count then
     raise Exception.CreateFmt(
-      'Anzahl der startenden/schliessenden Regionen %s (%d / %d) unterschiedlich',
+      'Number of start/end regions %s (%d / %d) does not match',
       [DefinePartial, StartMatches.Count, EndMatches.Count]);
 
   Writeln('Output Partials:');
