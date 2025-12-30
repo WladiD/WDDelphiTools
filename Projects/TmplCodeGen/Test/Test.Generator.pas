@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2025 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -35,10 +35,11 @@ type
   [TestFixture]
   TTestTmplCodeGen = class
   private
-    FLogger : ILogger;
-    FOldDir : String;
-    FTestDir: String;
-    FPrefix : String;
+    FLogger           : ILogger;
+    FPrefix           : String;
+    FPrevPath         : String;
+    FTestPath         : String;
+    FTestTemplatesPath: String;
     procedure CreateCaseAMockEnvironment;
     procedure ExecuteTmplCodeGen(const APrefix: String);
   public
@@ -78,20 +79,23 @@ end;
 procedure TTestTmplCodeGen.Setup;
 begin
   FLogger := TTestLogger.Create;
-  FTestDir := TPath.Combine(TPath.GetTempPath, 'TmplCodeGenTest_' + TGuid.NewGuid.ToString);
-  ForceDirectories(FTestDir);
-  FPrefix := TPath.Combine(FTestDir, 'TestProj');
-  
-  FOldDir := TDirectory.GetCurrentDirectory;
-  TDirectory.SetCurrentDirectory(FTestDir);
+  FTestPath := TPath.Combine(TPath.GetTempPath, 'TmplCodeGenTest_' + TGuid.NewGuid.ToString);
+  ForceDirectories(FTestPath);
+  FPrefix := TPath.Combine(FTestPath, 'TestProj');
+
+  FTestTemplatesPath := TPath.Combine(FTestPath, TemplatesDir);
+  ForceDirectories(FTestTemplatesPath);
+
+  FPrevPath := TDirectory.GetCurrentDirectory;
+  TDirectory.SetCurrentDirectory(FTestPath);
 end;
 
 procedure TTestTmplCodeGen.Teardown;
 begin
-  TDirectory.SetCurrentDirectory(FOldDir);
-  
-  if TDirectory.Exists(FTestDir) then
-    TDirectory.Delete(FTestDir, True);
+  TDirectory.SetCurrentDirectory(FPrevPath);
+
+  if TDirectory.Exists(FTestPath) then
+    TDirectory.Delete(FTestPath, True);
   FLogger := nil;
 end;
 
@@ -107,12 +111,9 @@ end;
 
 procedure TTestTmplCodeGen.CreateCaseAMockEnvironment;
 begin
-  var TemplatesPath := TPath.Combine(FTestDir, TemplatesDir);
-  ForceDirectories(TemplatesPath);
-
   // Base.Dictionary-conf.json
   TFile.WriteAllText(
-    TPath.Combine(FTestDir, 'Base.Dictionary' + ConfJsonFileApndx), '''
+    TPath.Combine(FTestPath, 'Base.Dictionary' + ConfJsonFileApndx), '''
     {
       "Template": "Base.Collections.Dictionary.TMPL.pas",
       "TCollectionsName": "CCollections",
@@ -131,7 +132,7 @@ begin
 
   // Base.List-conf.json
   TFile.WriteAllText(
-    TPath.Combine(FTestDir, 'Base.List' + ConfJsonFileApndx),  '''
+    TPath.Combine(FTestPath, 'Base.List' + ConfJsonFileApndx),  '''
     {
       "Template": "Base.Collections.List.TMPL.pas",
       "TCollectionsName": "CCollections",
@@ -145,7 +146,7 @@ begin
     ''');
 
   TFile.WriteAllText(
-    TPath.Combine(TemplatesPath, 'Base.Collections.Dictionary.TMPL.pas'), '''
+    TPath.Combine(FTestTemplatesPath, 'Base.Collections.Dictionary.TMPL.pas'), '''
     unit Base.Dictionary;
     interface
     {$REGION 'DEFINE-PARTIAL / interface'}
@@ -157,7 +158,7 @@ begin
     ''');
 
   TFile.WriteAllText(
-    TPath.Combine(TemplatesPath, 'Base.Collections.List.TMPL.pas'), '''
+    TPath.Combine(FTestTemplatesPath, 'Base.Collections.List.TMPL.pas'), '''
     unit Base.List;
     interface
     {$REGION 'DEFINE-PARTIAL / interface'}
@@ -171,12 +172,9 @@ end;
 
 procedure TTestTmplCodeGen.TestProcessPostFixParamsDefine;
 begin
-  var TemplatesPath := TPath.Combine(FTestDir, TemplatesDir);
-  ForceDirectories(TemplatesPath);
-
   TFile.WriteAllText(FPrefix + ConfJsonFileApndx, '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }');
 
-  TFile.WriteAllText(TPath.Combine(TemplatesPath, 'Main.pas.tmpl'), '''
+  TFile.WriteAllText(TPath.Combine(FTestTemplatesPath, 'Main.pas.tmpl'), '''
     unit Test;
     interface
 
