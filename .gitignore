@@ -1,6 +1,7 @@
 *.dcu
 __recovery
 __history
+Win32
 
 /Projects/**/*.identcache
 /Projects/**/*.dsk
