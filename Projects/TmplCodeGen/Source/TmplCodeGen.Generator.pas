@@ -24,6 +24,7 @@ uses
   mormot.core.variants,
 
   TmplCodeGen.Common,
+  TmplCodeGen.Logger,
   TmplCodeGen.PreProcess,
   TmplCodeGen.Utils;
 
@@ -33,6 +34,7 @@ type
   private
     FConfJson            : TDocVariantData;
     FConfJsonFileName    : String;
+    FLogger              : ILogger;
     FMainTemplate        : String;
     FMainTemplateFileName: String;
     FOutputFileName      : String;
@@ -45,7 +47,7 @@ type
     procedure PrefixHelper(const Value: Variant; out Result: Variant);
     procedure PreProcessConfJson;
   public
-    constructor Create(const APrefix: String);
+    constructor Create(const APrefix: String; const ALogger: ILogger);
     procedure ProcessTemplate;
   end;
 
@@ -53,9 +55,10 @@ implementation
 
 { TTmplCodeGen }
 
-constructor TTmplCodeGen.Create(const APrefix: String);
+constructor TTmplCodeGen.Create(const APrefix: String; const ALogger: ILogger);
 begin
   FPrefix := APrefix;
+  FLogger := ALogger;
 end;
 
 /// <remarks>
@@ -248,7 +251,7 @@ procedure TTmplCodeGen.ExportPartials(const AOutputContent: String);
     if EndIndex < StartIndex then
       raise Exception.Create('Invalid match positions');
 
-    Writeln('- ' + PartialFileName);
+    FLogger.Log('- ' + PartialFileName);
     PartialContent := Copy(AOutputContent, StartIndex, EndIndex - StartIndex);
     FileStream := nil;
     StringStream := TStringStream.Create(PartialContent, TEncoding.UTF8, false);
@@ -280,7 +283,7 @@ begin
       'Number of start/end regions %s (%d / %d) does not match',
       [DefinePartial, StartMatches.Count, EndMatches.Count]);
 
-  Writeln('Output Partials:');
+  FLogger.Log('Output Partials:');
 
   for Loop := 0 to StartMatches.Count - 1 do
     ExportPartial(StartMatches.Item[Loop]);
@@ -324,10 +327,10 @@ begin
 
   FOutputFileName := ExpandFileName(FPrefix + OutputApndx);
 
-  Writeln('Conf file         : ' + FConfJsonFileName);
-  Writeln('Main template     : ' + FMainTemplate);
-  Writeln('Main template file: ' + FMainTemplateFileName);
-  Writeln('Output file       : ' + FOutputFileName);
+  FLogger.Log('Conf file         : ' + FConfJsonFileName);
+  FLogger.Log('Main template     : ' + FMainTemplate);
+  FLogger.Log('Main template file: ' + FMainTemplateFileName);
+  FLogger.Log('Output file       : ' + FOutputFileName);
 
   TemplateContent := RawUtf8FromFile(FMainTemplateFileName);
   mustache := TSynMustache.Parse(TemplateContent);

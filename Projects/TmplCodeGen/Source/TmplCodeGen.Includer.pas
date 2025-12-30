@@ -16,16 +16,18 @@ uses
   System.SysUtils,
 
   TmplCodeGen.Common,
+  TmplCodeGen.Logger,
   TmplCodeGen.Utils;
 
 type
 
   TIncludePartials = class
   private
+    FLogger    : ILogger;
     FTargetFile: String;
     function RetakeInterfaceGuids(const AOldPartial, ANewPartial: String): String;
   public
-    constructor Create(const ATargetFile: String);
+    constructor Create(const ATargetFile: String; const ALogger: ILogger);
     procedure Execute;
   end;
 
@@ -33,9 +35,10 @@ implementation
 
 { TIncludePartials }
 
-constructor TIncludePartials.Create(const ATargetFile: String);
+constructor TIncludePartials.Create(const ATargetFile: String; const ALogger: ILogger);
 begin
   FTargetFile := ATargetFile;
+  FLogger := ALogger;
 end;
 
 procedure TIncludePartials.Execute;
@@ -56,7 +59,7 @@ var
   StartRegEx          : TRegEx;
   TargetContent       : String;
 begin
-  Writeln('Include-Partials in ' + FTargetFile);
+  FLogger.Log('Include-Partials in ' + FTargetFile);
 
   StartRegEx := TRegEx.Create(CreateRegExpr(IncludePartial, true), [roIgnoreCase]);
   EndRegEx := TRegEx.Create(CreateRegExpr(IncludePartial, false), [roIgnoreCase]);
@@ -92,7 +95,7 @@ begin
 
     TargetContent := BeforePartialContent + sLineBreak + PartialContent + sLineBreak +
       AfterPartialContent;
-    Writeln(Format(
+    FLogger.Log(Format(
       '- "%s" included between index %d and %d',
       [PartialFileName, StartIndex, EndIndex]));
     Inc(DoneIncludes);

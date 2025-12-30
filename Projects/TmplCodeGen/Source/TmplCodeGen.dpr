@@ -14,15 +14,17 @@ uses
   System.Diagnostics,
   System.SysUtils,
 
-  TmplCodeGen.Common in 'TmplCodeGen.Common.pas',
   TmplCodeGen.Generator in 'TmplCodeGen.Generator.pas',
   TmplCodeGen.Includer in 'TmplCodeGen.Includer.pas',
+  TmplCodeGen.Logger in 'TmplCodeGen.Logger.pas',
   TmplCodeGen.PreProcess in 'TmplCodeGen.PreProcess.pas',
-  TmplCodeGen.Utils in 'TmplCodeGen.Utils.pas';
+  TmplCodeGen.Utils in 'TmplCodeGen.Utils.pas',
+  TmplCodeGen.Common in 'TmplCodeGen.Common.pas';
 
 procedure ProcessTemplate(const APrefix: String);
 begin
-  var CodeGen: TTmplCodeGen := TTmplCodeGen.Create(APrefix);
+  var Logger: ILogger := TConsoleLogger.Create;
+  var CodeGen: TTmplCodeGen := TTmplCodeGen.Create(APrefix, Logger);
   try
     CodeGen.ProcessTemplate;
   finally
@@ -32,7 +34,8 @@ end;
 
 procedure IncludePartials(const ATargetFile: String);
 begin
-  var IncPartials: TIncludePartials := TIncludePartials.Create(ATargetFile);
+  var Logger: ILogger := TConsoleLogger.Create;
+  var IncPartials: TIncludePartials := TIncludePartials.Create(ATargetFile, Logger);
   try
     IncPartials.Execute;
   finally
