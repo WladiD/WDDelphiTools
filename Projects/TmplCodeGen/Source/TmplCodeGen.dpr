@@ -131,15 +131,15 @@ begin
 end;
 
 /// <remarks>
-/// Das PostFix-System: Im Template können gewünschte Zeilen durch ein
-/// Pascal-Zeilenkommentar (am Zeilenende) in der Form:
+/// The PostFix system: In the template, desired lines can be defined by a
+/// Pascal line comment (at the end of the line) in the form:
 /// <code>
-/// MeinPascalCode; // PostFixMyCommand
+/// MyPascalCode; // PostFixMyCommand
 /// </code>
-/// definiert werden und ermöglichen auf diese Art bestimmte Nachbehandlungen, die im
-/// Kontext der Mustache-Template-Engine nicht (oder nur aufwändig) möglich sind.
-/// Die PostFix-Behandlung findet nach dem Parsen des Templates statt,
-/// die PostFix-Kommentare werden dabei entfernt und sind in der Ausgabe nicht mehr enthalten.
+/// This allows for specific post-processing operations that are not (or only with difficulty)
+/// possible in the context of the Mustache template engine.
+/// PostFix processing takes place after the template has been parsed;
+/// the PostFix comments are removed and are no longer included in the output.
 /// </remarks>
 function TTmplCodeGen.PostFix(const AOutputContent: String): String;
 var
@@ -202,15 +202,15 @@ end;
 { ----------------------------------------------------------------------- }
 
 /// <remarks>
-/// Wenn im Template eine dynamische Anzahl von Parametern bei einer Methode umgesetzt werden soll,
-/// dann kann dieser PostFix hilfreich sein. Zum Beispiel:
-/// <code>procedure MeineMethode(); // PostFixParamsDefine</code>
-/// wird zu:
-/// <code>procedure MeineMethode;</code>
-/// Oder:
-/// <code>procedure MeineMethode(ADynParam: String; ADynParam2: Integer;); // PostFixParamsDefine</code>
-/// wird zu
-/// <code>procedure MeineMethode(ADynParam: String; ADynParam2: Integer);</code>
+/// If a dynamic number of parameters needs to be implemented for a method in the template,
+/// this PostFix can be helpful. For example:
+/// <code>procedure MyMethod(); // PostFixParamsDefine</code>
+/// becomes:
+/// <code>procedure MyMethod;</code>
+/// Or:
+/// <code>procedure MyMethod(ADynParam: String; ADynParam2: Integer;); // PostFixParamsDefine</code>
+/// becomes:
+/// <code>procedure MyMethod(ADynParam: String; ADynParam2: Integer);</code>
 /// </remarks>
 function TTmplCodeGen.PostFixParamsDefine(const ALine: String): String;
 begin
@@ -461,8 +461,8 @@ end;
 { ----------------------------------------------------------------------- }
 
 /// <remarks>
-/// Damit nicht bei jedem Durchlauf des Code-Generators neue GUIDs für die Interfaces vergeben
-/// werden, versuchen wir diese aus dem vorherigen Partial in das neue Partial zu übernehmen.
+/// To ensure that new GUIDs are not assigned to the interfaces with every run of the code generator,
+/// we try to adopt them from the previous partial into the new partial.
 /// </remarks>
 function TIncludePartials.RetakeInterfaceGuids(const AOldPartial, ANewPartial: String): String;
 const
