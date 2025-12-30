@@ -38,9 +38,10 @@
     <PropertyGroup Condition="'$(Base)'!=''">
         <SanitizedProjectName>Test_TmplCodeGen</SanitizedProjectName>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
+        <DCC_Define>TESTINSIGHT;$(DCC_Define)</DCC_Define>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>$(DUnitX);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;$(DUnitX);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UsingDelphiRTL>true</UsingDelphiRTL>
@@ -61,6 +62,7 @@
         <DCC_Optimize>false</DCC_Optimize>
         <DCC_RangeChecking>true</DCC_RangeChecking>
         <DCC_RemoteDebug>true</DCC_RemoteDebug>
+        <VerInfo_Locale>1031</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
@@ -75,6 +77,12 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
+        <DCCReference Include="..\Source\TmplCodeGen.Generator.pas"/>
+        <DCCReference Include="..\Source\TmplCodeGen.Includer.pas"/>
+        <DCCReference Include="..\Source\TmplCodeGen.Logger.pas"/>
+        <DCCReference Include="..\Source\TmplCodeGen.PreProcess.pas"/>
+        <DCCReference Include="..\Source\TmplCodeGen.Utils.pas"/>
+        <DCCReference Include="..\Source\TmplCodeGen.Common.pas"/>
         <DCCReference Include="Test.Generator.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
@@ -96,6 +104,7 @@
                 <Source>
                     <Source Name="MainSource">Test.TmplCodeGen.dpr</Source>
                 </Source>
+                <Excluded_Packages/>
             </Delphi.Personality>
             <Platforms>
                 <Platform value="Win32">True</Platform>

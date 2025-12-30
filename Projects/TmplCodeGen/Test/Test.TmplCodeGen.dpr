@@ -13,6 +13,12 @@ uses
   DUnitX.Loggers.Xml.NUnit,
   {$ENDIF }
   DUnitX.TestFramework,
+  TmplCodeGen.Generator in '..\Source\TmplCodeGen.Generator.pas',
+  TmplCodeGen.Includer in '..\Source\TmplCodeGen.Includer.pas',
+  TmplCodeGen.Logger in '..\Source\TmplCodeGen.Logger.pas',
+  TmplCodeGen.PreProcess in '..\Source\TmplCodeGen.PreProcess.pas',
+  TmplCodeGen.Utils in '..\Source\TmplCodeGen.Utils.pas',
+  TmplCodeGen.Common in '..\Source\TmplCodeGen.Common.pas',
   Test.Generator in 'Test.Generator.pas';
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
