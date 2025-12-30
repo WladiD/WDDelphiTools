@@ -39,8 +39,9 @@ type
     FOldDir : String;
     FTestDir: String;
     FPrefix : String;
+    procedure CreateCaseAMockEnvironment;
     procedure CreateMockEnvironment;
-    procedure CreateComplexMockEnvironment;
+    procedure ExecuteTmplCodeGen(const APrefix: String);
   public
     [Setup]
     procedure Setup;
@@ -49,7 +50,7 @@ type
     [Test]
     procedure TestProcessTemplate;
     [Test]
-    procedure TestProcessComplexCase;
+    procedure TestProcessCaseA;
   end;
 
 implementation
@@ -112,7 +113,17 @@ begin
   TFile.WriteAllText(TPath.Combine(TemplatesPath, 'Main.pas.tmpl'), TemplateContent);
 end;
 
-procedure TTestTmplCodeGen.CreateComplexMockEnvironment;
+procedure TTestTmplCodeGen.ExecuteTmplCodeGen(const APrefix: String);
+begin
+  var Generator := TTmplCodeGen.Create(APrefix, FLogger);
+  try
+    Generator.ProcessTemplate;
+  finally
+    Generator.Free;
+  end;
+end;
+
+procedure TTestTmplCodeGen.CreateCaseAMockEnvironment;
 begin
   var TemplatesPath := TPath.Combine(FTestDir, TemplatesDir);
   ForceDirectories(TemplatesPath);
@@ -180,13 +191,7 @@ procedure TTestTmplCodeGen.TestProcessTemplate;
 begin
   CreateMockEnvironment;
 
-  var Generator := TTmplCodeGen.Create('TestProj', FLogger);
-  try
-    Generator.ProcessTemplate;
-  finally
-    Generator.Free;
-  end;
-
+  ExecuteTmplCodeGen('TestProj');
   var OutputFile := 'TestProj' + OutputApndx;
   Assert.IsTrue(TFile.Exists(OutputFile), 'Output file should be created');
 
@@ -196,29 +201,17 @@ begin
   Assert.IsTrue(Content.Contains('procedure Run;'), 'PostFix should have corrected procedure declaration');
 end;
 
-procedure TTestTmplCodeGen.TestProcessComplexCase;
+procedure TTestTmplCodeGen.TestProcessCaseA;
 begin
-  CreateComplexMockEnvironment;
+  CreateCaseAMockEnvironment;
 
   // Process Base.Dictionary
-  var GeneratorDict := TTmplCodeGen.Create('Base.Dictionary', FLogger);
-  try
-    GeneratorDict.ProcessTemplate;
-  finally
-    GeneratorDict.Free;
-  end;
-
+  ExecuteTmplCodeGen('Base.Dictionary');
   Assert.IsTrue(TFile.Exists('Base.Dictionary.pas'), 'Base.Dictionary.pas should exist');
   Assert.IsTrue(TFile.Exists('Base.Dictionary-interface.part.pas'), 'Base.Dictionary-interface.part.pas should exist');
 
   // Process Base.List
-  var GeneratorList := TTmplCodeGen.Create('Base.List', FLogger);
-  try
-    GeneratorList.ProcessTemplate;
-  finally
-    GeneratorList.Free;
-  end;
-
+  ExecuteTmplCodeGen('Base.List');
   Assert.IsTrue(TFile.Exists('Base.List.pas'), 'Base.List.pas should exist');
   Assert.IsTrue(TFile.Exists('Base.List-interface.part.pas'), 'Base.List-interface.part.pas should exist');
 end;
