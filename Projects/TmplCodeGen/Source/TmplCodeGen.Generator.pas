@@ -102,8 +102,6 @@ begin
   end;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function TTmplCodeGen.PostFixParamsCall(const ALine: String): String;
 var
   Match           : TMatch;
@@ -135,8 +133,6 @@ begin
     Result := Copy(ALine, 1, ParenthesesGroup.Index - 1) + Parentheses +
       Copy(ALine, ParenthesesGroup.Index + ParenthesesGroup.Length);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 /// <remarks>
 /// If a dynamic number of parameters needs to be implemented for a method in the template,
@@ -182,8 +178,6 @@ begin
       Copy(ALine, ParenthesesGroup.Index + ParenthesesGroup.Length);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function TTmplCodeGen.PostFixRoute(const ACommand, ALine: String): String;
 begin
   if SameText(ACommand, 'PostFixParamsDefine') then
@@ -200,14 +194,10 @@ begin
   end;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure TTmplCodeGen.PrefixHelper(const Value: Variant; out Result: Variant);
 begin
   Result := FPrefix;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure TTmplCodeGen.PreProcessConfJson;
 var
@@ -221,8 +211,6 @@ begin
     PreProcessor.Free;
   end;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure TTmplCodeGen.ExportPartials(const AOutputContent: String);
 
@@ -364,3 +352,4 @@ begin
 end;
 
 end.
+
