@@ -1,4 +1,10 @@
-﻿unit Collections.Interfaces;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit Collections.Interfaces;
 
 interface
 
@@ -25,8 +31,8 @@ type
     procedure Reverse;
     procedure SetCapacity(AValue: Integer);
     procedure Sort(ACompare: TOnDynArraySortCompare = nil);
-    property Capacity: Integer read GetCapacity write SetCapacity;
-    property Count: Integer read GetCount;
+    property  Capacity: Integer read GetCapacity write SetCapacity;
+    property  Count: Integer read GetCount;
   end;
 
   IDictionary = interface
