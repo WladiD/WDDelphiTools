@@ -13,6 +13,7 @@ uses
   System.Classes,
   System.Contnrs,
   System.SysUtils,
+  System.Types,
 
   mormot.core.base,
   mormot.core.collections,

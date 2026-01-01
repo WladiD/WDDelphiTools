@@ -11,6 +11,7 @@ uses
   mormot.core.base,
   mormot.core.collections,
   mormot.core.data,
+  mormot.core.rtti,
 
   Collections.Interfaces;
 
