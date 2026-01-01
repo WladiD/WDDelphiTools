@@ -1,0 +1,128 @@
+{
+  "Template": "Collections.Dictionary.TMPL.pas",
+  "TCollectionsName": "TCollections",
+  "types": [
+    {
+      "key_type": "Integer",
+      "key_flat": "Integer",
+      "value_type": "IInterface",
+      "value_flat": "IInterface",
+      "disable_key_interfaces": true
+    },
+    {
+      "key_type": "Integer",
+      "key_flat": "Integer",
+      "value_type": "String",
+      "value_flat": "String",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "Integer",
+      "key_flat": "Integer",
+      "value_type": "TGUID",
+      "value_flat": "TGUID",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "Integer",
+      "key_flat": "Integer",
+      "value_type": "TObject",
+      "value_flat": "TObject",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true,
+      "value_is_object": true
+    },
+    {
+      "key_type": "String",
+      "key_flat": "String",
+      "value_type": "Integer",
+      "value_flat": "Integer",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "String",
+      "key_flat": "String",
+      "value_type": "String",
+      "value_flat": "String",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "String",
+      "key_flat": "String",
+      "value_type": "TGUID",
+      "value_flat": "TGUID",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "String",
+      "key_flat": "String",
+      "value_type": "TNotifyEvent",
+      "value_flat": "TNotifyEvent",
+      "disable_key_interfaces": true,
+      "value_is_method": true
+    },
+    {
+      "key_type": "String",
+      "key_flat": "String",
+      "value_type": "TObject",
+      "value_flat": "TObject",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true,
+      "value_is_object": true
+    },
+    {
+      "key_type": "TObject",
+      "key_flat": "TObject",
+      "value_type": "TObject",
+      "value_flat": "TObject",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true,
+      "key_is_object": true,
+      "value_is_object": true
+    },
+    {
+      "key_type": "TClass",
+      "key_flat": "TClass",
+      "value_type": "TObject",
+      "value_flat": "TObject",
+      "disable_value_interfaces": true,
+      "value_is_object": true
+    },
+    {
+      "key_type": "TGUID",
+      "key_flat": "TGUID",
+      "value_type": "Boolean",
+      "value_flat": "Boolean",
+      "disable_key_interfaces": true
+    },
+    {
+      "key_type": "TGUID",
+      "key_flat": "TGUID",
+      "value_type": "Integer",
+      "value_flat": "Integer",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "TGUID",
+      "key_flat": "TGUID",
+      "value_type": "String",
+      "value_flat": "String",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    },
+    {
+      "key_type": "TGUID",
+      "key_flat": "TGUID",
+      "value_type": "TGUID",
+      "value_flat": "TGUID",
+      "disable_key_interfaces": true,
+      "disable_value_interfaces": true
+    }
+  ]
+}

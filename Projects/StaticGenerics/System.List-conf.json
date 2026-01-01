@@ -1,0 +1,37 @@
+{
+  "Template": "Collections.List.TMPL.pas",
+  "TCollectionsName": "TCollections",
+  "types": [
+    {
+      "type": "Integer",
+      "type_flat": "Integer"
+    },
+    {
+      "type": "String",
+      "type_flat": "String",
+      "factory": {
+        "enable_create_copy_from_array": true,
+        "enable_create_unique": true
+      }
+    },
+    {
+      "type": "TGUID",
+      "type_flat": "TGUID"
+    },
+    {
+      "type": "TObject",
+      "type_flat": "TObject"
+    },
+    {
+      "type": "TComponent",
+      "type_flat": "TComponent"
+    },
+    {
+      "type": "Double",
+      "type_flat": "Double",
+      "factory": {
+        "enable_create_unique": true
+      }
+    }
+  ]
+}
