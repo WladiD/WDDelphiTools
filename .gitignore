@@ -14,3 +14,5 @@ Win32
 /Projects/DcuCompileTimes/Test/*.res
 /Projects/DcuCompileTimes/Test/TestInsightSettings.ini
 /Projects/DcuCompileTimes/Test/dunitx-results.xml
+
+/Projects/TmplCodeGen/TmplCodeGen.exe
