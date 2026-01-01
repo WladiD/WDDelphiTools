@@ -201,9 +201,9 @@ end;
 
 procedure TTmplCodeGen.PreProcessConfJson;
 var
-  PreProcessor: CPreProcessConfigForBaseCollectionsList;
+  PreProcessor: TPreProcessConfigForCollectionsList;
 begin
-  PreProcessor := CPreProcessConfigForBaseCollectionsList.Create(FConfJson);
+  PreProcessor := TPreProcessConfigForCollectionsList.Create(FConfJson);
   try
     if PreProcessor.Execute then
       FConfJson := PreProcessor.ConfJsonOut;

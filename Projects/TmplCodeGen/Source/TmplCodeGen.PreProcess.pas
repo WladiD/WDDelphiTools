@@ -1,15 +1,6 @@
-﻿// ======================================================================
-//
-// TmplCodeGen.PreProcess
-//
-// Autor: Waldemar Derr
-//
-// ======================================================================
-unit TmplCodeGen.PreProcess;
+﻿unit TmplCodeGen.PreProcess;
 
-{ ======================================================================= }
 interface
-{ ======================================================================= }
 
 uses
 
@@ -24,7 +15,7 @@ uses
 
 type
 
-  CPreProcessConfigForBaseCollectionsList = class
+  TPreProcessConfigForCollectionsList = class
    strict private
     FConfJsonIn: TDocVariantData;
     FConfJsonOut: TDocVariantData;
@@ -41,18 +32,16 @@ type
 implementation
 { ======================================================================= }
 
-{ ======================================================================= }
-{ CPreProcessConfigForBaseCollectionsList                                 }
-{ ======================================================================= }
+{ TPreProcessConfigForCollectionsList }
 
-constructor CPreProcessConfigForBaseCollectionsList.Create(const AConfJsonIn: TDocVariantData);
+constructor TPreProcessConfigForCollectionsList.Create(const AConfJsonIn: TDocVariantData);
 begin
   FConfJsonIn:=AConfJsonIn;
 end;
 
 { ----------------------------------------------------------------------- }
 
-procedure CPreProcessConfigForBaseCollectionsList.EnableKnownFlagsForObjectTypes(ATypeObj: PDocVariantData);
+procedure TPreProcessConfigForCollectionsList.EnableKnownFlagsForObjectTypes(ATypeObj: PDocVariantData);
 begin
   if not ATypeObj.Exists('IList')
     then ATypeObj.AddObject([],'IList');
@@ -68,11 +57,11 @@ end;
 { ----------------------------------------------------------------------- }
 
 /// <summary>Verarbeitet die Konfiguration und liefert True, wenn er irgendetwas daran verändert hat</summary>
-function CPreProcessConfigForBaseCollectionsList.Execute: Boolean;
+function TPreProcessConfigForCollectionsList.Execute: Boolean;
 begin
   Result:=
     FConfJsonIn.Exists('Template') and
-    SameText(FConfJsonIn.S['Template'],'Base.Collections.List.TMPL.pas') and
+    SameText(FConfJsonIn.S['Template'],'Collections.List.TMPL.pas') and
     FConfJsonIn.Exists('types');
   if not Result
     then Exit;
@@ -105,7 +94,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CPreProcessConfigForBaseCollectionsList.IsTypeKnownObjectType(const ATypeName: String): Boolean;
+function TPreProcessConfigForCollectionsList.IsTypeKnownObjectType(const ATypeName: String): Boolean;
 begin
   Result:=
     StartsStr('C',ATypeName) or

@@ -83,11 +83,12 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="TmplCodeGen.Common.pas"/>
         <DCCReference Include="TmplCodeGen.Generator.pas"/>
         <DCCReference Include="TmplCodeGen.Includer.pas"/>
+        <DCCReference Include="TmplCodeGen.Logger.pas"/>
         <DCCReference Include="TmplCodeGen.PreProcess.pas"/>
         <DCCReference Include="TmplCodeGen.Utils.pas"/>
+        <DCCReference Include="TmplCodeGen.Common.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

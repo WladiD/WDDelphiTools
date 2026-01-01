@@ -38,11 +38,11 @@ type
     class function CreateList_TGUID: IList_TGUID; overload; static;
     class function CreateList_TGUID(const ACopyFrom: IEnumerable_TGUID): IList_TGUID; overload; static;
 
-    class function CreateList_TObject: IList_TObject; overload; static;
-    class function CreateList_TObject(const ACopyFrom: IEnumerable_TObject): IList_TObject; overload; static;
+    class function CreateList_TObject(AOwnsObjects: Boolean = true): IList_TObject; overload; static;
+    class function CreateList_TObject(const ACopyFrom: IEnumerable_TObject; AOwnsObjects: Boolean): IList_TObject; overload; static;
 
-    class function CreateList_TComponent: IList_TComponent; overload; static;
-    class function CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent): IList_TComponent; overload; static;
+    class function CreateList_TComponent(AOwnsObjects: Boolean = true): IList_TComponent; overload; static;
+    class function CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent; AOwnsObjects: Boolean): IList_TComponent; overload; static;
 
     class function CreateList_Double: IList_Double; overload; static;
     class function CreateList_Double(const ACopyFrom: IEnumerable_Double): IList_Double; overload; static;
@@ -574,336 +574,6 @@ end;
 
 type
 
-  CListEnumerator_TObject = class(CListEnumeratorBase, IEnumerator_TObject)
-   strict protected
-    function GetCurrent: TObject;
-  end;
-
-  CList_TObject = class(CList, IList_TObject, IEnumerable_TObject)
-   protected
-    function  Add(const AItem: TObject): Integer;
-    procedure AddRange(const AValues: array of TObject);
-    function  Contains(const AValue: TObject): Boolean;
-    function  Extract(const AItem: TObject): TObject;
-    function  First: TObject;
-    function  FirstOrDefault: TObject;
-    function  GetEnumerator: IEnumerator_TObject;
-    function  GetItem(AIndex: Integer): TObject;
-    function  GetRange(AIndex, ACount: Integer): IList_TObject;
-    function  IndexOf(const AItem: TObject): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TObject);
-    function  Last: TObject;
-    function  LastOrDefault: TObject;
-    function  Remove(const AItem: TObject): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: TObject);
-    function  ToArray(AOffset, ACount: Integer): TArray<TObject>;
-  end;
-
-{ ======================================================================= }
-// CListEnumerator_TObject
-{ ======================================================================= }
-
-function CListEnumerator_TObject.GetCurrent: TObject;
-begin
-  Result:=CList_TObject(FList).GetItem(FIndex);
-end;
-
-{ ======================================================================= }
-// CList_TObject
-{ ======================================================================= }
-
-function CList_TObject.Add(const AItem: TObject): Integer;
-var
-  Added: boolean;
-begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<TObject>(fValue)[Result]:=AItem;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TObject.AddRange(const AValues: array of TObject);
-begin
-  for var Value in AValues
-    do Add(Value);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.Contains(const AValue: TObject): Boolean;
-begin
-  Result:=IndexOf(AValue)>=0;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.Extract(const AItem: TObject): TObject;
-begin
-  Result:=TObject(Extract(AItem));
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.First: TObject;
-begin
-  Result:=GetItem(0);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.FirstOrDefault: TObject;
-begin
-  if IsEmpty
-    then Result:=Default(TObject)
-    else Result:=GetItem(0);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.GetEnumerator: IEnumerator_TObject;
-begin
-  Result:=CListEnumerator_TObject.Create(Self);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.GetItem(AIndex: Integer): TObject;
-begin
-  if AIndex>=fCount then
-    RaiseGetItem(AIndex);
-  Result:=TArray<TObject>(fValue)[AIndex];
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.GetRange(AIndex, ACount: Integer): IList_TObject;
-begin
-  Result:=TCollections.CreateList_TObject(GetRange(AIndex,ACount) as IEnumerable_TObject);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.IndexOf(const AItem: TObject): Integer;
-begin
-  Result:=DoFind(AItem,nil);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TObject.Insert(AIndex: Integer; const AItem: TObject);
-begin
-  DoInsert(AIndex,AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.Last: TObject;
-begin
-  Result:=GetItem(GetCount-1);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.LastOrDefault: TObject;
-begin
-  if IsEmpty
-    then Result:=Default(TObject)
-    else Result:=GetItem(Count-1);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.Remove(const AItem: TObject): Boolean;
-begin
-  Result:=DoRemove(AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TObject.SetItem(AIndex: Integer; const AValue: TObject);
-begin
-  if Assigned(fHasher) or (AIndex>=fCount)
-    then RaiseSetItem(AIndex);
-  TArray<TObject>(fValue)[AIndex]:=AValue;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TObject.ToArray(AOffset, ACount: Integer): TArray<TObject>;
-begin
-  fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-type
-
-  CListEnumerator_TComponent = class(CListEnumeratorBase, IEnumerator_TComponent)
-   strict protected
-    function GetCurrent: TComponent;
-  end;
-
-  CList_TComponent = class(CList, IList_TComponent, IEnumerable_TComponent)
-   protected
-    function  Add(const AItem: TComponent): Integer;
-    procedure AddRange(const AValues: array of TComponent);
-    function  Contains(const AValue: TComponent): Boolean;
-    function  Extract(const AItem: TComponent): TComponent;
-    function  First: TComponent;
-    function  FirstOrDefault: TComponent;
-    function  GetEnumerator: IEnumerator_TComponent;
-    function  GetItem(AIndex: Integer): TComponent;
-    function  GetRange(AIndex, ACount: Integer): IList_TComponent;
-    function  IndexOf(const AItem: TComponent): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TComponent);
-    function  Last: TComponent;
-    function  LastOrDefault: TComponent;
-    function  Remove(const AItem: TComponent): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: TComponent);
-    function  ToArray(AOffset, ACount: Integer): TArray<TComponent>;
-  end;
-
-{ ======================================================================= }
-// CListEnumerator_TComponent
-{ ======================================================================= }
-
-function CListEnumerator_TComponent.GetCurrent: TComponent;
-begin
-  Result:=CList_TComponent(FList).GetItem(FIndex);
-end;
-
-{ ======================================================================= }
-// CList_TComponent
-{ ======================================================================= }
-
-function CList_TComponent.Add(const AItem: TComponent): Integer;
-var
-  Added: boolean;
-begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<TComponent>(fValue)[Result]:=AItem;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TComponent.AddRange(const AValues: array of TComponent);
-begin
-  for var Value in AValues
-    do Add(Value);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.Contains(const AValue: TComponent): Boolean;
-begin
-  Result:=IndexOf(AValue)>=0;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.Extract(const AItem: TComponent): TComponent;
-begin
-  Result:=TComponent(Extract(AItem));
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.First: TComponent;
-begin
-  Result:=GetItem(0);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.FirstOrDefault: TComponent;
-begin
-  if IsEmpty
-    then Result:=Default(TComponent)
-    else Result:=GetItem(0);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.GetEnumerator: IEnumerator_TComponent;
-begin
-  Result:=CListEnumerator_TComponent.Create(Self);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.GetItem(AIndex: Integer): TComponent;
-begin
-  if AIndex>=fCount then
-    RaiseGetItem(AIndex);
-  Result:=TArray<TComponent>(fValue)[AIndex];
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.GetRange(AIndex, ACount: Integer): IList_TComponent;
-begin
-  Result:=TCollections.CreateList_TComponent(GetRange(AIndex,ACount) as IEnumerable_TComponent);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.IndexOf(const AItem: TComponent): Integer;
-begin
-  Result:=DoFind(AItem,nil);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TComponent.Insert(AIndex: Integer; const AItem: TComponent);
-begin
-  DoInsert(AIndex,AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.Last: TComponent;
-begin
-  Result:=GetItem(GetCount-1);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.LastOrDefault: TComponent;
-begin
-  if IsEmpty
-    then Result:=Default(TComponent)
-    else Result:=GetItem(Count-1);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.Remove(const AItem: TComponent): Boolean;
-begin
-  Result:=DoRemove(AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-procedure CList_TComponent.SetItem(AIndex: Integer; const AValue: TComponent);
-begin
-  if Assigned(fHasher) or (AIndex>=fCount)
-    then RaiseSetItem(AIndex);
-  TArray<TComponent>(fValue)[AIndex]:=AValue;
-end;
-
-{ ----------------------------------------------------------------------- }
-
-function CList_TComponent.ToArray(AOffset, ACount: Integer): TArray<TComponent>;
-begin
-  fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-type
-
   CListEnumerator_Double = class(CListEnumeratorBase, IEnumerator_Double)
    strict protected
     function GetCurrent: Double;
@@ -1069,6 +739,40 @@ end;
 // TCollections
 { ======================================================================= }
 
+class function TCollections.CreateList_TObject(AOwnsObjects: Boolean = true): IList_TObject;
+begin
+  var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TObject,IEnumerable_TObject);
+  Result:=IList_TObject(TempList);
+end;
+
+{ ----------------------------------------------------------------------- }
+
+class function TCollections.CreateList_TObject(const ACopyFrom: IEnumerable_TObject; AOwnsObjects: Boolean): IList_TObject;
+begin
+  Result:=CreateList_TObject(AOwnsObjects);
+  for var AItem in ACopyFrom
+    do Result.Add(AItem);
+end;
+
+{ ----------------------------------------------------------------------- }
+
+class function TCollections.CreateList_TComponent(AOwnsObjects: Boolean = true): IList_TComponent;
+begin
+  var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TComponent,IEnumerable_TComponent);
+  Result:=IList_TComponent(TempList);
+end;
+
+{ ----------------------------------------------------------------------- }
+
+class function TCollections.CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent; AOwnsObjects: Boolean): IList_TComponent;
+begin
+  Result:=CreateList_TComponent(AOwnsObjects);
+  for var AItem in ACopyFrom
+    do Result.Add(AItem);
+end;
+
+{ ----------------------------------------------------------------------- }
+
 class function TCollections.CreateList_Integer: IList_Integer;
 begin
   Result:=CList_Integer.Create(TypeInfo(TArray<Integer>),TypeInfo(Integer));
@@ -1127,38 +831,6 @@ end;
 class function TCollections.CreateList_TGUID(const ACopyFrom: IEnumerable_TGUID): IList_TGUID;
 begin
   Result:=CreateList_TGUID;
-  for var AItem in ACopyFrom
-    do Result.Add(AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-class function TCollections.CreateList_TObject: IList_TObject;
-begin
-  Result:=CList_TObject.Create(TypeInfo(TArray<TObject>),TypeInfo(TObject));
-end;
-
-{ ----------------------------------------------------------------------- }
-
-class function TCollections.CreateList_TObject(const ACopyFrom: IEnumerable_TObject): IList_TObject;
-begin
-  Result:=CreateList_TObject;
-  for var AItem in ACopyFrom
-    do Result.Add(AItem);
-end;
-
-{ ----------------------------------------------------------------------- }
-
-class function TCollections.CreateList_TComponent: IList_TComponent;
-begin
-  Result:=CList_TComponent.Create(TypeInfo(TArray<TComponent>),TypeInfo(TComponent));
-end;
-
-{ ----------------------------------------------------------------------- }
-
-class function TCollections.CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent): IList_TComponent;
-begin
-  Result:=CreateList_TComponent;
   for var AItem in ACopyFrom
     do Result.Add(AItem);
 end;

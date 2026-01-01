@@ -152,6 +152,8 @@ type
     ['{09193831-72AB-4C07-9A00-3AB7C6B2FE7C}']
     function  Add(const AItem: TObject): Integer;
     procedure AddRange(const AValues: array of TObject);
+    function  All(const APredicate: TPredicate_TObject): Boolean;
+    function  Concat(const ASecond: IEnumerable_TObject): IList_TObject;
     function  Contains(const AValue: TObject): Boolean;
     function  Extract(const AItem: TObject): TObject;
     function  First: TObject;
@@ -164,8 +166,10 @@ type
     function  Last: TObject;
     function  LastOrDefault: TObject;
     function  Remove(const AItem: TObject): Boolean;
+    function  RemoveAll(const APredicate: TPredicate_TObject): Integer;
     procedure SetItem(AIndex: Integer; const AValue: TObject);
     function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+    function  Where(const APredicate: TPredicate_TObject): IEnumerable_TObject;
     property  Items[AIndex: Integer]: TObject read GetItem write SetItem; default;
   end;
 
@@ -190,6 +194,8 @@ type
     ['{8F88FB61-CBA4-4199-B456-945E2833858C}']
     function  Add(const AItem: TComponent): Integer;
     procedure AddRange(const AValues: array of TComponent);
+    function  All(const APredicate: TPredicate_TComponent): Boolean;
+    function  Concat(const ASecond: IEnumerable_TComponent): IList_TComponent;
     function  Contains(const AValue: TComponent): Boolean;
     function  Extract(const AItem: TComponent): TComponent;
     function  First: TComponent;
@@ -202,8 +208,10 @@ type
     function  Last: TComponent;
     function  LastOrDefault: TComponent;
     function  Remove(const AItem: TComponent): Boolean;
+    function  RemoveAll(const APredicate: TPredicate_TComponent): Integer;
     procedure SetItem(AIndex: Integer; const AValue: TComponent);
     function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TComponent>;
+    function  Where(const APredicate: TPredicate_TComponent): IEnumerable_TComponent;
     property  Items[AIndex: Integer]: TComponent read GetItem write SetItem; default;
   end;
 

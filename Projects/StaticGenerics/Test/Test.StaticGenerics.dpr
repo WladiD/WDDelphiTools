@@ -13,10 +13,7 @@ uses
   DUnitX.Loggers.Xml.NUnit,
   {$ENDIF }
   DUnitX.TestFramework,
-  Test.System.Collections in 'Test.System.Collections.pas',
-  Collections.Tools in '..\Source\Collections.Tools.pas',
-  Collections.Interfaces in '..\Source\Collections.Interfaces.pas',
-  Collections.List in '..\Source\Collections.List.pas';
+  Test.System.Collections in 'Test.System.Collections.pas';
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

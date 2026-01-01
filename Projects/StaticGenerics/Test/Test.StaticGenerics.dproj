@@ -38,6 +38,7 @@
     <PropertyGroup Condition="'$(Base)'!=''">
         <SanitizedProjectName>Test_StaticGenerics</SanitizedProjectName>
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
+        <DCC_Define>TESTINSIGHT;$(DCC_Define)</DCC_Define>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
         <DCC_UnitSearchPath>..\Source;..\..\..\Lib\mORMot\src\core;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
@@ -77,9 +78,6 @@
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
         <DCCReference Include="Test.System.Collections.pas"/>
-        <DCCReference Include="..\Source\Collections.Tools.pas"/>
-        <DCCReference Include="..\Source\Collections.Interfaces.pas"/>
-        <DCCReference Include="..\Source\Collections.List.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
