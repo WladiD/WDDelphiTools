@@ -179,45 +179,44 @@ end;
 {[#IList.enable_all]}
 function CList_{[type_flat]}.All(const APredicate: TPredicate_{[type_flat]}): Boolean;
 begin
-  for var Loop:=0 to GetCount-1 do
-  begin
+  for var Loop: Integer := 0 to GetCount - 1 do
     if not APredicate(GetItem(Loop)) 
-      then Exit(false);
-  end;
-  Result:=true;
+      then Exit(False);
+  Result := True;
 end;
 
 {[/IList.enable_all]}
 
 function CList_{[type_flat]}.Contains(const AValue: {[type]}): Boolean;
 begin
-  Result:=IndexOf(AValue)>=0;
+  Result := IndexOf(AValue) >= 0;
 end;
 {[#IList.enable_distinct]}
 
 function CList_{[type_flat]}.Distinct: IEnumerable_{[type_flat]};
 begin
-  var DistinctList:=FList.Distinct;
-  var ResultList:=TBaseCollections.CreateList_{[type_flat]}(DistinctList.ToArray);
-  Result:=ResultList as IEnumerable_{[type_flat]};
+  var DistinctList := FList.Distinct;
+  var ResultList := TBaseCollections.CreateList_{[type_flat]}(DistinctList.ToArray);
+  Result := ResultList as IEnumerable_{[type_flat]};
 end;
 {[/IList.enable_distinct]}
 
 function CList_{[type_flat]}.Extract(const AItem: {[type]}): {[type]};
 begin
-  Result:={[type]}(Extract(AItem));
+  Result := {[type]}(Extract(AItem));
 end;
 
 function CList_{[type_flat]}.First: {[type]};
 begin
-  Result:=GetItem(0);
+  Result := GetItem(0);
 end;
 
 function CList_{[type_flat]}.FirstOrDefault: {[type]};
 begin
-  if IsEmpty
-    then Result:=Default({[type]})
-    else Result:=GetItem(0);
+  if IsEmpty then
+    Result := Default({[type]})
+  else 
+    Result := GetItem(0);
 end;
 
 function CList_{[type_flat]}.GetEnumerator: IEnumerator_{[type_flat]};
@@ -366,4 +365,5 @@ end;
 {$ENDREGION 'DEFINE-PARTIAL / implementation'}
 
 end.
+
 
