@@ -55,8 +55,6 @@ type
     property  Items[AIndex: Integer]: Integer read GetItem write SetItem; default;
   end;
 
-{ ----------------------------------------------------------------------- }
-
   IEnumerator_String = interface
     ['{F8417A49-C88E-4CA0-BA9D-CC6BB5C1C931}']
     function GetCurrent: String;
@@ -93,8 +91,6 @@ type
     property  Items[AIndex: Integer]: String read GetItem write SetItem; default;
   end;
 
-{ ----------------------------------------------------------------------- }
-
   IEnumerator_TGUID = interface
     ['{A1366364-7308-4168-9E31-694F1A927F3B}']
     function GetCurrent: TGUID;
@@ -130,8 +126,6 @@ type
     function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
     property  Items[AIndex: Integer]: TGUID read GetItem write SetItem; default;
   end;
-
-{ ----------------------------------------------------------------------- }
 
   IEnumerator_TObject = interface
     ['{19FFFEE6-2098-49FE-A1C6-214F4ABCB827}']
@@ -173,8 +167,6 @@ type
     property  Items[AIndex: Integer]: TObject read GetItem write SetItem; default;
   end;
 
-{ ----------------------------------------------------------------------- }
-
   IEnumerator_TComponent = interface
     ['{7C23F0EA-1F5A-4A57-8E91-1A1E977B3DC1}']
     function GetCurrent: TComponent;
@@ -214,8 +206,6 @@ type
     function  Where(const APredicate: TPredicate_TComponent): IEnumerable_TComponent;
     property  Items[AIndex: Integer]: TComponent read GetItem write SetItem; default;
   end;
-
-{ ----------------------------------------------------------------------- }
 
   IEnumerator_Double = interface
     ['{A7CD8DD0-C093-4E4E-B8BA-57798E15E011}']

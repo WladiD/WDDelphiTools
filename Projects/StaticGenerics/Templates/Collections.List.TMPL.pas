@@ -3,17 +3,13 @@
 
 unit {[Prefix]};
 
-{ ======================================================================= }
 interface
-{ ======================================================================= }
 
 uses
 
   System.SysUtils,
 
   Base.Collections.List;
-
-{ ----------------------------------------------------------------------- }
 
 type
 
@@ -66,7 +62,6 @@ type
     property  Items[AIndex: Integer]: {[type]} read GetItem write SetItem; default;
   end;
 
-{ ----------------------------------------------------------------------- }
   {$ENDREGION 'DEFINE-PARTIAL / interface-{[type_flat]}'}
 {[/types]}
 
@@ -99,9 +94,7 @@ type
 {$ENDREGION 'DEFINE-PARTIAL / factory-methods-interface'}
   end;
 
-{ ======================================================================= }
 implementation
-{ ======================================================================= }
 
 {$REGION 'DEFINE-PARTIAL / implementation'}
 
@@ -149,19 +142,14 @@ type
     {[/IList.enable_where]}
   end;
 
-
-{ ======================================================================= }
-// CListEnumerator_{[type_flat]}
-{ ======================================================================= }
+{ CListEnumerator_{[type_flat]} }
 
 function CListEnumerator_{[type_flat]}.GetCurrent: {[type]};
 begin
   Result:=CList_{[type_flat]}(FList).GetItem(FIndex);
 end;
 
-{ ======================================================================= }
-// CList_{[type_flat]}
-{ ======================================================================= }
+{ CList_{[type_flat]} }
 
 {[#IList.enable_concat]}
 function CList_{[type_flat]}.Concat(const ASecond: IEnumerable_{[type_flat]}): IList_{[type_flat]};
@@ -171,7 +159,6 @@ begin
     do Result.Add(Item);
 end;
 
-{ ----------------------------------------------------------------------- }
 {[/IList.enable_concat]}
 
 function CList_{[type_flat]}.Add(const AItem: {[type]}): Integer;
@@ -183,15 +170,11 @@ begin
     then TArray<{[type]}>(fValue)[Result]:=AItem;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_{[type_flat]}.AddRange(const AValues: array of {[type]});
 begin
   for var Value in AValues
     do Add(Value);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 {[#IList.enable_all]}
 function CList_{[type_flat]}.All(const APredicate: TPredicate_{[type_flat]}): Boolean;
@@ -204,15 +187,12 @@ begin
   Result:=true;
 end;
 
-{ ----------------------------------------------------------------------- }
 {[/IList.enable_all]}
 
 function CList_{[type_flat]}.Contains(const AValue: {[type]}): Boolean;
 begin
   Result:=IndexOf(AValue)>=0;
 end;
-
-{ ----------------------------------------------------------------------- }
 {[#IList.enable_distinct]}
 
 function CList_{[type_flat]}.Distinct: IEnumerable_{[type_flat]};
@@ -221,7 +201,6 @@ begin
   var ResultList:=TBaseCollections.CreateList_{[type_flat]}(DistinctList.ToArray);
   Result:=ResultList as IEnumerable_{[type_flat]};
 end;
-{ ----------------------------------------------------------------------- }
 {[/IList.enable_distinct]}
 
 function CList_{[type_flat]}.Extract(const AItem: {[type]}): {[type]};
@@ -229,14 +208,10 @@ begin
   Result:={[type]}(Extract(AItem));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.First: {[type]};
 begin
   Result:=GetItem(0);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_{[type_flat]}.FirstOrDefault: {[type]};
 begin
@@ -245,14 +220,10 @@ begin
     else Result:=GetItem(0);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.GetEnumerator: IEnumerator_{[type_flat]};
 begin
   Result:=CListEnumerator_{[type_flat]}.Create(Self);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_{[type_flat]}.GetItem(AIndex: Integer): {[type]};
 begin
@@ -261,35 +232,25 @@ begin
   Result:=TArray<{[type]}>(fValue)[AIndex];
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.GetRange(AIndex, ACount: Integer): IList_{[type_flat]};
 begin
   Result:={[TCollectionsName]}.CreateList_{[type_flat]}(GetRange(AIndex,ACount) as IEnumerable_{[type_flat]});
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_{[type_flat]}.IndexOf(const AItem: {[type]}): Integer;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_{[type_flat]}.Insert(AIndex: Integer; const AItem: {[type]});
 begin
   DoInsert(AIndex,AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.Last: {[type]};
 begin
   Result:=GetItem(GetCount-1);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_{[type_flat]}.LastOrDefault: {[type]};
 begin
@@ -298,14 +259,10 @@ begin
     else Result:=GetItem(Count-1);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.Remove(const AItem: {[type]}): Boolean;
 begin
   Result:=DoRemove(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 {[#IList.enable_remove_all]}
 function CList_{[type_flat]}.RemoveAll(const APredicate: TPredicate_{[type_flat]}): Integer;
@@ -320,8 +277,6 @@ begin
     end;
   end;
 end;
-
-{ ----------------------------------------------------------------------- }
 {[/IList.enable_remove_all]}
 
 procedure CList_{[type_flat]}.SetItem(AIndex: Integer; const AValue: {[type]});
@@ -331,14 +286,10 @@ begin
   TArray<{[type]}>(fValue)[AIndex]:=AValue;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_{[type_flat]}.ToArray(AOffset, ACount: Integer): TArray<{[type]}>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 {[#IList.enable_where]}
 
@@ -356,15 +307,11 @@ begin
   if ResultList.Any 
     then Result:=ResultList as IEnumerable_{[type_flat]};  
 end;
-
-{ ----------------------------------------------------------------------- }
 {[/IList.enable_where]}
 
 {[/type_is_object]}{[/types]}
 
-{ ======================================================================= }
-// {[TCollectionsName]}
-{ ======================================================================= }
+{ {[TCollectionsName]} }
 
 {[#types]}{[#type_is_object]}
 class function {[TCollectionsName]}.CreateList_{[type_flat]}(AOwnsObjects: Boolean = true): IList_{[type_flat]};
@@ -373,16 +320,12 @@ begin
   Result:=IList_{[type_flat]}(TempList);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function {[TCollectionsName]}.CreateList_{[type_flat]}(const ACopyFrom: IEnumerable_{[type_flat]}; AOwnsObjects: Boolean): IList_{[type_flat]};
 begin
   Result:=CreateList_{[type_flat]}(AOwnsObjects);
   for var AItem in ACopyFrom
     do Result.Add(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 {[/type_is_object]}{[/types]}
 
@@ -393,7 +336,6 @@ begin
 end;
 
 {[#factory.enable_create_unique]}
-{ ----------------------------------------------------------------------- }
 
 class function {[TCollectionsName]}.CreateListUnique_{[type_flat]}: IList_{[type_flat]};
 begin
@@ -401,8 +343,6 @@ begin
 end;
 
 {[/factory.enable_create_unique]}
-
-{ ----------------------------------------------------------------------- }
 
 class function {[TCollectionsName]}.CreateList_{[type_flat]}(const ACopyFrom: IEnumerable_{[type_flat]}): IList_{[type_flat]};
 begin
@@ -412,7 +352,6 @@ begin
 end;
 
 {[#factory.enable_create_copy_from_array]}
-{ ----------------------------------------------------------------------- }
 
 class function {[TCollectionsName]}.CreateList_{[type_flat]}(const ACopyFrom: array of String): IList_{[type_flat]};
 begin
@@ -422,11 +361,8 @@ begin
 end;
 {[/factory.enable_create_copy_from_array]}
 
-{ ----------------------------------------------------------------------- }
-
 {[/type_is_object]}{[/types]}
 
 {$ENDREGION 'DEFINE-PARTIAL / implementation'}
 
-{ ======================================================================= }
 end.

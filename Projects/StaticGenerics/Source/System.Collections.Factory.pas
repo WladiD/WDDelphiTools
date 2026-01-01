@@ -108,18 +108,14 @@ type
     function  ToArray(AOffset, ACount: Integer): TArray<Integer>;
   end;
 
-{ ======================================================================= }
-// CListEnumerator_Integer
-{ ======================================================================= }
+{ CListEnumerator_Integer }
 
 function CListEnumerator_Integer.GetCurrent: Integer;
 begin
   Result:=CList_Integer(FList).GetItem(FIndex);
 end;
 
-{ ======================================================================= }
-// CList_Integer
-{ ======================================================================= }
+{ CList_Integer }
 
 function CList_Integer.Add(const AItem: Integer): Integer;
 var
@@ -130,36 +126,26 @@ begin
     then TArray<Integer>(fValue)[Result]:=AItem;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_Integer.AddRange(const AValues: array of Integer);
 begin
   for var Value in AValues
     do Add(Value);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.Contains(const AValue: Integer): Boolean;
 begin
   Result:=IndexOf(AValue)>=0;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Integer.Extract(const AItem: Integer): Integer;
 begin
   Result:=Integer(Extract(AItem));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.First: Integer;
 begin
   Result:=GetItem(0);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Integer.FirstOrDefault: Integer;
 begin
@@ -168,14 +154,10 @@ begin
     else Result:=GetItem(0);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.GetEnumerator: IEnumerator_Integer;
 begin
   Result:=CListEnumerator_Integer.Create(Self);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Integer.GetItem(AIndex: Integer): Integer;
 begin
@@ -184,35 +166,25 @@ begin
   Result:=TArray<Integer>(fValue)[AIndex];
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.GetRange(AIndex, ACount: Integer): IList_Integer;
 begin
   Result:=TCollections.CreateList_Integer(GetRange(AIndex,ACount) as IEnumerable_Integer);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Integer.IndexOf(const AItem: Integer): Integer;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_Integer.Insert(AIndex: Integer; const AItem: Integer);
 begin
   DoInsert(AIndex,AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.Last: Integer;
 begin
   Result:=GetItem(GetCount-1);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Integer.LastOrDefault: Integer;
 begin
@@ -221,14 +193,10 @@ begin
     else Result:=GetItem(Count-1);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.Remove(const AItem: Integer): Boolean;
 begin
   Result:=DoRemove(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure CList_Integer.SetItem(AIndex: Integer; const AValue: Integer);
 begin
@@ -237,14 +205,10 @@ begin
   TArray<Integer>(fValue)[AIndex]:=AValue;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Integer.ToArray(AOffset, ACount: Integer): TArray<Integer>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 type
 
@@ -273,18 +237,14 @@ type
     function  ToArray(AOffset, ACount: Integer): TArray<String>;
   end;
 
-{ ======================================================================= }
-// CListEnumerator_String
-{ ======================================================================= }
+{ CListEnumerator_String }
 
 function CListEnumerator_String.GetCurrent: String;
 begin
   Result:=CList_String(FList).GetItem(FIndex);
 end;
 
-{ ======================================================================= }
-// CList_String
-{ ======================================================================= }
+{ CList_String }
 
 function CList_String.Add(const AItem: String): Integer;
 var
@@ -295,36 +255,26 @@ begin
     then TArray<String>(fValue)[Result]:=AItem;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_String.AddRange(const AValues: array of String);
 begin
   for var Value in AValues
     do Add(Value);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.Contains(const AValue: String): Boolean;
 begin
   Result:=IndexOf(AValue)>=0;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_String.Extract(const AItem: String): String;
 begin
   Result:=String(Extract(AItem));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.First: String;
 begin
   Result:=GetItem(0);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_String.FirstOrDefault: String;
 begin
@@ -333,14 +283,10 @@ begin
     else Result:=GetItem(0);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.GetEnumerator: IEnumerator_String;
 begin
   Result:=CListEnumerator_String.Create(Self);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_String.GetItem(AIndex: Integer): String;
 begin
@@ -349,35 +295,25 @@ begin
   Result:=TArray<String>(fValue)[AIndex];
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.GetRange(AIndex, ACount: Integer): IList_String;
 begin
   Result:=TCollections.CreateList_String(GetRange(AIndex,ACount) as IEnumerable_String);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_String.IndexOf(const AItem: String): Integer;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_String.Insert(AIndex: Integer; const AItem: String);
 begin
   DoInsert(AIndex,AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.Last: String;
 begin
   Result:=GetItem(GetCount-1);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_String.LastOrDefault: String;
 begin
@@ -386,14 +322,10 @@ begin
     else Result:=GetItem(Count-1);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.Remove(const AItem: String): Boolean;
 begin
   Result:=DoRemove(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure CList_String.SetItem(AIndex: Integer; const AValue: String);
 begin
@@ -402,14 +334,10 @@ begin
   TArray<String>(fValue)[AIndex]:=AValue;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_String.ToArray(AOffset, ACount: Integer): TArray<String>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 type
 
@@ -438,18 +366,14 @@ type
     function  ToArray(AOffset, ACount: Integer): TArray<TGUID>;
   end;
 
-{ ======================================================================= }
-// CListEnumerator_TGUID
-{ ======================================================================= }
+{ CListEnumerator_TGUID }
 
 function CListEnumerator_TGUID.GetCurrent: TGUID;
 begin
   Result:=CList_TGUID(FList).GetItem(FIndex);
 end;
 
-{ ======================================================================= }
-// CList_TGUID
-{ ======================================================================= }
+{ CList_TGUID }
 
 function CList_TGUID.Add(const AItem: TGUID): Integer;
 var
@@ -460,36 +384,26 @@ begin
     then TArray<TGUID>(fValue)[Result]:=AItem;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_TGUID.AddRange(const AValues: array of TGUID);
 begin
   for var Value in AValues
     do Add(Value);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.Contains(const AValue: TGUID): Boolean;
 begin
   Result:=IndexOf(AValue)>=0;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_TGUID.Extract(const AItem: TGUID): TGUID;
 begin
   Result:=TGUID(Extract(AItem));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.First: TGUID;
 begin
   Result:=GetItem(0);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_TGUID.FirstOrDefault: TGUID;
 begin
@@ -498,14 +412,10 @@ begin
     else Result:=GetItem(0);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.GetEnumerator: IEnumerator_TGUID;
 begin
   Result:=CListEnumerator_TGUID.Create(Self);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_TGUID.GetItem(AIndex: Integer): TGUID;
 begin
@@ -514,35 +424,25 @@ begin
   Result:=TArray<TGUID>(fValue)[AIndex];
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.GetRange(AIndex, ACount: Integer): IList_TGUID;
 begin
   Result:=TCollections.CreateList_TGUID(GetRange(AIndex,ACount) as IEnumerable_TGUID);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_TGUID.IndexOf(const AItem: TGUID): Integer;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_TGUID.Insert(AIndex: Integer; const AItem: TGUID);
 begin
   DoInsert(AIndex,AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.Last: TGUID;
 begin
   Result:=GetItem(GetCount-1);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_TGUID.LastOrDefault: TGUID;
 begin
@@ -551,14 +451,10 @@ begin
     else Result:=GetItem(Count-1);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.Remove(const AItem: TGUID): Boolean;
 begin
   Result:=DoRemove(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure CList_TGUID.SetItem(AIndex: Integer; const AValue: TGUID);
 begin
@@ -567,14 +463,10 @@ begin
   TArray<TGUID>(fValue)[AIndex]:=AValue;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_TGUID.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 type
 
@@ -603,18 +495,14 @@ type
     function  ToArray(AOffset, ACount: Integer): TArray<Double>;
   end;
 
-{ ======================================================================= }
-// CListEnumerator_Double
-{ ======================================================================= }
+{ CListEnumerator_Double }
 
 function CListEnumerator_Double.GetCurrent: Double;
 begin
   Result:=CList_Double(FList).GetItem(FIndex);
 end;
 
-{ ======================================================================= }
-// CList_Double
-{ ======================================================================= }
+{ CList_Double }
 
 function CList_Double.Add(const AItem: Double): Integer;
 var
@@ -625,36 +513,26 @@ begin
     then TArray<Double>(fValue)[Result]:=AItem;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_Double.AddRange(const AValues: array of Double);
 begin
   for var Value in AValues
     do Add(Value);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.Contains(const AValue: Double): Boolean;
 begin
   Result:=IndexOf(AValue)>=0;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Double.Extract(const AItem: Double): Double;
 begin
   Result:=Double(Extract(AItem));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.First: Double;
 begin
   Result:=GetItem(0);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Double.FirstOrDefault: Double;
 begin
@@ -663,14 +541,10 @@ begin
     else Result:=GetItem(0);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.GetEnumerator: IEnumerator_Double;
 begin
   Result:=CListEnumerator_Double.Create(Self);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Double.GetItem(AIndex: Integer): Double;
 begin
@@ -679,35 +553,25 @@ begin
   Result:=TArray<Double>(fValue)[AIndex];
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.GetRange(AIndex, ACount: Integer): IList_Double;
 begin
   Result:=TCollections.CreateList_Double(GetRange(AIndex,ACount) as IEnumerable_Double);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Double.IndexOf(const AItem: Double): Integer;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CList_Double.Insert(AIndex: Integer; const AItem: Double);
 begin
   DoInsert(AIndex,AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.Last: Double;
 begin
   Result:=GetItem(GetCount-1);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CList_Double.LastOrDefault: Double;
 begin
@@ -716,14 +580,10 @@ begin
     else Result:=GetItem(Count-1);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.Remove(const AItem: Double): Boolean;
 begin
   Result:=DoRemove(AItem);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure CList_Double.SetItem(AIndex: Integer; const AValue: Double);
 begin
@@ -732,24 +592,18 @@ begin
   TArray<Double>(fValue)[AIndex]:=AValue;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CList_Double.ToArray(AOffset, ACount: Integer): TArray<Double>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// TCollections
-{ ======================================================================= }
+{ TCollections }
 
 class function TCollections.CreateList_TObject(AOwnsObjects: Boolean = true): IList_TObject;
 begin
   var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TObject,IEnumerable_TObject);
   Result:=IList_TObject(TempList);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_TObject(const ACopyFrom: IEnumerable_TObject; AOwnsObjects: Boolean): IList_TObject;
 begin
@@ -758,15 +612,11 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_TComponent(AOwnsObjects: Boolean = true): IList_TComponent;
 begin
   var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TComponent,IEnumerable_TComponent);
   Result:=IList_TComponent(TempList);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent; AOwnsObjects: Boolean): IList_TComponent;
 begin
@@ -775,14 +625,10 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_Integer: IList_Integer;
 begin
   Result:=CList_Integer.Create(TypeInfo(TArray<Integer>),TypeInfo(Integer));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_Integer(const ACopyFrom: IEnumerable_Integer): IList_Integer;
 begin
@@ -791,21 +637,15 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_String: IList_String;
 begin
   Result:=CList_String.Create(TypeInfo(TArray<String>),TypeInfo(String));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateListUnique_String: IList_String;
 begin
   Result:=CList_String.Create(TypeInfo(TArray<String>),TypeInfo(String),[loCreateUniqueIndex]);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_String(const ACopyFrom: IEnumerable_String): IList_String;
 begin
@@ -814,8 +654,6 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_String(const ACopyFrom: array of String): IList_String;
 begin
   Result:=CreateList_String;
@@ -823,14 +661,10 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_TGUID: IList_TGUID;
 begin
   Result:=CList_TGUID.Create(TypeInfo(TArray<TGUID>),TypeInfo(TGUID));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_TGUID(const ACopyFrom: IEnumerable_TGUID): IList_TGUID;
 begin
@@ -839,21 +673,15 @@ begin
     do Result.Add(AItem);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateList_Double: IList_Double;
 begin
   Result:=CList_Double.Create(TypeInfo(TArray<Double>),TypeInfo(Double));
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateListUnique_Double: IList_Double;
 begin
   Result:=CList_Double.Create(TypeInfo(TArray<Double>),TypeInfo(Double),[loCreateUniqueIndex]);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateList_Double(const ACopyFrom: IEnumerable_Double): IList_Double;
 begin
