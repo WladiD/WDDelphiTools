@@ -25,7 +25,7 @@ type
 
   {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
   CList = class(TIListParent, IList)
-   strict protected // IList member
+  strict protected // IList member
     function  Any: Boolean;
     procedure Delete(AIndex: Integer);
     procedure DeleteRange(AIndex, ACount: Integer);
@@ -36,11 +36,11 @@ type
   end;
 
   CListEnumeratorBase = class(TInterfacedObject)
-   strict protected
+  strict protected
     FList: CList;
     FIndex: Integer;
     function MoveNext: Boolean;
-   public
+  public
     constructor Create(AList: CList);
   end;
 
@@ -133,3 +133,4 @@ begin
 end;
 
 end.
+
