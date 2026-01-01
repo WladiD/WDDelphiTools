@@ -146,7 +146,7 @@ type
 
 function CListEnumerator_{[type_flat]}.GetCurrent: {[type]};
 begin
-  Result:=CList_{[type_flat]}(FList).GetItem(FIndex);
+  Result := CList_{[type_flat]}(FList).GetItem(FIndex);
 end;
 
 { CList_{[type_flat]} }
@@ -154,26 +154,26 @@ end;
 {[#IList.enable_concat]}
 function CList_{[type_flat]}.Concat(const ASecond: IEnumerable_{[type_flat]}): IList_{[type_flat]};
 begin
-  Result:={[TCollectionsName]}.CreateList_{[type_flat]}(Self);
-  for var Item in ASecond 
-    do Result.Add(Item);
+  Result := {[TCollectionsName]}.CreateList_{[type_flat]}(Self);
+  for var Item in ASecond do 
+    Result.Add(Item);
 end;
 
 {[/IList.enable_concat]}
 
 function CList_{[type_flat]}.Add(const AItem: {[type]}): Integer;
 var
-  Added: boolean;
+  Added: Boolean;
 begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<{[type]}>(fValue)[Result]:=AItem;
+  Result := DoAdd(AItem, Added);
+  if Added then 
+    TArray<{[type]}>(fValue)[Result] := AItem;
 end;
 
 procedure CList_{[type_flat]}.AddRange(const AValues: array of {[type]});
 begin
-  for var Value in AValues
-    do Add(Value);
+  for var Value in AValues do 
+    Add(Value);
 end;
 
 {[#IList.enable_all]}
@@ -366,3 +366,4 @@ end;
 {$ENDREGION 'DEFINE-PARTIAL / implementation'}
 
 end.
+
