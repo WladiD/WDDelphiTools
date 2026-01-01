@@ -1,4 +1,10 @@
-﻿unit System.Collections.Factory;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit System.Collections.Factory;
 
 interface
 
@@ -71,9 +77,7 @@ type
     {$ENDREGION 'INCLUDE-PARTIAL / System.Dictionary-factory-methods-interface.part.pas'}
   end;
 
-{ ======================================================================= }
 implementation
-{ ======================================================================= }
 
 {$REGION 'INCLUDE-PARTIAL / System.List-implementation.part.pas'}
 
@@ -910,9 +914,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface.CPairEnumerator }
 
 function CDictionary_Integer_IInterface.CPairEnumerator.GetCurrent: TPair_Integer_IInterface;
 begin
@@ -920,27 +922,21 @@ begin
   Result.Value:=IInterface(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface.CKeyEnumerator }
 
 function CDictionary_Integer_IInterface.CKeyEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface.CValueEnumerator }
 
 function CDictionary_Integer_IInterface.CValueEnumerator.GetCurrent: IInterface;
 begin
   Result:=IInterface(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface.CKeyEnumerable }
 
 function CDictionary_Integer_IInterface.CKeyEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
@@ -954,32 +950,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface.CValueEnumerable }
 
 function CDictionary_Integer_IInterface.CValueEnumerable.GetEnumerator: IEnumerator_IInterface;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_IInterface.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<IInterface>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_IInterface
-{ ======================================================================= }
+{ CDictionary_Integer_IInterface }
 
 constructor CDictionary_Integer_IInterface.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<Integer>),TypeInfo(TArray<IInterface>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_IInterface.Contains(const AKey: Integer; const AValue: IInterface): Boolean;
 begin
@@ -987,35 +975,25 @@ begin
   Result:=Assigned(ValuePointer) and (IInterface(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_IInterface.ContainsKey(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_IInterface.Extract(const AKey: Integer): IInterface;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_IInterface.Remove(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_IInterface.GetEnumerator: IPairEnumerator_Integer_IInterface;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_IInterface.GetItem(const AKey: Integer): IInterface;
 begin
@@ -1025,35 +1003,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_IInterface.SetItem(const AKey: Integer; const AValue: IInterface);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_IInterface.GetKeyEnumerable: IEnumerable_Integer;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_IInterface.GetValueEnumerable: IEnumerable_IInterface;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_IInterface.Add(const AKey: Integer; const AValue: IInterface);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_IInterface.TryGetValue(const AKey: Integer; out AValue: IInterface): Boolean;
 begin
@@ -1110,9 +1078,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_String.CPairEnumerator }
 
 function CDictionary_Integer_String.CPairEnumerator.GetCurrent: TPair_Integer_String;
 begin
@@ -1120,27 +1086,21 @@ begin
   Result.Value:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_String.CKeyEnumerator }
 
 function CDictionary_Integer_String.CKeyEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_String.CValueEnumerator }
 
 function CDictionary_Integer_String.CValueEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_String.CKeyEnumerable }
 
 function CDictionary_Integer_String.CKeyEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
@@ -1154,32 +1114,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_String.CValueEnumerable }
 
 function CDictionary_Integer_String.CValueEnumerable.GetEnumerator: IEnumerator_String;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_String
-{ ======================================================================= }
+{ CDictionary_Integer_String }
 
 constructor CDictionary_Integer_String.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<Integer>),TypeInfo(TArray<String>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_String.Contains(const AKey: Integer; const AValue: String): Boolean;
 begin
@@ -1187,35 +1139,25 @@ begin
   Result:=Assigned(ValuePointer) and (String(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_String.ContainsKey(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_String.Extract(const AKey: Integer): String;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_String.Remove(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_String.GetEnumerator: IPairEnumerator_Integer_String;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_String.GetItem(const AKey: Integer): String;
 begin
@@ -1225,35 +1167,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_String.SetItem(const AKey: Integer; const AValue: String);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_String.GetKeyEnumerable: IEnumerable_Integer;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_String.GetValueEnumerable: IEnumerable_String;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_String.Add(const AKey: Integer; const AValue: String);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_String.TryGetValue(const AKey: Integer; out AValue: String): Boolean;
 begin
@@ -1310,9 +1242,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID.CPairEnumerator }
 
 function CDictionary_Integer_TGUID.CPairEnumerator.GetCurrent: TPair_Integer_TGUID;
 begin
@@ -1320,27 +1250,21 @@ begin
   Result.Value:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID.CKeyEnumerator }
 
 function CDictionary_Integer_TGUID.CKeyEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID.CValueEnumerator }
 
 function CDictionary_Integer_TGUID.CValueEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID.CKeyEnumerable }
 
 function CDictionary_Integer_TGUID.CKeyEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
@@ -1354,32 +1278,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID.CValueEnumerable }
 
 function CDictionary_Integer_TGUID.CValueEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TGUID
-{ ======================================================================= }
+{ CDictionary_Integer_TGUID }
 
 constructor CDictionary_Integer_TGUID.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<Integer>),TypeInfo(TArray<TGUID>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TGUID.Contains(const AKey: Integer; const AValue: TGUID): Boolean;
 begin
@@ -1387,35 +1303,25 @@ begin
   Result:=Assigned(ValuePointer) and (TGUID(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TGUID.ContainsKey(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TGUID.Extract(const AKey: Integer): TGUID;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TGUID.Remove(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TGUID.GetEnumerator: IPairEnumerator_Integer_TGUID;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TGUID.GetItem(const AKey: Integer): TGUID;
 begin
@@ -1425,35 +1331,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_TGUID.SetItem(const AKey: Integer; const AValue: TGUID);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TGUID.GetKeyEnumerable: IEnumerable_Integer;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TGUID.GetValueEnumerable: IEnumerable_TGUID;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_TGUID.Add(const AKey: Integer; const AValue: TGUID);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TGUID.TryGetValue(const AKey: Integer; out AValue: TGUID): Boolean;
 begin
@@ -1511,9 +1407,7 @@ type
     constructor Create(AOwnValues: Boolean);
   end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TObject.CPairEnumerator }
 
 function CDictionary_Integer_TObject.CPairEnumerator.GetCurrent: TPair_Integer_TObject;
 begin
@@ -1521,27 +1415,21 @@ begin
   Result.Value:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TObject.CKeyEnumerator }
 
 function CDictionary_Integer_TObject.CKeyEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_Integer_TObject.CValueEnumerator }
 
 function CDictionary_Integer_TObject.CValueEnumerator.GetCurrent: TObject;
 begin
   Result:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_TObject.CKeyEnumerable }
 
 function CDictionary_Integer_TObject.CKeyEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
@@ -1555,25 +1443,19 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_Integer_TObject.CValueEnumerable }
 
 function CDictionary_Integer_TObject.CValueEnumerable.GetEnumerator: IEnumerator_TObject;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_Integer_TObject
-{ ======================================================================= }
+{ CDictionary_Integer_TObject }
 
 constructor CDictionary_Integer_TObject.Create(AOwnValues: Boolean);
 begin
@@ -1582,22 +1464,16 @@ begin
   PDynArray(@FSynDict.Values).NoFinalize:=not FOwnValues;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.Contains(const AKey: Integer; const AValue: TObject): Boolean;
 begin
   var ValuePointer: Pointer:=FSynDict.FindValue(AKey);
   Result:=Assigned(ValuePointer) and (TObject(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.ContainsKey(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TObject.Extract(const AKey: Integer): TObject;
 begin
@@ -1609,21 +1485,15 @@ begin
     then ValuesDynArray.NoFinalize:=false;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.Remove(const AKey: Integer): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.GetEnumerator: IPairEnumerator_Integer_TObject;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TObject.GetItem(const AKey: Integer): TObject;
 begin
@@ -1633,35 +1503,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_TObject.SetItem(const AKey: Integer; const AValue: TObject);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TObject.GetKeyEnumerable: IEnumerable_Integer;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_Integer_TObject.GetValueEnumerable: IEnumerable_TObject;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_Integer_TObject.Add(const AKey: Integer; const AValue: TObject);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_Integer_TObject.TryGetValue(const AKey: Integer; out AValue: TObject): Boolean;
 begin
@@ -1718,9 +1578,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_String_Integer.CPairEnumerator }
 
 function CDictionary_String_Integer.CPairEnumerator.GetCurrent: TPair_String_Integer;
 begin
@@ -1728,27 +1586,21 @@ begin
   Result.Value:=Integer(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_String_Integer.CKeyEnumerator }
 
 function CDictionary_String_Integer.CKeyEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_String_Integer.CValueEnumerator }
 
 function CDictionary_String_Integer.CValueEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_String_Integer.CKeyEnumerable }
 
 function CDictionary_String_Integer.CKeyEnumerable.GetEnumerator: IEnumerator_String;
 begin
@@ -1762,32 +1614,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_String_Integer.CValueEnumerable }
 
 function CDictionary_String_Integer.CValueEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_Integer.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_Integer
-{ ======================================================================= }
+{ CDictionary_String_Integer }
 
 constructor CDictionary_String_Integer.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<String>),TypeInfo(TArray<Integer>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_Integer.Contains(const AKey: String; const AValue: Integer): Boolean;
 begin
@@ -1795,35 +1639,25 @@ begin
   Result:=Assigned(ValuePointer) and (Integer(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_Integer.ContainsKey(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_Integer.Extract(const AKey: String): Integer;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_Integer.Remove(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_Integer.GetEnumerator: IPairEnumerator_String_Integer;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_Integer.GetItem(const AKey: String): Integer;
 begin
@@ -1833,35 +1667,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_Integer.SetItem(const AKey: String; const AValue: Integer);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_Integer.GetKeyEnumerable: IEnumerable_String;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_Integer.GetValueEnumerable: IEnumerable_Integer;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_Integer.Add(const AKey: String; const AValue: Integer);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_Integer.TryGetValue(const AKey: String; out AValue: Integer): Boolean;
 begin
@@ -1918,9 +1742,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_String_String.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_String_String.CPairEnumerator }
 
 function CDictionary_String_String.CPairEnumerator.GetCurrent: TPair_String_String;
 begin
@@ -1928,27 +1750,21 @@ begin
   Result.Value:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_String.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_String_String.CKeyEnumerator }
 
 function CDictionary_String_String.CKeyEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_String.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_String_String.CValueEnumerator }
 
 function CDictionary_String_String.CValueEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_String.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_String_String.CKeyEnumerable }
 
 function CDictionary_String_String.CKeyEnumerable.GetEnumerator: IEnumerator_String;
 begin
@@ -1962,32 +1778,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_String.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_String_String.CValueEnumerable }
 
 function CDictionary_String_String.CValueEnumerable.GetEnumerator: IEnumerator_String;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_String
-{ ======================================================================= }
+{ CDictionary_String_String }
 
 constructor CDictionary_String_String.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<String>),TypeInfo(TArray<String>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_String.Contains(const AKey: String; const AValue: String): Boolean;
 begin
@@ -1995,35 +1803,25 @@ begin
   Result:=Assigned(ValuePointer) and (String(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_String.ContainsKey(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_String.Extract(const AKey: String): String;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_String.Remove(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_String.GetEnumerator: IPairEnumerator_String_String;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_String.GetItem(const AKey: String): String;
 begin
@@ -2033,35 +1831,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_String.SetItem(const AKey: String; const AValue: String);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_String.GetKeyEnumerable: IEnumerable_String;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_String.GetValueEnumerable: IEnumerable_String;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_String.Add(const AKey: String; const AValue: String);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_String.TryGetValue(const AKey: String; out AValue: String): Boolean;
 begin
@@ -2118,9 +1906,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TGUID.CPairEnumerator }
 
 function CDictionary_String_TGUID.CPairEnumerator.GetCurrent: TPair_String_TGUID;
 begin
@@ -2128,27 +1914,21 @@ begin
   Result.Value:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TGUID.CKeyEnumerator }
 
 function CDictionary_String_TGUID.CKeyEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TGUID.CValueEnumerator }
 
 function CDictionary_String_TGUID.CValueEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TGUID.CKeyEnumerable }
 
 function CDictionary_String_TGUID.CKeyEnumerable.GetEnumerator: IEnumerator_String;
 begin
@@ -2162,32 +1942,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TGUID.CValueEnumerable }
 
 function CDictionary_String_TGUID.CValueEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TGUID
-{ ======================================================================= }
+{ CDictionary_String_TGUID }
 
 constructor CDictionary_String_TGUID.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<String>),TypeInfo(TArray<TGUID>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TGUID.Contains(const AKey: String; const AValue: TGUID): Boolean;
 begin
@@ -2195,35 +1967,25 @@ begin
   Result:=Assigned(ValuePointer) and (TGUID(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TGUID.ContainsKey(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TGUID.Extract(const AKey: String): TGUID;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TGUID.Remove(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TGUID.GetEnumerator: IPairEnumerator_String_TGUID;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TGUID.GetItem(const AKey: String): TGUID;
 begin
@@ -2233,35 +1995,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TGUID.SetItem(const AKey: String; const AValue: TGUID);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TGUID.GetKeyEnumerable: IEnumerable_String;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TGUID.GetValueEnumerable: IEnumerable_TGUID;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TGUID.Add(const AKey: String; const AValue: TGUID);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TGUID.TryGetValue(const AKey: String; out AValue: TGUID): Boolean;
 begin
@@ -2318,9 +2070,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent.CPairEnumerator }
 
 function CDictionary_String_TNotifyEvent.CPairEnumerator.GetCurrent: TPair_String_TNotifyEvent;
 begin
@@ -2328,27 +2078,21 @@ begin
   Result.Value:=TNotifyEvent(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent.CKeyEnumerator }
 
 function CDictionary_String_TNotifyEvent.CKeyEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent.CValueEnumerator }
 
 function CDictionary_String_TNotifyEvent.CValueEnumerator.GetCurrent: TNotifyEvent;
 begin
   Result:=TNotifyEvent(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent.CKeyEnumerable }
 
 function CDictionary_String_TNotifyEvent.CKeyEnumerable.GetEnumerator: IEnumerator_String;
 begin
@@ -2362,32 +2106,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent.CValueEnumerable }
 
 function CDictionary_String_TNotifyEvent.CValueEnumerable.GetEnumerator: IEnumerator_TNotifyEvent;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TNotifyEvent.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TNotifyEvent>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TNotifyEvent
-{ ======================================================================= }
+{ CDictionary_String_TNotifyEvent }
 
 constructor CDictionary_String_TNotifyEvent.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<String>),TypeInfo(TArray<TNotifyEvent>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TNotifyEvent.Contains(const AKey: String; const AValue: TNotifyEvent): Boolean;
 var 
@@ -2397,35 +2133,25 @@ begin
   Result:=Assigned(ValuePointer) and (Pointer(ValuePointer^)=ArgValuePointer);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TNotifyEvent.ContainsKey(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TNotifyEvent.Extract(const AKey: String): TNotifyEvent;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TNotifyEvent.Remove(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TNotifyEvent.GetEnumerator: IPairEnumerator_String_TNotifyEvent;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TNotifyEvent.GetItem(const AKey: String): TNotifyEvent;
 begin
@@ -2435,35 +2161,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TNotifyEvent.SetItem(const AKey: String; const AValue: TNotifyEvent);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TNotifyEvent.GetKeyEnumerable: IEnumerable_String;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TNotifyEvent.GetValueEnumerable: IEnumerable_TNotifyEvent;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TNotifyEvent.Add(const AKey: String; const AValue: TNotifyEvent);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TNotifyEvent.TryGetValue(const AKey: String; out AValue: TNotifyEvent): Boolean;
 begin
@@ -2521,9 +2237,7 @@ type
     constructor Create(AOwnValues: Boolean);
   end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TObject.CPairEnumerator }
 
 function CDictionary_String_TObject.CPairEnumerator.GetCurrent: TPair_String_TObject;
 begin
@@ -2531,27 +2245,21 @@ begin
   Result.Value:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TObject.CKeyEnumerator }
 
 function CDictionary_String_TObject.CKeyEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_String_TObject.CValueEnumerator }
 
 function CDictionary_String_TObject.CValueEnumerator.GetCurrent: TObject;
 begin
   Result:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TObject.CKeyEnumerable }
 
 function CDictionary_String_TObject.CKeyEnumerable.GetEnumerator: IEnumerator_String;
 begin
@@ -2565,25 +2273,19 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_String_TObject.CValueEnumerable }
 
 function CDictionary_String_TObject.CValueEnumerable.GetEnumerator: IEnumerator_TObject;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_String_TObject
-{ ======================================================================= }
+{ CDictionary_String_TObject }
 
 constructor CDictionary_String_TObject.Create(AOwnValues: Boolean);
 begin
@@ -2592,22 +2294,16 @@ begin
   PDynArray(@FSynDict.Values).NoFinalize:=not FOwnValues;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.Contains(const AKey: String; const AValue: TObject): Boolean;
 begin
   var ValuePointer: Pointer:=FSynDict.FindValue(AKey);
   Result:=Assigned(ValuePointer) and (TObject(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.ContainsKey(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TObject.Extract(const AKey: String): TObject;
 begin
@@ -2619,21 +2315,15 @@ begin
     then ValuesDynArray.NoFinalize:=false;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.Remove(const AKey: String): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.GetEnumerator: IPairEnumerator_String_TObject;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TObject.GetItem(const AKey: String): TObject;
 begin
@@ -2643,35 +2333,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TObject.SetItem(const AKey: String; const AValue: TObject);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TObject.GetKeyEnumerable: IEnumerable_String;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_String_TObject.GetValueEnumerable: IEnumerable_TObject;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_String_TObject.Add(const AKey: String; const AValue: TObject);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_String_TObject.TryGetValue(const AKey: String; out AValue: TObject): Boolean;
 begin
@@ -2730,9 +2410,7 @@ type
     constructor Create(AOwnKeys: Boolean; AOwnValues: Boolean);
   end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TObject_TObject.CPairEnumerator }
 
 function CDictionary_TObject_TObject.CPairEnumerator.GetCurrent: TPair_TObject_TObject;
 begin
@@ -2740,27 +2418,21 @@ begin
   Result.Value:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TObject_TObject.CKeyEnumerator }
 
 function CDictionary_TObject_TObject.CKeyEnumerator.GetCurrent: TObject;
 begin
   Result:=TObject(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TObject_TObject.CValueEnumerator }
 
 function CDictionary_TObject_TObject.CValueEnumerator.GetCurrent: TObject;
 begin
   Result:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TObject_TObject.CKeyEnumerable }
 
 function CDictionary_TObject_TObject.CKeyEnumerable.GetEnumerator: IEnumerator_TObject;
 begin
@@ -2774,25 +2446,19 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TObject_TObject.CValueEnumerable }
 
 function CDictionary_TObject_TObject.CValueEnumerable.GetEnumerator: IEnumerator_TObject;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TObject_TObject
-{ ======================================================================= }
+{ CDictionary_TObject_TObject }
 
 constructor CDictionary_TObject_TObject.Create(AOwnKeys: Boolean; AOwnValues: Boolean);
 begin
@@ -2803,22 +2469,16 @@ begin
   PDynArray(@FSynDict.Values).NoFinalize:=not FOwnValues;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.Contains(const AKey: TObject; const AValue: TObject): Boolean;
 begin
   var ValuePointer: Pointer:=FSynDict.FindValue(AKey);
   Result:=Assigned(ValuePointer) and (TObject(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.ContainsKey(const AKey: TObject): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TObject_TObject.Extract(const AKey: TObject): TObject;
 begin
@@ -2830,21 +2490,15 @@ begin
     then ValuesDynArray.NoFinalize:=false;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.Remove(const AKey: TObject): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.GetEnumerator: IPairEnumerator_TObject_TObject;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TObject_TObject.GetItem(const AKey: TObject): TObject;
 begin
@@ -2854,35 +2508,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TObject_TObject.SetItem(const AKey: TObject; const AValue: TObject);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TObject_TObject.GetKeyEnumerable: IEnumerable_TObject;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TObject_TObject.GetValueEnumerable: IEnumerable_TObject;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TObject_TObject.Add(const AKey: TObject; const AValue: TObject);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TObject_TObject.TryGetValue(const AKey: TObject; out AValue: TObject): Boolean;
 begin
@@ -2940,9 +2584,7 @@ type
     constructor Create(AOwnValues: Boolean);
   end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TClass_TObject.CPairEnumerator }
 
 function CDictionary_TClass_TObject.CPairEnumerator.GetCurrent: TPair_TClass_TObject;
 begin
@@ -2950,27 +2592,21 @@ begin
   Result.Value:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TClass_TObject.CKeyEnumerator }
 
 function CDictionary_TClass_TObject.CKeyEnumerator.GetCurrent: TClass;
 begin
   Result:=TClass(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TClass_TObject.CValueEnumerator }
 
 function CDictionary_TClass_TObject.CValueEnumerator.GetCurrent: TObject;
 begin
   Result:=TObject(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TClass_TObject.CKeyEnumerable }
 
 function CDictionary_TClass_TObject.CKeyEnumerable.GetEnumerator: IEnumerator_TClass;
 begin
@@ -2984,25 +2620,19 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TClass_TObject.CValueEnumerable }
 
 function CDictionary_TClass_TObject.CValueEnumerable.GetEnumerator: IEnumerator_TObject;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TClass_TObject
-{ ======================================================================= }
+{ CDictionary_TClass_TObject }
 
 constructor CDictionary_TClass_TObject.Create(AOwnValues: Boolean);
 begin
@@ -3011,22 +2641,16 @@ begin
   PDynArray(@FSynDict.Values).NoFinalize:=not FOwnValues;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.Contains(const AKey: TClass; const AValue: TObject): Boolean;
 begin
   var ValuePointer: Pointer:=FSynDict.FindValue(AKey);
   Result:=Assigned(ValuePointer) and (TObject(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.ContainsKey(const AKey: TClass): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TClass_TObject.Extract(const AKey: TClass): TObject;
 begin
@@ -3038,21 +2662,15 @@ begin
     then ValuesDynArray.NoFinalize:=false;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.Remove(const AKey: TClass): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.GetEnumerator: IPairEnumerator_TClass_TObject;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TClass_TObject.GetItem(const AKey: TClass): TObject;
 begin
@@ -3062,35 +2680,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TClass_TObject.SetItem(const AKey: TClass; const AValue: TObject);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TClass_TObject.GetKeyEnumerable: IEnumerable_TClass;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TClass_TObject.GetValueEnumerable: IEnumerable_TObject;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TClass_TObject.Add(const AKey: TClass; const AValue: TObject);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TClass_TObject.TryGetValue(const AKey: TClass; out AValue: TObject): Boolean;
 begin
@@ -3147,9 +2755,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean.CPairEnumerator }
 
 function CDictionary_TGUID_Boolean.CPairEnumerator.GetCurrent: TPair_TGUID_Boolean;
 begin
@@ -3157,27 +2763,21 @@ begin
   Result.Value:=Boolean(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean.CKeyEnumerator }
 
 function CDictionary_TGUID_Boolean.CKeyEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean.CValueEnumerator }
 
 function CDictionary_TGUID_Boolean.CValueEnumerator.GetCurrent: Boolean;
 begin
   Result:=Boolean(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean.CKeyEnumerable }
 
 function CDictionary_TGUID_Boolean.CKeyEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
@@ -3191,32 +2791,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean.CValueEnumerable }
 
 function CDictionary_TGUID_Boolean.CValueEnumerable.GetEnumerator: IEnumerator_Boolean;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Boolean.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Boolean>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Boolean
-{ ======================================================================= }
+{ CDictionary_TGUID_Boolean }
 
 constructor CDictionary_TGUID_Boolean.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<TGUID>),TypeInfo(TArray<Boolean>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Boolean.Contains(const AKey: TGUID; const AValue: Boolean): Boolean;
 begin
@@ -3224,35 +2816,25 @@ begin
   Result:=Assigned(ValuePointer) and (Boolean(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Boolean.ContainsKey(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Boolean.Extract(const AKey: TGUID): Boolean;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Boolean.Remove(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Boolean.GetEnumerator: IPairEnumerator_TGUID_Boolean;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Boolean.GetItem(const AKey: TGUID): Boolean;
 begin
@@ -3262,35 +2844,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_Boolean.SetItem(const AKey: TGUID; const AValue: Boolean);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Boolean.GetKeyEnumerable: IEnumerable_TGUID;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Boolean.GetValueEnumerable: IEnumerable_Boolean;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_Boolean.Add(const AKey: TGUID; const AValue: Boolean);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Boolean.TryGetValue(const AKey: TGUID; out AValue: Boolean): Boolean;
 begin
@@ -3347,9 +2919,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer.CPairEnumerator }
 
 function CDictionary_TGUID_Integer.CPairEnumerator.GetCurrent: TPair_TGUID_Integer;
 begin
@@ -3357,27 +2927,21 @@ begin
   Result.Value:=Integer(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer.CKeyEnumerator }
 
 function CDictionary_TGUID_Integer.CKeyEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer.CValueEnumerator }
 
 function CDictionary_TGUID_Integer.CValueEnumerator.GetCurrent: Integer;
 begin
   Result:=Integer(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer.CKeyEnumerable }
 
 function CDictionary_TGUID_Integer.CKeyEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
@@ -3391,32 +2955,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer.CValueEnumerable }
 
 function CDictionary_TGUID_Integer.CValueEnumerable.GetEnumerator: IEnumerator_Integer;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Integer.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_Integer
-{ ======================================================================= }
+{ CDictionary_TGUID_Integer }
 
 constructor CDictionary_TGUID_Integer.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<TGUID>),TypeInfo(TArray<Integer>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Integer.Contains(const AKey: TGUID; const AValue: Integer): Boolean;
 begin
@@ -3424,35 +2980,25 @@ begin
   Result:=Assigned(ValuePointer) and (Integer(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Integer.ContainsKey(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Integer.Extract(const AKey: TGUID): Integer;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Integer.Remove(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Integer.GetEnumerator: IPairEnumerator_TGUID_Integer;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Integer.GetItem(const AKey: TGUID): Integer;
 begin
@@ -3462,35 +3008,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_Integer.SetItem(const AKey: TGUID; const AValue: Integer);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Integer.GetKeyEnumerable: IEnumerable_TGUID;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_Integer.GetValueEnumerable: IEnumerable_Integer;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_Integer.Add(const AKey: TGUID; const AValue: Integer);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_Integer.TryGetValue(const AKey: TGUID; out AValue: Integer): Boolean;
 begin
@@ -3547,9 +3083,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_String.CPairEnumerator }
 
 function CDictionary_TGUID_String.CPairEnumerator.GetCurrent: TPair_TGUID_String;
 begin
@@ -3557,27 +3091,21 @@ begin
   Result.Value:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_String.CKeyEnumerator }
 
 function CDictionary_TGUID_String.CKeyEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_String.CValueEnumerator }
 
 function CDictionary_TGUID_String.CValueEnumerator.GetCurrent: String;
 begin
   Result:=String(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_String.CKeyEnumerable }
 
 function CDictionary_TGUID_String.CKeyEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
@@ -3591,32 +3119,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_String.CValueEnumerable }
 
 function CDictionary_TGUID_String.CValueEnumerable.GetEnumerator: IEnumerator_String;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_String
-{ ======================================================================= }
+{ CDictionary_TGUID_String }
 
 constructor CDictionary_TGUID_String.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<TGUID>),TypeInfo(TArray<String>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_String.Contains(const AKey: TGUID; const AValue: String): Boolean;
 begin
@@ -3624,35 +3144,25 @@ begin
   Result:=Assigned(ValuePointer) and (String(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_String.ContainsKey(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_String.Extract(const AKey: TGUID): String;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_String.Remove(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_String.GetEnumerator: IPairEnumerator_TGUID_String;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_String.GetItem(const AKey: TGUID): String;
 begin
@@ -3662,35 +3172,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_String.SetItem(const AKey: TGUID; const AValue: String);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_String.GetKeyEnumerable: IEnumerable_TGUID;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_String.GetValueEnumerable: IEnumerable_String;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_String.Add(const AKey: TGUID; const AValue: String);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_String.TryGetValue(const AKey: TGUID; out AValue: String): Boolean;
 begin
@@ -3747,9 +3247,7 @@ type
     constructor Create;
   end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID.CPairEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID.CPairEnumerator }
 
 function CDictionary_TGUID_TGUID.CPairEnumerator.GetCurrent: TPair_TGUID_TGUID;
 begin
@@ -3757,27 +3255,21 @@ begin
   Result.Value:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID.CKeyEnumerator }
 
 function CDictionary_TGUID_TGUID.CKeyEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Keys.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID.CValueEnumerator
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID.CValueEnumerator }
 
 function CDictionary_TGUID_TGUID.CValueEnumerator.GetCurrent: TGUID;
 begin
   Result:=TGUID(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID.CKeyEnumerable }
 
 function CDictionary_TGUID_TGUID.CKeyEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
@@ -3791,32 +3283,24 @@ begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID.CValueEnumerable
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID.CValueEnumerable }
 
 function CDictionary_TGUID_TGUID.CValueEnumerable.GetEnumerator: IEnumerator_TGUID;
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
 
-{ ======================================================================= }
-// CDictionary_TGUID_TGUID
-{ ======================================================================= }
+{ CDictionary_TGUID_TGUID }
 
 constructor CDictionary_TGUID_TGUID.Create;
 begin
   FSynDict:=TSynDictionary.Create(TypeInfo(TArray<TGUID>),TypeInfo(TArray<TGUID>));
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_TGUID.Contains(const AKey: TGUID; const AValue: TGUID): Boolean;
 begin
@@ -3824,35 +3308,25 @@ begin
   Result:=Assigned(ValuePointer) and (TGUID(ValuePointer^)=AValue);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_TGUID.ContainsKey(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_TGUID.Extract(const AKey: TGUID): TGUID;
 begin
   FSynDict.FindAndExtract(AKey,Result);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_TGUID.Remove(const AKey: TGUID): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_TGUID.GetEnumerator: IPairEnumerator_TGUID_TGUID;
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_TGUID.GetItem(const AKey: TGUID): TGUID;
 begin
@@ -3862,35 +3336,25 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_TGUID.SetItem(const AKey: TGUID; const AValue: TGUID);
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_TGUID.GetKeyEnumerable: IEnumerable_TGUID;
 begin
   Result:=CKeyEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_TGUID_TGUID.GetValueEnumerable: IEnumerable_TGUID;
 begin
   Result:=CValueEnumerable.Create(FSynDict);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_TGUID_TGUID.Add(const AKey: TGUID; const AValue: TGUID);
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_TGUID_TGUID.TryGetValue(const AKey: TGUID; out AValue: TGUID): Boolean;
 begin
@@ -3899,107 +3363,77 @@ begin
     then AValue:=TGUID(ValuePointer^);
 end;
 
-{ ======================================================================= }
-// TCollections
-{ ======================================================================= }
+{ TCollections }
 
 class function TCollections.CreateDictionary_Integer_IInterface: IDictionary_Integer_IInterface;
 begin
   Result:=CDictionary_Integer_IInterface.Create;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_Integer_String: IDictionary_Integer_String;
 begin
   Result:=CDictionary_Integer_String.Create;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_Integer_TGUID: IDictionary_Integer_TGUID;
 begin
   Result:=CDictionary_Integer_TGUID.Create;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_Integer_TObject(AOwnValues: Boolean): IDictionary_Integer_TObject;
 begin
   Result:=CDictionary_Integer_TObject.Create(AOwnValues);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_String_Integer: IDictionary_String_Integer;
 begin
   Result:=CDictionary_String_Integer.Create;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_String_String: IDictionary_String_String;
 begin
   Result:=CDictionary_String_String.Create;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_String_TGUID: IDictionary_String_TGUID;
 begin
   Result:=CDictionary_String_TGUID.Create;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_String_TNotifyEvent: IDictionary_String_TNotifyEvent;
 begin
   Result:=CDictionary_String_TNotifyEvent.Create;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_String_TObject(AOwnValues: Boolean): IDictionary_String_TObject;
 begin
   Result:=CDictionary_String_TObject.Create(AOwnValues);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_TObject_TObject(AOwnKeys: Boolean; AOwnValues: Boolean): IDictionary_TObject_TObject;
 begin
   Result:=CDictionary_TObject_TObject.Create(AOwnKeys,AOwnValues);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_TClass_TObject(AOwnValues: Boolean): IDictionary_TClass_TObject;
 begin
   Result:=CDictionary_TClass_TObject.Create(AOwnValues);
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_TGUID_Boolean: IDictionary_TGUID_Boolean;
 begin
   Result:=CDictionary_TGUID_Boolean.Create;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_TGUID_Integer: IDictionary_TGUID_Integer;
 begin
   Result:=CDictionary_TGUID_Integer.Create;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 class function TCollections.CreateDictionary_TGUID_String: IDictionary_TGUID_String;
 begin
   Result:=CDictionary_TGUID_String.Create;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 class function TCollections.CreateDictionary_TGUID_TGUID: IDictionary_TGUID_TGUID;
 begin

@@ -107,9 +107,7 @@ type
 {$ENDREGION 'DEFINE-PARTIAL / factory-methods-interface'}
   end;
 
-{ ======================================================================= }
 implementation
-{ ======================================================================= }
 
 {$REGION 'DEFINE-PARTIAL / implementation'}
 
@@ -175,9 +173,8 @@ type
     constructor Create({[#key_is_object]}AOwnKeys: Boolean; {[/key_is_object]}{[#value_is_object]}AOwnValues: Boolean;{[/value_is_object]}); // PostFixParamsDefine
   end;
 
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}.CPairEnumerator
-{ ======================================================================= }
+
+{ CDictionary_{[key_flat]}_{[value_flat]}.CPairEnumerator }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CPairEnumerator.GetCurrent: TPair_{[key_flat]}_{[value_flat]};
 begin
@@ -185,9 +182,7 @@ begin
   Result.Value:={[value_type]}(FSynDict.Values.ItemPtr(FIndex)^);
 end;
 
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerator
-{ ======================================================================= }
+{ CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerator }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerator.GetCurrent: {[key_type]};
 begin
@@ -195,9 +190,8 @@ begin
 end;
 
 {[^disable_value_enumerable]}
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerator
-{ ======================================================================= }
+
+{ CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerator }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerator.GetCurrent: {[value_type]};
 begin
@@ -205,9 +199,7 @@ begin
 end;
 {[/disable_value_enumerable]}
 
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerable
-{ ======================================================================= }
+{ CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerable }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerable.GetEnumerator: IEnumerator_{[key_flat]};
 begin
@@ -222,16 +214,13 @@ begin
 end;
 
 {[^disable_value_enumerable]}
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable
-{ ======================================================================= }
+
+{ CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable.GetEnumerator: IEnumerator_{[value_flat]};
 begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<{[value_type]}>;
 begin
@@ -239,9 +228,8 @@ begin
 end;
 {[/disable_value_enumerable]}
 
-{ ======================================================================= }
-// CDictionary_{[key_flat]}_{[value_flat]}
-{ ======================================================================= }
+
+{ CDictionary_{[key_flat]}_{[value_flat]} }
 
 constructor CDictionary_{[key_flat]}_{[value_flat]}.Create({[#key_is_object]}AOwnKeys: Boolean; {[/key_is_object]}{[#value_is_object]}AOwnValues: Boolean; {[/value_is_object]}); // PostFixParamsDefine
 begin
@@ -255,8 +243,6 @@ begin
   PDynArray(@FSynDict.Values).NoFinalize:=not FOwnValues;
   {[/value_is_object]}
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.Contains(const AKey: {[key_type]}; const AValue: {[value_type]}): Boolean;
 {[#value_is_method]}
@@ -273,14 +259,10 @@ begin
 {[/value_is_method]}
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_{[key_flat]}_{[value_flat]}.ContainsKey(const AKey: {[key_type]}): Boolean;
 begin
   Result:=FSynDict.Exists(AKey);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.Extract(const AKey: {[key_type]}): {[value_type]};
 begin
@@ -296,21 +278,15 @@ begin
   {[/value_is_object]}
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_{[key_flat]}_{[value_flat]}.Remove(const AKey: {[key_type]}): Boolean;
 begin
   Result:=FSynDict.Delete(AKey)>=0;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionary_{[key_flat]}_{[value_flat]}.GetEnumerator: IPairEnumerator_{[key_flat]}_{[value_flat]};
 begin
   Result:=CPairEnumerator.Create(FSynDict);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.GetItem(const AKey: {[key_type]}): {[value_type]};
 begin
@@ -320,14 +296,10 @@ begin
     else raise Exception.Create('Key not found');
 end;
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_{[key_flat]}_{[value_flat]}.SetItem(const AKey: {[key_type]}; const AValue: {[value_type]});
 begin
   FSynDict.AddOrUpdate(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.GetKeyEnumerable: IEnumerable_{[key_flat]};
 begin
@@ -335,7 +307,6 @@ begin
 end;
 
 {[^disable_value_enumerable]}
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.GetValueEnumerable: IEnumerable_{[value_flat]};
 begin
@@ -343,14 +314,10 @@ begin
 end;
 {[/disable_value_enumerable]}
 
-{ ----------------------------------------------------------------------- }
-
 procedure CDictionary_{[key_flat]}_{[value_flat]}.Add(const AKey: {[key_type]}; const AValue: {[value_type]});
 begin
   FSynDict.Add(AKey,AValue);
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionary_{[key_flat]}_{[value_flat]}.TryGetValue(const AKey: {[key_type]}; out AValue: {[value_type]}): Boolean;
 begin
@@ -360,9 +327,7 @@ begin
 end;
 {[/types]}
 
-{ ======================================================================= }
-// {[TCollectionsName]}
-{ ======================================================================= }
+{ {[TCollectionsName]} }
 
 {[#types]}
 class function {[TCollectionsName]}.CreateDictionary_{[key_flat]}_{[value_flat]}({[#key_is_object]}AOwnKeys: Boolean; {[/key_is_object]}{[#value_is_object]}AOwnValues: Boolean;{[/value_is_object]}): IDictionary_{[key_flat]}_{[value_flat]}; // PostFixParamsDefine
@@ -370,11 +335,8 @@ begin
   Result:=CDictionary_{[key_flat]}_{[value_flat]}.Create({[#key_is_object]}AOwnKeys,{[/key_is_object]}{[#value_is_object]}AOwnValues,{[/value_is_object]}); // PostFixParamsCall
 end;
 
-{ ----------------------------------------------------------------------- }
-
 {[/types]}
 
 {$ENDREGION 'DEFINE-PARTIAL / implementation'}
 
-{ ======================================================================= }
 end.
