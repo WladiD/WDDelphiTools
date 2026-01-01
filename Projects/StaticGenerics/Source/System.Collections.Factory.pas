@@ -44,10 +44,10 @@ type
     class function CreateList_TGUID: IList_TGUID; overload; static;
     class function CreateList_TGUID(const ACopyFrom: IEnumerable_TGUID): IList_TGUID; overload; static;
 
-    class function CreateList_TObject(AOwnsObjects: Boolean = true): IList_TObject; overload; static;
+    class function CreateList_TObject(AOwnsObjects: Boolean): IList_TObject; overload; static;
     class function CreateList_TObject(const ACopyFrom: IEnumerable_TObject; AOwnsObjects: Boolean): IList_TObject; overload; static;
 
-    class function CreateList_TComponent(AOwnsObjects: Boolean = true): IList_TComponent; overload; static;
+    class function CreateList_TComponent(AOwnsObjects: Boolean): IList_TComponent; overload; static;
     class function CreateList_TComponent(const ACopyFrom: IEnumerable_TComponent; AOwnsObjects: Boolean): IList_TComponent; overload; static;
 
     class function CreateList_Double: IList_Double; overload; static;
@@ -599,7 +599,7 @@ end;
 
 { TCollections }
 
-class function TCollections.CreateList_TObject(AOwnsObjects: Boolean = true): IList_TObject;
+class function TCollections.CreateList_TObject(AOwnsObjects: Boolean): IList_TObject;
 begin
   var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TObject,IEnumerable_TObject);
   Result:=IList_TObject(TempList);
@@ -612,7 +612,7 @@ begin
     do Result.Add(AItem);
 end;
 
-class function TCollections.CreateList_TComponent(AOwnsObjects: Boolean = true): IList_TComponent;
+class function TCollections.CreateList_TComponent(AOwnsObjects: Boolean): IList_TComponent;
 begin
   var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_TComponent,IEnumerable_TComponent);
   Result:=IList_TComponent(TempList);

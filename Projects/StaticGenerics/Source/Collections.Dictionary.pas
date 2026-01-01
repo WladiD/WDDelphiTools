@@ -1,8 +1,12 @@
-﻿unit Collections.Dictionary;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
 
-{ ======================================================================= }
+unit Collections.Dictionary;
+
 interface
-{ ======================================================================= }
 
 uses
 
@@ -17,8 +21,6 @@ uses
 
   Collections.Interfaces,
   System.Collections.Interfaces;
-
-{ ----------------------------------------------------------------------- }
 
 type
 
@@ -53,13 +55,9 @@ type
     destructor Destroy; override;
   end;
 
-{ ======================================================================= }
 implementation
-{ ======================================================================= }
 
-{ ======================================================================= }
-{ CDictionaryBase                                                         }
-{ ======================================================================= }
+{ CDictionaryBase }
 
 destructor CDictionaryBase.Destroy;
 begin
@@ -67,68 +65,50 @@ begin
   inherited;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionaryBase.Any: Boolean;
 begin
-  Result:=FSynDict.Count>0;
+  Result := FSynDict.Count>0;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 procedure CDictionaryBase.Clear;
 begin
   FSynDict.DeleteAll;
 end;
 
-{ ----------------------------------------------------------------------- }
-
 function CDictionaryBase.GetCount: Integer;
 begin
-  Result:=FSynDict.Count;
+  Result := FSynDict.Count;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionaryBase.GetSynDict: TSynDictionary;
 begin
-  Result:=FSynDict;
+  Result := FSynDict;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionaryBase.IsEmpty: Boolean;
 begin
-  Result:=FSynDict.Count=0;
+  Result := FSynDict.Count = 0;
 end;
 
-{ ======================================================================= }
-{ CDictionaryBase.CCollection                                             }
-{ ======================================================================= }
+{ CDictionaryBase.CCollection }
 
 constructor CDictionaryBase.CCollection.Create(ASynDict: TSynDictionary);
 begin
-  FSynDict:=ASynDict;
+  FSynDict := ASynDict;
 end;
 
-{ ======================================================================= }
-{ TDictionaryBase.CEnumerator                                             }
-{ ======================================================================= }
+{ TDictionaryBase.CEnumerator }
 
 constructor CDictionaryBase.CEnumerator.Create(ASynDict: TSynDictionary);
 begin
   inherited;
-  FIndex:=-1;
+  FIndex := -1;
 end;
-
-{ ----------------------------------------------------------------------- }
 
 function CDictionaryBase.CEnumerator.MoveNext: Boolean;
 begin
   Inc(FIndex);
-  Result:=FIndex<FSynDict.Count;
+  Result := FIndex < FSynDict.Count;
 end;
-
-{ ======================================================================= }
 
 end.

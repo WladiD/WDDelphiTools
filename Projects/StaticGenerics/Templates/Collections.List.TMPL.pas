@@ -86,7 +86,7 @@ type
   {[/type_is_object]}
 
   {[#type_is_object]}
-    class function CreateList_{[type_flat]}(AOwnsObjects: Boolean = true): IList_{[type_flat]}; overload; static;
+    class function CreateList_{[type_flat]}(AOwnsObjects: Boolean): IList_{[type_flat]}; overload; static;
     class function CreateList_{[type_flat]}(const ACopyFrom: IEnumerable_{[type_flat]}; AOwnsObjects: Boolean): IList_{[type_flat]}; overload; static;
   {[/type_is_object]}
 {[/types]}
@@ -314,7 +314,7 @@ end;
 { {[TCollectionsName]} }
 
 {[#types]}{[#type_is_object]}
-class function {[TCollectionsName]}.CreateList_{[type_flat]}(AOwnsObjects: Boolean = true): IList_{[type_flat]};
+class function {[TCollectionsName]}.CreateList_{[type_flat]}(AOwnsObjects: Boolean): IList_{[type_flat]};
 begin
   var TempList: IList_TObject:=CObjectList.Create(AOwnsObjects,IList_{[type_flat]},IEnumerable_{[type_flat]});
   Result:=IList_{[type_flat]}(TempList);
