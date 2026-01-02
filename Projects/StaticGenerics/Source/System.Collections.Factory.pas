@@ -112,46 +112,47 @@ type
 
 function CListEnumerator_Integer.GetCurrent: Integer;
 begin
-  Result:=CList_Integer(FList).GetItem(FIndex);
+  Result := CList_Integer(FList).GetItem(FIndex);
 end;
 
 { CList_Integer }
 
 function CList_Integer.Add(const AItem: Integer): Integer;
 var
-  Added: boolean;
+  Added: Boolean;
 begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<Integer>(fValue)[Result]:=AItem;
+  Result := DoAdd(AItem, Added);
+  if Added then 
+    TArray<Integer>(fValue)[Result] := AItem;
 end;
 
 procedure CList_Integer.AddRange(const AValues: array of Integer);
 begin
-  for var Value in AValues
-    do Add(Value);
+  for var Value in AValues do 
+    Add(Value);
 end;
 
 function CList_Integer.Contains(const AValue: Integer): Boolean;
 begin
-  Result:=IndexOf(AValue)>=0;
+  Result := IndexOf(AValue) >= 0;
 end;
 
 function CList_Integer.Extract(const AItem: Integer): Integer;
 begin
-  Result:=Integer(Extract(AItem));
+  Result := Integer(Extract(AItem));
 end;
 
 function CList_Integer.First: Integer;
 begin
-  Result:=GetItem(0);
+  Result := GetItem(0);
 end;
 
 function CList_Integer.FirstOrDefault: Integer;
 begin
-  if IsEmpty
-    then Result:=Default(Integer)
-    else Result:=GetItem(0);
+  if IsEmpty then
+    Result := Default(Integer)
+  else 
+    Result := GetItem(0);
 end;
 
 function CList_Integer.GetEnumerator: IEnumerator_Integer;
@@ -241,46 +242,47 @@ type
 
 function CListEnumerator_String.GetCurrent: String;
 begin
-  Result:=CList_String(FList).GetItem(FIndex);
+  Result := CList_String(FList).GetItem(FIndex);
 end;
 
 { CList_String }
 
 function CList_String.Add(const AItem: String): Integer;
 var
-  Added: boolean;
+  Added: Boolean;
 begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<String>(fValue)[Result]:=AItem;
+  Result := DoAdd(AItem, Added);
+  if Added then 
+    TArray<String>(fValue)[Result] := AItem;
 end;
 
 procedure CList_String.AddRange(const AValues: array of String);
 begin
-  for var Value in AValues
-    do Add(Value);
+  for var Value in AValues do 
+    Add(Value);
 end;
 
 function CList_String.Contains(const AValue: String): Boolean;
 begin
-  Result:=IndexOf(AValue)>=0;
+  Result := IndexOf(AValue) >= 0;
 end;
 
 function CList_String.Extract(const AItem: String): String;
 begin
-  Result:=String(Extract(AItem));
+  Result := String(Extract(AItem));
 end;
 
 function CList_String.First: String;
 begin
-  Result:=GetItem(0);
+  Result := GetItem(0);
 end;
 
 function CList_String.FirstOrDefault: String;
 begin
-  if IsEmpty
-    then Result:=Default(String)
-    else Result:=GetItem(0);
+  if IsEmpty then
+    Result := Default(String)
+  else 
+    Result := GetItem(0);
 end;
 
 function CList_String.GetEnumerator: IEnumerator_String;
@@ -370,46 +372,47 @@ type
 
 function CListEnumerator_TGUID.GetCurrent: TGUID;
 begin
-  Result:=CList_TGUID(FList).GetItem(FIndex);
+  Result := CList_TGUID(FList).GetItem(FIndex);
 end;
 
 { CList_TGUID }
 
 function CList_TGUID.Add(const AItem: TGUID): Integer;
 var
-  Added: boolean;
+  Added: Boolean;
 begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<TGUID>(fValue)[Result]:=AItem;
+  Result := DoAdd(AItem, Added);
+  if Added then 
+    TArray<TGUID>(fValue)[Result] := AItem;
 end;
 
 procedure CList_TGUID.AddRange(const AValues: array of TGUID);
 begin
-  for var Value in AValues
-    do Add(Value);
+  for var Value in AValues do 
+    Add(Value);
 end;
 
 function CList_TGUID.Contains(const AValue: TGUID): Boolean;
 begin
-  Result:=IndexOf(AValue)>=0;
+  Result := IndexOf(AValue) >= 0;
 end;
 
 function CList_TGUID.Extract(const AItem: TGUID): TGUID;
 begin
-  Result:=TGUID(Extract(AItem));
+  Result := TGUID(Extract(AItem));
 end;
 
 function CList_TGUID.First: TGUID;
 begin
-  Result:=GetItem(0);
+  Result := GetItem(0);
 end;
 
 function CList_TGUID.FirstOrDefault: TGUID;
 begin
-  if IsEmpty
-    then Result:=Default(TGUID)
-    else Result:=GetItem(0);
+  if IsEmpty then
+    Result := Default(TGUID)
+  else 
+    Result := GetItem(0);
 end;
 
 function CList_TGUID.GetEnumerator: IEnumerator_TGUID;
@@ -499,46 +502,47 @@ type
 
 function CListEnumerator_Double.GetCurrent: Double;
 begin
-  Result:=CList_Double(FList).GetItem(FIndex);
+  Result := CList_Double(FList).GetItem(FIndex);
 end;
 
 { CList_Double }
 
 function CList_Double.Add(const AItem: Double): Integer;
 var
-  Added: boolean;
+  Added: Boolean;
 begin
-  Result:=DoAdd(AItem,Added);
-  if Added
-    then TArray<Double>(fValue)[Result]:=AItem;
+  Result := DoAdd(AItem, Added);
+  if Added then 
+    TArray<Double>(fValue)[Result] := AItem;
 end;
 
 procedure CList_Double.AddRange(const AValues: array of Double);
 begin
-  for var Value in AValues
-    do Add(Value);
+  for var Value in AValues do 
+    Add(Value);
 end;
 
 function CList_Double.Contains(const AValue: Double): Boolean;
 begin
-  Result:=IndexOf(AValue)>=0;
+  Result := IndexOf(AValue) >= 0;
 end;
 
 function CList_Double.Extract(const AItem: Double): Double;
 begin
-  Result:=Double(Extract(AItem));
+  Result := Double(Extract(AItem));
 end;
 
 function CList_Double.First: Double;
 begin
-  Result:=GetItem(0);
+  Result := GetItem(0);
 end;
 
 function CList_Double.FirstOrDefault: Double;
 begin
-  if IsEmpty
-    then Result:=Default(Double)
-    else Result:=GetItem(0);
+  if IsEmpty then
+    Result := Default(Double)
+  else 
+    Result := GetItem(0);
 end;
 
 function CList_Double.GetEnumerator: IEnumerator_Double;
