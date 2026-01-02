@@ -26,32 +26,32 @@ type
 
   {$RTTI EXPLICIT METHODS([]) PROPERTIES([]) FIELDS([])}
   CDictionaryBase = class(TInterfacedObject, IDictionary)
-   protected type
+  protected type
 
     CCollection = class(TInterfacedObject)
-     protected
+    protected
       FSynDict: TSynDictionary;
-     public
+    public
       constructor Create(ASynDict: TSynDictionary); virtual;
     end;
 
     CEnumerator = class(CCollection)
-     protected
+    protected
       FIndex: Integer;
-     public
+    public
       constructor Create(ASynDict: TSynDictionary); override;
       function MoveNext: Boolean;
     end;
 
-   protected
+  protected
     FSynDict: TSynDictionary;
-   protected // IDictionary member
+  protected // IDictionary member
     function  Any: Boolean;
     procedure Clear;
     function  GetCount: Integer;
     function  GetSynDict: TSynDictionary;
     function  IsEmpty: Boolean;
-   public
+  public
     destructor Destroy; override;
   end;
 
@@ -112,3 +112,4 @@ begin
 end;
 
 end.
+
