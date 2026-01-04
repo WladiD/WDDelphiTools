@@ -166,13 +166,13 @@ var
   Added: Boolean;
 begin
   Result := DoAdd(AItem, Added);
-  if Added then 
+  if Added then
     TArray<{[type]}>(fValue)[Result] := AItem;
 end;
 
 procedure CList_{[type_flat]}.AddRange(const AValues: array of {[type]});
 begin
-  for var Value in AValues do 
+  for var Value in AValues do
     Add(Value);
 end;
 
