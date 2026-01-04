@@ -1,4 +1,4 @@
-program Benchmark_SpringGenerics;
+﻿program Benchmark_SpringGenerics;
 {$APPTYPE CONSOLE}
 uses
   Spring.Collections,
