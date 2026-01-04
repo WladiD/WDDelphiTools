@@ -1,4 +1,4 @@
-program Benchmark_StaticGenerics;
+﻿program Benchmark_StaticGenerics;
 {$APPTYPE CONSOLE}
 uses
   System.Collections.Interfaces,
