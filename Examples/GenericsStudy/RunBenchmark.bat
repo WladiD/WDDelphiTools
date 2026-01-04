@@ -23,12 +23,13 @@ set DCC_CMD=dcc32 -B -Q -NS"System;System.Win;Winapi;Vcl;Vcl.Imaging;Vcl.Touch;V
 
 echo [1/4] Compiling StaticGenerics...
 cd StaticGenerics
-rem StaticGenerics needs mORMot paths too because System.Collections.Factory uses mormot.core.base etc.
-%DCC_CMD% %SEARCH_PATH_SHARED% %SEARCH_PATH_STATIC% -U%MORMOT_UNITS% Benchmark_StaticGenerics.dpr > ..\build_static.log
+rem Using MSBuild via _BuildBase.bat for StaticGenerics to leverage dproj configuration
+call ..\..\..\_BuildBase.bat "Benchmark_StaticGenerics.dproj" > ..\build_static.log
 if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_static.log
     type ..\build_static.log
 ) else (
+    rem MSBuild output is verbose, we can try to find lines count if reported by compiler hint
     findstr "lines," ..\build_static.log
 )
 cd ..
@@ -50,7 +51,7 @@ echo.
 
 echo [3/4] Compiling DelphiGenerics...
 cd DelphiGenerics
-%DCC_CMD% %SEARCH_PATH_SHARED% Benchmark_DelphiGenerics.dpr > ..\build_delphi.log
+call ..\..\..\_BuildBase.bat "Benchmark_DelphiGenerics.dproj" > ..\build_delphi.log
 if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_delphi.log
     type ..\build_delphi.log

@@ -1,4 +1,4 @@
-program Benchmark_DelphiGenerics;
+﻿program Benchmark_DelphiGenerics;
 {$APPTYPE CONSOLE}
 uses
   System.Generics.Collections,
