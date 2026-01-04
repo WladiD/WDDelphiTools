@@ -3,7 +3,7 @@
 REM Adjusted path to TmplCodeGen
 set TOOL_DIR=..\..\..\Projects\TmplCodeGen
 
-%TOOL_DIR%\TmplCodeGen.exe Study.List || goto :error
+%TOOL_DIR%\_TmplCodeGen.BuildAndRun.bat Study.List || goto :error
 %TOOL_DIR%\TmplCodeGen.exe Study.Dictionary || goto :error
 
 %TOOL_DIR%\TmplCodeGen.exe include_partials Source\Study.Collections.Factory.pas || goto :error
