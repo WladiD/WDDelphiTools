@@ -32,13 +32,18 @@ type
 
   TTmplCodeGen = class
   private
-    FConfJson            : TDocVariantData;
-    FConfJsonFileName    : String;
-    FLogger              : ILogger;
-    FMainTemplate        : String;
-    FMainTemplateFileName: String;
-    FOutputFileName      : String;
-    FPrefix              : String;
+    FConfJson             : TDocVariantData;
+    FConfJsonFileName     : String;
+    FEmptyParenthesesRegEx: TRegEx;
+    FLogger               : ILogger;
+    FMainTemplate         : String;
+    FMainTemplateFileName : String;
+    FOutputFileName       : String;
+    FParamsCallRegEx      : TRegEx;
+    FParamsCallSubRegEx   : TRegEx;
+    FParamsDefineRegEx    : TRegEx;
+    FParamsDefineSubRegEx : TRegEx;
+    FPrefix               : String;
     procedure ExportPartials(const AOutputContent: String);
     function  PostFix(const AOutputContent: String): String;
     function  PostFixParamsCall(const ALine: String): String;
@@ -59,6 +64,12 @@ constructor TTmplCodeGen.Create(const APrefix: String; const ALogger: ILogger);
 begin
   FPrefix := APrefix;
   FLogger := ALogger;
+
+  FParamsCallRegEx := TRegEx.Create('([\w\.])+(?P<Parentheses>\([^\)]*\))', [roCompiled]);
+  FParamsCallSubRegEx := TRegEx.Create('\((?P<Params>[^\)]+),\s*\)', [roCompiled]);
+  FParamsDefineRegEx := TRegEx.Create('(procedure|function|constructor)\s*([\w\.])*(?P<Parentheses>\([^\)]*\))', [roIgnoreCase, roCompiled]);
+  FParamsDefineSubRegEx := TRegEx.Create('\((?P<Params>[^\)]+);\s*\)', [roCompiled]);
+  FEmptyParenthesesRegEx := TRegEx.Create('\(\s*\)', [roCompiled]);
 end;
 
 /// <remarks>
@@ -74,31 +85,42 @@ end;
 /// </remarks>
 function TTmplCodeGen.PostFix(const AOutputContent: String): String;
 var
-  AfterLine : String;
-  BeforeLine: String;
-  Command   : String;
-  EndIndex  : Integer;
-  Line      : String;
-  LineMatch : TMatch;
-  LineRegEx : TRegEx;
-  StartIndex: Integer;
+  Command    : String;
+  LastIndex  : Integer;
+  Line       : String;
+  LineMatch  : TMatch;
+  LineMatches: TMatchCollection;
+  SB         : TStringBuilder;
 begin
-  Result := AOutputContent;
-  LineRegEx := TRegEx.Create('^(?P<Line>.*)\s+\/\/\s*(?P<Command>PostFix\w+)$',
+  LineMatches := TRegEx.Matches(AOutputContent, '^(?P<Line>.*)\s+\/\/\s*(?P<Command>PostFix\w+)$',
     [roIgnoreCase, roMultiLine]);
-  LineMatch := LineRegEx.Match(Result);
 
-  while LineMatch.Success do
-  begin
-    Line := LineMatch.Groups['Line'].Value;
-    Command := LineMatch.Groups['Command'].Value;
-    StartIndex := LineMatch.Index - 1;
-    EndIndex := LineMatch.Index + LineMatch.Length;
-    BeforeLine := Copy(Result, 1, StartIndex);
-    AfterLine := Copy(Result, EndIndex);
-    Line := PostFixRoute(Command, Line);
-    Result := BeforeLine + Line + AfterLine;
-    LineMatch := LineRegEx.Match(Result);
+  if LineMatches.Count = 0 then
+    Exit(AOutputContent);
+
+  SB := TStringBuilder.Create(AOutputContent.Length);
+  try
+    LastIndex := 1;
+    for LineMatch in LineMatches do
+    begin
+      if LineMatch.Index > LastIndex then
+        SB.Append(AOutputContent, LastIndex - 1, LineMatch.Index - LastIndex);
+
+      Line := LineMatch.Groups['Line'].Value;
+      Command := LineMatch.Groups['Command'].Value;
+
+      Line := PostFixRoute(Command, Line);
+      SB.Append(Line);
+
+      LastIndex := LineMatch.Index + LineMatch.Length;
+    end;
+
+    if LastIndex <= AOutputContent.Length then
+      SB.Append(AOutputContent, LastIndex - 1, AOutputContent.Length - LastIndex + 1);
+
+    Result := SB.ToString;
+  finally
+    SB.Free;
   end;
 end;
 
@@ -110,20 +132,20 @@ var
   SubMatch        : TMatch;
 begin
   Result := ALine;
-  Match := TRegEx.Match(ALine, '([\w\.])+(?P<Parentheses>\([^\)]*\))');
+  Match := FParamsCallRegEx.Match(ALine);
   if not Match.Success then
     Exit;
 
   ParenthesesGroup := Match.Groups['Parentheses'];
   Parentheses := ParenthesesGroup.Value;
 
-  if TRegEx.IsMatch(Parentheses, '\(\s*\)') then
+  if FEmptyParenthesesRegEx.IsMatch(Parentheses) then
   begin
     Parentheses := ''; // Leere Klammern entfernen
   end
   else
   begin
-    SubMatch := TRegEx.Match(Parentheses, '\((?P<Params>[^\)]+),\s*\)');
+    SubMatch := FParamsCallSubRegEx.Match(Parentheses);
     if SubMatch.Success then
       Parentheses := '(' + SubMatch.Groups['Params'].Value + ')';
     // Abschließendes invalides Komma entfernen
@@ -153,21 +175,20 @@ var
   SubMatch        : TMatch;
 begin
   Result := ALine;
-  Match := TRegEx.Match(ALine,
-    '(procedure|function|constructor)\s*([\w\.])*(?P<Parentheses>\([^\)]*\))');
+  Match := FParamsDefineRegEx.Match(ALine);
   if not Match.Success then
     Exit;
 
   ParenthesesGroup := Match.Groups['Parentheses'];
   Parentheses := ParenthesesGroup.Value;
 
-  if TRegEx.IsMatch(Parentheses, '\(\s*\)') then
+  if FEmptyParenthesesRegEx.IsMatch(Parentheses) then
   begin
     Parentheses := ''; // Leere Klammern entfernen
   end
   else
   begin
-    SubMatch := TRegEx.Match(Parentheses, '\((?P<Params>[^\)]+);\s*\)');
+    SubMatch := FParamsDefineSubRegEx.Match(Parentheses);
     if SubMatch.Success then
       Parentheses := '(' + SubMatch.Groups['Params'].Value + ')';
     // Abschließendes invalides Semikolon entfernen
