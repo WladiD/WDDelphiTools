@@ -41,7 +41,7 @@
         <DCC_Define>TESTINSIGHT;$(DCC_Define)</DCC_Define>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;$(DUnitX);$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\StaticGenerics\Source\;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UsingDelphiRTL>true</UsingDelphiRTL>
@@ -65,6 +65,7 @@
         <VerInfo_Locale>1031</VerInfo_Locale>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
         <DCC_RemoteDebug>false</DCC_RemoteDebug>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
@@ -83,7 +84,10 @@
         <DCCReference Include="..\Source\TmplCodeGen.PreProcess.pas"/>
         <DCCReference Include="..\Source\TmplCodeGen.Utils.pas"/>
         <DCCReference Include="..\Source\TmplCodeGen.Common.pas"/>
+        <DCCReference Include="Test.Base.pas"/>
         <DCCReference Include="Test.Generator.pas"/>
+        <DCCReference Include="Test.Includer.pas"/>
+        <DCCReference Include="Test.Logger.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>

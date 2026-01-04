@@ -11,10 +11,12 @@ interface
 uses
 
   System.Classes,
-  System.Generics.Collections,
   System.IOUtils,
   System.RegularExpressions,
   System.SysUtils,
+
+  System.Collections.Factory,
+  System.Collections.Interfaces,
 
   TmplCodeGen.Common,
   TmplCodeGen.Logger,
@@ -137,19 +139,16 @@ const
   GuidRegExStr = '(?<GUID>\[''{[A-F0-9]{8}(\-[A-F0-9]{4}){3}\-[A-F0-9]{12}}''\])';
   InterfaceRegExStr = '(?<InterfaceSignature>\w+\s*=\s*interface(\([^\)]+\))?)(?<Whitespace>\s+)' + GuidRegExStr;
 var
-  GuidsMap: TDictionary<String, String>;
+  GuidsMap: IDictionary_String_String;
 
   procedure CollectGuids;
   var
-    Match: TMatch;
+    Match  : TMatch;
     Matches: TMatchCollection;
   begin
     Matches := TRegEx.Matches(AOldPartial, InterfaceRegExStr, [roIgnoreCase, roMultiLine]);
     for Match in Matches do
-    begin
-      // Use Key as UpperCase to be case-insensitive on lookup
-      GuidsMap.AddOrSetValue(UpperCase(Match.Groups['InterfaceSignature'].Value), Match.Groups['GUID'].Value);
-    end;
+      GuidsMap[UpperCase(Match.Groups['InterfaceSignature'].Value)] := Match.Groups['GUID'].Value;
   end;
 
 var
@@ -163,53 +162,49 @@ begin
   if AOldPartial.IsEmpty then
     Exit(ANewPartial);
 
-  GuidsMap := TDictionary<String, String>.Create;
+  GuidsMap := TCollections.CreateDictionary_String_String;
+  CollectGuids;
+
+  if GuidsMap.Count = 0 then
+    Exit(ANewPartial);
+
+  Matches := TRegEx.Matches(ANewPartial, InterfaceRegExStr, [roIgnoreCase, roMultiLine]);
+  if Matches.Count = 0 then
+    Exit(ANewPartial);
+
+  SB := TStringBuilder.Create(ANewPartial.Length);
   try
-    CollectGuids;
+    LastIndex := 1;
+    for Match in Matches do
+    begin
+      // Append everything before the match
+      if Match.Index > LastIndex then
+        SB.Append(ANewPartial, LastIndex - 1, Match.Index - LastIndex);
 
-    if GuidsMap.Count = 0 then
-      Exit(ANewPartial);
-
-    Matches := TRegEx.Matches(ANewPartial, InterfaceRegExStr, [roIgnoreCase, roMultiLine]);
-    if Matches.Count = 0 then
-      Exit(ANewPartial);
-
-    SB := TStringBuilder.Create(ANewPartial.Length);
-    try
-      LastIndex := 1;
-      for Match in Matches do
+      InterfaceSig := Match.Groups['InterfaceSignature'].Value;
+      if GuidsMap.TryGetValue(UpperCase(InterfaceSig), ExistingGuid) then
       begin
-        // Append everything before the match
-        if Match.Index > LastIndex then
-          SB.Append(ANewPartial, LastIndex - 1, Match.Index - LastIndex);
-
-        InterfaceSig := Match.Groups['InterfaceSignature'].Value;
-        if GuidsMap.TryGetValue(UpperCase(InterfaceSig), ExistingGuid) then
-        begin
-          // Reconstruct with old GUID
-          SB.Append(InterfaceSig);
-          SB.Append(Match.Groups['Whitespace'].Value);
-          SB.Append(ExistingGuid);
-        end
-        else
-        begin
-          // Keep original
-          SB.Append(Match.Value);
-        end;
-
-        LastIndex := Match.Index + Match.Length;
+        // Reconstruct with old GUID
+        SB.Append(InterfaceSig);
+        SB.Append(Match.Groups['Whitespace'].Value);
+        SB.Append(ExistingGuid);
+      end
+      else
+      begin
+        // Keep original
+        SB.Append(Match.Value);
       end;
 
-      // Append the rest
-      if LastIndex <= ANewPartial.Length then
-        SB.Append(ANewPartial, LastIndex - 1, ANewPartial.Length - LastIndex + 1);
-
-      Result := SB.ToString;
-    finally
-      SB.Free;
+      LastIndex := Match.Index + Match.Length;
     end;
+
+    // Append the rest
+    if LastIndex <= ANewPartial.Length then
+      SB.Append(ANewPartial, LastIndex - 1, ANewPartial.Length - LastIndex + 1);
+
+    Result := SB.ToString;
   finally
-    GuidsMap.Free;
+    SB.Free;
   end;
 end;
 
