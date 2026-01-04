@@ -8,6 +8,8 @@ Win32
 /Projects/**/*.dsv
 /Projects/**/*.local
 /Projects/**/*.~dsk
+/Projects/**/*.drc
+/Projects/**/*.map
 
 /Projects/DcuCompileTimes/*.res
 /Projects/DcuCompileTimes/Test/*.exe
