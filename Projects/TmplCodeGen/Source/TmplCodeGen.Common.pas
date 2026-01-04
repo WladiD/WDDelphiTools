@@ -15,7 +15,7 @@ const
   IncludePartial    = 'INCLUDE-PARTIAL';
   OutputApndx       = '.pas';
   PartialApndx      = '.part.pas';
-  TemplatesDir      = 'TEMPLATES';
+  TEMPLATES_DIR     = 'TEMPLATES';
 
 implementation
 

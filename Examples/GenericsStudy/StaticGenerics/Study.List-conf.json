@@ -1,4 +1,5 @@
 {
+  "TemplatesPath": "..\\..\\..\\Projects\\StaticGenerics\\Templates",
   "Template": "Collections.List.TMPL.pas",
   "TCollectionsName": "TStudyCollections",
   "types": [

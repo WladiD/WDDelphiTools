@@ -311,6 +311,7 @@ var
   PartialName        : UTF8String;
   Partials           : TSynMustachePartials;
   TemplateContent    : RawUtf8;
+  TemplatesPath      : String;
 begin
   FConfJsonFileName := FPrefix + ConfJsonFileApndx;
 
@@ -325,11 +326,16 @@ begin
   if not (FConfJson.GetValueIndex('Template') >= 0) then
     raise Exception.Create('No template defined (Key "Template" missing)');
 
+  if FConfJson.GetValueIndex('TemplatesPath') >= 0 then
+    TemplatesPath := FConfJson.S['TemplatesPath']
+  else
+    TemplatesPath := TEMPLATES_DIR;
+
   PreProcessConfJson;
   FMainTemplate := FConfJson.S['Template'];
   FMainTemplateFileName := ExpandFileName(
-    IncludeTrailingPathDelimiter(TemplatesDir) + FMainTemplate);
-  FullTemplatesDir := ExpandFileName(IncludeTrailingPathDelimiter(TemplatesDir));
+    IncludeTrailingPathDelimiter(TemplatesPath) + FMainTemplate);
+  FullTemplatesDir := ExpandFileName(IncludeTrailingPathDelimiter(TemplatesPath));
 
   if not FileExists(FMainTemplateFileName) then
     raise Exception.CreateFmt('Template not found "%s"', [FMainTemplateFileName]);
