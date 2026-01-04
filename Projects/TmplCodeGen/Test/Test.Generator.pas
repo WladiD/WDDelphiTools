@@ -40,6 +40,8 @@ type
     procedure TestProcessCaseA;
     [Test]
     procedure TestProcessPostFixParamsDefine;
+    [Test]
+    procedure TestProcessTemplatesPath;
   end;
 
 implementation
@@ -49,7 +51,7 @@ implementation
 procedure TTestTmplCodeGen.Setup;
 begin
   inherited;
-  FTestTemplatesPath := TPath.Combine(FTestPath, TemplatesDir);
+  FTestTemplatesPath := TPath.Combine(FTestPath, TEMPLATES_DIR);
   ForceDirectories(FTestTemplatesPath);
 end;
 
@@ -188,6 +190,30 @@ begin
   ExecuteTmplCodeGen('Base.List');
   Assert.IsTrue(TFile.Exists('Base.List.pas'), 'Base.List.pas should exist');
   Assert.IsTrue(TFile.Exists('Base.List-interface.part.pas'), 'Base.List-interface.part.pas should exist');
+end;
+
+procedure TTestTmplCodeGen.TestProcessTemplatesPath;
+var
+  CustomTmplPath: String;
+begin
+  CustomTmplPath := TPath.Combine(FTestPath, 'MyCustomTemplates');
+  ForceDirectories(CustomTmplPath);
+
+  TFile.WriteAllText(TPath.Combine(CustomTmplPath, 'Custom.tmpl.pas'),
+    'unit CustomOutput; interface implementation end.');
+
+  TFile.WriteAllText(TPath.Combine(FTestPath, 'CustomProj' + ConfJsonFileApndx),
+    Format('''
+    {
+      "Template": "Custom.tmpl.pas",
+      "TemplatesPath": "%s"
+    }
+    ''', [CustomTmplPath.Replace('\', '\\')]));
+
+  ExecuteTmplCodeGen('CustomProj');
+
+  Assert.IsTrue(TFile.Exists('CustomProj.pas'), 'Output file should exist');
+  Assert.IsTrue(TFile.ReadAllText('CustomProj.pas').Contains('unit CustomOutput;'), 'Content should match template');
 end;
 
 initialization
