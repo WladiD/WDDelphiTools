@@ -18,3 +18,6 @@ Win32
 /Projects/DcuCompileTimes/Test/dunitx-results.xml
 
 /Projects/TmplCodeGen/TmplCodeGen.exe
+/Examples/GenericsStudy/DelphiGenerics/Benchmark_DelphiGenerics.exe
+/Examples/GenericsStudy/SpringGenerics/Benchmark_SpringGenerics.exe
+/Examples/GenericsStudy/StaticGenerics/Benchmark_StaticGenerics.exe
