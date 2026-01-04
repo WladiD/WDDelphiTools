@@ -103,7 +103,7 @@ begin
 
       // 5. Insert new content
       SB.Append(PartialContent);
-      SB.Append(sLineBreak);
+      SB.AppendLine;
 
       FLogger.Log(Format(
         '- "%s" included between index %d and %d',
@@ -114,7 +114,7 @@ begin
       StartMatch := StartRegEx.Match(TargetContent, EndMatch.Index + EndMatch.Length);
     end;
 
-    // Den Rest der Datei anfügen
+    // Append the rest of the file
     if LastIndex <= Length(TargetContent) then
       SB.Append(TargetContent, LastIndex - 1, Length(TargetContent) - LastIndex + 1);
 
@@ -139,7 +139,6 @@ var
   OldInterfaceSignature: String;
   OldMatch             : TMatch;
   OldMatches           : TMatchCollection;
-  Replacement          : String;
 begin
   Result := ANewPartial;
   OldMatches := TRegEx.Matches(AOldPartial,
@@ -151,8 +150,7 @@ begin
     OldInterfaceSignature := OldMatch.Groups['InterfaceSignature'].Value;
     NewRegEx := Format('(?<InterfaceSignature>%s)(?<Whitespace>\s+)',
       [TRegEx.Escape(OldInterfaceSignature)]) + GuidRegEx;
-    Replacement := OldMatch.Value;
-    Result := TRegEx.Replace(Result, NewRegEx, Replacement, [roIgnoreCase, roMultiLine]);
+    Result := TRegEx.Replace(Result, NewRegEx, OldMatch.Value, [roIgnoreCase, roMultiLine]);
   end;
 end;
 
