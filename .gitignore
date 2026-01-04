@@ -3,13 +3,14 @@ __recovery
 __history
 Win32
 
-/Projects/**/*.identcache
-/Projects/**/*.dsk
-/Projects/**/*.dsv
-/Projects/**/*.local
-/Projects/**/*.~dsk
-/Projects/**/*.drc
-/Projects/**/*.map
+/**/*.identcache
+/**/*.dsk
+/**/*.dsv
+/**/*.local
+/**/*.~dsk
+/**/*.drc
+/**/*.map
+/**/*.log
 
 /Projects/DcuCompileTimes/*.res
 /Projects/DcuCompileTimes/Test/*.exe
@@ -21,3 +22,5 @@ Win32
 /Examples/GenericsStudy/DelphiGenerics/Benchmark_DelphiGenerics.exe
 /Examples/GenericsStudy/SpringGenerics/Benchmark_SpringGenerics.exe
 /Examples/GenericsStudy/StaticGenerics/Benchmark_StaticGenerics.exe
+/Examples/GenericsStudy/mORMotGenerics/Benchmark_mORMotGenerics.exe
+/Examples/GenericsStudy/*_run.txt
