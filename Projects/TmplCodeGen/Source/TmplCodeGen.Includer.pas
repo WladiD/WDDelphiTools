@@ -43,21 +43,19 @@ end;
 
 procedure TIncludePartials.Execute;
 var
-  AfterPartialContent : String;
-  BeforePartialContent: String;
-  DoneIncludes        : Integer;
-  EndIndex            : Integer;
-  EndMatch            : TMatch;
-  EndRegEx            : TRegEx;
-  FoundIncludes       : Integer;
-  OldPartialContent   : String;
-  PartialContent      : String;
-  PartialFileName     : String;
-  StartIndex          : Integer;
-  StartMatch          : TMatch;
-  StartMatchPos       : Integer;
-  StartRegEx          : TRegEx;
-  TargetContent       : String;
+  EndMatch         : TMatch;
+  EndRegEx         : TRegEx;
+  FoundIncludes    : Integer;
+  LastIndex        : Integer;
+  OldPartialContent: String;
+  OldPartialLen    : Integer;
+  OldPartialStart  : Integer;
+  PartialContent   : String;
+  PartialFileName  : String;
+  SB               : TStringBuilder;
+  StartMatch       : TMatch;
+  StartRegEx       : TRegEx;
+  TargetContent    : String;
 begin
   FLogger.Log('Include-Partials in ' + FTargetFile);
 
@@ -67,38 +65,62 @@ begin
   TargetContent := TFile.ReadAllText(FTargetFile, TEncoding.UTF8);
 
   FoundIncludes := StartRegEx.Matches(TargetContent).Count;
-  DoneIncludes := 0;
-  StartMatchPos := 0;
 
-  while DoneIncludes < FoundIncludes do
-  begin
-    StartMatch := StartRegEx.Match(TargetContent, StartMatchPos);
-    EndMatch := EndRegEx.Match(TargetContent, StartMatchPos);
-    if not (StartMatch.Success and EndMatch.Success) then
-      raise Exception.CreateFmt('No %s regions found', [IncludePartial]);
+  if FoundIncludes = 0 then
+    Exit;
 
-    StartIndex := StartMatch.Index + StartMatch.Length - 1;
-    EndIndex := EndMatch.Index;
+  SB := TStringBuilder.Create(TargetContent.Length);
+  try
+    LastIndex := 1;
+    StartMatch := StartRegEx.Match(TargetContent);
 
-    PartialFileName := StartMatch.Groups['Param'].Value;
-    PartialContent := TFile.ReadAllText(PartialFileName, TEncoding.UTF8);
+    while StartMatch.Success do
+    begin
+      EndMatch := EndRegEx.Match(TargetContent, StartMatch.Index + StartMatch.Length);
+      if not EndMatch.Success then
+        raise Exception.CreateFmt('No %s regions found (closing tag missing)', [IncludePartial]);
 
-    BeforePartialContent := Copy(TargetContent, 1, StartIndex);
-    OldPartialContent := Copy(TargetContent, StartIndex, EndIndex - StartIndex);
-    AfterPartialContent := Copy(TargetContent, EndIndex);
+      // 1. Append text before the include + start tag
+      SB.Append(TargetContent, LastIndex - 1, (StartMatch.Index + StartMatch.Length) - LastIndex);
+      SB.Append(sLineBreak);
 
-    PartialContent := RetakeInterfaceGuids(OldPartialContent, PartialContent);
-    PartialContent := RemovePartialStmts(PartialContent, [DefinePartial]);
-    PartialContent := RemoveTrailingCommentLines(PartialContent);
+      // 2. Load partial
+      PartialFileName := StartMatch.Groups['Param'].Value;
+      PartialContent := TFile.ReadAllText(PartialFileName, TEncoding.UTF8);
 
-    StartMatchPos := Length(BeforePartialContent) + Length(PartialContent) + EndMatch.Length;
+      // 3. Extract old content for GUID retake
+      OldPartialStart := StartMatch.Index + StartMatch.Length;
+      OldPartialLen := EndMatch.Index - OldPartialStart;
+      if OldPartialLen > 0 then
+        OldPartialContent := Copy(TargetContent, OldPartialStart, OldPartialLen)
+      else
+        OldPartialContent := '';
 
-    TargetContent := BeforePartialContent + sLineBreak + PartialContent + sLineBreak +
-      AfterPartialContent;
-    FLogger.Log(Format(
-      '- "%s" included between index %d and %d',
-      [PartialFileName, StartIndex, EndIndex]));
-    Inc(DoneIncludes);
+      // 4. Process
+      PartialContent := RetakeInterfaceGuids(OldPartialContent, PartialContent);
+      PartialContent := RemovePartialStmts(PartialContent, [DefinePartial]);
+      PartialContent := RemoveTrailingCommentLines(PartialContent);
+
+      // 5. Insert new content
+      SB.Append(PartialContent);
+      SB.Append(sLineBreak);
+
+      FLogger.Log(Format(
+        '- "%s" included between index %d and %d',
+        [PartialFileName, StartMatch.Index + StartMatch.Length, EndMatch.Index]));
+
+      // 6. Continue searching from the end of the current end tag
+      LastIndex := EndMatch.Index;
+      StartMatch := StartRegEx.Match(TargetContent, EndMatch.Index + EndMatch.Length);
+    end;
+
+    // Den Rest der Datei anfügen
+    if LastIndex <= Length(TargetContent) then
+      SB.Append(TargetContent, LastIndex - 1, Length(TargetContent) - LastIndex + 1);
+
+    TargetContent := SB.ToString;
+  finally
+    SB.Free;
   end;
 
   TargetContent := RemoveBigNewLineGaps(TargetContent);
