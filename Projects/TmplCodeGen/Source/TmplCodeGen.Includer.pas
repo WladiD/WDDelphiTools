@@ -11,6 +11,7 @@ interface
 uses
 
   System.Classes,
+  System.Generics.Collections,
   System.IOUtils,
   System.RegularExpressions,
   System.SysUtils,
@@ -133,24 +134,82 @@ end;
 /// </remarks>
 function TIncludePartials.RetakeInterfaceGuids(const AOldPartial, ANewPartial: String): String;
 const
-  GuidRegEx = '(?<GUID>\[''{[A-F0-9]{8}(\-[A-F0-9]{4}){3}\-[A-F0-9]{12}}''\])';
+  GuidRegExStr = '(?<GUID>\[''{[A-F0-9]{8}(\-[A-F0-9]{4}){3}\-[A-F0-9]{12}}''\])';
+  InterfaceRegExStr = '(?<InterfaceSignature>\w+\s*=\s*interface(\([^\)]+\))?)(?<Whitespace>\s+)' + GuidRegExStr;
 var
-  NewRegEx             : String;
-  OldInterfaceSignature: String;
-  OldMatch             : TMatch;
-  OldMatches           : TMatchCollection;
-begin
-  Result := ANewPartial;
-  OldMatches := TRegEx.Matches(AOldPartial,
-    '(?<InterfaceSignature>\w+\s*=\s*interface(\([^\)]+\))?)(?<Whitespace>\s+)'
-    + GuidRegEx, [roIgnoreCase, roMultiLine]);
+  GuidsMap: TDictionary<String, String>;
 
-  for OldMatch in OldMatches do
+  procedure CollectGuids;
+  var
+    Match: TMatch;
+    Matches: TMatchCollection;
   begin
-    OldInterfaceSignature := OldMatch.Groups['InterfaceSignature'].Value;
-    NewRegEx := Format('(?<InterfaceSignature>%s)(?<Whitespace>\s+)',
-      [TRegEx.Escape(OldInterfaceSignature)]) + GuidRegEx;
-    Result := TRegEx.Replace(Result, NewRegEx, OldMatch.Value, [roIgnoreCase, roMultiLine]);
+    Matches := TRegEx.Matches(AOldPartial, InterfaceRegExStr, [roIgnoreCase, roMultiLine]);
+    for Match in Matches do
+    begin
+      // Use Key as UpperCase to be case-insensitive on lookup
+      GuidsMap.AddOrSetValue(UpperCase(Match.Groups['InterfaceSignature'].Value), Match.Groups['GUID'].Value);
+    end;
+  end;
+
+var
+  ExistingGuid: String;
+  InterfaceSig: String;
+  LastIndex   : Integer;
+  Match       : TMatch;
+  Matches     : TMatchCollection;
+  SB          : TStringBuilder;
+begin
+  if AOldPartial.IsEmpty then
+    Exit(ANewPartial);
+
+  GuidsMap := TDictionary<String, String>.Create;
+  try
+    CollectGuids;
+
+    if GuidsMap.Count = 0 then
+      Exit(ANewPartial);
+
+    Matches := TRegEx.Matches(ANewPartial, InterfaceRegExStr, [roIgnoreCase, roMultiLine]);
+    if Matches.Count = 0 then
+      Exit(ANewPartial);
+
+    SB := TStringBuilder.Create(ANewPartial.Length);
+    try
+      LastIndex := 1;
+      for Match in Matches do
+      begin
+        // Append everything before the match
+        if Match.Index > LastIndex then
+          SB.Append(ANewPartial, LastIndex - 1, Match.Index - LastIndex);
+
+        InterfaceSig := Match.Groups['InterfaceSignature'].Value;
+        if GuidsMap.TryGetValue(UpperCase(InterfaceSig), ExistingGuid) then
+        begin
+          // Reconstruct with old GUID
+          SB.Append(InterfaceSig);
+          SB.Append(Match.Groups['Whitespace'].Value);
+          SB.Append(ExistingGuid);
+        end
+        else
+        begin
+          // Keep original
+          SB.Append(Match.Value);
+        end;
+
+        LastIndex := Match.Index + Match.Length;
+      end;
+
+      // Append the rest
+      if LastIndex <= ANewPartial.Length then
+        SB.Append(ANewPartial, LastIndex - 1, ANewPartial.Length - LastIndex + 1);
+
+      Result := SB.ToString;
+    finally
+      SB.Free;
+    end;
+  finally
+    GuidsMap.Free;
   end;
 end;
 
