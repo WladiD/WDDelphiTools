@@ -2,6 +2,8 @@
 setlocal
 pushd %~dp0
 
+if exist summary.log del summary.log
+
 echo. 
 echo ==============================================================================
 echo  BENCHMARK: StaticGenerics vs Delphi vs Spring vs mORMot
@@ -15,7 +17,10 @@ if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_static.log
     type ..\build_static.log
 ) else (
-    findstr "lines," ..\build_static.log
+    echo. >> ..\summary.log
+    echo [StaticGenerics] >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_static.log >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_static.log
 )
 cd ..
 
@@ -28,7 +33,10 @@ if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_mormot.log
     type ..\build_mormot.log
 ) else (
-    findstr "lines," ..\build_mormot.log
+    echo. >> ..\summary.log
+    echo [mORMotGenerics] >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_mormot.log >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_mormot.log
 )
 cd ..
 
@@ -41,7 +49,11 @@ if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_delphi.log
     type ..\build_delphi.log
 ) else (
-    findstr "lines," ..\build_delphi.log
+    echo. >> ..\summary.log
+    echo [DelphiGenerics] >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_delphi.log >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_delphi.log
+    
 )
 cd ..
 
@@ -54,7 +66,10 @@ if %errorlevel% neq 0 (
     echo BUILD FAILED! See build_spring.log
     type ..\build_spring.log
 ) else (
-    findstr "lines," ..\build_spring.log
+    echo. >> ..\summary.log
+    echo [SpringGenerics] >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_spring.log >> ..\summary.log
+    findstr /C:"Embarcadero Delphi for" /C:"Copyright (c)" /C:"Zeilen," /C:"lines," ..\build_spring.log
 )
 cd ..
 
