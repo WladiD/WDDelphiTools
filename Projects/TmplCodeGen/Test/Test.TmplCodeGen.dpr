@@ -19,7 +19,10 @@ uses
   TmplCodeGen.PreProcess in '..\Source\TmplCodeGen.PreProcess.pas',
   TmplCodeGen.Utils in '..\Source\TmplCodeGen.Utils.pas',
   TmplCodeGen.Common in '..\Source\TmplCodeGen.Common.pas',
-  Test.Generator in 'Test.Generator.pas';
+  Test.Base in 'Test.Base.pas',
+  Test.Generator in 'Test.Generator.pas',
+  Test.Includer in 'Test.Includer.pas',
+  Test.Logger in 'Test.Logger.pas';
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

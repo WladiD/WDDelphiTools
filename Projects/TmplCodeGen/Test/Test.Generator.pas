@@ -18,35 +18,24 @@ uses
 
   DUnitX.TestFramework,
 
+  Test.Base,
+  Test.Logger,
   TmplCodeGen.Common,
   TmplCodeGen.Generator,
   TmplCodeGen.Logger;
 
 type
 
-  TTestLogger = class(TInterfacedObject, ILogger)
-  public
-    LogMessages: TStringList;
-    constructor Create;
-    destructor Destroy; override;
-    procedure Log(const AMessage: String);
-  end;
-
   [TestFixture]
-  TTestTmplCodeGen = class
+  TTestTmplCodeGen = class(TTestBase)
   private
-    FLogger           : ILogger;
-    FPrevPath         : String;
-    FTestPath         : String;
     FTestTemplatesPath: String;
     function  CountOccurrences(const AText, ASubString: String): Integer;
     procedure CreateCaseAMockEnvironment;
     procedure ExecuteTmplCodeGen(const APrefix: String);
   public
     [Setup]
-    procedure Setup;
-    [Teardown]
-    procedure Teardown;
+    procedure Setup; override;
     [Test]
     procedure TestProcessCaseA;
     [Test]
@@ -55,47 +44,13 @@ type
 
 implementation
 
-{ TTestLogger }
-
-constructor TTestLogger.Create;
-begin
-  inherited Create;
-  LogMessages := TStringList.Create;
-end;
-
-destructor TTestLogger.Destroy;
-begin
-  LogMessages.Free;
-  inherited;
-end;
-
-procedure TTestLogger.Log(const AMessage: String);
-begin
-  LogMessages.Add(AMessage);
-end;
-
 { TTestTmplCodeGen }
 
 procedure TTestTmplCodeGen.Setup;
 begin
-  FLogger := TTestLogger.Create;
-  FTestPath := TPath.Combine(TPath.GetTempPath, 'TmplCodeGenTest_' + TGuid.NewGuid.ToString);
-  ForceDirectories(FTestPath);
-
+  inherited;
   FTestTemplatesPath := TPath.Combine(FTestPath, TemplatesDir);
   ForceDirectories(FTestTemplatesPath);
-
-  FPrevPath := TDirectory.GetCurrentDirectory;
-  TDirectory.SetCurrentDirectory(FTestPath);
-end;
-
-procedure TTestTmplCodeGen.Teardown;
-begin
-  TDirectory.SetCurrentDirectory(FPrevPath);
-
-  if TDirectory.Exists(FTestPath) then
-    TDirectory.Delete(FTestPath, True);
-  FLogger := nil;
 end;
 
 procedure TTestTmplCodeGen.ExecuteTmplCodeGen(const APrefix: String);
