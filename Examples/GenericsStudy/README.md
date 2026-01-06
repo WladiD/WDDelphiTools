@@ -40,7 +40,7 @@ In total, over **2,000 distinct collection specializations** are compiled and in
 
 ## Results
 
-*Benchmark run on 2026-01-16 (Delphi 12 Athens)*
+*Benchmark run on 2026-01-16*
 
 | Implementation               | Compile Time | Lines Compiled | Binary Code Size    | Max Memory used by dcc32 | Status     |
 | :---                         | :---         | :---           | :---                | :---                     | :---       |
