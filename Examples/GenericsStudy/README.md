@@ -28,6 +28,16 @@ In total, over **2,000 distinct collection specializations** are compiled and in
     - Uses the Spring4D framework (`Spring.Collections`).
     - Offers a very rich and feature-complete collections library with extensive interface usage.
 
+## Test Environment
+
+- **CPU:** Intel i7-12800HX
+- **SSD:** NVMe Micron 512 GB
+- **RAM:** 32 GB
+- **OS:** Windows 11
+- **Compiler:** Delphi 12 Athens
+- **mORMot 2:** Commit `4428ef84989200175a27ef90106e22b6caba116e`
+- **Spring4D:** Commit `ad9dbde20a8c2409a95c7dff443d4d16520d971f`
+
 ## Results
 
 *Benchmark run on 2026-01-04 (Delphi 12 Athens)*
