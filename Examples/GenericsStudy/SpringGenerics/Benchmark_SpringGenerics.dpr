@@ -1,5 +1,6 @@
-﻿program Benchmark_SpringGenerics;
+program Benchmark_SpringGenerics;
 {$APPTYPE CONSOLE}
+{.$DEFINE FULL_TEST}
 uses
   Spring.Collections,
   System.SysUtils,
@@ -27,6 +28,7 @@ var
     DS1_5: IDictionary<string, TRec_1_5>;
     DI1_5: IDictionary<Integer, TRec_1_5>;
     DG1_5: IDictionary<TGUID, TRec_1_5>;
+{$IFDEF FULL_TEST}
     L1_6: IList<TRec_1_6>;
     DS1_6: IDictionary<string, TRec_1_6>;
     DI1_6: IDictionary<Integer, TRec_1_6>;
@@ -47,6 +49,7 @@ var
     DS1_10: IDictionary<string, TRec_1_10>;
     DI1_10: IDictionary<Integer, TRec_1_10>;
     DG1_10: IDictionary<TGUID, TRec_1_10>;
+{$ENDIF}
     L2_1: IList<TRec_2_1>;
     DS2_1: IDictionary<string, TRec_2_1>;
     DI2_1: IDictionary<Integer, TRec_2_1>;
@@ -67,6 +70,7 @@ var
     DS2_5: IDictionary<string, TRec_2_5>;
     DI2_5: IDictionary<Integer, TRec_2_5>;
     DG2_5: IDictionary<TGUID, TRec_2_5>;
+{$IFDEF FULL_TEST}
     L2_6: IList<TRec_2_6>;
     DS2_6: IDictionary<string, TRec_2_6>;
     DI2_6: IDictionary<Integer, TRec_2_6>;
@@ -87,6 +91,7 @@ var
     DS2_10: IDictionary<string, TRec_2_10>;
     DI2_10: IDictionary<Integer, TRec_2_10>;
     DG2_10: IDictionary<TGUID, TRec_2_10>;
+{$ENDIF}
     L3_1: IList<TRec_3_1>;
     DS3_1: IDictionary<string, TRec_3_1>;
     DI3_1: IDictionary<Integer, TRec_3_1>;
@@ -107,6 +112,7 @@ var
     DS3_5: IDictionary<string, TRec_3_5>;
     DI3_5: IDictionary<Integer, TRec_3_5>;
     DG3_5: IDictionary<TGUID, TRec_3_5>;
+{$IFDEF FULL_TEST}
     L3_6: IList<TRec_3_6>;
     DS3_6: IDictionary<string, TRec_3_6>;
     DI3_6: IDictionary<Integer, TRec_3_6>;
@@ -127,6 +133,7 @@ var
     DS3_10: IDictionary<string, TRec_3_10>;
     DI3_10: IDictionary<Integer, TRec_3_10>;
     DG3_10: IDictionary<TGUID, TRec_3_10>;
+{$ENDIF}
     L4_1: IList<TRec_4_1>;
     DS4_1: IDictionary<string, TRec_4_1>;
     DI4_1: IDictionary<Integer, TRec_4_1>;
@@ -147,6 +154,7 @@ var
     DS4_5: IDictionary<string, TRec_4_5>;
     DI4_5: IDictionary<Integer, TRec_4_5>;
     DG4_5: IDictionary<TGUID, TRec_4_5>;
+{$IFDEF FULL_TEST}
     L4_6: IList<TRec_4_6>;
     DS4_6: IDictionary<string, TRec_4_6>;
     DI4_6: IDictionary<Integer, TRec_4_6>;
@@ -167,6 +175,7 @@ var
     DS4_10: IDictionary<string, TRec_4_10>;
     DI4_10: IDictionary<Integer, TRec_4_10>;
     DG4_10: IDictionary<TGUID, TRec_4_10>;
+{$ENDIF}
     L5_1: IList<TRec_5_1>;
     DS5_1: IDictionary<string, TRec_5_1>;
     DI5_1: IDictionary<Integer, TRec_5_1>;
@@ -187,6 +196,7 @@ var
     DS5_5: IDictionary<string, TRec_5_5>;
     DI5_5: IDictionary<Integer, TRec_5_5>;
     DG5_5: IDictionary<TGUID, TRec_5_5>;
+{$IFDEF FULL_TEST}
     L5_6: IList<TRec_5_6>;
     DS5_6: IDictionary<string, TRec_5_6>;
     DI5_6: IDictionary<Integer, TRec_5_6>;
@@ -207,6 +217,7 @@ var
     DS5_10: IDictionary<string, TRec_5_10>;
     DI5_10: IDictionary<Integer, TRec_5_10>;
     DG5_10: IDictionary<TGUID, TRec_5_10>;
+{$ENDIF}
     L6_1: IList<TRec_6_1>;
     DS6_1: IDictionary<string, TRec_6_1>;
     DI6_1: IDictionary<Integer, TRec_6_1>;
@@ -227,6 +238,7 @@ var
     DS6_5: IDictionary<string, TRec_6_5>;
     DI6_5: IDictionary<Integer, TRec_6_5>;
     DG6_5: IDictionary<TGUID, TRec_6_5>;
+{$IFDEF FULL_TEST}
     L6_6: IList<TRec_6_6>;
     DS6_6: IDictionary<string, TRec_6_6>;
     DI6_6: IDictionary<Integer, TRec_6_6>;
@@ -247,6 +259,7 @@ var
     DS6_10: IDictionary<string, TRec_6_10>;
     DI6_10: IDictionary<Integer, TRec_6_10>;
     DG6_10: IDictionary<TGUID, TRec_6_10>;
+{$ENDIF}
     L7_1: IList<TRec_7_1>;
     DS7_1: IDictionary<string, TRec_7_1>;
     DI7_1: IDictionary<Integer, TRec_7_1>;
@@ -267,6 +280,7 @@ var
     DS7_5: IDictionary<string, TRec_7_5>;
     DI7_5: IDictionary<Integer, TRec_7_5>;
     DG7_5: IDictionary<TGUID, TRec_7_5>;
+{$IFDEF FULL_TEST}
     L7_6: IList<TRec_7_6>;
     DS7_6: IDictionary<string, TRec_7_6>;
     DI7_6: IDictionary<Integer, TRec_7_6>;
@@ -287,6 +301,7 @@ var
     DS7_10: IDictionary<string, TRec_7_10>;
     DI7_10: IDictionary<Integer, TRec_7_10>;
     DG7_10: IDictionary<TGUID, TRec_7_10>;
+{$ENDIF}
     L8_1: IList<TRec_8_1>;
     DS8_1: IDictionary<string, TRec_8_1>;
     DI8_1: IDictionary<Integer, TRec_8_1>;
@@ -307,6 +322,7 @@ var
     DS8_5: IDictionary<string, TRec_8_5>;
     DI8_5: IDictionary<Integer, TRec_8_5>;
     DG8_5: IDictionary<TGUID, TRec_8_5>;
+{$IFDEF FULL_TEST}
     L8_6: IList<TRec_8_6>;
     DS8_6: IDictionary<string, TRec_8_6>;
     DI8_6: IDictionary<Integer, TRec_8_6>;
@@ -327,6 +343,7 @@ var
     DS8_10: IDictionary<string, TRec_8_10>;
     DI8_10: IDictionary<Integer, TRec_8_10>;
     DG8_10: IDictionary<TGUID, TRec_8_10>;
+{$ENDIF}
     L9_1: IList<TRec_9_1>;
     DS9_1: IDictionary<string, TRec_9_1>;
     DI9_1: IDictionary<Integer, TRec_9_1>;
@@ -347,6 +364,7 @@ var
     DS9_5: IDictionary<string, TRec_9_5>;
     DI9_5: IDictionary<Integer, TRec_9_5>;
     DG9_5: IDictionary<TGUID, TRec_9_5>;
+{$IFDEF FULL_TEST}
     L9_6: IList<TRec_9_6>;
     DS9_6: IDictionary<string, TRec_9_6>;
     DI9_6: IDictionary<Integer, TRec_9_6>;
@@ -367,6 +385,7 @@ var
     DS9_10: IDictionary<string, TRec_9_10>;
     DI9_10: IDictionary<Integer, TRec_9_10>;
     DG9_10: IDictionary<TGUID, TRec_9_10>;
+{$ENDIF}
     L10_1: IList<TRec_10_1>;
     DS10_1: IDictionary<string, TRec_10_1>;
     DI10_1: IDictionary<Integer, TRec_10_1>;
@@ -387,6 +406,7 @@ var
     DS10_5: IDictionary<string, TRec_10_5>;
     DI10_5: IDictionary<Integer, TRec_10_5>;
     DG10_5: IDictionary<TGUID, TRec_10_5>;
+{$IFDEF FULL_TEST}
     L10_6: IList<TRec_10_6>;
     DS10_6: IDictionary<string, TRec_10_6>;
     DI10_6: IDictionary<Integer, TRec_10_6>;
@@ -407,6 +427,7 @@ var
     DS10_10: IDictionary<string, TRec_10_10>;
     DI10_10: IDictionary<Integer, TRec_10_10>;
     DG10_10: IDictionary<TGUID, TRec_10_10>;
+{$ENDIF}
     L11_1: IList<TRec_11_1>;
     DS11_1: IDictionary<string, TRec_11_1>;
     DI11_1: IDictionary<Integer, TRec_11_1>;
@@ -427,6 +448,7 @@ var
     DS11_5: IDictionary<string, TRec_11_5>;
     DI11_5: IDictionary<Integer, TRec_11_5>;
     DG11_5: IDictionary<TGUID, TRec_11_5>;
+{$IFDEF FULL_TEST}
     L11_6: IList<TRec_11_6>;
     DS11_6: IDictionary<string, TRec_11_6>;
     DI11_6: IDictionary<Integer, TRec_11_6>;
@@ -447,6 +469,7 @@ var
     DS11_10: IDictionary<string, TRec_11_10>;
     DI11_10: IDictionary<Integer, TRec_11_10>;
     DG11_10: IDictionary<TGUID, TRec_11_10>;
+{$ENDIF}
     L12_1: IList<TRec_12_1>;
     DS12_1: IDictionary<string, TRec_12_1>;
     DI12_1: IDictionary<Integer, TRec_12_1>;
@@ -467,6 +490,7 @@ var
     DS12_5: IDictionary<string, TRec_12_5>;
     DI12_5: IDictionary<Integer, TRec_12_5>;
     DG12_5: IDictionary<TGUID, TRec_12_5>;
+{$IFDEF FULL_TEST}
     L12_6: IList<TRec_12_6>;
     DS12_6: IDictionary<string, TRec_12_6>;
     DI12_6: IDictionary<Integer, TRec_12_6>;
@@ -487,6 +511,7 @@ var
     DS12_10: IDictionary<string, TRec_12_10>;
     DI12_10: IDictionary<Integer, TRec_12_10>;
     DG12_10: IDictionary<TGUID, TRec_12_10>;
+{$ENDIF}
     L13_1: IList<TRec_13_1>;
     DS13_1: IDictionary<string, TRec_13_1>;
     DI13_1: IDictionary<Integer, TRec_13_1>;
@@ -507,6 +532,7 @@ var
     DS13_5: IDictionary<string, TRec_13_5>;
     DI13_5: IDictionary<Integer, TRec_13_5>;
     DG13_5: IDictionary<TGUID, TRec_13_5>;
+{$IFDEF FULL_TEST}
     L13_6: IList<TRec_13_6>;
     DS13_6: IDictionary<string, TRec_13_6>;
     DI13_6: IDictionary<Integer, TRec_13_6>;
@@ -527,6 +553,7 @@ var
     DS13_10: IDictionary<string, TRec_13_10>;
     DI13_10: IDictionary<Integer, TRec_13_10>;
     DG13_10: IDictionary<TGUID, TRec_13_10>;
+{$ENDIF}
     L14_1: IList<TRec_14_1>;
     DS14_1: IDictionary<string, TRec_14_1>;
     DI14_1: IDictionary<Integer, TRec_14_1>;
@@ -547,6 +574,7 @@ var
     DS14_5: IDictionary<string, TRec_14_5>;
     DI14_5: IDictionary<Integer, TRec_14_5>;
     DG14_5: IDictionary<TGUID, TRec_14_5>;
+{$IFDEF FULL_TEST}
     L14_6: IList<TRec_14_6>;
     DS14_6: IDictionary<string, TRec_14_6>;
     DI14_6: IDictionary<Integer, TRec_14_6>;
@@ -567,6 +595,7 @@ var
     DS14_10: IDictionary<string, TRec_14_10>;
     DI14_10: IDictionary<Integer, TRec_14_10>;
     DG14_10: IDictionary<TGUID, TRec_14_10>;
+{$ENDIF}
     L15_1: IList<TRec_15_1>;
     DS15_1: IDictionary<string, TRec_15_1>;
     DI15_1: IDictionary<Integer, TRec_15_1>;
@@ -587,6 +616,7 @@ var
     DS15_5: IDictionary<string, TRec_15_5>;
     DI15_5: IDictionary<Integer, TRec_15_5>;
     DG15_5: IDictionary<TGUID, TRec_15_5>;
+{$IFDEF FULL_TEST}
     L15_6: IList<TRec_15_6>;
     DS15_6: IDictionary<string, TRec_15_6>;
     DI15_6: IDictionary<Integer, TRec_15_6>;
@@ -607,6 +637,7 @@ var
     DS15_10: IDictionary<string, TRec_15_10>;
     DI15_10: IDictionary<Integer, TRec_15_10>;
     DG15_10: IDictionary<TGUID, TRec_15_10>;
+{$ENDIF}
     L16_1: IList<TRec_16_1>;
     DS16_1: IDictionary<string, TRec_16_1>;
     DI16_1: IDictionary<Integer, TRec_16_1>;
@@ -627,6 +658,7 @@ var
     DS16_5: IDictionary<string, TRec_16_5>;
     DI16_5: IDictionary<Integer, TRec_16_5>;
     DG16_5: IDictionary<TGUID, TRec_16_5>;
+{$IFDEF FULL_TEST}
     L16_6: IList<TRec_16_6>;
     DS16_6: IDictionary<string, TRec_16_6>;
     DI16_6: IDictionary<Integer, TRec_16_6>;
@@ -647,6 +679,7 @@ var
     DS16_10: IDictionary<string, TRec_16_10>;
     DI16_10: IDictionary<Integer, TRec_16_10>;
     DG16_10: IDictionary<TGUID, TRec_16_10>;
+{$ENDIF}
     L17_1: IList<TRec_17_1>;
     DS17_1: IDictionary<string, TRec_17_1>;
     DI17_1: IDictionary<Integer, TRec_17_1>;
@@ -667,6 +700,7 @@ var
     DS17_5: IDictionary<string, TRec_17_5>;
     DI17_5: IDictionary<Integer, TRec_17_5>;
     DG17_5: IDictionary<TGUID, TRec_17_5>;
+{$IFDEF FULL_TEST}
     L17_6: IList<TRec_17_6>;
     DS17_6: IDictionary<string, TRec_17_6>;
     DI17_6: IDictionary<Integer, TRec_17_6>;
@@ -687,6 +721,7 @@ var
     DS17_10: IDictionary<string, TRec_17_10>;
     DI17_10: IDictionary<Integer, TRec_17_10>;
     DG17_10: IDictionary<TGUID, TRec_17_10>;
+{$ENDIF}
     L18_1: IList<TRec_18_1>;
     DS18_1: IDictionary<string, TRec_18_1>;
     DI18_1: IDictionary<Integer, TRec_18_1>;
@@ -707,6 +742,7 @@ var
     DS18_5: IDictionary<string, TRec_18_5>;
     DI18_5: IDictionary<Integer, TRec_18_5>;
     DG18_5: IDictionary<TGUID, TRec_18_5>;
+{$IFDEF FULL_TEST}
     L18_6: IList<TRec_18_6>;
     DS18_6: IDictionary<string, TRec_18_6>;
     DI18_6: IDictionary<Integer, TRec_18_6>;
@@ -727,6 +763,7 @@ var
     DS18_10: IDictionary<string, TRec_18_10>;
     DI18_10: IDictionary<Integer, TRec_18_10>;
     DG18_10: IDictionary<TGUID, TRec_18_10>;
+{$ENDIF}
     L19_1: IList<TRec_19_1>;
     DS19_1: IDictionary<string, TRec_19_1>;
     DI19_1: IDictionary<Integer, TRec_19_1>;
@@ -747,6 +784,7 @@ var
     DS19_5: IDictionary<string, TRec_19_5>;
     DI19_5: IDictionary<Integer, TRec_19_5>;
     DG19_5: IDictionary<TGUID, TRec_19_5>;
+{$IFDEF FULL_TEST}
     L19_6: IList<TRec_19_6>;
     DS19_6: IDictionary<string, TRec_19_6>;
     DI19_6: IDictionary<Integer, TRec_19_6>;
@@ -767,6 +805,7 @@ var
     DS19_10: IDictionary<string, TRec_19_10>;
     DI19_10: IDictionary<Integer, TRec_19_10>;
     DG19_10: IDictionary<TGUID, TRec_19_10>;
+{$ENDIF}
     L20_1: IList<TRec_20_1>;
     DS20_1: IDictionary<string, TRec_20_1>;
     DI20_1: IDictionary<Integer, TRec_20_1>;
@@ -787,6 +826,7 @@ var
     DS20_5: IDictionary<string, TRec_20_5>;
     DI20_5: IDictionary<Integer, TRec_20_5>;
     DG20_5: IDictionary<TGUID, TRec_20_5>;
+{$IFDEF FULL_TEST}
     L20_6: IList<TRec_20_6>;
     DS20_6: IDictionary<string, TRec_20_6>;
     DI20_6: IDictionary<Integer, TRec_20_6>;
@@ -807,6 +847,7 @@ var
     DS20_10: IDictionary<string, TRec_20_10>;
     DI20_10: IDictionary<Integer, TRec_20_10>;
     DG20_10: IDictionary<TGUID, TRec_20_10>;
+{$ENDIF}
     L21_1: IList<TRec_21_1>;
     DS21_1: IDictionary<string, TRec_21_1>;
     DI21_1: IDictionary<Integer, TRec_21_1>;
@@ -827,6 +868,7 @@ var
     DS21_5: IDictionary<string, TRec_21_5>;
     DI21_5: IDictionary<Integer, TRec_21_5>;
     DG21_5: IDictionary<TGUID, TRec_21_5>;
+{$IFDEF FULL_TEST}
     L21_6: IList<TRec_21_6>;
     DS21_6: IDictionary<string, TRec_21_6>;
     DI21_6: IDictionary<Integer, TRec_21_6>;
@@ -847,6 +889,7 @@ var
     DS21_10: IDictionary<string, TRec_21_10>;
     DI21_10: IDictionary<Integer, TRec_21_10>;
     DG21_10: IDictionary<TGUID, TRec_21_10>;
+{$ENDIF}
     L22_1: IList<TRec_22_1>;
     DS22_1: IDictionary<string, TRec_22_1>;
     DI22_1: IDictionary<Integer, TRec_22_1>;
@@ -867,6 +910,7 @@ var
     DS22_5: IDictionary<string, TRec_22_5>;
     DI22_5: IDictionary<Integer, TRec_22_5>;
     DG22_5: IDictionary<TGUID, TRec_22_5>;
+{$IFDEF FULL_TEST}
     L22_6: IList<TRec_22_6>;
     DS22_6: IDictionary<string, TRec_22_6>;
     DI22_6: IDictionary<Integer, TRec_22_6>;
@@ -887,6 +931,7 @@ var
     DS22_10: IDictionary<string, TRec_22_10>;
     DI22_10: IDictionary<Integer, TRec_22_10>;
     DG22_10: IDictionary<TGUID, TRec_22_10>;
+{$ENDIF}
     L23_1: IList<TRec_23_1>;
     DS23_1: IDictionary<string, TRec_23_1>;
     DI23_1: IDictionary<Integer, TRec_23_1>;
@@ -907,6 +952,7 @@ var
     DS23_5: IDictionary<string, TRec_23_5>;
     DI23_5: IDictionary<Integer, TRec_23_5>;
     DG23_5: IDictionary<TGUID, TRec_23_5>;
+{$IFDEF FULL_TEST}
     L23_6: IList<TRec_23_6>;
     DS23_6: IDictionary<string, TRec_23_6>;
     DI23_6: IDictionary<Integer, TRec_23_6>;
@@ -927,6 +973,7 @@ var
     DS23_10: IDictionary<string, TRec_23_10>;
     DI23_10: IDictionary<Integer, TRec_23_10>;
     DG23_10: IDictionary<TGUID, TRec_23_10>;
+{$ENDIF}
     L24_1: IList<TRec_24_1>;
     DS24_1: IDictionary<string, TRec_24_1>;
     DI24_1: IDictionary<Integer, TRec_24_1>;
@@ -947,6 +994,7 @@ var
     DS24_5: IDictionary<string, TRec_24_5>;
     DI24_5: IDictionary<Integer, TRec_24_5>;
     DG24_5: IDictionary<TGUID, TRec_24_5>;
+{$IFDEF FULL_TEST}
     L24_6: IList<TRec_24_6>;
     DS24_6: IDictionary<string, TRec_24_6>;
     DI24_6: IDictionary<Integer, TRec_24_6>;
@@ -967,6 +1015,7 @@ var
     DS24_10: IDictionary<string, TRec_24_10>;
     DI24_10: IDictionary<Integer, TRec_24_10>;
     DG24_10: IDictionary<TGUID, TRec_24_10>;
+{$ENDIF}
     L25_1: IList<TRec_25_1>;
     DS25_1: IDictionary<string, TRec_25_1>;
     DI25_1: IDictionary<Integer, TRec_25_1>;
@@ -987,6 +1036,7 @@ var
     DS25_5: IDictionary<string, TRec_25_5>;
     DI25_5: IDictionary<Integer, TRec_25_5>;
     DG25_5: IDictionary<TGUID, TRec_25_5>;
+{$IFDEF FULL_TEST}
     L25_6: IList<TRec_25_6>;
     DS25_6: IDictionary<string, TRec_25_6>;
     DI25_6: IDictionary<Integer, TRec_25_6>;
@@ -1007,6 +1057,7 @@ var
     DS25_10: IDictionary<string, TRec_25_10>;
     DI25_10: IDictionary<Integer, TRec_25_10>;
     DG25_10: IDictionary<TGUID, TRec_25_10>;
+{$ENDIF}
     L26_1: IList<TRec_26_1>;
     DS26_1: IDictionary<string, TRec_26_1>;
     DI26_1: IDictionary<Integer, TRec_26_1>;
@@ -1027,6 +1078,7 @@ var
     DS26_5: IDictionary<string, TRec_26_5>;
     DI26_5: IDictionary<Integer, TRec_26_5>;
     DG26_5: IDictionary<TGUID, TRec_26_5>;
+{$IFDEF FULL_TEST}
     L26_6: IList<TRec_26_6>;
     DS26_6: IDictionary<string, TRec_26_6>;
     DI26_6: IDictionary<Integer, TRec_26_6>;
@@ -1047,6 +1099,7 @@ var
     DS26_10: IDictionary<string, TRec_26_10>;
     DI26_10: IDictionary<Integer, TRec_26_10>;
     DG26_10: IDictionary<TGUID, TRec_26_10>;
+{$ENDIF}
     L27_1: IList<TRec_27_1>;
     DS27_1: IDictionary<string, TRec_27_1>;
     DI27_1: IDictionary<Integer, TRec_27_1>;
@@ -1067,6 +1120,7 @@ var
     DS27_5: IDictionary<string, TRec_27_5>;
     DI27_5: IDictionary<Integer, TRec_27_5>;
     DG27_5: IDictionary<TGUID, TRec_27_5>;
+{$IFDEF FULL_TEST}
     L27_6: IList<TRec_27_6>;
     DS27_6: IDictionary<string, TRec_27_6>;
     DI27_6: IDictionary<Integer, TRec_27_6>;
@@ -1087,6 +1141,7 @@ var
     DS27_10: IDictionary<string, TRec_27_10>;
     DI27_10: IDictionary<Integer, TRec_27_10>;
     DG27_10: IDictionary<TGUID, TRec_27_10>;
+{$ENDIF}
     L28_1: IList<TRec_28_1>;
     DS28_1: IDictionary<string, TRec_28_1>;
     DI28_1: IDictionary<Integer, TRec_28_1>;
@@ -1107,6 +1162,7 @@ var
     DS28_5: IDictionary<string, TRec_28_5>;
     DI28_5: IDictionary<Integer, TRec_28_5>;
     DG28_5: IDictionary<TGUID, TRec_28_5>;
+{$IFDEF FULL_TEST}
     L28_6: IList<TRec_28_6>;
     DS28_6: IDictionary<string, TRec_28_6>;
     DI28_6: IDictionary<Integer, TRec_28_6>;
@@ -1127,6 +1183,7 @@ var
     DS28_10: IDictionary<string, TRec_28_10>;
     DI28_10: IDictionary<Integer, TRec_28_10>;
     DG28_10: IDictionary<TGUID, TRec_28_10>;
+{$ENDIF}
     L29_1: IList<TRec_29_1>;
     DS29_1: IDictionary<string, TRec_29_1>;
     DI29_1: IDictionary<Integer, TRec_29_1>;
@@ -1147,6 +1204,7 @@ var
     DS29_5: IDictionary<string, TRec_29_5>;
     DI29_5: IDictionary<Integer, TRec_29_5>;
     DG29_5: IDictionary<TGUID, TRec_29_5>;
+{$IFDEF FULL_TEST}
     L29_6: IList<TRec_29_6>;
     DS29_6: IDictionary<string, TRec_29_6>;
     DI29_6: IDictionary<Integer, TRec_29_6>;
@@ -1167,6 +1225,7 @@ var
     DS29_10: IDictionary<string, TRec_29_10>;
     DI29_10: IDictionary<Integer, TRec_29_10>;
     DG29_10: IDictionary<TGUID, TRec_29_10>;
+{$ENDIF}
     L30_1: IList<TRec_30_1>;
     DS30_1: IDictionary<string, TRec_30_1>;
     DI30_1: IDictionary<Integer, TRec_30_1>;
@@ -1187,6 +1246,7 @@ var
     DS30_5: IDictionary<string, TRec_30_5>;
     DI30_5: IDictionary<Integer, TRec_30_5>;
     DG30_5: IDictionary<TGUID, TRec_30_5>;
+{$IFDEF FULL_TEST}
     L30_6: IList<TRec_30_6>;
     DS30_6: IDictionary<string, TRec_30_6>;
     DI30_6: IDictionary<Integer, TRec_30_6>;
@@ -1207,6 +1267,7 @@ var
     DS30_10: IDictionary<string, TRec_30_10>;
     DI30_10: IDictionary<Integer, TRec_30_10>;
     DG30_10: IDictionary<TGUID, TRec_30_10>;
+{$ENDIF}
     L31_1: IList<TRec_31_1>;
     DS31_1: IDictionary<string, TRec_31_1>;
     DI31_1: IDictionary<Integer, TRec_31_1>;
@@ -1227,6 +1288,7 @@ var
     DS31_5: IDictionary<string, TRec_31_5>;
     DI31_5: IDictionary<Integer, TRec_31_5>;
     DG31_5: IDictionary<TGUID, TRec_31_5>;
+{$IFDEF FULL_TEST}
     L31_6: IList<TRec_31_6>;
     DS31_6: IDictionary<string, TRec_31_6>;
     DI31_6: IDictionary<Integer, TRec_31_6>;
@@ -1247,6 +1309,7 @@ var
     DS31_10: IDictionary<string, TRec_31_10>;
     DI31_10: IDictionary<Integer, TRec_31_10>;
     DG31_10: IDictionary<TGUID, TRec_31_10>;
+{$ENDIF}
     L32_1: IList<TRec_32_1>;
     DS32_1: IDictionary<string, TRec_32_1>;
     DI32_1: IDictionary<Integer, TRec_32_1>;
@@ -1267,6 +1330,7 @@ var
     DS32_5: IDictionary<string, TRec_32_5>;
     DI32_5: IDictionary<Integer, TRec_32_5>;
     DG32_5: IDictionary<TGUID, TRec_32_5>;
+{$IFDEF FULL_TEST}
     L32_6: IList<TRec_32_6>;
     DS32_6: IDictionary<string, TRec_32_6>;
     DI32_6: IDictionary<Integer, TRec_32_6>;
@@ -1287,6 +1351,7 @@ var
     DS32_10: IDictionary<string, TRec_32_10>;
     DI32_10: IDictionary<Integer, TRec_32_10>;
     DG32_10: IDictionary<TGUID, TRec_32_10>;
+{$ENDIF}
     L33_1: IList<TRec_33_1>;
     DS33_1: IDictionary<string, TRec_33_1>;
     DI33_1: IDictionary<Integer, TRec_33_1>;
@@ -1307,6 +1372,7 @@ var
     DS33_5: IDictionary<string, TRec_33_5>;
     DI33_5: IDictionary<Integer, TRec_33_5>;
     DG33_5: IDictionary<TGUID, TRec_33_5>;
+{$IFDEF FULL_TEST}
     L33_6: IList<TRec_33_6>;
     DS33_6: IDictionary<string, TRec_33_6>;
     DI33_6: IDictionary<Integer, TRec_33_6>;
@@ -1327,6 +1393,7 @@ var
     DS33_10: IDictionary<string, TRec_33_10>;
     DI33_10: IDictionary<Integer, TRec_33_10>;
     DG33_10: IDictionary<TGUID, TRec_33_10>;
+{$ENDIF}
     L34_1: IList<TRec_34_1>;
     DS34_1: IDictionary<string, TRec_34_1>;
     DI34_1: IDictionary<Integer, TRec_34_1>;
@@ -1347,6 +1414,7 @@ var
     DS34_5: IDictionary<string, TRec_34_5>;
     DI34_5: IDictionary<Integer, TRec_34_5>;
     DG34_5: IDictionary<TGUID, TRec_34_5>;
+{$IFDEF FULL_TEST}
     L34_6: IList<TRec_34_6>;
     DS34_6: IDictionary<string, TRec_34_6>;
     DI34_6: IDictionary<Integer, TRec_34_6>;
@@ -1367,6 +1435,7 @@ var
     DS34_10: IDictionary<string, TRec_34_10>;
     DI34_10: IDictionary<Integer, TRec_34_10>;
     DG34_10: IDictionary<TGUID, TRec_34_10>;
+{$ENDIF}
     L35_1: IList<TRec_35_1>;
     DS35_1: IDictionary<string, TRec_35_1>;
     DI35_1: IDictionary<Integer, TRec_35_1>;
@@ -1387,6 +1456,7 @@ var
     DS35_5: IDictionary<string, TRec_35_5>;
     DI35_5: IDictionary<Integer, TRec_35_5>;
     DG35_5: IDictionary<TGUID, TRec_35_5>;
+{$IFDEF FULL_TEST}
     L35_6: IList<TRec_35_6>;
     DS35_6: IDictionary<string, TRec_35_6>;
     DI35_6: IDictionary<Integer, TRec_35_6>;
@@ -1407,6 +1477,7 @@ var
     DS35_10: IDictionary<string, TRec_35_10>;
     DI35_10: IDictionary<Integer, TRec_35_10>;
     DG35_10: IDictionary<TGUID, TRec_35_10>;
+{$ENDIF}
     L36_1: IList<TRec_36_1>;
     DS36_1: IDictionary<string, TRec_36_1>;
     DI36_1: IDictionary<Integer, TRec_36_1>;
@@ -1427,6 +1498,7 @@ var
     DS36_5: IDictionary<string, TRec_36_5>;
     DI36_5: IDictionary<Integer, TRec_36_5>;
     DG36_5: IDictionary<TGUID, TRec_36_5>;
+{$IFDEF FULL_TEST}
     L36_6: IList<TRec_36_6>;
     DS36_6: IDictionary<string, TRec_36_6>;
     DI36_6: IDictionary<Integer, TRec_36_6>;
@@ -1447,6 +1519,7 @@ var
     DS36_10: IDictionary<string, TRec_36_10>;
     DI36_10: IDictionary<Integer, TRec_36_10>;
     DG36_10: IDictionary<TGUID, TRec_36_10>;
+{$ENDIF}
     L37_1: IList<TRec_37_1>;
     DS37_1: IDictionary<string, TRec_37_1>;
     DI37_1: IDictionary<Integer, TRec_37_1>;
@@ -1467,6 +1540,7 @@ var
     DS37_5: IDictionary<string, TRec_37_5>;
     DI37_5: IDictionary<Integer, TRec_37_5>;
     DG37_5: IDictionary<TGUID, TRec_37_5>;
+{$IFDEF FULL_TEST}
     L37_6: IList<TRec_37_6>;
     DS37_6: IDictionary<string, TRec_37_6>;
     DI37_6: IDictionary<Integer, TRec_37_6>;
@@ -1487,6 +1561,7 @@ var
     DS37_10: IDictionary<string, TRec_37_10>;
     DI37_10: IDictionary<Integer, TRec_37_10>;
     DG37_10: IDictionary<TGUID, TRec_37_10>;
+{$ENDIF}
     L38_1: IList<TRec_38_1>;
     DS38_1: IDictionary<string, TRec_38_1>;
     DI38_1: IDictionary<Integer, TRec_38_1>;
@@ -1507,6 +1582,7 @@ var
     DS38_5: IDictionary<string, TRec_38_5>;
     DI38_5: IDictionary<Integer, TRec_38_5>;
     DG38_5: IDictionary<TGUID, TRec_38_5>;
+{$IFDEF FULL_TEST}
     L38_6: IList<TRec_38_6>;
     DS38_6: IDictionary<string, TRec_38_6>;
     DI38_6: IDictionary<Integer, TRec_38_6>;
@@ -1527,6 +1603,7 @@ var
     DS38_10: IDictionary<string, TRec_38_10>;
     DI38_10: IDictionary<Integer, TRec_38_10>;
     DG38_10: IDictionary<TGUID, TRec_38_10>;
+{$ENDIF}
     L39_1: IList<TRec_39_1>;
     DS39_1: IDictionary<string, TRec_39_1>;
     DI39_1: IDictionary<Integer, TRec_39_1>;
@@ -1547,6 +1624,7 @@ var
     DS39_5: IDictionary<string, TRec_39_5>;
     DI39_5: IDictionary<Integer, TRec_39_5>;
     DG39_5: IDictionary<TGUID, TRec_39_5>;
+{$IFDEF FULL_TEST}
     L39_6: IList<TRec_39_6>;
     DS39_6: IDictionary<string, TRec_39_6>;
     DI39_6: IDictionary<Integer, TRec_39_6>;
@@ -1567,6 +1645,7 @@ var
     DS39_10: IDictionary<string, TRec_39_10>;
     DI39_10: IDictionary<Integer, TRec_39_10>;
     DG39_10: IDictionary<TGUID, TRec_39_10>;
+{$ENDIF}
     L40_1: IList<TRec_40_1>;
     DS40_1: IDictionary<string, TRec_40_1>;
     DI40_1: IDictionary<Integer, TRec_40_1>;
@@ -1587,6 +1666,7 @@ var
     DS40_5: IDictionary<string, TRec_40_5>;
     DI40_5: IDictionary<Integer, TRec_40_5>;
     DG40_5: IDictionary<TGUID, TRec_40_5>;
+{$IFDEF FULL_TEST}
     L40_6: IList<TRec_40_6>;
     DS40_6: IDictionary<string, TRec_40_6>;
     DI40_6: IDictionary<Integer, TRec_40_6>;
@@ -1607,6 +1687,7 @@ var
     DS40_10: IDictionary<string, TRec_40_10>;
     DI40_10: IDictionary<Integer, TRec_40_10>;
     DG40_10: IDictionary<TGUID, TRec_40_10>;
+{$ENDIF}
     L41_1: IList<TRec_41_1>;
     DS41_1: IDictionary<string, TRec_41_1>;
     DI41_1: IDictionary<Integer, TRec_41_1>;
@@ -1627,6 +1708,7 @@ var
     DS41_5: IDictionary<string, TRec_41_5>;
     DI41_5: IDictionary<Integer, TRec_41_5>;
     DG41_5: IDictionary<TGUID, TRec_41_5>;
+{$IFDEF FULL_TEST}
     L41_6: IList<TRec_41_6>;
     DS41_6: IDictionary<string, TRec_41_6>;
     DI41_6: IDictionary<Integer, TRec_41_6>;
@@ -1647,6 +1729,7 @@ var
     DS41_10: IDictionary<string, TRec_41_10>;
     DI41_10: IDictionary<Integer, TRec_41_10>;
     DG41_10: IDictionary<TGUID, TRec_41_10>;
+{$ENDIF}
     L42_1: IList<TRec_42_1>;
     DS42_1: IDictionary<string, TRec_42_1>;
     DI42_1: IDictionary<Integer, TRec_42_1>;
@@ -1667,6 +1750,7 @@ var
     DS42_5: IDictionary<string, TRec_42_5>;
     DI42_5: IDictionary<Integer, TRec_42_5>;
     DG42_5: IDictionary<TGUID, TRec_42_5>;
+{$IFDEF FULL_TEST}
     L42_6: IList<TRec_42_6>;
     DS42_6: IDictionary<string, TRec_42_6>;
     DI42_6: IDictionary<Integer, TRec_42_6>;
@@ -1687,6 +1771,7 @@ var
     DS42_10: IDictionary<string, TRec_42_10>;
     DI42_10: IDictionary<Integer, TRec_42_10>;
     DG42_10: IDictionary<TGUID, TRec_42_10>;
+{$ENDIF}
     L43_1: IList<TRec_43_1>;
     DS43_1: IDictionary<string, TRec_43_1>;
     DI43_1: IDictionary<Integer, TRec_43_1>;
@@ -1707,6 +1792,7 @@ var
     DS43_5: IDictionary<string, TRec_43_5>;
     DI43_5: IDictionary<Integer, TRec_43_5>;
     DG43_5: IDictionary<TGUID, TRec_43_5>;
+{$IFDEF FULL_TEST}
     L43_6: IList<TRec_43_6>;
     DS43_6: IDictionary<string, TRec_43_6>;
     DI43_6: IDictionary<Integer, TRec_43_6>;
@@ -1727,6 +1813,7 @@ var
     DS43_10: IDictionary<string, TRec_43_10>;
     DI43_10: IDictionary<Integer, TRec_43_10>;
     DG43_10: IDictionary<TGUID, TRec_43_10>;
+{$ENDIF}
     L44_1: IList<TRec_44_1>;
     DS44_1: IDictionary<string, TRec_44_1>;
     DI44_1: IDictionary<Integer, TRec_44_1>;
@@ -1747,6 +1834,7 @@ var
     DS44_5: IDictionary<string, TRec_44_5>;
     DI44_5: IDictionary<Integer, TRec_44_5>;
     DG44_5: IDictionary<TGUID, TRec_44_5>;
+{$IFDEF FULL_TEST}
     L44_6: IList<TRec_44_6>;
     DS44_6: IDictionary<string, TRec_44_6>;
     DI44_6: IDictionary<Integer, TRec_44_6>;
@@ -1767,6 +1855,7 @@ var
     DS44_10: IDictionary<string, TRec_44_10>;
     DI44_10: IDictionary<Integer, TRec_44_10>;
     DG44_10: IDictionary<TGUID, TRec_44_10>;
+{$ENDIF}
     L45_1: IList<TRec_45_1>;
     DS45_1: IDictionary<string, TRec_45_1>;
     DI45_1: IDictionary<Integer, TRec_45_1>;
@@ -1787,6 +1876,7 @@ var
     DS45_5: IDictionary<string, TRec_45_5>;
     DI45_5: IDictionary<Integer, TRec_45_5>;
     DG45_5: IDictionary<TGUID, TRec_45_5>;
+{$IFDEF FULL_TEST}
     L45_6: IList<TRec_45_6>;
     DS45_6: IDictionary<string, TRec_45_6>;
     DI45_6: IDictionary<Integer, TRec_45_6>;
@@ -1807,6 +1897,7 @@ var
     DS45_10: IDictionary<string, TRec_45_10>;
     DI45_10: IDictionary<Integer, TRec_45_10>;
     DG45_10: IDictionary<TGUID, TRec_45_10>;
+{$ENDIF}
     L46_1: IList<TRec_46_1>;
     DS46_1: IDictionary<string, TRec_46_1>;
     DI46_1: IDictionary<Integer, TRec_46_1>;
@@ -1827,6 +1918,7 @@ var
     DS46_5: IDictionary<string, TRec_46_5>;
     DI46_5: IDictionary<Integer, TRec_46_5>;
     DG46_5: IDictionary<TGUID, TRec_46_5>;
+{$IFDEF FULL_TEST}
     L46_6: IList<TRec_46_6>;
     DS46_6: IDictionary<string, TRec_46_6>;
     DI46_6: IDictionary<Integer, TRec_46_6>;
@@ -1847,6 +1939,7 @@ var
     DS46_10: IDictionary<string, TRec_46_10>;
     DI46_10: IDictionary<Integer, TRec_46_10>;
     DG46_10: IDictionary<TGUID, TRec_46_10>;
+{$ENDIF}
     L47_1: IList<TRec_47_1>;
     DS47_1: IDictionary<string, TRec_47_1>;
     DI47_1: IDictionary<Integer, TRec_47_1>;
@@ -1867,6 +1960,7 @@ var
     DS47_5: IDictionary<string, TRec_47_5>;
     DI47_5: IDictionary<Integer, TRec_47_5>;
     DG47_5: IDictionary<TGUID, TRec_47_5>;
+{$IFDEF FULL_TEST}
     L47_6: IList<TRec_47_6>;
     DS47_6: IDictionary<string, TRec_47_6>;
     DI47_6: IDictionary<Integer, TRec_47_6>;
@@ -1887,6 +1981,7 @@ var
     DS47_10: IDictionary<string, TRec_47_10>;
     DI47_10: IDictionary<Integer, TRec_47_10>;
     DG47_10: IDictionary<TGUID, TRec_47_10>;
+{$ENDIF}
     L48_1: IList<TRec_48_1>;
     DS48_1: IDictionary<string, TRec_48_1>;
     DI48_1: IDictionary<Integer, TRec_48_1>;
@@ -1907,6 +2002,7 @@ var
     DS48_5: IDictionary<string, TRec_48_5>;
     DI48_5: IDictionary<Integer, TRec_48_5>;
     DG48_5: IDictionary<TGUID, TRec_48_5>;
+{$IFDEF FULL_TEST}
     L48_6: IList<TRec_48_6>;
     DS48_6: IDictionary<string, TRec_48_6>;
     DI48_6: IDictionary<Integer, TRec_48_6>;
@@ -1927,6 +2023,7 @@ var
     DS48_10: IDictionary<string, TRec_48_10>;
     DI48_10: IDictionary<Integer, TRec_48_10>;
     DG48_10: IDictionary<TGUID, TRec_48_10>;
+{$ENDIF}
     L49_1: IList<TRec_49_1>;
     DS49_1: IDictionary<string, TRec_49_1>;
     DI49_1: IDictionary<Integer, TRec_49_1>;
@@ -1947,6 +2044,7 @@ var
     DS49_5: IDictionary<string, TRec_49_5>;
     DI49_5: IDictionary<Integer, TRec_49_5>;
     DG49_5: IDictionary<TGUID, TRec_49_5>;
+{$IFDEF FULL_TEST}
     L49_6: IList<TRec_49_6>;
     DS49_6: IDictionary<string, TRec_49_6>;
     DI49_6: IDictionary<Integer, TRec_49_6>;
@@ -1967,6 +2065,7 @@ var
     DS49_10: IDictionary<string, TRec_49_10>;
     DI49_10: IDictionary<Integer, TRec_49_10>;
     DG49_10: IDictionary<TGUID, TRec_49_10>;
+{$ENDIF}
     L50_1: IList<TRec_50_1>;
     DS50_1: IDictionary<string, TRec_50_1>;
     DI50_1: IDictionary<Integer, TRec_50_1>;
@@ -1987,6 +2086,7 @@ var
     DS50_5: IDictionary<string, TRec_50_5>;
     DI50_5: IDictionary<Integer, TRec_50_5>;
     DG50_5: IDictionary<TGUID, TRec_50_5>;
+{$IFDEF FULL_TEST}
     L50_6: IList<TRec_50_6>;
     DS50_6: IDictionary<string, TRec_50_6>;
     DI50_6: IDictionary<Integer, TRec_50_6>;
@@ -2007,510 +2107,609 @@ var
     DS50_10: IDictionary<string, TRec_50_10>;
     DI50_10: IDictionary<Integer, TRec_50_10>;
     DG50_10: IDictionary<TGUID, TRec_50_10>;
-
-  sw: TStopwatch;
+{$ENDIF}
 begin
-  sw := TStopwatch.StartNew;
+  var sw := TStopwatch.StartNew;
     L1_1 := TCollections.CreateList<TRec_1_1>;
     L1_2 := TCollections.CreateList<TRec_1_2>;
     L1_3 := TCollections.CreateList<TRec_1_3>;
     L1_4 := TCollections.CreateList<TRec_1_4>;
     L1_5 := TCollections.CreateList<TRec_1_5>;
+{$IFDEF FULL_TEST}
     L1_6 := TCollections.CreateList<TRec_1_6>;
     L1_7 := TCollections.CreateList<TRec_1_7>;
     L1_8 := TCollections.CreateList<TRec_1_8>;
     L1_9 := TCollections.CreateList<TRec_1_9>;
     L1_10 := TCollections.CreateList<TRec_1_10>;
+{$ENDIF}
     L2_1 := TCollections.CreateList<TRec_2_1>;
     L2_2 := TCollections.CreateList<TRec_2_2>;
     L2_3 := TCollections.CreateList<TRec_2_3>;
     L2_4 := TCollections.CreateList<TRec_2_4>;
     L2_5 := TCollections.CreateList<TRec_2_5>;
+{$IFDEF FULL_TEST}
     L2_6 := TCollections.CreateList<TRec_2_6>;
     L2_7 := TCollections.CreateList<TRec_2_7>;
     L2_8 := TCollections.CreateList<TRec_2_8>;
     L2_9 := TCollections.CreateList<TRec_2_9>;
     L2_10 := TCollections.CreateList<TRec_2_10>;
+{$ENDIF}
     L3_1 := TCollections.CreateList<TRec_3_1>;
     L3_2 := TCollections.CreateList<TRec_3_2>;
     L3_3 := TCollections.CreateList<TRec_3_3>;
     L3_4 := TCollections.CreateList<TRec_3_4>;
     L3_5 := TCollections.CreateList<TRec_3_5>;
+{$IFDEF FULL_TEST}
     L3_6 := TCollections.CreateList<TRec_3_6>;
     L3_7 := TCollections.CreateList<TRec_3_7>;
     L3_8 := TCollections.CreateList<TRec_3_8>;
     L3_9 := TCollections.CreateList<TRec_3_9>;
     L3_10 := TCollections.CreateList<TRec_3_10>;
+{$ENDIF}
     L4_1 := TCollections.CreateList<TRec_4_1>;
     L4_2 := TCollections.CreateList<TRec_4_2>;
     L4_3 := TCollections.CreateList<TRec_4_3>;
     L4_4 := TCollections.CreateList<TRec_4_4>;
     L4_5 := TCollections.CreateList<TRec_4_5>;
+{$IFDEF FULL_TEST}
     L4_6 := TCollections.CreateList<TRec_4_6>;
     L4_7 := TCollections.CreateList<TRec_4_7>;
     L4_8 := TCollections.CreateList<TRec_4_8>;
     L4_9 := TCollections.CreateList<TRec_4_9>;
     L4_10 := TCollections.CreateList<TRec_4_10>;
+{$ENDIF}
     L5_1 := TCollections.CreateList<TRec_5_1>;
     L5_2 := TCollections.CreateList<TRec_5_2>;
     L5_3 := TCollections.CreateList<TRec_5_3>;
     L5_4 := TCollections.CreateList<TRec_5_4>;
     L5_5 := TCollections.CreateList<TRec_5_5>;
+{$IFDEF FULL_TEST}
     L5_6 := TCollections.CreateList<TRec_5_6>;
     L5_7 := TCollections.CreateList<TRec_5_7>;
     L5_8 := TCollections.CreateList<TRec_5_8>;
     L5_9 := TCollections.CreateList<TRec_5_9>;
     L5_10 := TCollections.CreateList<TRec_5_10>;
+{$ENDIF}
     L6_1 := TCollections.CreateList<TRec_6_1>;
     L6_2 := TCollections.CreateList<TRec_6_2>;
     L6_3 := TCollections.CreateList<TRec_6_3>;
     L6_4 := TCollections.CreateList<TRec_6_4>;
     L6_5 := TCollections.CreateList<TRec_6_5>;
+{$IFDEF FULL_TEST}
     L6_6 := TCollections.CreateList<TRec_6_6>;
     L6_7 := TCollections.CreateList<TRec_6_7>;
     L6_8 := TCollections.CreateList<TRec_6_8>;
     L6_9 := TCollections.CreateList<TRec_6_9>;
     L6_10 := TCollections.CreateList<TRec_6_10>;
+{$ENDIF}
     L7_1 := TCollections.CreateList<TRec_7_1>;
     L7_2 := TCollections.CreateList<TRec_7_2>;
     L7_3 := TCollections.CreateList<TRec_7_3>;
     L7_4 := TCollections.CreateList<TRec_7_4>;
     L7_5 := TCollections.CreateList<TRec_7_5>;
+{$IFDEF FULL_TEST}
     L7_6 := TCollections.CreateList<TRec_7_6>;
     L7_7 := TCollections.CreateList<TRec_7_7>;
     L7_8 := TCollections.CreateList<TRec_7_8>;
     L7_9 := TCollections.CreateList<TRec_7_9>;
     L7_10 := TCollections.CreateList<TRec_7_10>;
+{$ENDIF}
     L8_1 := TCollections.CreateList<TRec_8_1>;
     L8_2 := TCollections.CreateList<TRec_8_2>;
     L8_3 := TCollections.CreateList<TRec_8_3>;
     L8_4 := TCollections.CreateList<TRec_8_4>;
     L8_5 := TCollections.CreateList<TRec_8_5>;
+{$IFDEF FULL_TEST}
     L8_6 := TCollections.CreateList<TRec_8_6>;
     L8_7 := TCollections.CreateList<TRec_8_7>;
     L8_8 := TCollections.CreateList<TRec_8_8>;
     L8_9 := TCollections.CreateList<TRec_8_9>;
     L8_10 := TCollections.CreateList<TRec_8_10>;
+{$ENDIF}
     L9_1 := TCollections.CreateList<TRec_9_1>;
     L9_2 := TCollections.CreateList<TRec_9_2>;
     L9_3 := TCollections.CreateList<TRec_9_3>;
     L9_4 := TCollections.CreateList<TRec_9_4>;
     L9_5 := TCollections.CreateList<TRec_9_5>;
+{$IFDEF FULL_TEST}
     L9_6 := TCollections.CreateList<TRec_9_6>;
     L9_7 := TCollections.CreateList<TRec_9_7>;
     L9_8 := TCollections.CreateList<TRec_9_8>;
     L9_9 := TCollections.CreateList<TRec_9_9>;
     L9_10 := TCollections.CreateList<TRec_9_10>;
+{$ENDIF}
     L10_1 := TCollections.CreateList<TRec_10_1>;
     L10_2 := TCollections.CreateList<TRec_10_2>;
     L10_3 := TCollections.CreateList<TRec_10_3>;
     L10_4 := TCollections.CreateList<TRec_10_4>;
     L10_5 := TCollections.CreateList<TRec_10_5>;
+{$IFDEF FULL_TEST}
     L10_6 := TCollections.CreateList<TRec_10_6>;
     L10_7 := TCollections.CreateList<TRec_10_7>;
     L10_8 := TCollections.CreateList<TRec_10_8>;
     L10_9 := TCollections.CreateList<TRec_10_9>;
     L10_10 := TCollections.CreateList<TRec_10_10>;
+{$ENDIF}
     L11_1 := TCollections.CreateList<TRec_11_1>;
     L11_2 := TCollections.CreateList<TRec_11_2>;
     L11_3 := TCollections.CreateList<TRec_11_3>;
     L11_4 := TCollections.CreateList<TRec_11_4>;
     L11_5 := TCollections.CreateList<TRec_11_5>;
+{$IFDEF FULL_TEST}
     L11_6 := TCollections.CreateList<TRec_11_6>;
     L11_7 := TCollections.CreateList<TRec_11_7>;
     L11_8 := TCollections.CreateList<TRec_11_8>;
     L11_9 := TCollections.CreateList<TRec_11_9>;
     L11_10 := TCollections.CreateList<TRec_11_10>;
+{$ENDIF}
     L12_1 := TCollections.CreateList<TRec_12_1>;
     L12_2 := TCollections.CreateList<TRec_12_2>;
     L12_3 := TCollections.CreateList<TRec_12_3>;
     L12_4 := TCollections.CreateList<TRec_12_4>;
     L12_5 := TCollections.CreateList<TRec_12_5>;
+{$IFDEF FULL_TEST}
     L12_6 := TCollections.CreateList<TRec_12_6>;
     L12_7 := TCollections.CreateList<TRec_12_7>;
     L12_8 := TCollections.CreateList<TRec_12_8>;
     L12_9 := TCollections.CreateList<TRec_12_9>;
     L12_10 := TCollections.CreateList<TRec_12_10>;
+{$ENDIF}
     L13_1 := TCollections.CreateList<TRec_13_1>;
     L13_2 := TCollections.CreateList<TRec_13_2>;
     L13_3 := TCollections.CreateList<TRec_13_3>;
     L13_4 := TCollections.CreateList<TRec_13_4>;
     L13_5 := TCollections.CreateList<TRec_13_5>;
+{$IFDEF FULL_TEST}
     L13_6 := TCollections.CreateList<TRec_13_6>;
     L13_7 := TCollections.CreateList<TRec_13_7>;
     L13_8 := TCollections.CreateList<TRec_13_8>;
     L13_9 := TCollections.CreateList<TRec_13_9>;
     L13_10 := TCollections.CreateList<TRec_13_10>;
+{$ENDIF}
     L14_1 := TCollections.CreateList<TRec_14_1>;
     L14_2 := TCollections.CreateList<TRec_14_2>;
     L14_3 := TCollections.CreateList<TRec_14_3>;
     L14_4 := TCollections.CreateList<TRec_14_4>;
     L14_5 := TCollections.CreateList<TRec_14_5>;
+{$IFDEF FULL_TEST}
     L14_6 := TCollections.CreateList<TRec_14_6>;
     L14_7 := TCollections.CreateList<TRec_14_7>;
     L14_8 := TCollections.CreateList<TRec_14_8>;
     L14_9 := TCollections.CreateList<TRec_14_9>;
     L14_10 := TCollections.CreateList<TRec_14_10>;
+{$ENDIF}
     L15_1 := TCollections.CreateList<TRec_15_1>;
     L15_2 := TCollections.CreateList<TRec_15_2>;
     L15_3 := TCollections.CreateList<TRec_15_3>;
     L15_4 := TCollections.CreateList<TRec_15_4>;
     L15_5 := TCollections.CreateList<TRec_15_5>;
+{$IFDEF FULL_TEST}
     L15_6 := TCollections.CreateList<TRec_15_6>;
     L15_7 := TCollections.CreateList<TRec_15_7>;
     L15_8 := TCollections.CreateList<TRec_15_8>;
     L15_9 := TCollections.CreateList<TRec_15_9>;
     L15_10 := TCollections.CreateList<TRec_15_10>;
+{$ENDIF}
     L16_1 := TCollections.CreateList<TRec_16_1>;
     L16_2 := TCollections.CreateList<TRec_16_2>;
     L16_3 := TCollections.CreateList<TRec_16_3>;
     L16_4 := TCollections.CreateList<TRec_16_4>;
     L16_5 := TCollections.CreateList<TRec_16_5>;
+{$IFDEF FULL_TEST}
     L16_6 := TCollections.CreateList<TRec_16_6>;
     L16_7 := TCollections.CreateList<TRec_16_7>;
     L16_8 := TCollections.CreateList<TRec_16_8>;
     L16_9 := TCollections.CreateList<TRec_16_9>;
     L16_10 := TCollections.CreateList<TRec_16_10>;
+{$ENDIF}
     L17_1 := TCollections.CreateList<TRec_17_1>;
     L17_2 := TCollections.CreateList<TRec_17_2>;
     L17_3 := TCollections.CreateList<TRec_17_3>;
     L17_4 := TCollections.CreateList<TRec_17_4>;
     L17_5 := TCollections.CreateList<TRec_17_5>;
+{$IFDEF FULL_TEST}
     L17_6 := TCollections.CreateList<TRec_17_6>;
     L17_7 := TCollections.CreateList<TRec_17_7>;
     L17_8 := TCollections.CreateList<TRec_17_8>;
     L17_9 := TCollections.CreateList<TRec_17_9>;
     L17_10 := TCollections.CreateList<TRec_17_10>;
+{$ENDIF}
     L18_1 := TCollections.CreateList<TRec_18_1>;
     L18_2 := TCollections.CreateList<TRec_18_2>;
     L18_3 := TCollections.CreateList<TRec_18_3>;
     L18_4 := TCollections.CreateList<TRec_18_4>;
     L18_5 := TCollections.CreateList<TRec_18_5>;
+{$IFDEF FULL_TEST}
     L18_6 := TCollections.CreateList<TRec_18_6>;
     L18_7 := TCollections.CreateList<TRec_18_7>;
     L18_8 := TCollections.CreateList<TRec_18_8>;
     L18_9 := TCollections.CreateList<TRec_18_9>;
     L18_10 := TCollections.CreateList<TRec_18_10>;
+{$ENDIF}
     L19_1 := TCollections.CreateList<TRec_19_1>;
     L19_2 := TCollections.CreateList<TRec_19_2>;
     L19_3 := TCollections.CreateList<TRec_19_3>;
     L19_4 := TCollections.CreateList<TRec_19_4>;
     L19_5 := TCollections.CreateList<TRec_19_5>;
+{$IFDEF FULL_TEST}
     L19_6 := TCollections.CreateList<TRec_19_6>;
     L19_7 := TCollections.CreateList<TRec_19_7>;
     L19_8 := TCollections.CreateList<TRec_19_8>;
     L19_9 := TCollections.CreateList<TRec_19_9>;
     L19_10 := TCollections.CreateList<TRec_19_10>;
+{$ENDIF}
     L20_1 := TCollections.CreateList<TRec_20_1>;
     L20_2 := TCollections.CreateList<TRec_20_2>;
     L20_3 := TCollections.CreateList<TRec_20_3>;
     L20_4 := TCollections.CreateList<TRec_20_4>;
     L20_5 := TCollections.CreateList<TRec_20_5>;
+{$IFDEF FULL_TEST}
     L20_6 := TCollections.CreateList<TRec_20_6>;
     L20_7 := TCollections.CreateList<TRec_20_7>;
     L20_8 := TCollections.CreateList<TRec_20_8>;
     L20_9 := TCollections.CreateList<TRec_20_9>;
     L20_10 := TCollections.CreateList<TRec_20_10>;
+{$ENDIF}
     L21_1 := TCollections.CreateList<TRec_21_1>;
     L21_2 := TCollections.CreateList<TRec_21_2>;
     L21_3 := TCollections.CreateList<TRec_21_3>;
     L21_4 := TCollections.CreateList<TRec_21_4>;
     L21_5 := TCollections.CreateList<TRec_21_5>;
+{$IFDEF FULL_TEST}
     L21_6 := TCollections.CreateList<TRec_21_6>;
     L21_7 := TCollections.CreateList<TRec_21_7>;
     L21_8 := TCollections.CreateList<TRec_21_8>;
     L21_9 := TCollections.CreateList<TRec_21_9>;
     L21_10 := TCollections.CreateList<TRec_21_10>;
+{$ENDIF}
     L22_1 := TCollections.CreateList<TRec_22_1>;
     L22_2 := TCollections.CreateList<TRec_22_2>;
     L22_3 := TCollections.CreateList<TRec_22_3>;
     L22_4 := TCollections.CreateList<TRec_22_4>;
     L22_5 := TCollections.CreateList<TRec_22_5>;
+{$IFDEF FULL_TEST}
     L22_6 := TCollections.CreateList<TRec_22_6>;
     L22_7 := TCollections.CreateList<TRec_22_7>;
     L22_8 := TCollections.CreateList<TRec_22_8>;
     L22_9 := TCollections.CreateList<TRec_22_9>;
     L22_10 := TCollections.CreateList<TRec_22_10>;
+{$ENDIF}
     L23_1 := TCollections.CreateList<TRec_23_1>;
     L23_2 := TCollections.CreateList<TRec_23_2>;
     L23_3 := TCollections.CreateList<TRec_23_3>;
     L23_4 := TCollections.CreateList<TRec_23_4>;
     L23_5 := TCollections.CreateList<TRec_23_5>;
+{$IFDEF FULL_TEST}
     L23_6 := TCollections.CreateList<TRec_23_6>;
     L23_7 := TCollections.CreateList<TRec_23_7>;
     L23_8 := TCollections.CreateList<TRec_23_8>;
     L23_9 := TCollections.CreateList<TRec_23_9>;
     L23_10 := TCollections.CreateList<TRec_23_10>;
+{$ENDIF}
     L24_1 := TCollections.CreateList<TRec_24_1>;
     L24_2 := TCollections.CreateList<TRec_24_2>;
     L24_3 := TCollections.CreateList<TRec_24_3>;
     L24_4 := TCollections.CreateList<TRec_24_4>;
     L24_5 := TCollections.CreateList<TRec_24_5>;
+{$IFDEF FULL_TEST}
     L24_6 := TCollections.CreateList<TRec_24_6>;
     L24_7 := TCollections.CreateList<TRec_24_7>;
     L24_8 := TCollections.CreateList<TRec_24_8>;
     L24_9 := TCollections.CreateList<TRec_24_9>;
     L24_10 := TCollections.CreateList<TRec_24_10>;
+{$ENDIF}
     L25_1 := TCollections.CreateList<TRec_25_1>;
     L25_2 := TCollections.CreateList<TRec_25_2>;
     L25_3 := TCollections.CreateList<TRec_25_3>;
     L25_4 := TCollections.CreateList<TRec_25_4>;
     L25_5 := TCollections.CreateList<TRec_25_5>;
+{$IFDEF FULL_TEST}
     L25_6 := TCollections.CreateList<TRec_25_6>;
     L25_7 := TCollections.CreateList<TRec_25_7>;
     L25_8 := TCollections.CreateList<TRec_25_8>;
     L25_9 := TCollections.CreateList<TRec_25_9>;
     L25_10 := TCollections.CreateList<TRec_25_10>;
+{$ENDIF}
     L26_1 := TCollections.CreateList<TRec_26_1>;
     L26_2 := TCollections.CreateList<TRec_26_2>;
     L26_3 := TCollections.CreateList<TRec_26_3>;
     L26_4 := TCollections.CreateList<TRec_26_4>;
     L26_5 := TCollections.CreateList<TRec_26_5>;
+{$IFDEF FULL_TEST}
     L26_6 := TCollections.CreateList<TRec_26_6>;
     L26_7 := TCollections.CreateList<TRec_26_7>;
     L26_8 := TCollections.CreateList<TRec_26_8>;
     L26_9 := TCollections.CreateList<TRec_26_9>;
     L26_10 := TCollections.CreateList<TRec_26_10>;
+{$ENDIF}
     L27_1 := TCollections.CreateList<TRec_27_1>;
     L27_2 := TCollections.CreateList<TRec_27_2>;
     L27_3 := TCollections.CreateList<TRec_27_3>;
     L27_4 := TCollections.CreateList<TRec_27_4>;
     L27_5 := TCollections.CreateList<TRec_27_5>;
+{$IFDEF FULL_TEST}
     L27_6 := TCollections.CreateList<TRec_27_6>;
     L27_7 := TCollections.CreateList<TRec_27_7>;
     L27_8 := TCollections.CreateList<TRec_27_8>;
     L27_9 := TCollections.CreateList<TRec_27_9>;
     L27_10 := TCollections.CreateList<TRec_27_10>;
+{$ENDIF}
     L28_1 := TCollections.CreateList<TRec_28_1>;
     L28_2 := TCollections.CreateList<TRec_28_2>;
     L28_3 := TCollections.CreateList<TRec_28_3>;
     L28_4 := TCollections.CreateList<TRec_28_4>;
     L28_5 := TCollections.CreateList<TRec_28_5>;
+{$IFDEF FULL_TEST}
     L28_6 := TCollections.CreateList<TRec_28_6>;
     L28_7 := TCollections.CreateList<TRec_28_7>;
     L28_8 := TCollections.CreateList<TRec_28_8>;
     L28_9 := TCollections.CreateList<TRec_28_9>;
     L28_10 := TCollections.CreateList<TRec_28_10>;
+{$ENDIF}
     L29_1 := TCollections.CreateList<TRec_29_1>;
     L29_2 := TCollections.CreateList<TRec_29_2>;
     L29_3 := TCollections.CreateList<TRec_29_3>;
     L29_4 := TCollections.CreateList<TRec_29_4>;
     L29_5 := TCollections.CreateList<TRec_29_5>;
+{$IFDEF FULL_TEST}
     L29_6 := TCollections.CreateList<TRec_29_6>;
     L29_7 := TCollections.CreateList<TRec_29_7>;
     L29_8 := TCollections.CreateList<TRec_29_8>;
     L29_9 := TCollections.CreateList<TRec_29_9>;
     L29_10 := TCollections.CreateList<TRec_29_10>;
+{$ENDIF}
     L30_1 := TCollections.CreateList<TRec_30_1>;
     L30_2 := TCollections.CreateList<TRec_30_2>;
     L30_3 := TCollections.CreateList<TRec_30_3>;
     L30_4 := TCollections.CreateList<TRec_30_4>;
     L30_5 := TCollections.CreateList<TRec_30_5>;
+{$IFDEF FULL_TEST}
     L30_6 := TCollections.CreateList<TRec_30_6>;
     L30_7 := TCollections.CreateList<TRec_30_7>;
     L30_8 := TCollections.CreateList<TRec_30_8>;
     L30_9 := TCollections.CreateList<TRec_30_9>;
     L30_10 := TCollections.CreateList<TRec_30_10>;
+{$ENDIF}
     L31_1 := TCollections.CreateList<TRec_31_1>;
     L31_2 := TCollections.CreateList<TRec_31_2>;
     L31_3 := TCollections.CreateList<TRec_31_3>;
     L31_4 := TCollections.CreateList<TRec_31_4>;
     L31_5 := TCollections.CreateList<TRec_31_5>;
+{$IFDEF FULL_TEST}
     L31_6 := TCollections.CreateList<TRec_31_6>;
     L31_7 := TCollections.CreateList<TRec_31_7>;
     L31_8 := TCollections.CreateList<TRec_31_8>;
     L31_9 := TCollections.CreateList<TRec_31_9>;
     L31_10 := TCollections.CreateList<TRec_31_10>;
+{$ENDIF}
     L32_1 := TCollections.CreateList<TRec_32_1>;
     L32_2 := TCollections.CreateList<TRec_32_2>;
     L32_3 := TCollections.CreateList<TRec_32_3>;
     L32_4 := TCollections.CreateList<TRec_32_4>;
     L32_5 := TCollections.CreateList<TRec_32_5>;
+{$IFDEF FULL_TEST}
     L32_6 := TCollections.CreateList<TRec_32_6>;
     L32_7 := TCollections.CreateList<TRec_32_7>;
     L32_8 := TCollections.CreateList<TRec_32_8>;
     L32_9 := TCollections.CreateList<TRec_32_9>;
     L32_10 := TCollections.CreateList<TRec_32_10>;
+{$ENDIF}
     L33_1 := TCollections.CreateList<TRec_33_1>;
     L33_2 := TCollections.CreateList<TRec_33_2>;
     L33_3 := TCollections.CreateList<TRec_33_3>;
     L33_4 := TCollections.CreateList<TRec_33_4>;
     L33_5 := TCollections.CreateList<TRec_33_5>;
+{$IFDEF FULL_TEST}
     L33_6 := TCollections.CreateList<TRec_33_6>;
     L33_7 := TCollections.CreateList<TRec_33_7>;
     L33_8 := TCollections.CreateList<TRec_33_8>;
     L33_9 := TCollections.CreateList<TRec_33_9>;
     L33_10 := TCollections.CreateList<TRec_33_10>;
+{$ENDIF}
     L34_1 := TCollections.CreateList<TRec_34_1>;
     L34_2 := TCollections.CreateList<TRec_34_2>;
     L34_3 := TCollections.CreateList<TRec_34_3>;
     L34_4 := TCollections.CreateList<TRec_34_4>;
     L34_5 := TCollections.CreateList<TRec_34_5>;
+{$IFDEF FULL_TEST}
     L34_6 := TCollections.CreateList<TRec_34_6>;
     L34_7 := TCollections.CreateList<TRec_34_7>;
     L34_8 := TCollections.CreateList<TRec_34_8>;
     L34_9 := TCollections.CreateList<TRec_34_9>;
     L34_10 := TCollections.CreateList<TRec_34_10>;
+{$ENDIF}
     L35_1 := TCollections.CreateList<TRec_35_1>;
     L35_2 := TCollections.CreateList<TRec_35_2>;
     L35_3 := TCollections.CreateList<TRec_35_3>;
     L35_4 := TCollections.CreateList<TRec_35_4>;
     L35_5 := TCollections.CreateList<TRec_35_5>;
+{$IFDEF FULL_TEST}
     L35_6 := TCollections.CreateList<TRec_35_6>;
     L35_7 := TCollections.CreateList<TRec_35_7>;
     L35_8 := TCollections.CreateList<TRec_35_8>;
     L35_9 := TCollections.CreateList<TRec_35_9>;
     L35_10 := TCollections.CreateList<TRec_35_10>;
+{$ENDIF}
     L36_1 := TCollections.CreateList<TRec_36_1>;
     L36_2 := TCollections.CreateList<TRec_36_2>;
     L36_3 := TCollections.CreateList<TRec_36_3>;
     L36_4 := TCollections.CreateList<TRec_36_4>;
     L36_5 := TCollections.CreateList<TRec_36_5>;
+{$IFDEF FULL_TEST}
     L36_6 := TCollections.CreateList<TRec_36_6>;
     L36_7 := TCollections.CreateList<TRec_36_7>;
     L36_8 := TCollections.CreateList<TRec_36_8>;
     L36_9 := TCollections.CreateList<TRec_36_9>;
     L36_10 := TCollections.CreateList<TRec_36_10>;
+{$ENDIF}
     L37_1 := TCollections.CreateList<TRec_37_1>;
     L37_2 := TCollections.CreateList<TRec_37_2>;
     L37_3 := TCollections.CreateList<TRec_37_3>;
     L37_4 := TCollections.CreateList<TRec_37_4>;
     L37_5 := TCollections.CreateList<TRec_37_5>;
+{$IFDEF FULL_TEST}
     L37_6 := TCollections.CreateList<TRec_37_6>;
     L37_7 := TCollections.CreateList<TRec_37_7>;
     L37_8 := TCollections.CreateList<TRec_37_8>;
     L37_9 := TCollections.CreateList<TRec_37_9>;
     L37_10 := TCollections.CreateList<TRec_37_10>;
+{$ENDIF}
     L38_1 := TCollections.CreateList<TRec_38_1>;
     L38_2 := TCollections.CreateList<TRec_38_2>;
     L38_3 := TCollections.CreateList<TRec_38_3>;
     L38_4 := TCollections.CreateList<TRec_38_4>;
     L38_5 := TCollections.CreateList<TRec_38_5>;
+{$IFDEF FULL_TEST}
     L38_6 := TCollections.CreateList<TRec_38_6>;
     L38_7 := TCollections.CreateList<TRec_38_7>;
     L38_8 := TCollections.CreateList<TRec_38_8>;
     L38_9 := TCollections.CreateList<TRec_38_9>;
     L38_10 := TCollections.CreateList<TRec_38_10>;
+{$ENDIF}
     L39_1 := TCollections.CreateList<TRec_39_1>;
     L39_2 := TCollections.CreateList<TRec_39_2>;
     L39_3 := TCollections.CreateList<TRec_39_3>;
     L39_4 := TCollections.CreateList<TRec_39_4>;
     L39_5 := TCollections.CreateList<TRec_39_5>;
+{$IFDEF FULL_TEST}
     L39_6 := TCollections.CreateList<TRec_39_6>;
     L39_7 := TCollections.CreateList<TRec_39_7>;
     L39_8 := TCollections.CreateList<TRec_39_8>;
     L39_9 := TCollections.CreateList<TRec_39_9>;
     L39_10 := TCollections.CreateList<TRec_39_10>;
+{$ENDIF}
     L40_1 := TCollections.CreateList<TRec_40_1>;
     L40_2 := TCollections.CreateList<TRec_40_2>;
     L40_3 := TCollections.CreateList<TRec_40_3>;
     L40_4 := TCollections.CreateList<TRec_40_4>;
     L40_5 := TCollections.CreateList<TRec_40_5>;
+{$IFDEF FULL_TEST}
     L40_6 := TCollections.CreateList<TRec_40_6>;
     L40_7 := TCollections.CreateList<TRec_40_7>;
     L40_8 := TCollections.CreateList<TRec_40_8>;
     L40_9 := TCollections.CreateList<TRec_40_9>;
     L40_10 := TCollections.CreateList<TRec_40_10>;
+{$ENDIF}
     L41_1 := TCollections.CreateList<TRec_41_1>;
     L41_2 := TCollections.CreateList<TRec_41_2>;
     L41_3 := TCollections.CreateList<TRec_41_3>;
     L41_4 := TCollections.CreateList<TRec_41_4>;
     L41_5 := TCollections.CreateList<TRec_41_5>;
+{$IFDEF FULL_TEST}
     L41_6 := TCollections.CreateList<TRec_41_6>;
     L41_7 := TCollections.CreateList<TRec_41_7>;
     L41_8 := TCollections.CreateList<TRec_41_8>;
     L41_9 := TCollections.CreateList<TRec_41_9>;
     L41_10 := TCollections.CreateList<TRec_41_10>;
+{$ENDIF}
     L42_1 := TCollections.CreateList<TRec_42_1>;
     L42_2 := TCollections.CreateList<TRec_42_2>;
     L42_3 := TCollections.CreateList<TRec_42_3>;
     L42_4 := TCollections.CreateList<TRec_42_4>;
     L42_5 := TCollections.CreateList<TRec_42_5>;
+{$IFDEF FULL_TEST}
     L42_6 := TCollections.CreateList<TRec_42_6>;
     L42_7 := TCollections.CreateList<TRec_42_7>;
     L42_8 := TCollections.CreateList<TRec_42_8>;
     L42_9 := TCollections.CreateList<TRec_42_9>;
     L42_10 := TCollections.CreateList<TRec_42_10>;
+{$ENDIF}
     L43_1 := TCollections.CreateList<TRec_43_1>;
     L43_2 := TCollections.CreateList<TRec_43_2>;
     L43_3 := TCollections.CreateList<TRec_43_3>;
     L43_4 := TCollections.CreateList<TRec_43_4>;
     L43_5 := TCollections.CreateList<TRec_43_5>;
+{$IFDEF FULL_TEST}
     L43_6 := TCollections.CreateList<TRec_43_6>;
     L43_7 := TCollections.CreateList<TRec_43_7>;
     L43_8 := TCollections.CreateList<TRec_43_8>;
     L43_9 := TCollections.CreateList<TRec_43_9>;
     L43_10 := TCollections.CreateList<TRec_43_10>;
+{$ENDIF}
     L44_1 := TCollections.CreateList<TRec_44_1>;
     L44_2 := TCollections.CreateList<TRec_44_2>;
     L44_3 := TCollections.CreateList<TRec_44_3>;
     L44_4 := TCollections.CreateList<TRec_44_4>;
     L44_5 := TCollections.CreateList<TRec_44_5>;
+{$IFDEF FULL_TEST}
     L44_6 := TCollections.CreateList<TRec_44_6>;
     L44_7 := TCollections.CreateList<TRec_44_7>;
     L44_8 := TCollections.CreateList<TRec_44_8>;
     L44_9 := TCollections.CreateList<TRec_44_9>;
     L44_10 := TCollections.CreateList<TRec_44_10>;
+{$ENDIF}
     L45_1 := TCollections.CreateList<TRec_45_1>;
     L45_2 := TCollections.CreateList<TRec_45_2>;
     L45_3 := TCollections.CreateList<TRec_45_3>;
     L45_4 := TCollections.CreateList<TRec_45_4>;
     L45_5 := TCollections.CreateList<TRec_45_5>;
+{$IFDEF FULL_TEST}
     L45_6 := TCollections.CreateList<TRec_45_6>;
     L45_7 := TCollections.CreateList<TRec_45_7>;
     L45_8 := TCollections.CreateList<TRec_45_8>;
     L45_9 := TCollections.CreateList<TRec_45_9>;
     L45_10 := TCollections.CreateList<TRec_45_10>;
+{$ENDIF}
     L46_1 := TCollections.CreateList<TRec_46_1>;
     L46_2 := TCollections.CreateList<TRec_46_2>;
     L46_3 := TCollections.CreateList<TRec_46_3>;
     L46_4 := TCollections.CreateList<TRec_46_4>;
     L46_5 := TCollections.CreateList<TRec_46_5>;
+{$IFDEF FULL_TEST}
     L46_6 := TCollections.CreateList<TRec_46_6>;
     L46_7 := TCollections.CreateList<TRec_46_7>;
     L46_8 := TCollections.CreateList<TRec_46_8>;
     L46_9 := TCollections.CreateList<TRec_46_9>;
     L46_10 := TCollections.CreateList<TRec_46_10>;
+{$ENDIF}
     L47_1 := TCollections.CreateList<TRec_47_1>;
     L47_2 := TCollections.CreateList<TRec_47_2>;
     L47_3 := TCollections.CreateList<TRec_47_3>;
     L47_4 := TCollections.CreateList<TRec_47_4>;
     L47_5 := TCollections.CreateList<TRec_47_5>;
+{$IFDEF FULL_TEST}
     L47_6 := TCollections.CreateList<TRec_47_6>;
     L47_7 := TCollections.CreateList<TRec_47_7>;
     L47_8 := TCollections.CreateList<TRec_47_8>;
     L47_9 := TCollections.CreateList<TRec_47_9>;
     L47_10 := TCollections.CreateList<TRec_47_10>;
+{$ENDIF}
     L48_1 := TCollections.CreateList<TRec_48_1>;
     L48_2 := TCollections.CreateList<TRec_48_2>;
     L48_3 := TCollections.CreateList<TRec_48_3>;
     L48_4 := TCollections.CreateList<TRec_48_4>;
     L48_5 := TCollections.CreateList<TRec_48_5>;
+{$IFDEF FULL_TEST}
     L48_6 := TCollections.CreateList<TRec_48_6>;
     L48_7 := TCollections.CreateList<TRec_48_7>;
     L48_8 := TCollections.CreateList<TRec_48_8>;
     L48_9 := TCollections.CreateList<TRec_48_9>;
     L48_10 := TCollections.CreateList<TRec_48_10>;
+{$ENDIF}
     L49_1 := TCollections.CreateList<TRec_49_1>;
     L49_2 := TCollections.CreateList<TRec_49_2>;
     L49_3 := TCollections.CreateList<TRec_49_3>;
     L49_4 := TCollections.CreateList<TRec_49_4>;
     L49_5 := TCollections.CreateList<TRec_49_5>;
+{$IFDEF FULL_TEST}
     L49_6 := TCollections.CreateList<TRec_49_6>;
     L49_7 := TCollections.CreateList<TRec_49_7>;
     L49_8 := TCollections.CreateList<TRec_49_8>;
     L49_9 := TCollections.CreateList<TRec_49_9>;
     L49_10 := TCollections.CreateList<TRec_49_10>;
+{$ENDIF}
     L50_1 := TCollections.CreateList<TRec_50_1>;
     L50_2 := TCollections.CreateList<TRec_50_2>;
     L50_3 := TCollections.CreateList<TRec_50_3>;
     L50_4 := TCollections.CreateList<TRec_50_4>;
     L50_5 := TCollections.CreateList<TRec_50_5>;
+{$IFDEF FULL_TEST}
     L50_6 := TCollections.CreateList<TRec_50_6>;
     L50_7 := TCollections.CreateList<TRec_50_7>;
     L50_8 := TCollections.CreateList<TRec_50_8>;
     L50_9 := TCollections.CreateList<TRec_50_9>;
     L50_10 := TCollections.CreateList<TRec_50_10>;
+{$ENDIF}
     DS1_1 := TCollections.CreateDictionary<string, TRec_1_1>;
     DI1_1 := TCollections.CreateDictionary<Integer, TRec_1_1>;
     DG1_1 := TCollections.CreateDictionary<TGUID, TRec_1_1>;
@@ -2526,6 +2725,7 @@ begin
     DS1_5 := TCollections.CreateDictionary<string, TRec_1_5>;
     DI1_5 := TCollections.CreateDictionary<Integer, TRec_1_5>;
     DG1_5 := TCollections.CreateDictionary<TGUID, TRec_1_5>;
+{$IFDEF FULL_TEST}
     DS1_6 := TCollections.CreateDictionary<string, TRec_1_6>;
     DI1_6 := TCollections.CreateDictionary<Integer, TRec_1_6>;
     DG1_6 := TCollections.CreateDictionary<TGUID, TRec_1_6>;
@@ -2541,6 +2741,7 @@ begin
     DS1_10 := TCollections.CreateDictionary<string, TRec_1_10>;
     DI1_10 := TCollections.CreateDictionary<Integer, TRec_1_10>;
     DG1_10 := TCollections.CreateDictionary<TGUID, TRec_1_10>;
+{$ENDIF}
     DS2_1 := TCollections.CreateDictionary<string, TRec_2_1>;
     DI2_1 := TCollections.CreateDictionary<Integer, TRec_2_1>;
     DG2_1 := TCollections.CreateDictionary<TGUID, TRec_2_1>;
@@ -2556,6 +2757,7 @@ begin
     DS2_5 := TCollections.CreateDictionary<string, TRec_2_5>;
     DI2_5 := TCollections.CreateDictionary<Integer, TRec_2_5>;
     DG2_5 := TCollections.CreateDictionary<TGUID, TRec_2_5>;
+{$IFDEF FULL_TEST}
     DS2_6 := TCollections.CreateDictionary<string, TRec_2_6>;
     DI2_6 := TCollections.CreateDictionary<Integer, TRec_2_6>;
     DG2_6 := TCollections.CreateDictionary<TGUID, TRec_2_6>;
@@ -2571,6 +2773,7 @@ begin
     DS2_10 := TCollections.CreateDictionary<string, TRec_2_10>;
     DI2_10 := TCollections.CreateDictionary<Integer, TRec_2_10>;
     DG2_10 := TCollections.CreateDictionary<TGUID, TRec_2_10>;
+{$ENDIF}
     DS3_1 := TCollections.CreateDictionary<string, TRec_3_1>;
     DI3_1 := TCollections.CreateDictionary<Integer, TRec_3_1>;
     DG3_1 := TCollections.CreateDictionary<TGUID, TRec_3_1>;
@@ -2586,6 +2789,7 @@ begin
     DS3_5 := TCollections.CreateDictionary<string, TRec_3_5>;
     DI3_5 := TCollections.CreateDictionary<Integer, TRec_3_5>;
     DG3_5 := TCollections.CreateDictionary<TGUID, TRec_3_5>;
+{$IFDEF FULL_TEST}
     DS3_6 := TCollections.CreateDictionary<string, TRec_3_6>;
     DI3_6 := TCollections.CreateDictionary<Integer, TRec_3_6>;
     DG3_6 := TCollections.CreateDictionary<TGUID, TRec_3_6>;
@@ -2601,6 +2805,7 @@ begin
     DS3_10 := TCollections.CreateDictionary<string, TRec_3_10>;
     DI3_10 := TCollections.CreateDictionary<Integer, TRec_3_10>;
     DG3_10 := TCollections.CreateDictionary<TGUID, TRec_3_10>;
+{$ENDIF}
     DS4_1 := TCollections.CreateDictionary<string, TRec_4_1>;
     DI4_1 := TCollections.CreateDictionary<Integer, TRec_4_1>;
     DG4_1 := TCollections.CreateDictionary<TGUID, TRec_4_1>;
@@ -2616,6 +2821,7 @@ begin
     DS4_5 := TCollections.CreateDictionary<string, TRec_4_5>;
     DI4_5 := TCollections.CreateDictionary<Integer, TRec_4_5>;
     DG4_5 := TCollections.CreateDictionary<TGUID, TRec_4_5>;
+{$IFDEF FULL_TEST}
     DS4_6 := TCollections.CreateDictionary<string, TRec_4_6>;
     DI4_6 := TCollections.CreateDictionary<Integer, TRec_4_6>;
     DG4_6 := TCollections.CreateDictionary<TGUID, TRec_4_6>;
@@ -2631,6 +2837,7 @@ begin
     DS4_10 := TCollections.CreateDictionary<string, TRec_4_10>;
     DI4_10 := TCollections.CreateDictionary<Integer, TRec_4_10>;
     DG4_10 := TCollections.CreateDictionary<TGUID, TRec_4_10>;
+{$ENDIF}
     DS5_1 := TCollections.CreateDictionary<string, TRec_5_1>;
     DI5_1 := TCollections.CreateDictionary<Integer, TRec_5_1>;
     DG5_1 := TCollections.CreateDictionary<TGUID, TRec_5_1>;
@@ -2646,6 +2853,7 @@ begin
     DS5_5 := TCollections.CreateDictionary<string, TRec_5_5>;
     DI5_5 := TCollections.CreateDictionary<Integer, TRec_5_5>;
     DG5_5 := TCollections.CreateDictionary<TGUID, TRec_5_5>;
+{$IFDEF FULL_TEST}
     DS5_6 := TCollections.CreateDictionary<string, TRec_5_6>;
     DI5_6 := TCollections.CreateDictionary<Integer, TRec_5_6>;
     DG5_6 := TCollections.CreateDictionary<TGUID, TRec_5_6>;
@@ -2661,6 +2869,7 @@ begin
     DS5_10 := TCollections.CreateDictionary<string, TRec_5_10>;
     DI5_10 := TCollections.CreateDictionary<Integer, TRec_5_10>;
     DG5_10 := TCollections.CreateDictionary<TGUID, TRec_5_10>;
+{$ENDIF}
     DS6_1 := TCollections.CreateDictionary<string, TRec_6_1>;
     DI6_1 := TCollections.CreateDictionary<Integer, TRec_6_1>;
     DG6_1 := TCollections.CreateDictionary<TGUID, TRec_6_1>;
@@ -2676,6 +2885,7 @@ begin
     DS6_5 := TCollections.CreateDictionary<string, TRec_6_5>;
     DI6_5 := TCollections.CreateDictionary<Integer, TRec_6_5>;
     DG6_5 := TCollections.CreateDictionary<TGUID, TRec_6_5>;
+{$IFDEF FULL_TEST}
     DS6_6 := TCollections.CreateDictionary<string, TRec_6_6>;
     DI6_6 := TCollections.CreateDictionary<Integer, TRec_6_6>;
     DG6_6 := TCollections.CreateDictionary<TGUID, TRec_6_6>;
@@ -2691,6 +2901,7 @@ begin
     DS6_10 := TCollections.CreateDictionary<string, TRec_6_10>;
     DI6_10 := TCollections.CreateDictionary<Integer, TRec_6_10>;
     DG6_10 := TCollections.CreateDictionary<TGUID, TRec_6_10>;
+{$ENDIF}
     DS7_1 := TCollections.CreateDictionary<string, TRec_7_1>;
     DI7_1 := TCollections.CreateDictionary<Integer, TRec_7_1>;
     DG7_1 := TCollections.CreateDictionary<TGUID, TRec_7_1>;
@@ -2706,6 +2917,7 @@ begin
     DS7_5 := TCollections.CreateDictionary<string, TRec_7_5>;
     DI7_5 := TCollections.CreateDictionary<Integer, TRec_7_5>;
     DG7_5 := TCollections.CreateDictionary<TGUID, TRec_7_5>;
+{$IFDEF FULL_TEST}
     DS7_6 := TCollections.CreateDictionary<string, TRec_7_6>;
     DI7_6 := TCollections.CreateDictionary<Integer, TRec_7_6>;
     DG7_6 := TCollections.CreateDictionary<TGUID, TRec_7_6>;
@@ -2721,6 +2933,7 @@ begin
     DS7_10 := TCollections.CreateDictionary<string, TRec_7_10>;
     DI7_10 := TCollections.CreateDictionary<Integer, TRec_7_10>;
     DG7_10 := TCollections.CreateDictionary<TGUID, TRec_7_10>;
+{$ENDIF}
     DS8_1 := TCollections.CreateDictionary<string, TRec_8_1>;
     DI8_1 := TCollections.CreateDictionary<Integer, TRec_8_1>;
     DG8_1 := TCollections.CreateDictionary<TGUID, TRec_8_1>;
@@ -2736,6 +2949,7 @@ begin
     DS8_5 := TCollections.CreateDictionary<string, TRec_8_5>;
     DI8_5 := TCollections.CreateDictionary<Integer, TRec_8_5>;
     DG8_5 := TCollections.CreateDictionary<TGUID, TRec_8_5>;
+{$IFDEF FULL_TEST}
     DS8_6 := TCollections.CreateDictionary<string, TRec_8_6>;
     DI8_6 := TCollections.CreateDictionary<Integer, TRec_8_6>;
     DG8_6 := TCollections.CreateDictionary<TGUID, TRec_8_6>;
@@ -2751,6 +2965,7 @@ begin
     DS8_10 := TCollections.CreateDictionary<string, TRec_8_10>;
     DI8_10 := TCollections.CreateDictionary<Integer, TRec_8_10>;
     DG8_10 := TCollections.CreateDictionary<TGUID, TRec_8_10>;
+{$ENDIF}
     DS9_1 := TCollections.CreateDictionary<string, TRec_9_1>;
     DI9_1 := TCollections.CreateDictionary<Integer, TRec_9_1>;
     DG9_1 := TCollections.CreateDictionary<TGUID, TRec_9_1>;
@@ -2766,6 +2981,7 @@ begin
     DS9_5 := TCollections.CreateDictionary<string, TRec_9_5>;
     DI9_5 := TCollections.CreateDictionary<Integer, TRec_9_5>;
     DG9_5 := TCollections.CreateDictionary<TGUID, TRec_9_5>;
+{$IFDEF FULL_TEST}
     DS9_6 := TCollections.CreateDictionary<string, TRec_9_6>;
     DI9_6 := TCollections.CreateDictionary<Integer, TRec_9_6>;
     DG9_6 := TCollections.CreateDictionary<TGUID, TRec_9_6>;
@@ -2781,6 +2997,7 @@ begin
     DS9_10 := TCollections.CreateDictionary<string, TRec_9_10>;
     DI9_10 := TCollections.CreateDictionary<Integer, TRec_9_10>;
     DG9_10 := TCollections.CreateDictionary<TGUID, TRec_9_10>;
+{$ENDIF}
     DS10_1 := TCollections.CreateDictionary<string, TRec_10_1>;
     DI10_1 := TCollections.CreateDictionary<Integer, TRec_10_1>;
     DG10_1 := TCollections.CreateDictionary<TGUID, TRec_10_1>;
@@ -2796,6 +3013,7 @@ begin
     DS10_5 := TCollections.CreateDictionary<string, TRec_10_5>;
     DI10_5 := TCollections.CreateDictionary<Integer, TRec_10_5>;
     DG10_5 := TCollections.CreateDictionary<TGUID, TRec_10_5>;
+{$IFDEF FULL_TEST}
     DS10_6 := TCollections.CreateDictionary<string, TRec_10_6>;
     DI10_6 := TCollections.CreateDictionary<Integer, TRec_10_6>;
     DG10_6 := TCollections.CreateDictionary<TGUID, TRec_10_6>;
@@ -2811,6 +3029,7 @@ begin
     DS10_10 := TCollections.CreateDictionary<string, TRec_10_10>;
     DI10_10 := TCollections.CreateDictionary<Integer, TRec_10_10>;
     DG10_10 := TCollections.CreateDictionary<TGUID, TRec_10_10>;
+{$ENDIF}
     DS11_1 := TCollections.CreateDictionary<string, TRec_11_1>;
     DI11_1 := TCollections.CreateDictionary<Integer, TRec_11_1>;
     DG11_1 := TCollections.CreateDictionary<TGUID, TRec_11_1>;
@@ -2826,6 +3045,7 @@ begin
     DS11_5 := TCollections.CreateDictionary<string, TRec_11_5>;
     DI11_5 := TCollections.CreateDictionary<Integer, TRec_11_5>;
     DG11_5 := TCollections.CreateDictionary<TGUID, TRec_11_5>;
+{$IFDEF FULL_TEST}
     DS11_6 := TCollections.CreateDictionary<string, TRec_11_6>;
     DI11_6 := TCollections.CreateDictionary<Integer, TRec_11_6>;
     DG11_6 := TCollections.CreateDictionary<TGUID, TRec_11_6>;
@@ -2841,6 +3061,7 @@ begin
     DS11_10 := TCollections.CreateDictionary<string, TRec_11_10>;
     DI11_10 := TCollections.CreateDictionary<Integer, TRec_11_10>;
     DG11_10 := TCollections.CreateDictionary<TGUID, TRec_11_10>;
+{$ENDIF}
     DS12_1 := TCollections.CreateDictionary<string, TRec_12_1>;
     DI12_1 := TCollections.CreateDictionary<Integer, TRec_12_1>;
     DG12_1 := TCollections.CreateDictionary<TGUID, TRec_12_1>;
@@ -2856,6 +3077,7 @@ begin
     DS12_5 := TCollections.CreateDictionary<string, TRec_12_5>;
     DI12_5 := TCollections.CreateDictionary<Integer, TRec_12_5>;
     DG12_5 := TCollections.CreateDictionary<TGUID, TRec_12_5>;
+{$IFDEF FULL_TEST}
     DS12_6 := TCollections.CreateDictionary<string, TRec_12_6>;
     DI12_6 := TCollections.CreateDictionary<Integer, TRec_12_6>;
     DG12_6 := TCollections.CreateDictionary<TGUID, TRec_12_6>;
@@ -2871,6 +3093,7 @@ begin
     DS12_10 := TCollections.CreateDictionary<string, TRec_12_10>;
     DI12_10 := TCollections.CreateDictionary<Integer, TRec_12_10>;
     DG12_10 := TCollections.CreateDictionary<TGUID, TRec_12_10>;
+{$ENDIF}
     DS13_1 := TCollections.CreateDictionary<string, TRec_13_1>;
     DI13_1 := TCollections.CreateDictionary<Integer, TRec_13_1>;
     DG13_1 := TCollections.CreateDictionary<TGUID, TRec_13_1>;
@@ -2886,6 +3109,7 @@ begin
     DS13_5 := TCollections.CreateDictionary<string, TRec_13_5>;
     DI13_5 := TCollections.CreateDictionary<Integer, TRec_13_5>;
     DG13_5 := TCollections.CreateDictionary<TGUID, TRec_13_5>;
+{$IFDEF FULL_TEST}
     DS13_6 := TCollections.CreateDictionary<string, TRec_13_6>;
     DI13_6 := TCollections.CreateDictionary<Integer, TRec_13_6>;
     DG13_6 := TCollections.CreateDictionary<TGUID, TRec_13_6>;
@@ -2901,6 +3125,7 @@ begin
     DS13_10 := TCollections.CreateDictionary<string, TRec_13_10>;
     DI13_10 := TCollections.CreateDictionary<Integer, TRec_13_10>;
     DG13_10 := TCollections.CreateDictionary<TGUID, TRec_13_10>;
+{$ENDIF}
     DS14_1 := TCollections.CreateDictionary<string, TRec_14_1>;
     DI14_1 := TCollections.CreateDictionary<Integer, TRec_14_1>;
     DG14_1 := TCollections.CreateDictionary<TGUID, TRec_14_1>;
@@ -2916,6 +3141,7 @@ begin
     DS14_5 := TCollections.CreateDictionary<string, TRec_14_5>;
     DI14_5 := TCollections.CreateDictionary<Integer, TRec_14_5>;
     DG14_5 := TCollections.CreateDictionary<TGUID, TRec_14_5>;
+{$IFDEF FULL_TEST}
     DS14_6 := TCollections.CreateDictionary<string, TRec_14_6>;
     DI14_6 := TCollections.CreateDictionary<Integer, TRec_14_6>;
     DG14_6 := TCollections.CreateDictionary<TGUID, TRec_14_6>;
@@ -2931,6 +3157,7 @@ begin
     DS14_10 := TCollections.CreateDictionary<string, TRec_14_10>;
     DI14_10 := TCollections.CreateDictionary<Integer, TRec_14_10>;
     DG14_10 := TCollections.CreateDictionary<TGUID, TRec_14_10>;
+{$ENDIF}
     DS15_1 := TCollections.CreateDictionary<string, TRec_15_1>;
     DI15_1 := TCollections.CreateDictionary<Integer, TRec_15_1>;
     DG15_1 := TCollections.CreateDictionary<TGUID, TRec_15_1>;
@@ -2946,6 +3173,7 @@ begin
     DS15_5 := TCollections.CreateDictionary<string, TRec_15_5>;
     DI15_5 := TCollections.CreateDictionary<Integer, TRec_15_5>;
     DG15_5 := TCollections.CreateDictionary<TGUID, TRec_15_5>;
+{$IFDEF FULL_TEST}
     DS15_6 := TCollections.CreateDictionary<string, TRec_15_6>;
     DI15_6 := TCollections.CreateDictionary<Integer, TRec_15_6>;
     DG15_6 := TCollections.CreateDictionary<TGUID, TRec_15_6>;
@@ -2961,6 +3189,7 @@ begin
     DS15_10 := TCollections.CreateDictionary<string, TRec_15_10>;
     DI15_10 := TCollections.CreateDictionary<Integer, TRec_15_10>;
     DG15_10 := TCollections.CreateDictionary<TGUID, TRec_15_10>;
+{$ENDIF}
     DS16_1 := TCollections.CreateDictionary<string, TRec_16_1>;
     DI16_1 := TCollections.CreateDictionary<Integer, TRec_16_1>;
     DG16_1 := TCollections.CreateDictionary<TGUID, TRec_16_1>;
@@ -2976,6 +3205,7 @@ begin
     DS16_5 := TCollections.CreateDictionary<string, TRec_16_5>;
     DI16_5 := TCollections.CreateDictionary<Integer, TRec_16_5>;
     DG16_5 := TCollections.CreateDictionary<TGUID, TRec_16_5>;
+{$IFDEF FULL_TEST}
     DS16_6 := TCollections.CreateDictionary<string, TRec_16_6>;
     DI16_6 := TCollections.CreateDictionary<Integer, TRec_16_6>;
     DG16_6 := TCollections.CreateDictionary<TGUID, TRec_16_6>;
@@ -2991,6 +3221,7 @@ begin
     DS16_10 := TCollections.CreateDictionary<string, TRec_16_10>;
     DI16_10 := TCollections.CreateDictionary<Integer, TRec_16_10>;
     DG16_10 := TCollections.CreateDictionary<TGUID, TRec_16_10>;
+{$ENDIF}
     DS17_1 := TCollections.CreateDictionary<string, TRec_17_1>;
     DI17_1 := TCollections.CreateDictionary<Integer, TRec_17_1>;
     DG17_1 := TCollections.CreateDictionary<TGUID, TRec_17_1>;
@@ -3006,6 +3237,7 @@ begin
     DS17_5 := TCollections.CreateDictionary<string, TRec_17_5>;
     DI17_5 := TCollections.CreateDictionary<Integer, TRec_17_5>;
     DG17_5 := TCollections.CreateDictionary<TGUID, TRec_17_5>;
+{$IFDEF FULL_TEST}
     DS17_6 := TCollections.CreateDictionary<string, TRec_17_6>;
     DI17_6 := TCollections.CreateDictionary<Integer, TRec_17_6>;
     DG17_6 := TCollections.CreateDictionary<TGUID, TRec_17_6>;
@@ -3021,6 +3253,7 @@ begin
     DS17_10 := TCollections.CreateDictionary<string, TRec_17_10>;
     DI17_10 := TCollections.CreateDictionary<Integer, TRec_17_10>;
     DG17_10 := TCollections.CreateDictionary<TGUID, TRec_17_10>;
+{$ENDIF}
     DS18_1 := TCollections.CreateDictionary<string, TRec_18_1>;
     DI18_1 := TCollections.CreateDictionary<Integer, TRec_18_1>;
     DG18_1 := TCollections.CreateDictionary<TGUID, TRec_18_1>;
@@ -3036,6 +3269,7 @@ begin
     DS18_5 := TCollections.CreateDictionary<string, TRec_18_5>;
     DI18_5 := TCollections.CreateDictionary<Integer, TRec_18_5>;
     DG18_5 := TCollections.CreateDictionary<TGUID, TRec_18_5>;
+{$IFDEF FULL_TEST}
     DS18_6 := TCollections.CreateDictionary<string, TRec_18_6>;
     DI18_6 := TCollections.CreateDictionary<Integer, TRec_18_6>;
     DG18_6 := TCollections.CreateDictionary<TGUID, TRec_18_6>;
@@ -3051,6 +3285,7 @@ begin
     DS18_10 := TCollections.CreateDictionary<string, TRec_18_10>;
     DI18_10 := TCollections.CreateDictionary<Integer, TRec_18_10>;
     DG18_10 := TCollections.CreateDictionary<TGUID, TRec_18_10>;
+{$ENDIF}
     DS19_1 := TCollections.CreateDictionary<string, TRec_19_1>;
     DI19_1 := TCollections.CreateDictionary<Integer, TRec_19_1>;
     DG19_1 := TCollections.CreateDictionary<TGUID, TRec_19_1>;
@@ -3066,6 +3301,7 @@ begin
     DS19_5 := TCollections.CreateDictionary<string, TRec_19_5>;
     DI19_5 := TCollections.CreateDictionary<Integer, TRec_19_5>;
     DG19_5 := TCollections.CreateDictionary<TGUID, TRec_19_5>;
+{$IFDEF FULL_TEST}
     DS19_6 := TCollections.CreateDictionary<string, TRec_19_6>;
     DI19_6 := TCollections.CreateDictionary<Integer, TRec_19_6>;
     DG19_6 := TCollections.CreateDictionary<TGUID, TRec_19_6>;
@@ -3081,6 +3317,7 @@ begin
     DS19_10 := TCollections.CreateDictionary<string, TRec_19_10>;
     DI19_10 := TCollections.CreateDictionary<Integer, TRec_19_10>;
     DG19_10 := TCollections.CreateDictionary<TGUID, TRec_19_10>;
+{$ENDIF}
     DS20_1 := TCollections.CreateDictionary<string, TRec_20_1>;
     DI20_1 := TCollections.CreateDictionary<Integer, TRec_20_1>;
     DG20_1 := TCollections.CreateDictionary<TGUID, TRec_20_1>;
@@ -3096,6 +3333,7 @@ begin
     DS20_5 := TCollections.CreateDictionary<string, TRec_20_5>;
     DI20_5 := TCollections.CreateDictionary<Integer, TRec_20_5>;
     DG20_5 := TCollections.CreateDictionary<TGUID, TRec_20_5>;
+{$IFDEF FULL_TEST}
     DS20_6 := TCollections.CreateDictionary<string, TRec_20_6>;
     DI20_6 := TCollections.CreateDictionary<Integer, TRec_20_6>;
     DG20_6 := TCollections.CreateDictionary<TGUID, TRec_20_6>;
@@ -3111,6 +3349,7 @@ begin
     DS20_10 := TCollections.CreateDictionary<string, TRec_20_10>;
     DI20_10 := TCollections.CreateDictionary<Integer, TRec_20_10>;
     DG20_10 := TCollections.CreateDictionary<TGUID, TRec_20_10>;
+{$ENDIF}
     DS21_1 := TCollections.CreateDictionary<string, TRec_21_1>;
     DI21_1 := TCollections.CreateDictionary<Integer, TRec_21_1>;
     DG21_1 := TCollections.CreateDictionary<TGUID, TRec_21_1>;
@@ -3126,6 +3365,7 @@ begin
     DS21_5 := TCollections.CreateDictionary<string, TRec_21_5>;
     DI21_5 := TCollections.CreateDictionary<Integer, TRec_21_5>;
     DG21_5 := TCollections.CreateDictionary<TGUID, TRec_21_5>;
+{$IFDEF FULL_TEST}
     DS21_6 := TCollections.CreateDictionary<string, TRec_21_6>;
     DI21_6 := TCollections.CreateDictionary<Integer, TRec_21_6>;
     DG21_6 := TCollections.CreateDictionary<TGUID, TRec_21_6>;
@@ -3141,6 +3381,7 @@ begin
     DS21_10 := TCollections.CreateDictionary<string, TRec_21_10>;
     DI21_10 := TCollections.CreateDictionary<Integer, TRec_21_10>;
     DG21_10 := TCollections.CreateDictionary<TGUID, TRec_21_10>;
+{$ENDIF}
     DS22_1 := TCollections.CreateDictionary<string, TRec_22_1>;
     DI22_1 := TCollections.CreateDictionary<Integer, TRec_22_1>;
     DG22_1 := TCollections.CreateDictionary<TGUID, TRec_22_1>;
@@ -3156,6 +3397,7 @@ begin
     DS22_5 := TCollections.CreateDictionary<string, TRec_22_5>;
     DI22_5 := TCollections.CreateDictionary<Integer, TRec_22_5>;
     DG22_5 := TCollections.CreateDictionary<TGUID, TRec_22_5>;
+{$IFDEF FULL_TEST}
     DS22_6 := TCollections.CreateDictionary<string, TRec_22_6>;
     DI22_6 := TCollections.CreateDictionary<Integer, TRec_22_6>;
     DG22_6 := TCollections.CreateDictionary<TGUID, TRec_22_6>;
@@ -3171,6 +3413,7 @@ begin
     DS22_10 := TCollections.CreateDictionary<string, TRec_22_10>;
     DI22_10 := TCollections.CreateDictionary<Integer, TRec_22_10>;
     DG22_10 := TCollections.CreateDictionary<TGUID, TRec_22_10>;
+{$ENDIF}
     DS23_1 := TCollections.CreateDictionary<string, TRec_23_1>;
     DI23_1 := TCollections.CreateDictionary<Integer, TRec_23_1>;
     DG23_1 := TCollections.CreateDictionary<TGUID, TRec_23_1>;
@@ -3186,6 +3429,7 @@ begin
     DS23_5 := TCollections.CreateDictionary<string, TRec_23_5>;
     DI23_5 := TCollections.CreateDictionary<Integer, TRec_23_5>;
     DG23_5 := TCollections.CreateDictionary<TGUID, TRec_23_5>;
+{$IFDEF FULL_TEST}
     DS23_6 := TCollections.CreateDictionary<string, TRec_23_6>;
     DI23_6 := TCollections.CreateDictionary<Integer, TRec_23_6>;
     DG23_6 := TCollections.CreateDictionary<TGUID, TRec_23_6>;
@@ -3201,6 +3445,7 @@ begin
     DS23_10 := TCollections.CreateDictionary<string, TRec_23_10>;
     DI23_10 := TCollections.CreateDictionary<Integer, TRec_23_10>;
     DG23_10 := TCollections.CreateDictionary<TGUID, TRec_23_10>;
+{$ENDIF}
     DS24_1 := TCollections.CreateDictionary<string, TRec_24_1>;
     DI24_1 := TCollections.CreateDictionary<Integer, TRec_24_1>;
     DG24_1 := TCollections.CreateDictionary<TGUID, TRec_24_1>;
@@ -3216,6 +3461,7 @@ begin
     DS24_5 := TCollections.CreateDictionary<string, TRec_24_5>;
     DI24_5 := TCollections.CreateDictionary<Integer, TRec_24_5>;
     DG24_5 := TCollections.CreateDictionary<TGUID, TRec_24_5>;
+{$IFDEF FULL_TEST}
     DS24_6 := TCollections.CreateDictionary<string, TRec_24_6>;
     DI24_6 := TCollections.CreateDictionary<Integer, TRec_24_6>;
     DG24_6 := TCollections.CreateDictionary<TGUID, TRec_24_6>;
@@ -3231,6 +3477,7 @@ begin
     DS24_10 := TCollections.CreateDictionary<string, TRec_24_10>;
     DI24_10 := TCollections.CreateDictionary<Integer, TRec_24_10>;
     DG24_10 := TCollections.CreateDictionary<TGUID, TRec_24_10>;
+{$ENDIF}
     DS25_1 := TCollections.CreateDictionary<string, TRec_25_1>;
     DI25_1 := TCollections.CreateDictionary<Integer, TRec_25_1>;
     DG25_1 := TCollections.CreateDictionary<TGUID, TRec_25_1>;
@@ -3246,6 +3493,7 @@ begin
     DS25_5 := TCollections.CreateDictionary<string, TRec_25_5>;
     DI25_5 := TCollections.CreateDictionary<Integer, TRec_25_5>;
     DG25_5 := TCollections.CreateDictionary<TGUID, TRec_25_5>;
+{$IFDEF FULL_TEST}
     DS25_6 := TCollections.CreateDictionary<string, TRec_25_6>;
     DI25_6 := TCollections.CreateDictionary<Integer, TRec_25_6>;
     DG25_6 := TCollections.CreateDictionary<TGUID, TRec_25_6>;
@@ -3261,6 +3509,7 @@ begin
     DS25_10 := TCollections.CreateDictionary<string, TRec_25_10>;
     DI25_10 := TCollections.CreateDictionary<Integer, TRec_25_10>;
     DG25_10 := TCollections.CreateDictionary<TGUID, TRec_25_10>;
+{$ENDIF}
     DS26_1 := TCollections.CreateDictionary<string, TRec_26_1>;
     DI26_1 := TCollections.CreateDictionary<Integer, TRec_26_1>;
     DG26_1 := TCollections.CreateDictionary<TGUID, TRec_26_1>;
@@ -3276,6 +3525,7 @@ begin
     DS26_5 := TCollections.CreateDictionary<string, TRec_26_5>;
     DI26_5 := TCollections.CreateDictionary<Integer, TRec_26_5>;
     DG26_5 := TCollections.CreateDictionary<TGUID, TRec_26_5>;
+{$IFDEF FULL_TEST}
     DS26_6 := TCollections.CreateDictionary<string, TRec_26_6>;
     DI26_6 := TCollections.CreateDictionary<Integer, TRec_26_6>;
     DG26_6 := TCollections.CreateDictionary<TGUID, TRec_26_6>;
@@ -3291,6 +3541,7 @@ begin
     DS26_10 := TCollections.CreateDictionary<string, TRec_26_10>;
     DI26_10 := TCollections.CreateDictionary<Integer, TRec_26_10>;
     DG26_10 := TCollections.CreateDictionary<TGUID, TRec_26_10>;
+{$ENDIF}
     DS27_1 := TCollections.CreateDictionary<string, TRec_27_1>;
     DI27_1 := TCollections.CreateDictionary<Integer, TRec_27_1>;
     DG27_1 := TCollections.CreateDictionary<TGUID, TRec_27_1>;
@@ -3306,6 +3557,7 @@ begin
     DS27_5 := TCollections.CreateDictionary<string, TRec_27_5>;
     DI27_5 := TCollections.CreateDictionary<Integer, TRec_27_5>;
     DG27_5 := TCollections.CreateDictionary<TGUID, TRec_27_5>;
+{$IFDEF FULL_TEST}
     DS27_6 := TCollections.CreateDictionary<string, TRec_27_6>;
     DI27_6 := TCollections.CreateDictionary<Integer, TRec_27_6>;
     DG27_6 := TCollections.CreateDictionary<TGUID, TRec_27_6>;
@@ -3321,6 +3573,7 @@ begin
     DS27_10 := TCollections.CreateDictionary<string, TRec_27_10>;
     DI27_10 := TCollections.CreateDictionary<Integer, TRec_27_10>;
     DG27_10 := TCollections.CreateDictionary<TGUID, TRec_27_10>;
+{$ENDIF}
     DS28_1 := TCollections.CreateDictionary<string, TRec_28_1>;
     DI28_1 := TCollections.CreateDictionary<Integer, TRec_28_1>;
     DG28_1 := TCollections.CreateDictionary<TGUID, TRec_28_1>;
@@ -3336,6 +3589,7 @@ begin
     DS28_5 := TCollections.CreateDictionary<string, TRec_28_5>;
     DI28_5 := TCollections.CreateDictionary<Integer, TRec_28_5>;
     DG28_5 := TCollections.CreateDictionary<TGUID, TRec_28_5>;
+{$IFDEF FULL_TEST}
     DS28_6 := TCollections.CreateDictionary<string, TRec_28_6>;
     DI28_6 := TCollections.CreateDictionary<Integer, TRec_28_6>;
     DG28_6 := TCollections.CreateDictionary<TGUID, TRec_28_6>;
@@ -3351,6 +3605,7 @@ begin
     DS28_10 := TCollections.CreateDictionary<string, TRec_28_10>;
     DI28_10 := TCollections.CreateDictionary<Integer, TRec_28_10>;
     DG28_10 := TCollections.CreateDictionary<TGUID, TRec_28_10>;
+{$ENDIF}
     DS29_1 := TCollections.CreateDictionary<string, TRec_29_1>;
     DI29_1 := TCollections.CreateDictionary<Integer, TRec_29_1>;
     DG29_1 := TCollections.CreateDictionary<TGUID, TRec_29_1>;
@@ -3366,6 +3621,7 @@ begin
     DS29_5 := TCollections.CreateDictionary<string, TRec_29_5>;
     DI29_5 := TCollections.CreateDictionary<Integer, TRec_29_5>;
     DG29_5 := TCollections.CreateDictionary<TGUID, TRec_29_5>;
+{$IFDEF FULL_TEST}
     DS29_6 := TCollections.CreateDictionary<string, TRec_29_6>;
     DI29_6 := TCollections.CreateDictionary<Integer, TRec_29_6>;
     DG29_6 := TCollections.CreateDictionary<TGUID, TRec_29_6>;
@@ -3381,6 +3637,7 @@ begin
     DS29_10 := TCollections.CreateDictionary<string, TRec_29_10>;
     DI29_10 := TCollections.CreateDictionary<Integer, TRec_29_10>;
     DG29_10 := TCollections.CreateDictionary<TGUID, TRec_29_10>;
+{$ENDIF}
     DS30_1 := TCollections.CreateDictionary<string, TRec_30_1>;
     DI30_1 := TCollections.CreateDictionary<Integer, TRec_30_1>;
     DG30_1 := TCollections.CreateDictionary<TGUID, TRec_30_1>;
@@ -3396,6 +3653,7 @@ begin
     DS30_5 := TCollections.CreateDictionary<string, TRec_30_5>;
     DI30_5 := TCollections.CreateDictionary<Integer, TRec_30_5>;
     DG30_5 := TCollections.CreateDictionary<TGUID, TRec_30_5>;
+{$IFDEF FULL_TEST}
     DS30_6 := TCollections.CreateDictionary<string, TRec_30_6>;
     DI30_6 := TCollections.CreateDictionary<Integer, TRec_30_6>;
     DG30_6 := TCollections.CreateDictionary<TGUID, TRec_30_6>;
@@ -3411,6 +3669,7 @@ begin
     DS30_10 := TCollections.CreateDictionary<string, TRec_30_10>;
     DI30_10 := TCollections.CreateDictionary<Integer, TRec_30_10>;
     DG30_10 := TCollections.CreateDictionary<TGUID, TRec_30_10>;
+{$ENDIF}
     DS31_1 := TCollections.CreateDictionary<string, TRec_31_1>;
     DI31_1 := TCollections.CreateDictionary<Integer, TRec_31_1>;
     DG31_1 := TCollections.CreateDictionary<TGUID, TRec_31_1>;
@@ -3426,6 +3685,7 @@ begin
     DS31_5 := TCollections.CreateDictionary<string, TRec_31_5>;
     DI31_5 := TCollections.CreateDictionary<Integer, TRec_31_5>;
     DG31_5 := TCollections.CreateDictionary<TGUID, TRec_31_5>;
+{$IFDEF FULL_TEST}
     DS31_6 := TCollections.CreateDictionary<string, TRec_31_6>;
     DI31_6 := TCollections.CreateDictionary<Integer, TRec_31_6>;
     DG31_6 := TCollections.CreateDictionary<TGUID, TRec_31_6>;
@@ -3441,6 +3701,7 @@ begin
     DS31_10 := TCollections.CreateDictionary<string, TRec_31_10>;
     DI31_10 := TCollections.CreateDictionary<Integer, TRec_31_10>;
     DG31_10 := TCollections.CreateDictionary<TGUID, TRec_31_10>;
+{$ENDIF}
     DS32_1 := TCollections.CreateDictionary<string, TRec_32_1>;
     DI32_1 := TCollections.CreateDictionary<Integer, TRec_32_1>;
     DG32_1 := TCollections.CreateDictionary<TGUID, TRec_32_1>;
@@ -3456,6 +3717,7 @@ begin
     DS32_5 := TCollections.CreateDictionary<string, TRec_32_5>;
     DI32_5 := TCollections.CreateDictionary<Integer, TRec_32_5>;
     DG32_5 := TCollections.CreateDictionary<TGUID, TRec_32_5>;
+{$IFDEF FULL_TEST}
     DS32_6 := TCollections.CreateDictionary<string, TRec_32_6>;
     DI32_6 := TCollections.CreateDictionary<Integer, TRec_32_6>;
     DG32_6 := TCollections.CreateDictionary<TGUID, TRec_32_6>;
@@ -3471,6 +3733,7 @@ begin
     DS32_10 := TCollections.CreateDictionary<string, TRec_32_10>;
     DI32_10 := TCollections.CreateDictionary<Integer, TRec_32_10>;
     DG32_10 := TCollections.CreateDictionary<TGUID, TRec_32_10>;
+{$ENDIF}
     DS33_1 := TCollections.CreateDictionary<string, TRec_33_1>;
     DI33_1 := TCollections.CreateDictionary<Integer, TRec_33_1>;
     DG33_1 := TCollections.CreateDictionary<TGUID, TRec_33_1>;
@@ -3486,6 +3749,7 @@ begin
     DS33_5 := TCollections.CreateDictionary<string, TRec_33_5>;
     DI33_5 := TCollections.CreateDictionary<Integer, TRec_33_5>;
     DG33_5 := TCollections.CreateDictionary<TGUID, TRec_33_5>;
+{$IFDEF FULL_TEST}
     DS33_6 := TCollections.CreateDictionary<string, TRec_33_6>;
     DI33_6 := TCollections.CreateDictionary<Integer, TRec_33_6>;
     DG33_6 := TCollections.CreateDictionary<TGUID, TRec_33_6>;
@@ -3501,6 +3765,7 @@ begin
     DS33_10 := TCollections.CreateDictionary<string, TRec_33_10>;
     DI33_10 := TCollections.CreateDictionary<Integer, TRec_33_10>;
     DG33_10 := TCollections.CreateDictionary<TGUID, TRec_33_10>;
+{$ENDIF}
     DS34_1 := TCollections.CreateDictionary<string, TRec_34_1>;
     DI34_1 := TCollections.CreateDictionary<Integer, TRec_34_1>;
     DG34_1 := TCollections.CreateDictionary<TGUID, TRec_34_1>;
@@ -3516,6 +3781,7 @@ begin
     DS34_5 := TCollections.CreateDictionary<string, TRec_34_5>;
     DI34_5 := TCollections.CreateDictionary<Integer, TRec_34_5>;
     DG34_5 := TCollections.CreateDictionary<TGUID, TRec_34_5>;
+{$IFDEF FULL_TEST}
     DS34_6 := TCollections.CreateDictionary<string, TRec_34_6>;
     DI34_6 := TCollections.CreateDictionary<Integer, TRec_34_6>;
     DG34_6 := TCollections.CreateDictionary<TGUID, TRec_34_6>;
@@ -3531,6 +3797,7 @@ begin
     DS34_10 := TCollections.CreateDictionary<string, TRec_34_10>;
     DI34_10 := TCollections.CreateDictionary<Integer, TRec_34_10>;
     DG34_10 := TCollections.CreateDictionary<TGUID, TRec_34_10>;
+{$ENDIF}
     DS35_1 := TCollections.CreateDictionary<string, TRec_35_1>;
     DI35_1 := TCollections.CreateDictionary<Integer, TRec_35_1>;
     DG35_1 := TCollections.CreateDictionary<TGUID, TRec_35_1>;
@@ -3546,6 +3813,7 @@ begin
     DS35_5 := TCollections.CreateDictionary<string, TRec_35_5>;
     DI35_5 := TCollections.CreateDictionary<Integer, TRec_35_5>;
     DG35_5 := TCollections.CreateDictionary<TGUID, TRec_35_5>;
+{$IFDEF FULL_TEST}
     DS35_6 := TCollections.CreateDictionary<string, TRec_35_6>;
     DI35_6 := TCollections.CreateDictionary<Integer, TRec_35_6>;
     DG35_6 := TCollections.CreateDictionary<TGUID, TRec_35_6>;
@@ -3561,6 +3829,7 @@ begin
     DS35_10 := TCollections.CreateDictionary<string, TRec_35_10>;
     DI35_10 := TCollections.CreateDictionary<Integer, TRec_35_10>;
     DG35_10 := TCollections.CreateDictionary<TGUID, TRec_35_10>;
+{$ENDIF}
     DS36_1 := TCollections.CreateDictionary<string, TRec_36_1>;
     DI36_1 := TCollections.CreateDictionary<Integer, TRec_36_1>;
     DG36_1 := TCollections.CreateDictionary<TGUID, TRec_36_1>;
@@ -3576,6 +3845,7 @@ begin
     DS36_5 := TCollections.CreateDictionary<string, TRec_36_5>;
     DI36_5 := TCollections.CreateDictionary<Integer, TRec_36_5>;
     DG36_5 := TCollections.CreateDictionary<TGUID, TRec_36_5>;
+{$IFDEF FULL_TEST}
     DS36_6 := TCollections.CreateDictionary<string, TRec_36_6>;
     DI36_6 := TCollections.CreateDictionary<Integer, TRec_36_6>;
     DG36_6 := TCollections.CreateDictionary<TGUID, TRec_36_6>;
@@ -3591,6 +3861,7 @@ begin
     DS36_10 := TCollections.CreateDictionary<string, TRec_36_10>;
     DI36_10 := TCollections.CreateDictionary<Integer, TRec_36_10>;
     DG36_10 := TCollections.CreateDictionary<TGUID, TRec_36_10>;
+{$ENDIF}
     DS37_1 := TCollections.CreateDictionary<string, TRec_37_1>;
     DI37_1 := TCollections.CreateDictionary<Integer, TRec_37_1>;
     DG37_1 := TCollections.CreateDictionary<TGUID, TRec_37_1>;
@@ -3606,6 +3877,7 @@ begin
     DS37_5 := TCollections.CreateDictionary<string, TRec_37_5>;
     DI37_5 := TCollections.CreateDictionary<Integer, TRec_37_5>;
     DG37_5 := TCollections.CreateDictionary<TGUID, TRec_37_5>;
+{$IFDEF FULL_TEST}
     DS37_6 := TCollections.CreateDictionary<string, TRec_37_6>;
     DI37_6 := TCollections.CreateDictionary<Integer, TRec_37_6>;
     DG37_6 := TCollections.CreateDictionary<TGUID, TRec_37_6>;
@@ -3621,6 +3893,7 @@ begin
     DS37_10 := TCollections.CreateDictionary<string, TRec_37_10>;
     DI37_10 := TCollections.CreateDictionary<Integer, TRec_37_10>;
     DG37_10 := TCollections.CreateDictionary<TGUID, TRec_37_10>;
+{$ENDIF}
     DS38_1 := TCollections.CreateDictionary<string, TRec_38_1>;
     DI38_1 := TCollections.CreateDictionary<Integer, TRec_38_1>;
     DG38_1 := TCollections.CreateDictionary<TGUID, TRec_38_1>;
@@ -3636,6 +3909,7 @@ begin
     DS38_5 := TCollections.CreateDictionary<string, TRec_38_5>;
     DI38_5 := TCollections.CreateDictionary<Integer, TRec_38_5>;
     DG38_5 := TCollections.CreateDictionary<TGUID, TRec_38_5>;
+{$IFDEF FULL_TEST}
     DS38_6 := TCollections.CreateDictionary<string, TRec_38_6>;
     DI38_6 := TCollections.CreateDictionary<Integer, TRec_38_6>;
     DG38_6 := TCollections.CreateDictionary<TGUID, TRec_38_6>;
@@ -3651,6 +3925,7 @@ begin
     DS38_10 := TCollections.CreateDictionary<string, TRec_38_10>;
     DI38_10 := TCollections.CreateDictionary<Integer, TRec_38_10>;
     DG38_10 := TCollections.CreateDictionary<TGUID, TRec_38_10>;
+{$ENDIF}
     DS39_1 := TCollections.CreateDictionary<string, TRec_39_1>;
     DI39_1 := TCollections.CreateDictionary<Integer, TRec_39_1>;
     DG39_1 := TCollections.CreateDictionary<TGUID, TRec_39_1>;
@@ -3666,6 +3941,7 @@ begin
     DS39_5 := TCollections.CreateDictionary<string, TRec_39_5>;
     DI39_5 := TCollections.CreateDictionary<Integer, TRec_39_5>;
     DG39_5 := TCollections.CreateDictionary<TGUID, TRec_39_5>;
+{$IFDEF FULL_TEST}
     DS39_6 := TCollections.CreateDictionary<string, TRec_39_6>;
     DI39_6 := TCollections.CreateDictionary<Integer, TRec_39_6>;
     DG39_6 := TCollections.CreateDictionary<TGUID, TRec_39_6>;
@@ -3681,6 +3957,7 @@ begin
     DS39_10 := TCollections.CreateDictionary<string, TRec_39_10>;
     DI39_10 := TCollections.CreateDictionary<Integer, TRec_39_10>;
     DG39_10 := TCollections.CreateDictionary<TGUID, TRec_39_10>;
+{$ENDIF}
     DS40_1 := TCollections.CreateDictionary<string, TRec_40_1>;
     DI40_1 := TCollections.CreateDictionary<Integer, TRec_40_1>;
     DG40_1 := TCollections.CreateDictionary<TGUID, TRec_40_1>;
@@ -3696,6 +3973,7 @@ begin
     DS40_5 := TCollections.CreateDictionary<string, TRec_40_5>;
     DI40_5 := TCollections.CreateDictionary<Integer, TRec_40_5>;
     DG40_5 := TCollections.CreateDictionary<TGUID, TRec_40_5>;
+{$IFDEF FULL_TEST}
     DS40_6 := TCollections.CreateDictionary<string, TRec_40_6>;
     DI40_6 := TCollections.CreateDictionary<Integer, TRec_40_6>;
     DG40_6 := TCollections.CreateDictionary<TGUID, TRec_40_6>;
@@ -3711,6 +3989,7 @@ begin
     DS40_10 := TCollections.CreateDictionary<string, TRec_40_10>;
     DI40_10 := TCollections.CreateDictionary<Integer, TRec_40_10>;
     DG40_10 := TCollections.CreateDictionary<TGUID, TRec_40_10>;
+{$ENDIF}
     DS41_1 := TCollections.CreateDictionary<string, TRec_41_1>;
     DI41_1 := TCollections.CreateDictionary<Integer, TRec_41_1>;
     DG41_1 := TCollections.CreateDictionary<TGUID, TRec_41_1>;
@@ -3726,6 +4005,7 @@ begin
     DS41_5 := TCollections.CreateDictionary<string, TRec_41_5>;
     DI41_5 := TCollections.CreateDictionary<Integer, TRec_41_5>;
     DG41_5 := TCollections.CreateDictionary<TGUID, TRec_41_5>;
+{$IFDEF FULL_TEST}
     DS41_6 := TCollections.CreateDictionary<string, TRec_41_6>;
     DI41_6 := TCollections.CreateDictionary<Integer, TRec_41_6>;
     DG41_6 := TCollections.CreateDictionary<TGUID, TRec_41_6>;
@@ -3741,6 +4021,7 @@ begin
     DS41_10 := TCollections.CreateDictionary<string, TRec_41_10>;
     DI41_10 := TCollections.CreateDictionary<Integer, TRec_41_10>;
     DG41_10 := TCollections.CreateDictionary<TGUID, TRec_41_10>;
+{$ENDIF}
     DS42_1 := TCollections.CreateDictionary<string, TRec_42_1>;
     DI42_1 := TCollections.CreateDictionary<Integer, TRec_42_1>;
     DG42_1 := TCollections.CreateDictionary<TGUID, TRec_42_1>;
@@ -3756,6 +4037,7 @@ begin
     DS42_5 := TCollections.CreateDictionary<string, TRec_42_5>;
     DI42_5 := TCollections.CreateDictionary<Integer, TRec_42_5>;
     DG42_5 := TCollections.CreateDictionary<TGUID, TRec_42_5>;
+{$IFDEF FULL_TEST}
     DS42_6 := TCollections.CreateDictionary<string, TRec_42_6>;
     DI42_6 := TCollections.CreateDictionary<Integer, TRec_42_6>;
     DG42_6 := TCollections.CreateDictionary<TGUID, TRec_42_6>;
@@ -3771,6 +4053,7 @@ begin
     DS42_10 := TCollections.CreateDictionary<string, TRec_42_10>;
     DI42_10 := TCollections.CreateDictionary<Integer, TRec_42_10>;
     DG42_10 := TCollections.CreateDictionary<TGUID, TRec_42_10>;
+{$ENDIF}
     DS43_1 := TCollections.CreateDictionary<string, TRec_43_1>;
     DI43_1 := TCollections.CreateDictionary<Integer, TRec_43_1>;
     DG43_1 := TCollections.CreateDictionary<TGUID, TRec_43_1>;
@@ -3786,6 +4069,7 @@ begin
     DS43_5 := TCollections.CreateDictionary<string, TRec_43_5>;
     DI43_5 := TCollections.CreateDictionary<Integer, TRec_43_5>;
     DG43_5 := TCollections.CreateDictionary<TGUID, TRec_43_5>;
+{$IFDEF FULL_TEST}
     DS43_6 := TCollections.CreateDictionary<string, TRec_43_6>;
     DI43_6 := TCollections.CreateDictionary<Integer, TRec_43_6>;
     DG43_6 := TCollections.CreateDictionary<TGUID, TRec_43_6>;
@@ -3801,6 +4085,7 @@ begin
     DS43_10 := TCollections.CreateDictionary<string, TRec_43_10>;
     DI43_10 := TCollections.CreateDictionary<Integer, TRec_43_10>;
     DG43_10 := TCollections.CreateDictionary<TGUID, TRec_43_10>;
+{$ENDIF}
     DS44_1 := TCollections.CreateDictionary<string, TRec_44_1>;
     DI44_1 := TCollections.CreateDictionary<Integer, TRec_44_1>;
     DG44_1 := TCollections.CreateDictionary<TGUID, TRec_44_1>;
@@ -3816,6 +4101,7 @@ begin
     DS44_5 := TCollections.CreateDictionary<string, TRec_44_5>;
     DI44_5 := TCollections.CreateDictionary<Integer, TRec_44_5>;
     DG44_5 := TCollections.CreateDictionary<TGUID, TRec_44_5>;
+{$IFDEF FULL_TEST}
     DS44_6 := TCollections.CreateDictionary<string, TRec_44_6>;
     DI44_6 := TCollections.CreateDictionary<Integer, TRec_44_6>;
     DG44_6 := TCollections.CreateDictionary<TGUID, TRec_44_6>;
@@ -3831,6 +4117,7 @@ begin
     DS44_10 := TCollections.CreateDictionary<string, TRec_44_10>;
     DI44_10 := TCollections.CreateDictionary<Integer, TRec_44_10>;
     DG44_10 := TCollections.CreateDictionary<TGUID, TRec_44_10>;
+{$ENDIF}
     DS45_1 := TCollections.CreateDictionary<string, TRec_45_1>;
     DI45_1 := TCollections.CreateDictionary<Integer, TRec_45_1>;
     DG45_1 := TCollections.CreateDictionary<TGUID, TRec_45_1>;
@@ -3846,6 +4133,7 @@ begin
     DS45_5 := TCollections.CreateDictionary<string, TRec_45_5>;
     DI45_5 := TCollections.CreateDictionary<Integer, TRec_45_5>;
     DG45_5 := TCollections.CreateDictionary<TGUID, TRec_45_5>;
+{$IFDEF FULL_TEST}
     DS45_6 := TCollections.CreateDictionary<string, TRec_45_6>;
     DI45_6 := TCollections.CreateDictionary<Integer, TRec_45_6>;
     DG45_6 := TCollections.CreateDictionary<TGUID, TRec_45_6>;
@@ -3861,6 +4149,7 @@ begin
     DS45_10 := TCollections.CreateDictionary<string, TRec_45_10>;
     DI45_10 := TCollections.CreateDictionary<Integer, TRec_45_10>;
     DG45_10 := TCollections.CreateDictionary<TGUID, TRec_45_10>;
+{$ENDIF}
     DS46_1 := TCollections.CreateDictionary<string, TRec_46_1>;
     DI46_1 := TCollections.CreateDictionary<Integer, TRec_46_1>;
     DG46_1 := TCollections.CreateDictionary<TGUID, TRec_46_1>;
@@ -3876,6 +4165,7 @@ begin
     DS46_5 := TCollections.CreateDictionary<string, TRec_46_5>;
     DI46_5 := TCollections.CreateDictionary<Integer, TRec_46_5>;
     DG46_5 := TCollections.CreateDictionary<TGUID, TRec_46_5>;
+{$IFDEF FULL_TEST}
     DS46_6 := TCollections.CreateDictionary<string, TRec_46_6>;
     DI46_6 := TCollections.CreateDictionary<Integer, TRec_46_6>;
     DG46_6 := TCollections.CreateDictionary<TGUID, TRec_46_6>;
@@ -3891,6 +4181,7 @@ begin
     DS46_10 := TCollections.CreateDictionary<string, TRec_46_10>;
     DI46_10 := TCollections.CreateDictionary<Integer, TRec_46_10>;
     DG46_10 := TCollections.CreateDictionary<TGUID, TRec_46_10>;
+{$ENDIF}
     DS47_1 := TCollections.CreateDictionary<string, TRec_47_1>;
     DI47_1 := TCollections.CreateDictionary<Integer, TRec_47_1>;
     DG47_1 := TCollections.CreateDictionary<TGUID, TRec_47_1>;
@@ -3906,6 +4197,7 @@ begin
     DS47_5 := TCollections.CreateDictionary<string, TRec_47_5>;
     DI47_5 := TCollections.CreateDictionary<Integer, TRec_47_5>;
     DG47_5 := TCollections.CreateDictionary<TGUID, TRec_47_5>;
+{$IFDEF FULL_TEST}
     DS47_6 := TCollections.CreateDictionary<string, TRec_47_6>;
     DI47_6 := TCollections.CreateDictionary<Integer, TRec_47_6>;
     DG47_6 := TCollections.CreateDictionary<TGUID, TRec_47_6>;
@@ -3921,6 +4213,7 @@ begin
     DS47_10 := TCollections.CreateDictionary<string, TRec_47_10>;
     DI47_10 := TCollections.CreateDictionary<Integer, TRec_47_10>;
     DG47_10 := TCollections.CreateDictionary<TGUID, TRec_47_10>;
+{$ENDIF}
     DS48_1 := TCollections.CreateDictionary<string, TRec_48_1>;
     DI48_1 := TCollections.CreateDictionary<Integer, TRec_48_1>;
     DG48_1 := TCollections.CreateDictionary<TGUID, TRec_48_1>;
@@ -3936,6 +4229,7 @@ begin
     DS48_5 := TCollections.CreateDictionary<string, TRec_48_5>;
     DI48_5 := TCollections.CreateDictionary<Integer, TRec_48_5>;
     DG48_5 := TCollections.CreateDictionary<TGUID, TRec_48_5>;
+{$IFDEF FULL_TEST}
     DS48_6 := TCollections.CreateDictionary<string, TRec_48_6>;
     DI48_6 := TCollections.CreateDictionary<Integer, TRec_48_6>;
     DG48_6 := TCollections.CreateDictionary<TGUID, TRec_48_6>;
@@ -3951,6 +4245,7 @@ begin
     DS48_10 := TCollections.CreateDictionary<string, TRec_48_10>;
     DI48_10 := TCollections.CreateDictionary<Integer, TRec_48_10>;
     DG48_10 := TCollections.CreateDictionary<TGUID, TRec_48_10>;
+{$ENDIF}
     DS49_1 := TCollections.CreateDictionary<string, TRec_49_1>;
     DI49_1 := TCollections.CreateDictionary<Integer, TRec_49_1>;
     DG49_1 := TCollections.CreateDictionary<TGUID, TRec_49_1>;
@@ -3966,6 +4261,7 @@ begin
     DS49_5 := TCollections.CreateDictionary<string, TRec_49_5>;
     DI49_5 := TCollections.CreateDictionary<Integer, TRec_49_5>;
     DG49_5 := TCollections.CreateDictionary<TGUID, TRec_49_5>;
+{$IFDEF FULL_TEST}
     DS49_6 := TCollections.CreateDictionary<string, TRec_49_6>;
     DI49_6 := TCollections.CreateDictionary<Integer, TRec_49_6>;
     DG49_6 := TCollections.CreateDictionary<TGUID, TRec_49_6>;
@@ -3981,6 +4277,7 @@ begin
     DS49_10 := TCollections.CreateDictionary<string, TRec_49_10>;
     DI49_10 := TCollections.CreateDictionary<Integer, TRec_49_10>;
     DG49_10 := TCollections.CreateDictionary<TGUID, TRec_49_10>;
+{$ENDIF}
     DS50_1 := TCollections.CreateDictionary<string, TRec_50_1>;
     DI50_1 := TCollections.CreateDictionary<Integer, TRec_50_1>;
     DG50_1 := TCollections.CreateDictionary<TGUID, TRec_50_1>;
@@ -3996,6 +4293,7 @@ begin
     DS50_5 := TCollections.CreateDictionary<string, TRec_50_5>;
     DI50_5 := TCollections.CreateDictionary<Integer, TRec_50_5>;
     DG50_5 := TCollections.CreateDictionary<TGUID, TRec_50_5>;
+{$IFDEF FULL_TEST}
     DS50_6 := TCollections.CreateDictionary<string, TRec_50_6>;
     DI50_6 := TCollections.CreateDictionary<Integer, TRec_50_6>;
     DG50_6 := TCollections.CreateDictionary<TGUID, TRec_50_6>;
@@ -4011,7 +4309,8 @@ begin
     DS50_10 := TCollections.CreateDictionary<string, TRec_50_10>;
     DI50_10 := TCollections.CreateDictionary<Integer, TRec_50_10>;
     DG50_10 := TCollections.CreateDictionary<TGUID, TRec_50_10>;
-    WriteLn('Done. Created 500 lists and 1500 dictionaries.');
+{$ENDIF}
+    WriteLn('Done. Created all collections.');
 
   sw.Stop;
   WriteLn('Execution Time: ' + IntToStr(sw.ElapsedMilliseconds) + ' ms');
