@@ -1,14 +1,6 @@
 @echo off
 chcp 65001 > nul
 setlocal
-pushd %~dp0
-
-call ..\..\_BuildAndRunBase.bat "DcuCompileTimes.exe" "_DcuCompileTimes.Build.bat" %*
-
-if %ERRORLEVEL% neq 0 (
-    popd
-    exit /b %ERRORLEVEL%
-)
-
-popd
+set "PROJ_DIR=%~dp0"
+call "%PROJ_DIR%..\..\_BuildAndRunBase.bat" "%PROJ_DIR%DcuCompileTimes.exe" "%PROJ_DIR%_DcuCompileTimes.Build.bat" %*
 endlocal
