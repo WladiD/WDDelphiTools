@@ -1,51 +1,8 @@
 @echo off
 chcp 65001 > nul
 setlocal
-pushd %~dp0
-
-
-REM Static path to Delphi 12!
-set "RSVARS_PATH=C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat"
-
-for %%i in ("%RSVARS_PATH%\..\..") do set "PRODUCTVERSION=%%~nxi"
-
-if not defined PRODUCTVERSION (
-    echo ERROR: Could not determine PRODUCTVERSION from RSVARS_PATH.
-    popd
-    exit /b 1
-)
-
-echo Setting up Delphi environment...
-call "%RSVARS_PATH%"
-
-if %ERRORLEVEL% neq 0 (
-    echo ERROR: Failed to set up Delphi environment.
-    popd
-    exit /b %ERRORLEVEL%
-)
-
-echo.
-echo BDS environment variable is: "%BDS%"
-echo PRODUCTVERSION is: "%PRODUCTVERSION%"
-echo.
-
-echo Building Test.TmplCodeGen project...
-msbuild "Test.TmplCodeGen.dproj" /t:Build /p:Configuration=Debug;PRODUCTVERSION=%PRODUCTVERSION%;DCC_Define=DEBUG
-
-set BUILD_ERROR=%ERRORLEVEL%
-if %BUILD_ERROR% neq 0 (
-    echo ERROR: Failed to build the project.
-    popd
-    exit /b %BUILD_ERROR%
-)
-
-echo.
-
-set "EXE_PATH=.\Win32\Debug\Test.TmplCodeGen.exe"
-
-echo Running tests from %EXE_PATH%...
-"%EXE_PATH%"
-set TEST_ERROR=%ERRORLEVEL%
-
-popd
-endlocal & exit /b %TEST_ERROR%
+set "PROJ_DIR=%~dp0"
+REM The Exe output path depends on the Delphi version and configuration, but _BuildBase defaults to Win32/Debug structure usually
+REM if the dproj settings follow standard. Assuming Win32\Debug based on previous script.
+call "%PROJ_DIR%..\..\..\_BuildAndRunBase.bat" "%PROJ_DIR%Win32\Debug\Test.TmplCodeGen.exe" "%PROJ_DIR%_Test.TmplCodeGen.Build.bat" %*
+endlocal
