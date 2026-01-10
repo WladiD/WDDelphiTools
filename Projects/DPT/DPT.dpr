@@ -27,7 +27,7 @@ type
     procedure InvalidParameter(ErrorMessage: string);
   end;
 
-  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3);
+  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
 
   TDPTaskBase = class;
   TDPTaskClass = class of TDPTaskBase;
@@ -91,8 +91,8 @@ type
   end;
 
 const
-  DelphiVersionStringArray: array [TDelphiVersion] of string = ('', 'D2007', 'D10.1', 'D10.3');
-  DelphiVersionIntegerArray: array [TDelphiVersion] of Integer = (0, 11, 24, 26);
+  DelphiVersionStringArray: array [TDelphiVersion] of string = ('', 'D2007', 'D10.1', 'D10.3', 'D11', 'D12');
+  DelphiVersionIntegerArray: array [TDelphiVersion] of Integer = (0, 11, 24, 26, 28, 29);
   ValidPathToPrint: string = 'BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64';
 
 function IsValidDelphiVersion(VersionString: string; out DelphiVersion: TDelphiVersion): Boolean;
