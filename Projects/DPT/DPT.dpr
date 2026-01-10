@@ -110,6 +110,27 @@ begin
   Result := FALSE;
 end;
 
+function FindMostRecentDelphiVersion: TDelphiVersion;
+var
+  Installations: TJclBorRADToolInstallations;
+  cc: Integer;
+begin
+  Result := dvUnknown;
+  Installations := TJclBorRADToolInstallations.Create;
+  try
+    for cc := Integer(High(TDelphiVersion)) downto 1 do
+    begin
+      if Installations.DelphiVersionInstalled[DelphiVersionIntegerArray[TDelphiVersion(cc)]] then
+      begin
+        Result := TDelphiVersion(cc);
+        Break;
+      end;
+    end;
+  finally
+    Installations.Free;
+  end;
+end;
+
 { TCMDLineConsumer }
 
 constructor TCMDLineConsumer.Create;
@@ -352,7 +373,14 @@ begin
   CMDLine := TCMDLineConsumer.Create;
   try
     ParamValue := CMDLine.CheckParameter('DelphiVersion');
-    if IsValidDelphiVersion(UpperCase(ParamValue), DelphiVersion) then
+    if SameText(ParamValue, 'RECENT') then
+    begin
+      DelphiVersion := FindMostRecentDelphiVersion;
+      if DelphiVersion = dvUnknown then
+        raise Exception.Create('No supported Delphi version found on this machine');
+      CMDLine.ConsumeParameter;
+    end
+    else if IsValidDelphiVersion(UpperCase(ParamValue), DelphiVersion) then
       CMDLine.ConsumeParameter
     else
       CMDLine.InvalidParameter('Not accepted version');
@@ -403,6 +431,7 @@ begin
   Writeln(ExtractFileName(ParamStr(0)) + ' DelphiVersion Mode [OtherModeSpecificParameters]');
   Writeln;
   Writeln('  DelphiVersion');
+  Writeln('    RECENT (automatically selects the newest installed version)');
 
   for cc := 1 to Integer(High(TDelphiVersion)) do
     Writeln('    ' + DelphiVersionStringArray[TDelphiVersion(cc)]);
