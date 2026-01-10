@@ -15,8 +15,19 @@ set "PROJECT_FILE=%~1"
 set "BUILD_PLATFORM=Win32"
 if not "%~2"=="" set "BUILD_PLATFORM=%~2"
 
-REM Static path to Delphi 12!
+REM Static path to Delphi 12 (Fallback)!
 set "RSVARS_PATH=C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat"
+
+REM Try to detect the latest Delphi version using DPT
+set "DPT_EXE=%~dp0Projects\DPT\DPT.exe"
+if exist "%DPT_EXE%" (
+    for /f "usebackq delims=" %%I in (`"%DPT_EXE%" RECENT PrintPath BdsBinPath`) do (
+        if exist "%%I\rsvars.bat" (
+            set "RSVARS_PATH=%%I\rsvars.bat"
+            echo Detected Delphi path via DPT: %%I
+        )
+    )
+)
 
 for %%i in ("%RSVARS_PATH%\..\..") do set "PRODUCTVERSION=%%~nxi"
 
