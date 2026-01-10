@@ -424,8 +424,8 @@ var
   cc: Integer;
 begin
   Writeln('Delphi (Package) Tools');
-  Writeln('0.03a - 2020 - Waldemar Derr');
-  Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPTCmd');
+  Writeln('0.04 - 2026 - Waldemar Derr');
+  Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
   Writeln('Usage:');
   Writeln(ExtractFileName(ParamStr(0)) + ' DelphiVersion Mode [OtherModeSpecificParameters]');
