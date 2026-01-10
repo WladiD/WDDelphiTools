@@ -1,4 +1,4 @@
-program DPT;
+﻿program DPT;
 
 {$APPTYPE CONSOLE}
 
@@ -44,6 +44,7 @@ type
 
   public
     DelphiVersion: TDelphiVersion;
+    IsX64: Boolean;
 
     destructor Destroy; override;
 
@@ -193,9 +194,9 @@ var
 begin
   DeletePackageList := TStringList.Create;
   try
-    for cc := 0 to Installation.IdePackages.Count - 1 do
+    for cc := 0 to Installation.IdePackages.Count[IsX64] - 1 do
     begin
-      PackageFileName := Installation.IdePackages.PackageFileNames[cc];
+      PackageFileName := Installation.IdePackages.PackageFileNames[cc, IsX64];
       if IsPackageMatching(PackageFileName) then
         DeletePackageList.Add(PackageFileName);
     end;
@@ -204,7 +205,7 @@ begin
     begin
       PackageFileName := DeletePackageList[cc];
       Write(PackageFileName);
-      if Installation.IdePackages.RemovePackage(PackageFileName) then
+      if Installation.IdePackages.RemovePackage(PackageFileName, IsX64) then
         Writeln(' > deleted')
       else
         Writeln(' > deletion failed');
