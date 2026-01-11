@@ -199,18 +199,14 @@ var
   BdsExe: string;
   FoundWnd: HWND;
   SI: TSendInputHelper;
-  StartupInfo: TStartupInfo;
-  ProcessInfo: TProcessInformation;
   Retries: Integer;
   IsVis, IsEn: Boolean;
   Title: array[0..255] of Char;
-begin
-  BinPath := Installation.BinFolderName;
-  BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
+  ProcessInfo: TProcessInformation;
 
-  Writeln('Checking for running BDS instance...');
-
-  if not IsBdsRunning(BinPath, FoundWnd) then
+  procedure LaunchBDS;
+  var
+    StartupInfo: TStartupInfo;
   begin
     Writeln('Starting BDS: ' + BdsExe);
     FillChar(StartupInfo, SizeOf(StartupInfo), 0);
@@ -224,6 +220,17 @@ begin
     Writeln('Waiting for BDS to become ready...');
     WaitForInputIdleOrTimeout(ProcessInfo.hProcess, 60000); // Wait up to 60s for init
     CloseHandle(ProcessInfo.hProcess);
+  end;
+
+begin
+  BinPath := Installation.BinFolderName;
+  BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
+
+  Writeln('Checking for running BDS instance...');
+
+  if not IsBdsRunning(BinPath, FoundWnd) then
+  begin
+    LaunchBDS;
 
     // Poll for the window
     Retries := 0;
@@ -241,7 +248,14 @@ begin
   Writeln('Waiting for main window to become visible and enabled...');
   Retries := 0;
   repeat
-    IsBdsRunning(BinPath, FoundWnd);
+    if not IsBdsRunning(BinPath, FoundWnd) then
+    begin
+       Writeln;
+       Writeln('BDS process is gone (terminated?). Restarting...');
+       LaunchBDS;
+       Retries := 0; // Reset timeout
+       FoundWnd := 0;
+    end;
 
     IsVis := False;
     IsEn := False;
@@ -253,7 +267,7 @@ begin
       IsEn := IsWindowEnabled(FoundWnd);
       GetWindowText(FoundWnd, Title, 255);
 
-      if IsVis and IsEn then
+      if IsVis and IsEn then 
       begin
         Writeln(Format(' Window %d is ready: "%s"', [FoundWnd, Title]));
         Break;
