@@ -8,9 +8,12 @@ Currently it supports not all Delphi versions, but will be expanded on demand.
 DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
 
   DelphiVersion
+    RECENT (automatically selects the newest installed version)
     D2007
     D10.1
     D10.3
+    D11
+    D12
 
   Mode
     RemovePackagesBySourceDir SourceDir
@@ -26,6 +29,9 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
 
     PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path
+
+    OpenUnit FullPathToUnit [GoToLine LineNumber]
+      Opens the specified unit in the IDE. Starts IDE if not running.
 ```
 
 ## Examples
@@ -91,4 +97,21 @@ Cleaning package cache for JclBaseExpert240.bpl
 Cleaning ok
 Registering package C:\Dev\Bpl\JclBaseExpert240.bpl
 Registration ok
+```
+
+---
+
+### Open a unit in IDE
+
+    DPT RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
+
+Output
+```
+Checking for running BDS instance...
+BDS is already running.
+Waiting for main window to become visible and enabled...
+Sending input to open unit...
+Waiting for "Open File" dialog...
+Waiting for unit "MyUnit" to appear in caption...
+Done.
 ```
