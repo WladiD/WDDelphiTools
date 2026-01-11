@@ -1,53 +1,71 @@
-﻿unit DPT.Types;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit DPT.Types;
 
 interface
 
 uses
+
   System.SysUtils,
   System.Classes,
   JclIDEUtils;
 
 type
+
   EInvalidParameter = class(Exception);
 
   TCMDLineConsumer = class
   private
-    FCurrentParameter: Integer;
-    FCurrentMeaningParam: string;
-
+    FCurrentMeaningParam: String;
+    FCurrentParameter   : Integer;
   public
     constructor Create;
-
-    function HasParameter: Boolean;
-    function CheckParameter(MeaningParam: string): string;
+    function  CheckParameter(MeaningParam: String): String;
     procedure ConsumeParameter;
-    procedure InvalidParameter(ErrorMessage: string);
+    function  HasParameter: Boolean;
+    procedure InvalidParameter(ErrorMessage: String);
   end;
 
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
 
   TDPTaskBase = class
   private
-    FInstallation: TJclBorRADToolInstallation;
+    FInstallation : TJclBorRADToolInstallation;
     FInstallations: TJclBorRADToolInstallations;
-
   protected
-    procedure Output(const Text: string);
-    function Installation: TJclBorRADToolInstallation;
-
+    function  Installation: TJclBorRADToolInstallation;
+    procedure Output(const Text: String);
   public
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;
-
+  public
     destructor Destroy; override;
     procedure Execute; virtual; abstract;
   end;
-  
+
   TDPTaskClass = class of TDPTaskBase;
 
 const
-  DelphiVersionStringArray: array [TDelphiVersion] of string = ('', 'D2007', 'D10.1', 'D10.3', 'D11', 'D12');
-  DelphiVersionIntegerArray: array [TDelphiVersion] of Integer = (0, 11, 24, 26, 28, 29);
+
+  DelphiVersionStringArray: Array [TDelphiVersion] of String = (
+    { dvUnknown } '',
+    { dvD2007   } 'D2007',
+    { dvD10_1   } 'D10.1',
+    { dvD10_3   } 'D10.3',
+    { dvD11     } 'D11',
+    { dvD12     } 'D12');
+
+  DelphiVersionIntegerArray: Array [TDelphiVersion] of Integer = (
+    { dvUnknown } 0,
+    { dvD2007   } 11,
+    { dvD10_1   } 24,
+    { dvD10_3   } 26,
+    { dvD11     } 28,
+    { dvD12     } 29);
 
 implementation
 
@@ -63,13 +81,11 @@ begin
   Result := FCurrentParameter <= ParamCount;
 end;
 
-function TCMDLineConsumer.CheckParameter(MeaningParam: string): string;
+function TCMDLineConsumer.CheckParameter(MeaningParam: String): String;
 begin
   FCurrentMeaningParam := MeaningParam;
-
   if not HasParameter then
     InvalidParameter('Parameter not available');
-
   Result := ParamStr(FCurrentParameter);
 end;
 
@@ -78,7 +94,7 @@ begin
   Inc(FCurrentParameter);
 end;
 
-procedure TCMDLineConsumer.InvalidParameter(ErrorMessage: string);
+procedure TCMDLineConsumer.InvalidParameter(ErrorMessage: String);
 begin
   if HasParameter then
     raise EInvalidParameter.CreateFmt('%s = "%s": %s', [FCurrentMeaningParam,
@@ -119,7 +135,7 @@ begin
   Result := FInstallation;
 end;
 
-procedure TDPTaskBase.Output(const Text: string);
+procedure TDPTaskBase.Output(const Text: String);
 begin
   Writeln(Text);
 end;
