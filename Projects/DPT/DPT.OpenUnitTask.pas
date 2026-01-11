@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -44,6 +44,13 @@ implementation
 
 type
 
+  TOpenStrategy = record
+    Name    : String;
+    MenuVK  : Word;
+    OpenChar: Char;
+    constructor Create(const AName: String; AMenuVK: Word; AOpenChar: Char);
+  end;
+
   TWindowInfo = record
     Handle   : HWND;
     IsEnabled: Boolean;
@@ -59,6 +66,15 @@ type
     constructor Create(PID: DWORD);
     destructor Destroy; override;
   end;
+
+{ TOpenStrategy }
+
+constructor TOpenStrategy.Create(const AName: String; AMenuVK: Word; AOpenChar: Char);
+begin
+  Name := AName;
+  MenuVK := AMenuVK;
+  OpenChar := AOpenChar;
+end;
 
 { TEnumContext }
 
@@ -326,6 +342,7 @@ procedure TDPOpenUnitTask.Execute;
 var
   BdsExe     : String;
   BinPath    : String;
+  DialogFound: Boolean;
   FoundPID   : DWORD;
   FoundWnd   : HWND;
   I          : Integer;
@@ -335,6 +352,8 @@ var
   ProcessInfo: TProcessInformation;
   Retries    : Integer;
   SI         : TSendInputHelper;
+  Strategies : TArray<TOpenStrategy>;
+  Strategy   : TOpenStrategy;
   Title      : array[0..255] of Char;
   UnitName   : String;
 
@@ -359,6 +378,14 @@ var
 begin
   BinPath := Installation.BinFolderName;
   BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
+
+  // Define Strategies:
+  // 1. German: Alt+d (Datei) -> f (Öffnen)
+  // 2. English: Alt+f (File) -> o (Open)
+  Strategies := [
+    TOpenStrategy.Create('German (Alt+d -> f)', Ord('D'), 'f'),
+    TOpenStrategy.Create('English (Alt+f -> o)', Ord('F'), 'o')
+  ];
 
   Writeln('Checking for running BDS instance...');
 
@@ -435,38 +462,57 @@ begin
   Writeln('Sending input to open unit...');
   SI := TSendInputHelper.Create;
   try
-    // Step 1: Open Menu (Alt+d)
-    MenuOpened := False;
-    for I := 1 to 3 do
+    DialogFound := False;
+
+    for Strategy in Strategies do
     begin
-      SI.AddShortCut([ssAlt], 'd');
-      SI.Flush;
+      Writeln(Format('Trying strategy: %s...', [Strategy.Name]));
 
-      Sleep(500); // Wait for menu animation/processing
-
-      if IsMenuMode(FoundWnd) then
+      // Step 1: Open Menu
+      MenuOpened := False;
+      for I := 1 to 3 do
       begin
-        MenuOpened := True;
-        Break;
-      end;
-      Writeln(Format(' Retry %d: "File" menu not detected...', [I]));
+        SI.AddShortCut([ssAlt], Char(Strategy.MenuVK)); // Use MenuVK from strategy
+        SI.Flush;
 
-      // Retry strategy: Maybe focus was lost? Click on title bar?
-      // For now just ensure foreground and retry
-      SetForegroundWindow(FoundWnd);
-      Sleep(200);
+        Sleep(500);
+
+        if IsMenuMode(FoundWnd) then
+        begin
+          MenuOpened := True;
+          Break;
+        end;
+        Writeln(Format(' Retry %d: Menu not detected...', [I]));
+        SetForegroundWindow(FoundWnd);
+        Sleep(200);
+      end;
+
+      if MenuOpened then
+      begin
+        // Step 2: Open Dialog
+        SI.AddChar(Strategy.OpenChar);
+        SI.Flush;
+
+        // Check if Dialog appeared
+        if WaitForOpenDialog(FoundPID, 2000) then // Wait up to 2s for dialog
+        begin
+          Writeln(' "Open File" dialog detected.');
+          DialogFound := True;
+          Break; // Success!
+        end
+        else
+        begin
+          Writeln(' Dialog not detected. Aborting strategy...');
+          // Cancel Menu (Escape)
+          SI.AddVirtualKey(VK_ESCAPE);
+          SI.Flush;
+          Sleep(500);
+        end;
+      end;
     end;
 
-    if not MenuOpened then
-      Writeln('Warning: Failed to confirm "File" menu open state (Alt+d). Continuing anyway...');
-
-    // Step 2: Open Dialog (f)
-    SI.AddChar('f');
-    SI.Flush;
-
-    Writeln('Waiting for "Open File" dialog...');
-    if not WaitForOpenDialog(FoundPID, 5000) then
-      raise Exception.Create('Open File dialog did not appear within timeout.');
+    if not DialogFound then
+      raise Exception.Create('Failed to open "Open File" dialog with any strategy.');
 
     // Step 3: Type Path
     SI.AddText(FullPathToUnit, True);
