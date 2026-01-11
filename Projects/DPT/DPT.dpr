@@ -270,15 +270,23 @@ var
     CMDLine.ConsumeParameter; // Consume file path
     LocalDPTask.FullPathToUnit := FullPathToUnit;
 
-    if CMDLine.HasParameter then
+    while CMDLine.HasParameter do
     begin
-       NextParam := CMDLine.CheckParameter('Optional: GoToLine');
+       NextParam := CMDLine.CheckParameter('Optional: GoToLine / GoToMemberImplementation');
        if SameText(NextParam, 'GoToLine') then
        begin
          CMDLine.ConsumeParameter; // Consume 'GoToLine' keyword
          LocalDPTask.GoToLine := StrToIntDef(CMDLine.CheckParameter('LineNumber'), 0);
          CMDLine.ConsumeParameter; // Consume line number
-       end;
+       end
+       else if SameText(NextParam, 'GoToMemberImplementation') then
+       begin
+         CMDLine.ConsumeParameter; // Consume keyword
+         LocalDPTask.MemberImplementation := CMDLine.CheckParameter('MemberName');
+         CMDLine.ConsumeParameter; // Consume value
+       end
+       else
+         Break;
     end;
 
     Writeln('Opening unit "' + FullPathToUnit + '"...');
@@ -329,6 +337,7 @@ var
 
         LocalDPTask.FullPathToUnit := TNetEncoding.URL.Decode(Params.Values['file']);
         LocalDPTask.GoToLine := StrToIntDef(Params.Values['line'], 0);
+        LocalDPTask.MemberImplementation := TNetEncoding.URL.Decode(Params.Values['member']);
 
         Writeln('Opening unit "' + LocalDPTask.FullPathToUnit + '"...');
       finally
@@ -431,11 +440,11 @@ begin
   Writeln('    PrintPath (' + ValidPathToPrint + ')');
   Writeln('      Prints the path');
   Writeln;
-  Writeln('    OpenUnit FullPathToUnit [GoToLine LineNumber]');
+  Writeln('    OpenUnit FullPathToUnit [GoToLine LineNumber] [GoToMemberImplementation Class.Member]');
   Writeln('      Opens the specified unit in the IDE. Starts IDE if not running.');
   Writeln;
   Writeln('    HandleProtocol dpt://Command/?Params');
-  Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...)');
+  Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)');
 end;
 
 begin

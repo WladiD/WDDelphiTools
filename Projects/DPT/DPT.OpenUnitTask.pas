@@ -19,6 +19,7 @@ uses
   Generics.Collections,
   System.Classes,
   System.SysUtils,
+  System.RegularExpressions,
 
   SendInputHelper,
 
@@ -35,8 +36,9 @@ type
     function  WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
     function  WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: String; TimeoutMs: DWORD): Boolean;
   public
-    FullPathToUnit: String;
-    GoToLine      : Integer;
+    FullPathToUnit      : String;
+    GoToLine            : Integer;
+    MemberImplementation: String;
     procedure Execute; override;
   end;
 
@@ -338,6 +340,51 @@ begin
   until (GetTickCount - StartTime) > TimeoutMs;
 end;
 
+function FindImplementationLine(const FileName, MemberName: String): Integer;
+var
+  Lines    : TStringList;
+  ImplPos  : Integer;
+  LineLoop : Integer;
+  Pattern  : String;
+begin
+  Result := 0;
+  if (MemberName = '') or not FileExists(FileName) then
+    Exit;
+
+  Lines := TStringList.Create;
+  try
+    Lines.LoadFromFile(FileName);
+
+    // Step 1: Find 'implementation'
+    ImplPos := -1;
+    for LineLoop := 0 to Lines.Count - 1 do
+    begin
+      if TRegEx.IsMatch(Lines[LineLoop], '^\s*implementation\b', [roIgnoreCase]) then
+      begin
+        ImplPos := LineLoop;
+        Break;
+      end;
+    end;
+
+    if ImplPos = -1 then
+      Exit;
+
+    // Step 2: Find Class.Member
+    Pattern := Format('^\s*(class\s+)?(procedure|function|constructor|destructor)\s+%s\b', [MemberName.Replace('.', '\.')]);
+
+    for LineLoop := ImplPos + 1 to Lines.Count - 1 do
+    begin
+       if TRegEx.IsMatch(Lines[LineLoop], Pattern, [roIgnoreCase]) then
+       begin
+         Result := LineLoop + 1; // 1-based line number for IDE
+         Exit;
+       end;
+    end;
+  finally
+    Lines.Free;
+  end;
+end;
+
 procedure TDPOpenUnitTask.Execute;
 var
   BdsExe     : String;
@@ -376,6 +423,15 @@ var
   end;
 
 begin
+  if (GoToLine <= 0) and (MemberImplementation <> '') then
+  begin
+    GoToLine := FindImplementationLine(FullPathToUnit, MemberImplementation);
+    if GoToLine > 0 then
+      Writeln(Format('Found member "%s" at line %d.', [MemberImplementation, GoToLine]))
+    else
+      Writeln(Format('Warning: Member "%s" not found in implementation.', [MemberImplementation]));
+  end;
+
   BinPath := Installation.BinFolderName;
   BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
 
