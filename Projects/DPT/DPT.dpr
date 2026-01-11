@@ -15,6 +15,7 @@ uses
   System.Classes,
   System.SysUtils,
   System.Win.Registry,
+  System.NetEncoding,
 
   JclIDEUtils,
 
@@ -283,34 +284,6 @@ var
     Writeln('Opening unit "' + FullPathToUnit + '"...');
   end;
 
-  function URLDecode(const S: String): String;
-  var
-    I: Integer;
-    Ch: Char;
-  begin
-    Result := '';
-    I := 1;
-    while I <= Length(S) do
-    begin
-      Ch := S[I];
-      if Ch = '%' then
-      begin
-        if I + 2 <= Length(S) then
-        begin
-          Result := Result + Chr(StrToIntDef('$' + Copy(S, I + 1, 2), 32));
-          Inc(I, 2);
-        end
-        else
-          Result := Result + Ch;
-      end
-      else if Ch = '+' then
-        Result := Result + ' '
-      else
-        Result := Result + Ch;
-      Inc(I);
-    end;
-  end;
-
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -354,7 +327,7 @@ var
         Params.StrictDelimiter := True;
         Params.DelimitedText := ParamsStr;
 
-        LocalDPTask.FullPathToUnit := URLDecode(Params.Values['file']);
+        LocalDPTask.FullPathToUnit := TNetEncoding.URL.Decode(Params.Values['file']);
         LocalDPTask.GoToLine := StrToIntDef(Params.Values['line'], 0);
 
         Writeln('Opening unit "' + LocalDPTask.FullPathToUnit + '"...');
