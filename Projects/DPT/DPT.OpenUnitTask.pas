@@ -1,4 +1,4 @@
-﻿unit DPT.OpenUnitTask;
+unit DPT.OpenUnitTask;
 
 interface
 
@@ -20,6 +20,8 @@ type
     function IsBdsRunning(const BinPath: string; out FoundWnd: HWND): Boolean;
     function GetBdsProcessPath(ProcessID: DWORD): string;
     procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
+    function IsMenuMode(WindowHandle: HWND): Boolean;
+    function WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
   public
     FullPathToUnit: string;
     GoToLine: Integer;
@@ -83,6 +85,62 @@ begin
       Info.Title := TitleBuf;
 
       Context.Candidates.Add(Info);
+    end;
+  end;
+  Result := True;
+end;
+
+type
+  TDialogSearchContext = record
+    TargetPID: DWORD;
+    ResultHandle: HWND;
+  end;
+  PDialogSearchContext = ^TDialogSearchContext;
+
+function EnumDialogSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
+var
+  Ctx: PDialogSearchContext;
+  ProcID: DWORD;
+  ClassName: array[0..255] of Char;
+begin
+  Ctx := PDialogSearchContext(LParam);
+  GetWindowThreadProcessId(Handle, @ProcID);
+  
+  if ProcID = Ctx.TargetPID then
+  begin
+    GetClassName(Handle, ClassName, 255);
+    // Standard Windows Dialog class is #32770
+    if SameText(ClassName, '#32770') and IsWindowVisible(Handle) then
+    begin
+      Ctx.ResultHandle := Handle;
+      Result := False; // Stop enumeration
+      Exit;
+    end;
+  end;
+  Result := True;
+end;
+
+function EnumMenuSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
+var
+  Ctx: PDialogSearchContext; // Reusing the context type
+  ProcID: DWORD;
+  ClassName: array[0..255] of Char;
+begin
+  Ctx := PDialogSearchContext(LParam);
+  GetWindowThreadProcessId(Handle, @ProcID);
+  
+  if ProcID = Ctx.TargetPID then
+  begin
+    GetClassName(Handle, ClassName, 255);
+    // TIDEStylePopupMenu is used in newer IDEs
+    if IsWindowVisible(Handle) and 
+       (SameText(ClassName, 'TIDEStylePopupMenu') or 
+        SameText(ClassName, '#32768') or // Standard Menu
+        (Pos('Popup', ClassName) > 0)) then 
+    begin
+      Ctx.ResultHandle := Handle;
+      Result := False; // Stop enumeration
+      Exit;
     end;
   end;
   Result := True;
@@ -193,16 +251,56 @@ begin
     Sleep(Timeout); // Fallback
 end;
 
+function TDPOpenUnitTask.IsMenuMode(WindowHandle: HWND): Boolean;
+var
+  ThreadID, ProcessID: DWORD;
+  Ctx: TDialogSearchContext;
+begin
+  if WindowHandle = 0 then Exit(False);
+  
+  ThreadID := GetWindowThreadProcessId(WindowHandle, @ProcessID);
+  
+  Ctx.TargetPID := ProcessID;
+  Ctx.ResultHandle := 0;
+  
+  EnumWindows(@EnumMenuSearchProc, LPARAM(@Ctx));
+  
+  Result := Ctx.ResultHandle <> 0;
+end;
+
+function TDPOpenUnitTask.WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
+var
+  StartTime: DWORD;
+  Ctx: TDialogSearchContext;
+begin
+  Result := False;
+  StartTime := GetTickCount;
+  Ctx.TargetPID := OwnerPID;
+  
+  repeat
+    Ctx.ResultHandle := 0;
+    EnumWindows(@EnumDialogSearchProc, LPARAM(@Ctx));
+    
+    if Ctx.ResultHandle <> 0 then
+      Exit(True);
+      
+    Sleep(100);
+  until (GetTickCount - StartTime) > TimeoutMs;
+end;
+
 procedure TDPOpenUnitTask.Execute;
 var
   BinPath: string;
   BdsExe: string;
   FoundWnd: HWND;
+  FoundPID: DWORD;
   SI: TSendInputHelper;
   Retries: Integer;
   IsVis, IsEn: Boolean;
   Title: array[0..255] of Char;
   ProcessInfo: TProcessInformation;
+  I: Integer;
+  MenuOpened: Boolean;
 
   procedure LaunchBDS;
   var
@@ -286,10 +384,8 @@ begin
   if FoundWnd = 0 then
       raise Exception.Create('BDS main window could not be found.');
 
-  if not IsWindowVisible(FoundWnd) then
-    Writeln('Warning: Main window still not visible after timeout.');
-  if not IsWindowEnabled(FoundWnd) then
-    Writeln('Warning: Main window still not enabled after timeout (Splash screen stuck? Modal dialog open?).');
+  // Get PID for later dialog check
+  GetWindowThreadProcessId(FoundWnd, @FoundPID);
 
   // Give it a bit more time to settle (drawing UI etc)
   Sleep(2000);
@@ -297,32 +393,56 @@ begin
   if IsIconic(FoundWnd) then
     ShowWindow(FoundWnd, SW_RESTORE);
   SetForegroundWindow(FoundWnd);
-  // Sometimes a second kick is needed if it was deep in background
   Sleep(200);
   SetForegroundWindow(FoundWnd);
 
   Writeln('Sending input to open unit...');
   SI := TSendInputHelper.Create;
   try
-    // Alt + d (Datei)
-    SI.AddShortCut([ssAlt], 'd');
-    SI.AddDelay(500);
+    // Step 1: Open Menu (Alt+d)
+    MenuOpened := False;
+    for I := 1 to 3 do
+    begin
+      SI.AddShortCut([ssAlt], 'd');
+      SI.Flush;
+      
+      Sleep(500); // Wait for menu animation/processing
+      
+      if IsMenuMode(FoundWnd) then
+      begin
+        MenuOpened := True;
+        Break;
+      end;
+      Writeln(Format(' Retry %d: "File" menu not detected...', [I]));
+      
+      // Retry strategy: Maybe focus was lost? Click on title bar? 
+      // For now just ensure foreground and retry
+      SetForegroundWindow(FoundWnd);
+      Sleep(200);
+    end;
+    
+    if not MenuOpened then
+      Writeln('Warning: Failed to confirm "File" menu open state (Alt+d). Continuing anyway...');
 
-    // f (Öffnen)
+    // Step 2: Open Dialog (f)
     SI.AddChar('f');
-    SI.AddDelay(500);
+    SI.Flush;
 
-    // Now we expect the Open File Dialog.
-    // Type path
+    Writeln('Waiting for "Open File" dialog...');
+    if not WaitForOpenDialog(FoundPID, 5000) then
+      raise Exception.Create('Open File dialog did not appear within timeout.');
+
+    // Step 3: Type Path
     SI.AddText(FullPathToUnit);
     SI.AddDelay(500);
 
     // Enter
     SI.AddVirtualKey(VK_RETURN);
 
-    // Wait for file to open
+    // Wait for file to open (file loading)
     SI.AddDelay(2000);
 
+    // Step 4: GoTo Line
     if GoToLine > 0 then
     begin
        // Alt + g (GoTo)
