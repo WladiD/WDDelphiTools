@@ -22,6 +22,7 @@ type
     procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
     function IsMenuMode(WindowHandle: HWND): Boolean;
     function WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
+    function WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: string; TimeoutMs: DWORD): Boolean;
   public
     FullPathToUnit: string;
     GoToLine: Integer;
@@ -288,6 +289,27 @@ begin
   until (GetTickCount - StartTime) > TimeoutMs;
 end;
 
+function TDPOpenUnitTask.WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: string; TimeoutMs: DWORD): Boolean;
+var
+  StartTime: DWORD;
+  Title: array[0..255] of Char;
+  CurrentTitle: string;
+begin
+  Result := False;
+  StartTime := GetTickCount;
+
+  repeat
+    Title[0] := #0;
+    GetWindowText(WindowHandle, Title, 255);
+    CurrentTitle := Title;
+
+    if Pos(LowerCase(SubText), LowerCase(CurrentTitle)) > 0 then
+      Exit(True);
+
+    Sleep(100);
+  until (GetTickCount - StartTime) > TimeoutMs;
+end;
+
 procedure TDPOpenUnitTask.Execute;
 var
   BinPath: string;
@@ -301,6 +323,7 @@ var
   ProcessInfo: TProcessInformation;
   I: Integer;
   MenuOpened: Boolean;
+  UnitName: string;
 
   procedure LaunchBDS;
   var
@@ -434,9 +457,14 @@ begin
 
     // Step 3: Type Path
     SI.AddText(FullPathToUnit, True);
+    SI.Flush;
 
-    // Wait for file to open (file loading)
-    SI.AddDelay(2000);
+    // Wait for file to open (check caption)
+    UnitName := ChangeFileExt(ExtractFileName(FullPathToUnit), '');
+    Writeln(Format('Waiting for unit "%s" to appear in caption...', [UnitName]));
+
+    if not WaitForWindowCaptionContains(FoundWnd, UnitName, 10000) then // 10s timeout
+      Writeln('Warning: Unit name did not appear in caption (maybe it opened too fast or caption behavior changed).');
 
     // Step 4: GoTo Line
     if GoToLine > 0 then
@@ -451,9 +479,10 @@ begin
 
        // Enter
        SI.AddVirtualKey(VK_RETURN);
+
+       SI.Flush;
     end;
 
-    SI.Flush;
     Writeln('Done.');
   finally
     SI.Free;
