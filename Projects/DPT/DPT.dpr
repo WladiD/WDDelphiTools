@@ -8,49 +8,11 @@ uses
   System.Classes,
   System.Win.Registry,
 
-  JclIDEUtils;
+  JclIDEUtils,
+  DPT.Types,
+  DPT.OpenUnitTask;
 
 type
-  EInvalidParameter = class(Exception);
-
-  TCMDLineConsumer = class
-  private
-    FCurrentParameter: Integer;
-    FCurrentMeaningParam: string;
-
-  public
-    constructor Create;
-
-    function HasParameter: Boolean;
-    function CheckParameter(MeaningParam: string): string;
-    procedure ConsumeParameter;
-    procedure InvalidParameter(ErrorMessage: string);
-  end;
-
-  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
-
-  TDPTaskBase = class;
-  TDPTaskClass = class of TDPTaskBase;
-
-  TDPTaskBase = class
-  private
-    FInstallation: TJclBorRADToolInstallation;
-    FInstallations: TJclBorRADToolInstallations;
-
-  protected
-    procedure Output(const Text: string);
-
-    function Installation: TJclBorRADToolInstallation;
-
-  public
-    DelphiVersion: TDelphiVersion;
-    IsX64: Boolean;
-
-    destructor Destroy; override;
-
-    procedure Execute; virtual; abstract;
-  end;
-
   TDPRemovePackageTaskBase = class(TDPTaskBase)
   protected
     function IsPackageMatching(const PackageFileName: string): Boolean; virtual; abstract;
@@ -91,8 +53,6 @@ type
   end;
 
 const
-  DelphiVersionStringArray: array [TDelphiVersion] of string = ('', 'D2007', 'D10.1', 'D10.3', 'D11', 'D12');
-  DelphiVersionIntegerArray: array [TDelphiVersion] of Integer = (0, 11, 24, 26, 28, 29);
   ValidPathToPrint: string = 'BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64';
 
 function IsValidDelphiVersion(VersionString: string; out DelphiVersion: TDelphiVersion): Boolean;
@@ -129,80 +89,6 @@ begin
   finally
     Installations.Free;
   end;
-end;
-
-{ TCMDLineConsumer }
-
-constructor TCMDLineConsumer.Create;
-begin
-  FCurrentParameter := 1;
-end;
-
-function TCMDLineConsumer.HasParameter: Boolean;
-begin
-  Result := FCurrentParameter <= ParamCount;
-end;
-
-function TCMDLineConsumer.CheckParameter(MeaningParam: string): string;
-begin
-  FCurrentMeaningParam := MeaningParam;
-
-  if not HasParameter then
-    InvalidParameter('Parameter not available');
-
-  Result := ParamStr(FCurrentParameter);
-end;
-
-procedure TCMDLineConsumer.ConsumeParameter;
-begin
-  Inc(FCurrentParameter);
-end;
-
-procedure TCMDLineConsumer.InvalidParameter(ErrorMessage: string);
-begin
-  if HasParameter then
-    raise EInvalidParameter.CreateFmt('%s = "%s": %s', [FCurrentMeaningParam,
-      ParamStr(FCurrentParameter), ErrorMessage])
-  else
-    raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
-end;
-
-{ TDPTaskBase }
-
-destructor TDPTaskBase.Destroy;
-begin
-  FInstallations.Free;
-
-  inherited Destroy;
-end;
-
-function TDPTaskBase.Installation: TJclBorRADToolInstallation;
-var
-  DelphiVersionAsInt: Integer;
-begin
-  if Assigned(FInstallation) then
-  begin
-    Result := FInstallation;
-    Exit;
-  end;
-
-  if not Assigned(FInstallations) then
-    FInstallations := TJclBorRADToolInstallations.Create;
-
-  DelphiVersionAsInt := DelphiVersionIntegerArray[DelphiVersion];
-
-  if not FInstallations.DelphiVersionInstalled[DelphiVersionAsInt] then
-    raise Exception.CreateFmt('Delphi Version %s (%d) not installed',
-      [DelphiVersionStringArray[DelphiVersion], DelphiVersionAsInt]);
-
-  FInstallation := FInstallations.DelphiInstallationFromVersion[DelphiVersionAsInt];
-  FInstallation.OutputCallback := Output;
-  Result := FInstallation;
-end;
-
-procedure TDPTaskBase.Output(const Text: string);
-begin
-  Writeln(Text);
 end;
 
 { TDPRemovePackageTaskBase }
@@ -368,6 +254,32 @@ var
     LocalDPTask.PathToPrint := PathToPrint;
   end;
 
+  procedure SerializeOpenUnitTask;
+  var
+    LocalDPTask: TDPOpenUnitTask absolute DPTask;
+    FullPathToUnit: string;
+    NextParam: string;
+  begin
+    InitDPTask(TDPOpenUnitTask);
+
+    FullPathToUnit := CMDLine.CheckParameter('FullPathToUnit');
+    CMDLine.ConsumeParameter; // Consume file path
+    LocalDPTask.FullPathToUnit := FullPathToUnit;
+
+    if CMDLine.HasParameter then
+    begin
+       NextParam := CMDLine.CheckParameter('Optional: GoToLine');
+       if SameText(NextParam, 'GoToLine') then
+       begin
+         CMDLine.ConsumeParameter; // Consume 'GoToLine' keyword
+         LocalDPTask.GoToLine := StrToIntDef(CMDLine.CheckParameter('LineNumber'), 0);
+         CMDLine.ConsumeParameter; // Consume line number
+       end;
+    end;
+
+    Writeln('Opening unit "' + FullPathToUnit + '"...');
+  end;
+
 begin
   DPTask := nil;
   CMDLine := TCMDLineConsumer.Create;
@@ -406,6 +318,11 @@ begin
       CMDLine.ConsumeParameter;
       SerializePrintPathTask;
     end
+    else if ParamValue = UpperCase('OpenUnit') then
+    begin
+      CMDLine.ConsumeParameter;
+      SerializeOpenUnitTask;
+    end
     else
       CMDLine.InvalidParameter('Not accepted mode');
 
@@ -424,7 +341,7 @@ var
   cc: Integer;
 begin
   Writeln('Delphi (Package) Tools');
-  Writeln('0.04 - 2026 - Waldemar Derr');
+  Writeln('0.05 - 2026 - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
   Writeln('Usage:');
@@ -451,6 +368,9 @@ begin
   Writeln;
   Writeln('    PrintPath (' + ValidPathToPrint + ')');
   Writeln('      Prints the path');
+  Writeln;
+  Writeln('    OpenUnit FullPathToUnit [GoToLine LineNumber]');
+  Writeln('      Opens the specified unit in the IDE. Starts IDE if not running.');
 end;
 
 begin

@@ -1,3 +1,6 @@
 [submodule "Lib/mORMot"]
 	path = Lib/mORMot
 	url = https://github.com/synopse/mORMot2.git
+[submodule "Lib/SendInputHelper"]
+	path = Lib/SendInputHelper
+	url = https://github.com/WladiD/SendInputHelper
