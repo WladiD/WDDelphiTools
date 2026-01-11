@@ -283,6 +283,89 @@ var
     Writeln('Opening unit "' + FullPathToUnit + '"...');
   end;
 
+  function URLDecode(const S: String): String;
+  var
+    I: Integer;
+    Ch: Char;
+  begin
+    Result := '';
+    I := 1;
+    while I <= Length(S) do
+    begin
+      Ch := S[I];
+      if Ch = '%' then
+      begin
+        if I + 2 <= Length(S) then
+        begin
+          Result := Result + Chr(StrToIntDef('$' + Copy(S, I + 1, 2), 32));
+          Inc(I, 2);
+        end
+        else
+          Result := Result + Ch;
+      end
+      else if Ch = '+' then
+        Result := Result + ' '
+      else
+        Result := Result + Ch;
+      Inc(I);
+    end;
+  end;
+
+  procedure SerializeHandleProtocolTask;
+  var
+    URL, Command, ParamsStr: String;
+    Params: TStringList;
+    LocalDPTask: TDPOpenUnitTask absolute DPTask;
+    QPos: Integer;
+  begin
+    URL := CMDLine.CheckParameter('URL');
+    CMDLine.ConsumeParameter;
+
+    // Remove dpt://
+    if Pos('dpt://', LowerCase(URL)) <> 1 then
+      raise Exception.Create('Invalid protocol');
+
+    Delete(URL, 1, 6); // remove dpt://
+
+    // Split Command and Params
+    QPos := Pos('?', URL);
+    if QPos > 0 then
+    begin
+      Command := Copy(URL, 1, QPos - 1);
+      ParamsStr := Copy(URL, QPos + 1, Length(URL));
+    end
+    else
+    begin
+      Command := URL;
+      ParamsStr := '';
+    end;
+
+    // Remove trailing slash from command if present
+    if (Length(Command) > 0) and (Command[Length(Command)] = '/') then
+      Delete(Command, Length(Command), 1);
+
+    if SameText(Command, 'openunit') then
+    begin
+      InitDPTask(TDPOpenUnitTask);
+
+      Params := TStringList.Create;
+      try
+        Params.Delimiter := '&';
+        Params.StrictDelimiter := True;
+        Params.DelimitedText := ParamsStr;
+
+        LocalDPTask.FullPathToUnit := URLDecode(Params.Values['file']);
+        LocalDPTask.GoToLine := StrToIntDef(Params.Values['line'], 0);
+
+        Writeln('Opening unit "' + LocalDPTask.FullPathToUnit + '"...');
+      finally
+        Params.Free;
+      end;
+    end
+    else
+      raise Exception.Create('Unknown command: ' + Command);
+  end;
+
 begin
   DPTask := nil;
   CMDLine := TCMDLineConsumer.Create;
@@ -325,6 +408,11 @@ begin
     begin
       CMDLine.ConsumeParameter;
       SerializeOpenUnitTask;
+    end
+    else if SameText(ParamValue, 'HandleProtocol') then
+    begin
+      CMDLine.ConsumeParameter;
+      SerializeHandleProtocolTask;
     end
     else
       CMDLine.InvalidParameter('Not accepted mode');
@@ -372,6 +460,9 @@ begin
   Writeln;
   Writeln('    OpenUnit FullPathToUnit [GoToLine LineNumber]');
   Writeln('      Opens the specified unit in the IDE. Starts IDE if not running.');
+  Writeln;
+  Writeln('    HandleProtocol dpt://Command/?Params');
+  Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...)');
 end;
 
 begin
