@@ -1,4 +1,4 @@
-unit DPT.OpenUnitTask;
+﻿unit DPT.OpenUnitTask;
 
 interface
 
@@ -106,7 +106,7 @@ var
 begin
   Ctx := PDialogSearchContext(LParam);
   GetWindowThreadProcessId(Handle, @ProcID);
-  
+
   if ProcID = Ctx.TargetPID then
   begin
     GetClassName(Handle, ClassName, 255);
@@ -129,15 +129,15 @@ var
 begin
   Ctx := PDialogSearchContext(LParam);
   GetWindowThreadProcessId(Handle, @ProcID);
-  
+
   if ProcID = Ctx.TargetPID then
   begin
     GetClassName(Handle, ClassName, 255);
     // TIDEStylePopupMenu is used in newer IDEs
-    if IsWindowVisible(Handle) and 
-       (SameText(ClassName, 'TIDEStylePopupMenu') or 
+    if IsWindowVisible(Handle) and
+       (SameText(ClassName, 'TIDEStylePopupMenu') or
         SameText(ClassName, '#32768') or // Standard Menu
-        (Pos('Popup', ClassName) > 0)) then 
+        (Pos('Popup', ClassName) > 0)) then
     begin
       Ctx.ResultHandle := Handle;
       Result := False; // Stop enumeration
@@ -258,14 +258,14 @@ var
   Ctx: TDialogSearchContext;
 begin
   if WindowHandle = 0 then Exit(False);
-  
+
   ThreadID := GetWindowThreadProcessId(WindowHandle, @ProcessID);
-  
+
   Ctx.TargetPID := ProcessID;
   Ctx.ResultHandle := 0;
-  
+
   EnumWindows(@EnumMenuSearchProc, LPARAM(@Ctx));
-  
+
   Result := Ctx.ResultHandle <> 0;
 end;
 
@@ -277,14 +277,14 @@ begin
   Result := False;
   StartTime := GetTickCount;
   Ctx.TargetPID := OwnerPID;
-  
+
   repeat
     Ctx.ResultHandle := 0;
     EnumWindows(@EnumDialogSearchProc, LPARAM(@Ctx));
-    
+
     if Ctx.ResultHandle <> 0 then
       Exit(True);
-      
+
     Sleep(100);
   until (GetTickCount - StartTime) > TimeoutMs;
 end;
@@ -388,7 +388,7 @@ begin
       IsEn := IsWindowEnabled(FoundWnd);
       GetWindowText(FoundWnd, Title, 255);
 
-      if IsVis and IsEn then 
+      if IsVis and IsEn then
       begin
         Writeln(Format(' Window %d is ready: "%s"', [FoundWnd, Title]));
         Break;
@@ -428,22 +428,22 @@ begin
     begin
       SI.AddShortCut([ssAlt], 'd');
       SI.Flush;
-      
+
       Sleep(500); // Wait for menu animation/processing
-      
+
       if IsMenuMode(FoundWnd) then
       begin
         MenuOpened := True;
         Break;
       end;
       Writeln(Format(' Retry %d: "File" menu not detected...', [I]));
-      
-      // Retry strategy: Maybe focus was lost? Click on title bar? 
+
+      // Retry strategy: Maybe focus was lost? Click on title bar?
       // For now just ensure foreground and retry
       SetForegroundWindow(FoundWnd);
       Sleep(200);
     end;
-    
+
     if not MenuOpened then
       Writeln('Warning: Failed to confirm "File" menu open state (Alt+d). Continuing anyway...');
 
