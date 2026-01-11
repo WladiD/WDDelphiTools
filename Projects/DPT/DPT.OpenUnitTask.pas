@@ -433,11 +433,7 @@ begin
       raise Exception.Create('Open File dialog did not appear within timeout.');
 
     // Step 3: Type Path
-    SI.AddText(FullPathToUnit);
-    SI.AddDelay(500);
-
-    // Enter
-    SI.AddVirtualKey(VK_RETURN);
+    SI.AddText(FullPathToUnit, True);
 
     // Wait for file to open (file loading)
     SI.AddDelay(2000);
