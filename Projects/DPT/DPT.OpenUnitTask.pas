@@ -1,49 +1,61 @@
-﻿unit DPT.OpenUnitTask;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit DPT.OpenUnitTask;
 
 interface
 
 uses
-  Winapi.Windows,
+
   Winapi.Messages,
+  Winapi.PsAPI,
   Winapi.ShellAPI,
   Winapi.TlHelp32,
-  Winapi.PsAPI,
-  System.SysUtils,
-  System.Classes,
+  Winapi.Windows,
+
   Generics.Collections,
-  DPT.Types,
-  SendInputHelper;
+  System.Classes,
+  System.SysUtils,
+
+  SendInputHelper,
+
+  DPT.Types;
 
 type
+
   TDPOpenUnitTask = class(TDPTaskBase)
   private
-    function IsBdsRunning(const BinPath: string; out FoundWnd: HWND): Boolean;
-    function GetBdsProcessPath(ProcessID: DWORD): string;
+    function  GetBdsProcessPath(ProcessID: DWORD): String;
+    function  IsBdsRunning(const BinPath: String; out FoundWnd: HWND): Boolean;
+    function  IsMenuMode(WindowHandle: HWND): Boolean;
     procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
-    function IsMenuMode(WindowHandle: HWND): Boolean;
-    function WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
-    function WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: string; TimeoutMs: DWORD): Boolean;
+    function  WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
+    function  WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: String; TimeoutMs: DWORD): Boolean;
   public
-    FullPathToUnit: string;
-    GoToLine: Integer;
-
+    FullPathToUnit: String;
+    GoToLine      : Integer;
     procedure Execute; override;
   end;
 
 implementation
 
 type
+
   TWindowInfo = record
-    Handle: HWND;
-    PID: DWORD;
-    IsVisible: Boolean;
+    Handle   : HWND;
     IsEnabled: Boolean;
-    Title: string;
+    IsVisible: Boolean;
+    PID      : DWORD;
+    Title    : String;
   end;
 
   TEnumContext = class
-    TargetPID: DWORD;
+  public
     Candidates: TList<TWindowInfo>;
+    TargetPID : DWORD;
     constructor Create(PID: DWORD);
     destructor Destroy; override;
   end;
@@ -64,11 +76,11 @@ end;
 
 function EnumWindowsProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
 var
-  ProcID: DWORD;
-  ClassName: array[0..255] of Char;
-  TitleBuf: array[0..255] of Char;
-  Context: TEnumContext;
-  Info: TWindowInfo;
+  ProcID   : DWORD;
+  ClassName: Array[0..255] of Char;
+  TitleBuf : Array[0..255] of Char;
+  Context  : TEnumContext;
+  Info     : TWindowInfo;
 begin
   Context := TEnumContext(LParam);
   GetWindowThreadProcessId(Handle, @ProcID);
@@ -92,17 +104,18 @@ begin
 end;
 
 type
+
   TDialogSearchContext = record
-    TargetPID: DWORD;
     ResultHandle: HWND;
+    TargetPID   : DWORD;
   end;
   PDialogSearchContext = ^TDialogSearchContext;
 
 function EnumDialogSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
 var
-  Ctx: PDialogSearchContext;
-  ProcID: DWORD;
-  ClassName: array[0..255] of Char;
+  ClassName: Array[0..255] of Char;
+  Ctx      : PDialogSearchContext;
+  ProcID   : DWORD;
 begin
   Ctx := PDialogSearchContext(LParam);
   GetWindowThreadProcessId(Handle, @ProcID);
@@ -123,9 +136,9 @@ end;
 
 function EnumMenuSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
 var
-  Ctx: PDialogSearchContext; // Reusing the context type
-  ProcID: DWORD;
-  ClassName: array[0..255] of Char;
+  ClassName: Array[0..255] of Char;
+  Ctx      : PDialogSearchContext;
+  ProcID   : DWORD;
 begin
   Ctx := PDialogSearchContext(LParam);
   GetWindowThreadProcessId(Handle, @ProcID);
@@ -149,34 +162,34 @@ end;
 
 { TDPOpenUnitTask }
 
-function TDPOpenUnitTask.GetBdsProcessPath(ProcessID: DWORD): string;
+function TDPOpenUnitTask.GetBdsProcessPath(ProcessID: DWORD): String;
 var
+  Buffer       : Array[0..MAX_PATH] of Char;
   ProcessHandle: THandle;
-  Buffer: array[0..MAX_PATH] of Char;
 begin
   Result := '';
   ProcessHandle := OpenProcess(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ, False, ProcessID);
-  if ProcessHandle <> 0 then
-  begin
-    try
-      if GetModuleFileNameEx(ProcessHandle, 0, Buffer, MAX_PATH) > 0 then
-        Result := Buffer;
-    finally
-      CloseHandle(ProcessHandle);
-    end;
+  if ProcessHandle = 0 then
+    Exit;
+
+  try
+    if GetModuleFileNameEx(ProcessHandle, 0, Buffer, MAX_PATH) > 0 then
+      Result := Buffer;
+  finally
+    CloseHandle(ProcessHandle);
   end;
 end;
 
-function TDPOpenUnitTask.IsBdsRunning(const BinPath: string; out FoundWnd: HWND): Boolean;
+function TDPOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND): Boolean;
 var
-  Snapshot: THandle;
-  Entry: TProcessEntry32;
-  FullProcessPath: string;
-  TargetBdsExe: string;
-  FoundPID: DWORD;
-  Context: TEnumContext;
-  I: Integer;
   BestMatchHandle: HWND;
+  Context        : TEnumContext;
+  Entry          : TProcessEntry32;
+  FoundPID       : DWORD;
+  FullProcessPath: String;
+  I              : Integer;
+  Snapshot       : THandle;
+  TargetBdsExe   : String;
 begin
   Result := False;
   FoundWnd := 0;
@@ -254,25 +267,24 @@ end;
 
 function TDPOpenUnitTask.IsMenuMode(WindowHandle: HWND): Boolean;
 var
-  ThreadID, ProcessID: DWORD;
-  Ctx: TDialogSearchContext;
+  Ctx      : TDialogSearchContext;
+  ProcessID: DWORD;
+  ThreadID : DWORD;
 begin
-  if WindowHandle = 0 then Exit(False);
+  if WindowHandle = 0 then
+    Exit(False);
 
   ThreadID := GetWindowThreadProcessId(WindowHandle, @ProcessID);
-
   Ctx.TargetPID := ProcessID;
   Ctx.ResultHandle := 0;
-
   EnumWindows(@EnumMenuSearchProc, LPARAM(@Ctx));
-
   Result := Ctx.ResultHandle <> 0;
 end;
 
 function TDPOpenUnitTask.WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
 var
+  Ctx      : TDialogSearchContext;
   StartTime: DWORD;
-  Ctx: TDialogSearchContext;
 begin
   Result := False;
   StartTime := GetTickCount;
@@ -289,11 +301,11 @@ begin
   until (GetTickCount - StartTime) > TimeoutMs;
 end;
 
-function TDPOpenUnitTask.WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: string; TimeoutMs: DWORD): Boolean;
+function TDPOpenUnitTask.WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: String; TimeoutMs: DWORD): Boolean;
 var
-  StartTime: DWORD;
-  Title: array[0..255] of Char;
-  CurrentTitle: string;
+  CurrentTitle: String;
+  StartTime   : DWORD;
+  Title       : Array[0..255] of Char;
 begin
   Result := False;
   StartTime := GetTickCount;
@@ -312,18 +324,19 @@ end;
 
 procedure TDPOpenUnitTask.Execute;
 var
-  BinPath: string;
-  BdsExe: string;
-  FoundWnd: HWND;
-  FoundPID: DWORD;
-  SI: TSendInputHelper;
-  Retries: Integer;
-  IsVis, IsEn: Boolean;
-  Title: array[0..255] of Char;
+  BdsExe     : String;
+  BinPath    : String;
+  FoundPID   : DWORD;
+  FoundWnd   : HWND;
+  I          : Integer;
+  IsEn       : Boolean;
+  IsVis      : Boolean;
+  MenuOpened : Boolean;
   ProcessInfo: TProcessInformation;
-  I: Integer;
-  MenuOpened: Boolean;
-  UnitName: string;
+  Retries    : Integer;
+  SI         : TSendInputHelper;
+  Title      : array[0..255] of Char;
+  UnitName   : String;
 
   procedure LaunchBDS;
   var
