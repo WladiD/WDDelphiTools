@@ -36,7 +36,7 @@ In total, over **2,000 distinct collection specializations** are compiled and in
 - **OS:** Windows 11
 - **Compiler:** Delphi 12 Athens
 - **mORMot 2:** Commit [`4428ef84989200175a27ef90106e22b6caba116e`](https://github.com/synopse/mORMot2/tree/4428ef84989200175a27ef90106e22b6caba116e)
-- **Spring4D:** Commit `ad9dbde20a8c2409a95c7dff443d4d16520d971f`
+- **Spring4D:** Commit [`ad9dbde20a8c2409a95c7dff443d4d16520d971f`](https://bitbucket.org/sglienke/spring4d/src/ad9dbde20a8c2409a95c7dff443d4d16520d971f/)
 
 ## Results
 
