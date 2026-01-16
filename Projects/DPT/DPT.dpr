@@ -60,7 +60,19 @@ type
   end;
 
 const
-  ValidPathToPrint: String = 'BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64';
+  ValidPathBds            = 'BDSPath';
+  ValidPathBdsBin         = 'BDSBINPath';
+  ValidPathBplOutputWin32 = 'BPLOutputPath-Win32';
+  ValidPathBplOutputWin64 = 'BPLOutputPath-Win64';
+  ValidPathDcpOutputWin32 = 'DCPOutputPath-Win32';
+  ValidPathDcpOutputWin64 = 'DCPOutputPath-Win64';
+  ValidPathToPrint        =
+    ValidPathBds            + '|' +
+    ValidPathBdsBin         + '|' +
+    ValidPathBplOutputWin32 + '|' +
+    ValidPathBplOutputWin64 + '|' +
+    ValidPathDcpOutputWin32 + '|' +
+    ValidPathDcpOutputWin64;
 
 function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
 begin
@@ -172,17 +184,17 @@ var
   LPP, OutputPath: String;
 begin
   LPP := UpperCase(PathToPrint);
-  if LPP = UpperCase('BDSPath') then
+  if LPP = UpperCase(ValidPathBds) then
     OutputPath := Installation.RootDir
-  else if LPP = UpperCase('BDSBINPath') then
+  else if LPP = UpperCase(ValidPathBdsBin) then
     OutputPath := Installation.BinFolderName
-  else if LPP = UpperCase('BPLOutputPath-Win32') then
+  else if LPP = UpperCase(ValidPathBplOutputWin32) then
     OutputPath := Installation.BPLOutputPath[bpWin32]
-  else if LPP = UpperCase('BPLOutputPath-Win64') then
+  else if LPP = UpperCase(ValidPathBplOutputWin64) then
     OutputPath := Installation.BPLOutputPath[bpWin64]
-  else if LPP = UpperCase('DCPOutputPath-Win32') then
+  else if LPP = UpperCase(ValidPathDcpOutputWin32) then
     OutputPath := Installation.DCPOutputPath[bpWin32]
-  else if LPP = UpperCase('DCPOutputPath-Win64') then
+  else if LPP = UpperCase(ValidPathDcpOutputWin64) then
     OutputPath := Installation.DCPOutputPath[bpWin64]
   else
     OutputPath := '';
