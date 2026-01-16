@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -287,12 +287,10 @@ function TDPOpenUnitTask.IsMenuMode(WindowHandle: HWND): Boolean;
 var
   Ctx      : TDialogSearchContext;
   ProcessID: DWORD;
-  ThreadID : DWORD;
 begin
-  if WindowHandle = 0 then
+  if (WindowHandle = 0) or
+     (GetWindowThreadProcessId(WindowHandle, @ProcessID) = 0) then
     Exit(False);
-
-  ThreadID := GetWindowThreadProcessId(WindowHandle, @ProcessID);
   Ctx.TargetPID := ProcessID;
   Ctx.ResultHandle := 0;
   EnumWindows(@EnumMenuSearchProc, LPARAM(@Ctx));
