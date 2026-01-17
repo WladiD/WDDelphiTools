@@ -17,6 +17,11 @@ uses
   System.Win.Registry,
   System.NetEncoding,
 
+  {$IFDEF FITNESSE}
+  Slim.Server,
+  Slim.CmdUtils,
+  {$ENDIF}
+
   JclIDEUtils,
 
   DPT.OpenUnitTask,
@@ -461,10 +466,28 @@ end;
 
 begin
   try
+    {$IFDEF FITNESSE}
+    var SlimServer: TSlimServer := TSlimServer.Create(nil);
+    try
+      var LPort: Integer;
+      if not HasSlimPortParam(LPort) then
+        LPort := 9000;
+
+      SlimServer.DefaultPort := LPort;
+      SlimServer.Active := True;
+
+      Writeln('Slim Server started on port ', LPort);
+      Writeln('Press Enter to stop the server...');
+      Readln;
+    finally
+      SlimServer.Free;
+    end;
+    {$ELSE}
     if ParamCount > 1 then
       ProcessCMDLine
     else
       InstructionScreen;
+    {$ENDIF}
   except
     on E:Exception do
     begin
