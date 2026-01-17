@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -19,7 +19,9 @@ uses
 
   {$IFDEF FITNESSE}
   Slim.Server,
+  Slim.Fixture,
   Slim.CmdUtils,
+  DPT.Fixtures,
   {$ENDIF}
 
   JclIDEUtils,
@@ -464,6 +466,10 @@ begin
   Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)');
 end;
 
+{$IFDEF FITNESSE}
+type TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
+{$ENDIF}
+
 begin
   try
     {$IFDEF FITNESSE}
@@ -477,8 +483,13 @@ begin
       SlimServer.Active := True;
 
       Writeln('Slim Server started on port ', LPort);
-      Writeln('Press Enter to stop the server...');
-      Readln;
+      
+      Writeln('Registered Fixtures:');
+      for var Loop: Integer := 0 to TSlimFixtureResolverHelper.FFixtures.Count - 1 do
+        Writeln('  ', TClass(TSlimFixtureResolverHelper.FFixtures[Loop]).ClassName);
+
+      Writeln('Server running... (Ctrl+C or call StopServer to stop)');
+      StopServerEvent.WaitFor(INFINITE);
     finally
       SlimServer.Free;
     end;
