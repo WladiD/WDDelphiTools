@@ -1,44 +1,124 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit DPT.Fixtures;
 
 interface
 
 uses
+
   System.SyncObjs,
-  Slim.Fixture;
+
+  Slim.Fixture,
+
+  DPT.OpenUnitTask,
+  DPT.Types;
 
 type
-  {$RTTI EXPLICIT METHODS([vcPublic, vcPublished]) PROPERTIES([vcPublic, vcPublished])}
-  [SlimFixture('TEchoFixture')]
-  TEchoFixture = class(TSlimFixture)
+
+  [SlimFixture('TDptOpenUnitFixture')]
+  TDptOpenUnitFixture = class(TSlimDecisionTableFixture)
+  private
+    FDelphiVersion: String;
+    FUnitPath     : String;
+    FLine         : String;
+    FMember       : String;
+  public
+    procedure Reset; override;
+    procedure Execute; override;
+    function  OpenUnitTask: Boolean;
+    property DelphiVersion: String read FDelphiVersion write FDelphiVersion;
+    property UnitPath: String read FUnitPath write FUnitPath;
+    property Line: String read FLine write FLine;
+    property Member: String read FMember write FMember;
+  end;
+
+  [SlimFixture('TDptControl')]
+  TDptControl = class(TSlimFixture)
+  public
+    class var StopServerEvent: TEvent;
+    class constructor Create;
+    class destructor Destroy;
   public
     function Echo(const Value: String): String;
     procedure StopServer;
   end;
-
-var
-  StopServerEvent: TEvent;
 
 implementation
 
 uses
   System.SysUtils;
 
-function TEchoFixture.Echo(const Value: String): String;
+{ TDptOpenUnitFixture }
+
+procedure TDptOpenUnitFixture.Reset;
+begin
+  inherited;
+  FDelphiVersion := 'RECENT';
+  FUnitPath := '';
+  FLine := '';
+  FMember := '';
+end;
+
+procedure TDptOpenUnitFixture.Execute;
+begin
+  inherited;
+  // This is called automatically by FitNesse for each row,
+  // but we use our own function for better control over the return value in the wiki.
+end;
+
+function TDptOpenUnitFixture.OpenUnitTask: Boolean;
+var
+  LTask: TDPOpenUnitTask;
+  LVersion: TDelphiVersion;
+begin
+  Result := True;
+  LTask := TDPOpenUnitTask.Create;
+  try
+    if SameText(FDelphiVersion, 'RECENT') then
+      LVersion := FindMostRecentDelphiVersion
+    else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
+      raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
+
+    LTask.DelphiVersion := LVersion;
+    LTask.FullPathToUnit := FUnitPath;
+    LTask.GoToLine := StrToIntDef(FLine, 0);
+    LTask.MemberImplementation := FMember;
+    LTask.Execute;
+  finally
+    LTask.Free;
+  end;
+end;
+
+{ TDptControl }
+
+class constructor TDptControl.Create;
+begin
+  StopServerEvent := TEvent.Create(nil, True, False, '');
+end;
+
+class destructor TDptControl.Destroy;
+begin
+  FreeAndNil(StopServerEvent);
+end;
+
+function TDptControl.Echo(const Value: String): String;
 begin
   Result := Value;
 end;
 
-procedure TEchoFixture.StopServer;
+procedure TDptControl.StopServer;
 begin
   if Assigned(StopServerEvent) then
     StopServerEvent.SetEvent;
 end;
 
 initialization
-  StopServerEvent := TEvent.Create(nil, True, False, '');
-  RegisterSlimFixture(TEchoFixture);
 
-finalization
-  FreeAndNil(StopServerEvent);
+  RegisterSlimFixture(TDptControl);
+  RegisterSlimFixture(TDptOpenUnitFixture);
 
 end.

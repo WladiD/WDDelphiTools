@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -80,39 +80,6 @@ const
     ValidPathBplOutputWin64 + '|' +
     ValidPathDcpOutputWin32 + '|' +
     ValidPathDcpOutputWin64;
-
-function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
-begin
-  Result := True;
-  for var Loop: Integer := 1 to Integer(High(TDelphiVersion)) do
-  begin
-    DelphiVersion := TDelphiVersion(Loop);
-    if VersionString = DelphiVersionStringArray[DelphiVersion] then
-      Exit;
-  end;
-  DelphiVersion := dvUnknown;
-  Result := False;
-end;
-
-function FindMostRecentDelphiVersion: TDelphiVersion;
-var
-  Installations: TJclBorRADToolInstallations;
-begin
-  Result := dvUnknown;
-  Installations := TJclBorRADToolInstallations.Create;
-  try
-    for var Loop: Integer := Integer(High(TDelphiVersion)) downto 1 do
-    begin
-      if Installations.DelphiVersionInstalled[DelphiVersionIntegerArray[TDelphiVersion(Loop)]] then
-      begin
-        Result := TDelphiVersion(Loop);
-        Break;
-      end;
-    end;
-  finally
-    Installations.Free;
-  end;
-end;
 
 { TDPRemovePackageTaskBase }
 
@@ -467,7 +434,8 @@ begin
 end;
 
 {$IFDEF FITNESSE}
-type TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
+type
+  TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
 {$ENDIF}
 
 begin
@@ -483,13 +451,13 @@ begin
       SlimServer.Active := True;
 
       Writeln('Slim Server started on port ', LPort);
-      
+
       Writeln('Registered Fixtures:');
       for var Loop: Integer := 0 to TSlimFixtureResolverHelper.FFixtures.Count - 1 do
         Writeln('  ', TClass(TSlimFixtureResolverHelper.FFixtures[Loop]).ClassName);
 
       Writeln('Server running... (Ctrl+C or call StopServer to stop)');
-      StopServerEvent.WaitFor(INFINITE);
+      TDptControl.StopServerEvent.WaitFor(INFINITE);
     finally
       SlimServer.Free;
     end;

@@ -49,6 +49,9 @@ type
 
   TDPTaskClass = class of TDPTaskBase;
 
+function FindMostRecentDelphiVersion: TDelphiVersion;
+function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
+
 const
 
   DelphiVersionStringArray: Array [TDelphiVersion] of String = (
@@ -138,6 +141,39 @@ end;
 procedure TDPTaskBase.Output(const Text: String);
 begin
   Writeln(Text);
+end;
+
+function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
+begin
+  Result := True;
+  for var Loop: Integer := 1 to Integer(High(TDelphiVersion)) do
+  begin
+    DelphiVersion := TDelphiVersion(Loop);
+    if VersionString = DelphiVersionStringArray[DelphiVersion] then
+      Exit;
+  end;
+  DelphiVersion := dvUnknown;
+  Result := False;
+end;
+
+function FindMostRecentDelphiVersion: TDelphiVersion;
+var
+  Installations: TJclBorRADToolInstallations;
+begin
+  Result := dvUnknown;
+  Installations := TJclBorRADToolInstallations.Create;
+  try
+    for var Loop: Integer := Integer(High(TDelphiVersion)) downto 1 do
+    begin
+      if Installations.DelphiVersionInstalled[DelphiVersionIntegerArray[TDelphiVersion(Loop)]] then
+      begin
+        Result := TDelphiVersion(Loop);
+        Break;
+      end;
+    end;
+  finally
+    Installations.Free;
+  end;
 end;
 
 end.
