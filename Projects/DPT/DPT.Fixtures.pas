@@ -11,6 +11,7 @@ interface
 uses
 
   System.SyncObjs,
+  System.SysUtils,
 
   Slim.Fixture,
 
@@ -23,17 +24,16 @@ type
   TDptOpenUnitFixture = class(TSlimDecisionTableFixture)
   private
     FDelphiVersion: String;
-    FUnitPath     : String;
     FLine         : String;
     FMember       : String;
+    FUnitPath     : String;
   public
     procedure Reset; override;
-    procedure Execute; override;
     function  OpenUnitTask: Boolean;
     property DelphiVersion: String read FDelphiVersion write FDelphiVersion;
-    property UnitPath: String read FUnitPath write FUnitPath;
     property Line: String read FLine write FLine;
     property Member: String read FMember write FMember;
+    property UnitPath: String read FUnitPath write FUnitPath;
   end;
 
   [SlimFixture('TDptControl')]
@@ -43,14 +43,11 @@ type
     class constructor Create;
     class destructor Destroy;
   public
-    function Echo(const Value: String): String;
+    function  Echo(const Value: String): String;
     procedure StopServer;
   end;
 
 implementation
-
-uses
-  System.SysUtils;
 
 { TDptOpenUnitFixture }
 
@@ -63,16 +60,9 @@ begin
   FMember := '';
 end;
 
-procedure TDptOpenUnitFixture.Execute;
-begin
-  inherited;
-  // This is called automatically by FitNesse for each row,
-  // but we use our own function for better control over the return value in the wiki.
-end;
-
 function TDptOpenUnitFixture.OpenUnitTask: Boolean;
 var
-  LTask: TDPOpenUnitTask;
+  LTask   : TDPOpenUnitTask;
   LVersion: TDelphiVersion;
 begin
   Result := True;
@@ -118,7 +108,7 @@ end;
 
 initialization
 
-  RegisterSlimFixture(TDptControl);
-  RegisterSlimFixture(TDptOpenUnitFixture);
+RegisterSlimFixture(TDptControl);
+RegisterSlimFixture(TDptOpenUnitFixture);
 
 end.
