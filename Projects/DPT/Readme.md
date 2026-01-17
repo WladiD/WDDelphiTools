@@ -30,9 +30,24 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
     PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path
 
-    OpenUnit FullPathToUnit [GoToLine LineNumber]
+    OpenUnit FullPathToUnit [GoToLine LineNumber] [GoToMemberImplementation Class.Member]
       Opens the specified unit in the IDE. Starts IDE if not running.
+
+    HandleProtocol dpt://Command/?Params
+      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
 ```
+
+## URL Protocol Registration
+To use the `dpt://` URL protocol (e.g., to open units directly from a browser or other tools), you need to register it in Windows.
+
+### _GenerateRegisterDptProtocol.bat
+This script generates a Windows Registry file (`RegisterDptProtocol.reg`) that links the `dpt://` protocol to the current location of `DPT.exe`.
+
+1. Run `_GenerateRegisterDptProtocol.bat`.
+2. Execute the generated `RegisterDptProtocol.reg` file to update your registry.
+
+Once registered, you can use links like:
+`dpt://openunit/?file=C:\MyUnit.pas&line=42`
 
 ## Examples
 ### Print BDSBinPath
@@ -101,9 +116,15 @@ Registration ok
 
 ---
 
-### Open a unit in IDE
+### Open a unit in IDE at specific line
 
     DPT RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
+
+---
+
+### Open a unit and jump to member implementation
+
+    DPT RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToMemberImplementation TMyClass.MyMethod
 
 Output
 ```
