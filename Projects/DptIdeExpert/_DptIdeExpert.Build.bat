@@ -19,7 +19,7 @@ echo BPL should be located in the default output directory (e.g., public documen
 echo.
 echo NOTE: The package has been created but not yet registered in the IDE.
 echo To register it, run: _DptIdeExpert.RegisterBpl.bat ^<DelphiVersion^> (e.g. D12)
-echo Or manually via: Component -> Install Packages.
+echo Or manually via: Component -^> Install Packages.
 echo.
 
 popd
