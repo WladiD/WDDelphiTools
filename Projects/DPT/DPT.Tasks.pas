@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -45,6 +45,12 @@ type
   TDPRegisterPackageTask = class(TDPTaskBase)
   public
     PathToBPL: String;
+    procedure Execute; override;
+  end;
+
+  TDPIsPackageRegisteredTask = class(TDPTaskBase)
+  public
+    PackageFileName: String;
     procedure Execute; override;
   end;
 
@@ -140,6 +146,37 @@ end;
 procedure TDPRegisterPackageTask.Execute;
 begin
   Installation.RegisterPackage(PathToBPL, '');
+end;
+
+{ TDPIsPackageRegisteredTask }
+
+procedure TDPIsPackageRegisteredTask.Execute;
+var
+  Found: Boolean;
+  Loop : Integer;
+  Pkg  : String;
+  TargetName: String;
+begin
+  Found := False;
+  TargetName := ChangeFileExt(ExtractFileName(PackageFileName), '');
+
+  for Loop := 0 to Installation.IdePackages.Count[IsX64] - 1 do
+  begin
+    Pkg := Installation.IdePackages.PackageFileNames[Loop, IsX64];
+    if SameText(ChangeFileExt(ExtractFileName(Pkg), ''), TargetName) then
+    begin
+      Found := True;
+      Break;
+    end;
+  end;
+
+  if Found then
+    Writeln('Package is registered.')
+  else
+  begin
+    Writeln('Package is NOT registered.');
+    System.ExitCode := 1;
+  end;
 end;
 
 { TDPPrintPathTask }

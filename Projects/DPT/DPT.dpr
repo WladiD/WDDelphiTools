@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -81,6 +81,19 @@ var
     LocalDPTask.PathToBPL := PathToBPL;
 
     Writeln(Format('Register design time package "%s"...', [PathToBPL]));
+  end;
+
+  procedure SerializeIsPackageRegisteredTask;
+  var
+    LocalDPTask    : TDPIsPackageRegisteredTask absolute DPTask;
+    PackageFileName: String;
+  begin
+    InitDPTask(TDPIsPackageRegisteredTask);
+
+    PackageFileName := CMDLine.CheckParameter('PackageFileName');
+    LocalDPTask.PackageFileName := PackageFileName;
+
+    Writeln(Format('Checking if package "%s" is registered...', [PackageFileName]));
   end;
 
   procedure SerializePrintPathTask;
@@ -222,6 +235,11 @@ begin
       CMDLine.ConsumeParameter;
       SerializeRegisterPackageTask;
     end
+    else if SameText(ParamValue, 'IsPackageRegistered') then
+    begin
+      CMDLine.ConsumeParameter;
+      SerializeIsPackageRegisteredTask;
+    end
     else if SameText(ParamValue, 'PrintPath') then
     begin
       CMDLine.ConsumeParameter;
@@ -277,6 +295,9 @@ begin
   Writeln;
   Writeln('    RegisterPackage PathToBPL');
   Writeln('      Register a package specified in PathToBPL as design time package');
+  Writeln;
+  Writeln('    IsPackageRegistered PackageFileName');
+  Writeln('      Checks if a package is registered (ExitCode 1 if not)');
   Writeln;
   Writeln('    PrintPath (' + ValidPathToPrint + ')');
   Writeln('      Prints the path');
