@@ -21,8 +21,6 @@ uses
   System.SysUtils,
   System.RegularExpressions,
 
-  SendInputHelper,
-
   DPT.IdeClient,
   DPT.Types;
 
@@ -32,10 +30,7 @@ type
   private
     function  GetBdsProcessPath(ProcessID: DWORD): String;
     function  IsBdsRunning(const BinPath: String; out FoundWnd: HWND): Boolean;
-    function  IsMenuMode(WindowHandle: HWND): Boolean;
     procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
-    function  WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
-    function  WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: String; TimeoutMs: DWORD): Boolean;
   public
     FullPathToUnit      : String;
     GoToLine            : Integer;
@@ -46,13 +41,6 @@ type
 implementation
 
 type
-
-  TOpenStrategy = record
-    Name    : String;
-    MenuVK  : Word;
-    OpenChar: Char;
-    constructor Create(const AName: String; AMenuVK: Word; AOpenChar: Char);
-  end;
 
   TWindowInfo = record
     Handle   : HWND;
@@ -69,15 +57,6 @@ type
     constructor Create(PID: DWORD);
     destructor Destroy; override;
   end;
-
-{ TOpenStrategy }
-
-constructor TOpenStrategy.Create(const AName: String; AMenuVK: Word; AOpenChar: Char);
-begin
-  Name := AName;
-  MenuVK := AMenuVK;
-  OpenChar := AOpenChar;
-end;
 
 { TEnumContext }
 
@@ -117,63 +96,6 @@ begin
       Info.Title := TitleBuf;
 
       Context.Candidates.Add(Info);
-    end;
-  end;
-  Result := True;
-end;
-
-type
-
-  TDialogSearchContext = record
-    ResultHandle: HWND;
-    TargetPID   : DWORD;
-  end;
-  PDialogSearchContext = ^TDialogSearchContext;
-
-function EnumDialogSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
-var
-  ClassName: Array[0..255] of Char;
-  Ctx      : PDialogSearchContext;
-  ProcID   : DWORD;
-begin
-  Ctx := PDialogSearchContext(LParam);
-  GetWindowThreadProcessId(Handle, @ProcID);
-
-  if ProcID = Ctx.TargetPID then
-  begin
-    GetClassName(Handle, ClassName, 255);
-    // Standard Windows Dialog class is #32770
-    if SameText(ClassName, '#32770') and IsWindowVisible(Handle) then
-    begin
-      Ctx.ResultHandle := Handle;
-      Result := False; // Stop enumeration
-      Exit;
-    end;
-  end;
-  Result := True;
-end;
-
-function EnumMenuSearchProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
-var
-  ClassName: Array[0..255] of Char;
-  Ctx      : PDialogSearchContext;
-  ProcID   : DWORD;
-begin
-  Ctx := PDialogSearchContext(LParam);
-  GetWindowThreadProcessId(Handle, @ProcID);
-
-  if ProcID = Ctx.TargetPID then
-  begin
-    GetClassName(Handle, ClassName, 255);
-    // TIDEStylePopupMenu is used in newer IDEs
-    if IsWindowVisible(Handle) and
-       (SameText(ClassName, 'TIDEStylePopupMenu') or
-        SameText(ClassName, '#32768') or // Standard Menu
-        (Pos('Popup', ClassName) > 0)) then
-    begin
-      Ctx.ResultHandle := Handle;
-      Result := False; // Stop enumeration
-      Exit;
     end;
   end;
   Result := True;
@@ -284,61 +206,6 @@ begin
     Sleep(Timeout); // Fallback
 end;
 
-function TDPOpenUnitTask.IsMenuMode(WindowHandle: HWND): Boolean;
-var
-  Ctx      : TDialogSearchContext;
-  ProcessID: DWORD;
-begin
-  if (WindowHandle = 0) or
-     (GetWindowThreadProcessId(WindowHandle, @ProcessID) = 0) then
-    Exit(False);
-  Ctx.TargetPID := ProcessID;
-  Ctx.ResultHandle := 0;
-  EnumWindows(@EnumMenuSearchProc, LPARAM(@Ctx));
-  Result := Ctx.ResultHandle <> 0;
-end;
-
-function TDPOpenUnitTask.WaitForOpenDialog(OwnerPID: DWORD; TimeoutMs: DWORD): Boolean;
-var
-  Ctx      : TDialogSearchContext;
-  StartTime: DWORD;
-begin
-  Result := False;
-  StartTime := GetTickCount;
-  Ctx.TargetPID := OwnerPID;
-
-  repeat
-    Ctx.ResultHandle := 0;
-    EnumWindows(@EnumDialogSearchProc, LPARAM(@Ctx));
-
-    if Ctx.ResultHandle <> 0 then
-      Exit(True);
-
-    Sleep(100);
-  until (GetTickCount - StartTime) > TimeoutMs;
-end;
-
-function TDPOpenUnitTask.WaitForWindowCaptionContains(WindowHandle: HWND; const SubText: String; TimeoutMs: DWORD): Boolean;
-var
-  CurrentTitle: String;
-  StartTime   : DWORD;
-  Title       : Array[0..255] of Char;
-begin
-  Result := False;
-  StartTime := GetTickCount;
-
-  repeat
-    Title[0] := #0;
-    GetWindowText(WindowHandle, Title, 255);
-    CurrentTitle := Title;
-
-    if Pos(LowerCase(SubText), LowerCase(CurrentTitle)) > 0 then
-      Exit(True);
-
-    Sleep(100);
-  until (GetTickCount - StartTime) > TimeoutMs;
-end;
-
 function FindImplementationLine(const FileName, MemberName: String): Integer;
 var
   Lines    : TStringList;
@@ -388,20 +255,13 @@ procedure TDPOpenUnitTask.Execute;
 var
   BdsExe     : String;
   BinPath    : String;
-  DialogFound: Boolean;
-  FoundPID   : DWORD;
   FoundWnd   : HWND;
-  I          : Integer;
   IsEn       : Boolean;
   IsVis      : Boolean;
-  MenuOpened : Boolean;
   ProcessInfo: TProcessInformation;
   Retries    : Integer;
-  SI         : TSendInputHelper;
-  Strategies : TArray<TOpenStrategy>;
-  Strategy   : TOpenStrategy;
   Title      : array[0..255] of Char;
-  UnitName   : String;
+  IdeClient  : TDptIdeClient;
 
   procedure LaunchBDS;
   var
@@ -431,8 +291,8 @@ begin
       Writeln(Format('Warning: Member "%s" not found in implementation.', [MemberImplementation]));
   end;
 
-  // Try via IDE Plugin (Slim Server)
-  var IdeClient := TDptIdeClient.Create;
+  // Try via IDE Plugin (Slim Server) - First Attempt
+  IdeClient := TDptIdeClient.Create;
   try
     if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
     begin
@@ -443,16 +303,10 @@ begin
     IdeClient.Free;
   end;
 
+  Writeln('IDE Plugin not reachable. Checking IDE status...');
+
   BinPath := Installation.BinFolderName;
   BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
-
-  // Define Strategies:
-  // 1. German: Alt+d (Datei) -> f (Öffnen)
-  // 2. English: Alt+f (File) -> o (Open)
-  Strategies := [
-    TOpenStrategy.Create('German (Alt+d -> f)', Ord('D'), 'f'),
-    TOpenStrategy.Create('English (Alt+f -> o)', Ord('F'), 'o')
-  ];
 
   Writeln('Checking for running BDS instance...');
 
@@ -471,7 +325,7 @@ begin
     Writeln;
   end
   else
-    Writeln('BDS is already running.');
+    Writeln('BDS is already running (but plugin did not respond).');
 
   Writeln('Waiting for main window to become visible and enabled...');
   Retries := 0;
@@ -514,105 +368,34 @@ begin
   if FoundWnd = 0 then
       raise Exception.Create('BDS main window could not be found.');
 
-  // Get PID for later dialog check
-  GetWindowThreadProcessId(FoundWnd, @FoundPID);
-
-  // Give it a bit more time to settle (drawing UI etc)
+  // Give it a bit more time to settle
   Sleep(2000);
 
   if IsIconic(FoundWnd) then
     ShowWindow(FoundWnd, SW_RESTORE);
   SetForegroundWindow(FoundWnd);
-  Sleep(200);
-  SetForegroundWindow(FoundWnd);
 
-  Writeln('Sending input to open unit...');
-  SI := TSendInputHelper.Create;
+  Writeln('IDE is ready. Retrying connection to IDE Plugin...');
+
+  IdeClient := TDptIdeClient.Create;
   try
-    DialogFound := False;
-
-    for Strategy in Strategies do
+    // Retry loop (give the expert some time to start the server if IDE just started)
+    for Retries := 1 to 30 do
     begin
-      Writeln(Format('Trying strategy: %s...', [Strategy.Name]));
-
-      // Step 1: Open Menu
-      MenuOpened := False;
-      for I := 1 to 3 do
-      begin
-        SI.AddShortCut([ssAlt], Char(Strategy.MenuVK)); // Use MenuVK from strategy
-        SI.Flush;
-
-        Sleep(500);
-
-        if IsMenuMode(FoundWnd) then
-        begin
-          MenuOpened := True;
-          Break;
-        end;
-        Writeln(Format(' Retry %d: Menu not detected...', [I]));
-        SetForegroundWindow(FoundWnd);
-        Sleep(200);
-      end;
-
-      if MenuOpened then
-      begin
-        // Step 2: Open Dialog
-        SI.AddChar(Strategy.OpenChar);
-        SI.Flush;
-
-        // Check if Dialog appeared
-        if WaitForOpenDialog(FoundPID, 2000) then // Wait up to 2s for dialog
-        begin
-          Writeln(' "Open File" dialog detected.');
-          DialogFound := True;
-          Break; // Success!
-        end
-        else
-        begin
-          Writeln(' Dialog not detected. Aborting strategy...');
-          // Cancel Menu (Escape)
-          SI.AddVirtualKey(VK_ESCAPE);
-          SI.Flush;
-          Sleep(500);
-        end;
-      end;
+       if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
+       begin
+         Writeln('Successfully opened unit via IDE Plugin.');
+         Exit;
+       end;
+       Sleep(1000);
+       Write('.');
     end;
-
-    if not DialogFound then
-      raise Exception.Create('Failed to open "Open File" dialog with any strategy.');
-
-    // Step 3: Type Path
-    SI.AddText(FullPathToUnit, True);
-    SI.Flush;
-
-    // Wait for file to open (check caption)
-    UnitName := ChangeFileExt(ExtractFileName(FullPathToUnit), '');
-    Writeln(Format('Waiting for unit "%s" to appear in caption...', [UnitName]));
-
-    if not WaitForWindowCaptionContains(FoundWnd, UnitName, 10000) then // 10s timeout
-      Writeln('Warning: Unit name did not appear in caption (maybe it opened too fast or caption behavior changed).');
-
-    // Step 4: GoTo Line
-    if GoToLine > 0 then
-    begin
-       // Alt + g (GoTo)
-       SI.AddShortCut([ssAlt], 'g');
-       SI.AddDelay(500);
-
-       // Type Line Number
-       SI.AddText(IntToStr(GoToLine));
-       SI.AddDelay(200);
-
-       // Enter
-       SI.AddVirtualKey(VK_RETURN);
-
-       SI.Flush;
-    end;
-
-    Writeln('Done.');
   finally
-    SI.Free;
+    IdeClient.Free;
   end;
+
+  Writeln;
+  raise Exception.Create('Failed to connect to IDE Plugin (Slim Server) even after IDE is ready. Ensure DptIdeExpert is installed.');
 end;
 
 end.
