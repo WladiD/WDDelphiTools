@@ -2,7 +2,7 @@
 
 A Delphi IDE Expert (Wizard) that embeds a **Slim Server** to allow remote control and automation of the IDE via the [Slim Protocol](http://fitnesse.org/FitNesse.UserGuide.WritingAcceptanceTests.SliM) (used by FitNesse).
 
-This expert is currently used by the **DPT (Delphi Processing Tools)** CLI to reliably open units and navigate to specific line or to a specific method from the command line or external scripts in the IDE window.
+This expert is currently used by the **DPT (Delphi Processing Tools)** CLI to reliably open units and navigate to a specific line or method from the command line or external scripts.
 
 ## Features
 
