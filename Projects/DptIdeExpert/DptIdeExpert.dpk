@@ -1,0 +1,54 @@
+package DptIdeExpert;
+
+{$R *.res}
+{$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
+{$ALIGN 8}
+{$ASSERTIONS ON}
+{$BOOLEVAL OFF}
+{$DEBUGINFO OFF}
+{$EXTENDEDSYNTAX ON}
+{$IMPORTEDDATA ON}
+{$IOCHECKS ON}
+{$LOCALSYMBOLS ON}
+{$LONGSTRINGS ON}
+{$OPENSTRINGS ON}
+{$OPTIMIZATION OFF}
+{$OVERFLOWCHECKS OFF}
+{$RANGECHECKS OFF}
+{$REFERENCEINFO ON}
+{$SAFEDIVIDE OFF}
+{$STACKFRAMES ON}
+{$TYPEDADDRESS OFF}
+{$VARSTRINGCHECKS ON}
+{$WRITEABLECONST OFF}
+{$MINENUMSIZE 1}
+{$IMAGEBASE $400000}
+{$DEFINE DEBUG}
+{$ENDIF IMPLICITBUILDING}
+{$DESCRIPTION 'DPT Slim Server Integration for Delphi IDE'}
+{$DESIGNONLY}
+{$IMPLICITBUILD ON}
+
+requires
+  rtl,
+  vcl,
+  designide,
+  IndyCore,
+  IndySystem,
+  IndyProtocols;
+
+contains
+  DptIdeExpert.Wizard in 'DptIdeExpert.Wizard.pas',
+  DptIdeExpert.Fixtures in 'DptIdeExpert.Fixtures.pas',
+  
+  // Slim Framework Files (linked directly to avoid external package dependencies)
+  Slim.Server in '..\..\..\SlimForDelphi\Source\Slim.Server.pas',
+  Slim.Fixture in '..\..\..\SlimForDelphi\Source\Slim.Fixture.pas',
+  Slim.CmdUtils in '..\..\..\SlimForDelphi\Source\Slim.CmdUtils.pas',
+  Slim.List in '..\..\..\SlimForDelphi\Source\Slim.List.pas',
+  Slim.Logger in '..\..\..\SlimForDelphi\Source\Slim.Logger.pas',
+  Slim.Symbol in '..\..\..\SlimForDelphi\Source\Slim.Symbol.pas',
+  Slim.Common in '..\..\..\SlimForDelphi\Source\Slim.Common.pas',
+  Slim.Exec in '..\..\..\SlimForDelphi\Source\Slim.Exec.pas';
+
+end.
