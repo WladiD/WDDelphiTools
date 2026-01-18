@@ -66,7 +66,7 @@ var
   LenStr: String;
 begin
   LenStr := Format('%.6d', [Length(AInstructions)]);
-  Result := LenStr + AInstructions;
+  Result := LenStr + ':' + AInstructions;
 end;
 
 function TDptIdeClient.SendInstructions(APort: Integer; const AInstructions: String): Boolean;
@@ -86,8 +86,6 @@ begin
 
     try
       Client.Connect;
-      Client.IOHandler.Write(ShortString('Slim -- V0.0' + #13#10));
-
       // Read version
       Response := Client.IOHandler.ReadLn;
       if Pos('Slim --', Response) <> 1 then
@@ -101,6 +99,8 @@ begin
       
       // Read Response Length
       LenHeader := Client.IOHandler.ReadString(6);
+      Client.IOHandler.ReadChar; // Skip ':' separator
+
       Len := StrToIntDef(LenHeader, 0);
       if Len > 0 then
       begin
