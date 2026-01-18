@@ -16,6 +16,7 @@ uses
   Slim.Fixture,
 
   DPT.OpenUnitTask,
+  DPT.Tasks,
   DPT.Types;
 
 type
@@ -34,6 +35,18 @@ type
     property Line: String read FLine write FLine;
     property Member: String read FMember write FMember;
     property UnitPath: String read FUnitPath write FUnitPath;
+  end;
+
+  [SlimFixture('TDptPrintPathFixture')]
+  TDptPrintPathFixture = class(TSlimDecisionTableFixture)
+  private
+    FDelphiVersion: String;
+    FPathType     : String;
+  public
+    procedure Reset; override;
+    function  Path: String;
+    property DelphiVersion: String read FDelphiVersion write FDelphiVersion;
+    property PathType: String read FPathType write FPathType;
   end;
 
   [SlimFixture('TDptControl')]
@@ -83,6 +96,35 @@ begin
   end;
 end;
 
+{ TDptPrintPathFixture }
+
+procedure TDptPrintPathFixture.Reset;
+begin
+  inherited;
+  FDelphiVersion := 'RECENT';
+  FPathType := '';
+end;
+
+function TDptPrintPathFixture.Path: String;
+var
+  LTask   : TDPPrintPathTask;
+  LVersion: TDelphiVersion;
+begin
+  LTask := TDPPrintPathTask.Create;
+  try
+    if SameText(FDelphiVersion, 'RECENT') then
+      LVersion := FindMostRecentDelphiVersion
+    else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
+      raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
+
+    LTask.DelphiVersion := LVersion;
+    LTask.PathToPrint := FPathType;
+    Result := LTask.GetPathResult;
+  finally
+    LTask.Free;
+  end;
+end;
+
 { TDptControl }
 
 class constructor TDptControl.Create;
@@ -110,5 +152,6 @@ initialization
 
 RegisterSlimFixture(TDptControl);
 RegisterSlimFixture(TDptOpenUnitFixture);
+RegisterSlimFixture(TDptPrintPathFixture);
 
 end.
