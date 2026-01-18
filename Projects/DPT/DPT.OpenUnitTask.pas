@@ -23,6 +23,7 @@ uses
 
   SendInputHelper,
 
+  DPT.IdeClient,
   DPT.Types;
 
 type
@@ -428,6 +429,18 @@ begin
       Writeln(Format('Found member "%s" at line %d.', [MemberImplementation, GoToLine]))
     else
       Writeln(Format('Warning: Member "%s" not found in implementation.', [MemberImplementation]));
+  end;
+
+  // Try via IDE Plugin (Slim Server)
+  var IdeClient := TDptIdeClient.Create;
+  try
+    if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
+    begin
+      Writeln('Successfully opened unit via IDE Plugin.');
+      Exit;
+    end;
+  finally
+    IdeClient.Free;
   end;
 
   BinPath := Installation.BinFolderName;
