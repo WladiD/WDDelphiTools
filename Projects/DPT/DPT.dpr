@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -35,10 +35,10 @@ procedure ProcessCMDLine;
 var
   CMDLine      : TCMDLineConsumer;
   DelphiVersion: TDelphiVersion;
-  DPTask       : TDPTaskBase;
+  DPTask       : TDptTaskBase;
   ParamValue   : String;
 
-  procedure InitDPTask(DPTaskClass: TDPTaskClass);
+  procedure InitDPTask(DPTaskClass: TDptTaskClass);
   begin
     DPTask := DPTaskClass.Create;
     DPTask.DelphiVersion := DelphiVersion;
@@ -46,10 +46,10 @@ var
 
   procedure SerializeRemovePackagesBySourceDirTask;
   var
-    LocalDPTask: TDPRemovePackagesBySourceDirTask absolute DPTask;
+    LocalDPTask: TDptRemovePackagesBySourceDirTask absolute DPTask;
     SourceDir  : String;
   begin
-    InitDPTask(TDPRemovePackagesBySourceDirTask);
+    InitDPTask(TDptRemovePackagesBySourceDirTask);
 
     SourceDir := CMDLine.CheckParameter('SourceDir');
     LocalDPTask.SourceDir := SourceDir;
@@ -59,10 +59,10 @@ var
 
   procedure SerializeRemovePackageTask;
   var
-    LocalDPTask    : TDPRemovePackageTask absolute DPTask;
+    LocalDPTask    : TDptRemovePackageTask absolute DPTask;
     PackageFileName: String;
   begin
-    InitDPTask(TDPRemovePackageTask);
+    InitDPTask(TDptRemovePackageTask);
 
     PackageFileName := CMDLine.CheckParameter('PackageFileName');
     LocalDPTask.PackageFileName := PackageFileName;
@@ -72,10 +72,10 @@ var
 
   procedure SerializeRegisterPackageTask;
   var
-    LocalDPTask: TDPRegisterPackageTask absolute DPTask;
+    LocalDPTask: TDptRegisterPackageTask absolute DPTask;
     PathToBPL  : String;
   begin
-    InitDPTask(TDPRegisterPackageTask);
+    InitDPTask(TDptRegisterPackageTask);
 
     PathToBPL := CMDLine.CheckParameter('PathToBPL');
     LocalDPTask.PathToBPL := PathToBPL;
@@ -85,10 +85,10 @@ var
 
   procedure SerializeIsPackageRegisteredTask;
   var
-    LocalDPTask    : TDPIsPackageRegisteredTask absolute DPTask;
+    LocalDPTask    : TDptIsPackageRegisteredTask absolute DPTask;
     PackageFileName: String;
   begin
-    InitDPTask(TDPIsPackageRegisteredTask);
+    InitDPTask(TDptIsPackageRegisteredTask);
 
     PackageFileName := CMDLine.CheckParameter('PackageFileName');
     LocalDPTask.PackageFileName := PackageFileName;
@@ -98,10 +98,10 @@ var
 
   procedure SerializePrintPathTask;
   var
-    LocalDPTask: TDPPrintPathTask absolute DPTask;
+    LocalDPTask: TDptPrintPathTask absolute DPTask;
     PathToPrint: String;
   begin
-    InitDPTask(TDPPrintPathTask);
+    InitDPTask(TDptPrintPathTask);
 
     PathToPrint := CMDLine.CheckParameter('PathToPrint');
     if Pos('|' + UpperCase(PathToPrint) + '|',  '|' + UpperCase(ValidPathToPrint) + '|') >= 1 then
@@ -115,10 +115,10 @@ var
   procedure SerializeOpenUnitTask;
   var
     FullPathToUnit: String;
-    LocalDPTask   : TDPOpenUnitTask absolute DPTask;
+    LocalDPTask   : TDptOpenUnitTask absolute DPTask;
     NextParam     : String;
   begin
-    InitDPTask(TDPOpenUnitTask);
+    InitDPTask(TDptOpenUnitTask);
 
     FullPathToUnit := CMDLine.CheckParameter('FullPathToUnit');
     CMDLine.ConsumeParameter; // Consume file path
@@ -150,7 +150,7 @@ var
   var
     URL, Command, ParamsStr: String;
     Params: TStringList;
-    LocalDPTask: TDPOpenUnitTask absolute DPTask;
+    LocalDPTask: TDptOpenUnitTask absolute DPTask;
     QPos: Integer;
   begin
     URL := CMDLine.CheckParameter('URL');
@@ -181,7 +181,7 @@ var
 
     if SameText(Command, 'openunit') then
     begin
-      InitDPTask(TDPOpenUnitTask);
+      InitDPTask(TDptOpenUnitTask);
 
       Params := TStringList.Create;
       try

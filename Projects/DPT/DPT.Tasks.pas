@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -19,14 +19,14 @@ uses
 
 type
 
-  TDPRemovePackageTaskBase = class(TDPTaskBase)
+  TDptRemovePackageTaskBase = class(TDptTaskBase)
   protected
     function IsPackageMatching(const PackageFileName: String): Boolean; virtual; abstract;
   public
     procedure Execute; override;
   end;
 
-  TDPRemovePackagesBySourceDirTask = class(TDPRemovePackageTaskBase)
+  TDptRemovePackagesBySourceDirTask = class(TDptRemovePackageTaskBase)
   protected
     function IsPackageMatching(const PackageFileName: String): Boolean; override;
   public
@@ -34,7 +34,7 @@ type
     procedure Execute; override;
   end;
 
-  TDPRemovePackageTask = class(TDPRemovePackageTaskBase)
+  TDptRemovePackageTask = class(TDptRemovePackageTaskBase)
   protected
     function IsPackageMatching(const PackageFileName: String): Boolean; override;
   public
@@ -42,19 +42,19 @@ type
     procedure Execute; override;
   end;
 
-  TDPRegisterPackageTask = class(TDPTaskBase)
+  TDptRegisterPackageTask = class(TDptTaskBase)
   public
     PathToBPL: String;
     procedure Execute; override;
   end;
 
-  TDPIsPackageRegisteredTask = class(TDPTaskBase)
+  TDptIsPackageRegisteredTask = class(TDptTaskBase)
   public
     PackageFileName: String;
     procedure Execute; override;
   end;
 
-  TDPPrintPathTask = class(TDPTaskBase)
+  TDptPrintPathTask = class(TDptTaskBase)
   public
     PathToPrint: String;
     function GetPathResult: String;
@@ -78,9 +78,9 @@ const
 
 implementation
 
-{ TDPRemovePackageTaskBase }
+{ TDptRemovePackageTaskBase }
 
-procedure TDPRemovePackageTaskBase.Execute;
+procedure TDptRemovePackageTaskBase.Execute;
 var
   DeletePackageList: TStrings;
   Loop             : Integer;
@@ -109,22 +109,22 @@ begin
   end;
 end;
 
-{ TDPRemovePackagesBySourceDirTask }
+{ TDptRemovePackagesBySourceDirTask }
 
-function TDPRemovePackagesBySourceDirTask.IsPackageMatching(const PackageFileName: String): Boolean;
+function TDptRemovePackagesBySourceDirTask.IsPackageMatching(const PackageFileName: String): Boolean;
 begin
   Result := Pos(SourceDir, LowerCase(PackageFileName)) = 1;
 end;
 
-procedure TDPRemovePackagesBySourceDirTask.Execute;
+procedure TDptRemovePackagesBySourceDirTask.Execute;
 begin
   SourceDir := LowerCase(SourceDir);
   inherited Execute;
 end;
 
-{ TDPRemovePackageTask }
+{ TDptRemovePackageTask }
 
-function TDPRemovePackageTask.IsPackageMatching(const PackageFileName: String): Boolean;
+function TDptRemovePackageTask.IsPackageMatching(const PackageFileName: String): Boolean;
 var
   ComparePFN: String;
   ExtLength : Integer;
@@ -135,22 +135,22 @@ begin
   Result := ComparePFN = Self.PackageFileName;
 end;
 
-procedure TDPRemovePackageTask.Execute;
+procedure TDptRemovePackageTask.Execute;
 begin
   PackageFileName := LowerCase(PackageFileName);
   inherited Execute;
 end;
 
-{ TDPRegisterPackageTask }
+{ TDptRegisterPackageTask }
 
-procedure TDPRegisterPackageTask.Execute;
+procedure TDptRegisterPackageTask.Execute;
 begin
   Installation.RegisterPackage(PathToBPL, '');
 end;
 
-{ TDPIsPackageRegisteredTask }
+{ TDptIsPackageRegisteredTask }
 
-procedure TDPIsPackageRegisteredTask.Execute;
+procedure TDptIsPackageRegisteredTask.Execute;
 var
   Found: Boolean;
   Loop : Integer;
@@ -179,9 +179,9 @@ begin
   end;
 end;
 
-{ TDPPrintPathTask }
+{ TDptPrintPathTask }
 
-function TDPPrintPathTask.GetPathResult: String;
+function TDptPrintPathTask.GetPathResult: String;
 var
   LPP: String;
 begin
@@ -205,7 +205,7 @@ begin
     Result := ExcludeTrailingPathDelimiter(Result);
 end;
 
-procedure TDPPrintPathTask.Execute;
+procedure TDptPrintPathTask.Execute;
 begin
   Writeln(GetPathResult);
 end;

@@ -26,7 +26,7 @@ uses
 
 type
 
-  TDPOpenUnitTask = class(TDPTaskBase)
+  TDptOpenUnitTask = class(TDptTaskBase)
   private
     function  GetBdsProcessPath(ProcessID: DWORD): String;
     function  GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
@@ -119,9 +119,9 @@ begin
   Result := True;
 end;
 
-{ TDPOpenUnitTask }
+{ TDptOpenUnitTask }
 
-function TDPOpenUnitTask.GetBdsProcessPath(ProcessID: DWORD): String;
+function TDptOpenUnitTask.GetBdsProcessPath(ProcessID: DWORD): String;
 var
   Buffer       : Array[0..MAX_PATH] of Char;
   ProcessHandle: THandle;
@@ -139,7 +139,7 @@ begin
   end;
 end;
 
-function TDPOpenUnitTask.GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
+function TDptOpenUnitTask.GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
 var
   Size   : DWORD;
   Table  : PMibTcpTableOwnerPid;
@@ -172,7 +172,7 @@ begin
   end;
 end;
 
-function TDPOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
+function TDptOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
 var
   BestMatchHandle: HWND;
   Context        : TEnumContext;
@@ -250,7 +250,7 @@ begin
   end;
 end;
 
-procedure TDPOpenUnitTask.WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
+procedure TDptOpenUnitTask.WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
 begin
   if WaitForInputIdle(ProcessHandle, Timeout) = WAIT_FAILED then
     Sleep(Timeout); // Fallback
@@ -301,7 +301,7 @@ begin
   end;
 end;
 
-procedure TDPOpenUnitTask.Execute;
+procedure TDptOpenUnitTask.Execute;
 var
   BdsExe     : String;
   BinPath    : String;

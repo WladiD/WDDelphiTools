@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -75,11 +75,11 @@ end;
 
 function TDptOpenUnitFixture.OpenUnitTask: Boolean;
 var
-  LTask   : TDPOpenUnitTask;
+  LTask   : TDptOpenUnitTask;
   LVersion: TDelphiVersion;
 begin
   Result := True;
-  LTask := TDPOpenUnitTask.Create;
+  LTask := TDptOpenUnitTask.Create;
   try
     if SameText(FDelphiVersion, 'RECENT') then
       LVersion := FindMostRecentDelphiVersion
@@ -107,10 +107,10 @@ end;
 
 function TDptPrintPathFixture.Path: String;
 var
-  LTask   : TDPPrintPathTask;
+  LTask   : TDptPrintPathTask;
   LVersion: TDelphiVersion;
 begin
-  LTask := TDPPrintPathTask.Create;
+  LTask := TDptPrintPathTask.Create;
   try
     if SameText(FDelphiVersion, 'RECENT') then
       LVersion := FindMostRecentDelphiVersion

@@ -32,7 +32,7 @@ type
 
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
 
-  TDPTaskBase = class
+  TDptTaskBase = class
   private
     FInstallation : TJclBorRADToolInstallation;
     FInstallations: TJclBorRADToolInstallations;
@@ -47,7 +47,7 @@ type
     procedure Execute; virtual; abstract;
   end;
 
-  TDPTaskClass = class of TDPTaskBase;
+  TDptTaskClass = class of TDptTaskBase;
 
 function FindMostRecentDelphiVersion: TDelphiVersion;
 function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
@@ -106,15 +106,15 @@ begin
     raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
 end;
 
-{ TDPTaskBase }
+{ TDptTaskBase }
 
-destructor TDPTaskBase.Destroy;
+destructor TDptTaskBase.Destroy;
 begin
   FInstallations.Free;
   inherited Destroy;
 end;
 
-function TDPTaskBase.Installation: TJclBorRADToolInstallation;
+function TDptTaskBase.Installation: TJclBorRADToolInstallation;
 var
   DelphiVersionAsInt: Integer;
 begin
@@ -138,7 +138,7 @@ begin
   Result := FInstallation;
 end;
 
-procedure TDPTaskBase.Output(const Text: String);
+procedure TDptTaskBase.Output(const Text: String);
 begin
   Writeln(Text);
 end;
