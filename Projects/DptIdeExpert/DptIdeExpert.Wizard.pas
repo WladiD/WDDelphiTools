@@ -1,19 +1,30 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit DptIdeExpert.Wizard;
 
 interface
 
 uses
+
   System.SysUtils,
   System.Classes,
   ToolsAPI,
+
   Slim.Server,
+
   DptIdeExpert.Fixtures;
 
 type
+
   TDptIdeWizard = class(TInterfacedObject, IOTAWizard)
   private
     FSlimServer: TSlimServer;
     function GetPort: Integer;
+    procedure LogToIde(const AMsg: string);
   public
     constructor Create;
     destructor Destroy; override;
@@ -46,19 +57,20 @@ var
 begin
   inherited Create;
   LPort := GetPort;
-  
+
   try
     FSlimServer := TSlimServer.Create(nil);
     FSlimServer.DefaultPort := LPort;
     FSlimServer.Active := True;
-    
+
     // Register Fixtures
     DptIdeExpert.Fixtures.RegisterIdeFixtures;
+
+    LogToIde(Format('DPT Slim Server active on port %d', [LPort]));
   except
     on E: Exception do
     begin
-      // Quietly fail or log to IDE messages if possible, 
-      // but don't crash the IDE startup.
+      LogToIde(Format('DPT Slim Server failed to start: %s', [E.Message]));
       if Assigned(FSlimServer) then
         FreeAndNil(FSlimServer);
     end;
@@ -71,8 +83,23 @@ begin
   begin
     FSlimServer.Active := False;
     FSlimServer.Free;
+    LogToIde('DPT Slim Server stopped');
   end;
   inherited;
+end;
+
+procedure TDptIdeWizard.LogToIde(const AMsg: string);
+var
+  LGroup      : IOTAMessageGroup;
+  LMsgServices: IOTAMessageServices;
+begin
+  if Supports(BorlandIDEServices, IOTAMessageServices, LMsgServices) then
+  begin
+    LGroup := LMsgServices.GetGroup('DPT');
+    if not Assigned(LGroup) then
+      LGroup := LMsgServices.AddMessageGroup('DPT');
+    LMsgServices.AddTitleMessage(AMsg, LGroup);
+  end;
 end;
 
 procedure TDptIdeWizard.Execute;

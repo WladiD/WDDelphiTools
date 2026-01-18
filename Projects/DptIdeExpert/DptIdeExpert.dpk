@@ -1,4 +1,4 @@
-package DptIdeExpert;
+﻿package DptIdeExpert;
 
 {$R *.res}
 {$IFDEF IMPLICITBUILDING This IFDEF should not be used by users}
@@ -40,7 +40,7 @@ requires
 contains
   DptIdeExpert.Wizard in 'DptIdeExpert.Wizard.pas',
   DptIdeExpert.Fixtures in 'DptIdeExpert.Fixtures.pas',
-  
+
   // Slim Framework Files (linked directly to avoid external package dependencies)
   Slim.Server in '..\..\..\SlimForDelphi\Source\Slim.Server.pas',
   Slim.Fixture in '..\..\..\SlimForDelphi\Source\Slim.Fixture.pas',
@@ -49,6 +49,9 @@ contains
   Slim.Logger in '..\..\..\SlimForDelphi\Source\Slim.Logger.pas',
   Slim.Symbol in '..\..\..\SlimForDelphi\Source\Slim.Symbol.pas',
   Slim.Common in '..\..\..\SlimForDelphi\Source\Slim.Common.pas',
-  Slim.Exec in '..\..\..\SlimForDelphi\Source\Slim.Exec.pas';
+  Slim.Exec in '..\..\..\SlimForDelphi\Source\Slim.Exec.pas',
+
+  // WDDT Root Files
+  WDDT.DelayedMethod in '..\..\WDDT.DelayedMethod.pas';
 
 end.

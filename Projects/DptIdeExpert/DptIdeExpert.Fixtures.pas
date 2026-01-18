@@ -1,27 +1,36 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit DptIdeExpert.Fixtures;
 
 interface
 
 uses
+
   System.SysUtils,
   System.Classes,
   ToolsAPI,
+
   Slim.Fixture;
 
 type
+
   [SlimFixture('TDptIdeOpenUnitFixture')]
   TDptIdeOpenUnitFixture = class(TSlimDecisionTableFixture)
   private
+    FLine    : String;
     FUnitPath: String;
-    FLine: String;
   public
     procedure Reset; override;
     
     [SlimMemberSyncMode(smSynchronized)]
     function OpenUnit: Boolean;
     
-    property UnitPath: String read FUnitPath write FUnitPath;
     property Line: String read FLine write FLine;
+    property UnitPath: String read FUnitPath write FUnitPath;
   end;
 
 procedure RegisterIdeFixtures;
@@ -45,12 +54,12 @@ end;
 function TDptIdeOpenUnitFixture.OpenUnit: Boolean;
 var
   ActionServices: IOTAActionServices;
+  EP            : TOTAEditPos;
+  I             : Integer;
+  LTargetLine   : Integer;
+  Module        : IOTAModule;
   ModuleServices: IOTAModuleServices;
-  SourceEditor: IOTASourceEditor;
-  Module: IOTAModule;
-  LTargetLine: Integer;
-  I: Integer;
-  EP: TOTAEditPos;
+  SourceEditor  : IOTASourceEditor;
 begin
   Result := False;
   
@@ -67,7 +76,7 @@ begin
   begin
     if Supports(BorlandIDEServices, IOTAModuleServices, ModuleServices) then
     begin
-      Module := NIL;
+      Module := nil;
       // Find the module we just opened
       for I := 0 to ModuleServices.ModuleCount - 1 do
       begin
@@ -78,7 +87,7 @@ begin
         end;
       end;
       
-      if (Module <> NIL) then
+      if Assigned(Module) then
       begin
         for I := 0 to Module.GetModuleFileCount - 1 do
         begin
