@@ -15,12 +15,11 @@ REM                              (e.g., "/t:Clean;Build" or "/p:DCC_Define=MYDEF
 REM ==================================================================================
 
 if "%~1"=="" (
-    echo ERROR: Please specify the project file (.dproj^) as the first parameter.
+    echo ERROR: Please specify the project file ^(.dproj^) as the first parameter.
     exit /b 1
 )
 
 set "PROJECT_FILE=%~1"
-
 set "BUILD_PLATFORM=Win32"
 if not "%~2"=="" set "BUILD_PLATFORM=%~2"
 
@@ -28,36 +27,34 @@ set "BUILD_CONFIG=Debug"
 if not "%~3"=="" set "BUILD_CONFIG=%~3"
 
 set "DELPHI_VERSION=RECENT"
-if not "%~4"=="" set "DELPHI_VERSION=%~4"
-
-set "EXTRA_MSBUILD_PARAMS="
-if not "%~5"=="" set "EXTRA_MSBUILD_PARAMS=%~5"
+if not "%~4" == "" set "DELPHI_VERSION=%~4"
+set "EXTRA_MSBUILD_PARAMS=%~5"
 
 REM Default/Fallback path to Delphi 12
-set "RSVARS_PATH=C:\ Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat"
-set "FOUND_VIA_DPT=0"
-
-REM Try to detect the requested Delphi version using DPT
+set "RSVARS_PATH=C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat"
 set "DPT_EXE=%~dp0Projects\DPT\DPT.exe"
-if exist "%DPT_EXE%" (
-    for /f "usebackq delims=" %%I in (`"%DPT_EXE%" %DELPHI_VERSION% PrintPath BdsBinPath`) do (
-        if exist "%%I\rsvars.bat" (
-            set "RSVARS_PATH=%%I\rsvars.bat"
-            set "FOUND_VIA_DPT=1"
-            echo Detected Delphi path via DPT (%DELPHI_VERSION%): %%I
-        )
+
+if not exist "%DPT_EXE%" goto :no_dpt
+
+echo Detecting Delphi path via DPT %DELPHI_VERSION%...
+for /f "usebackq delims=" %%I in (`"%DPT_EXE%" %DELPHI_VERSION% PrintPath BdsBinPath`) do (
+    if exist "%%I\rsvars.bat" (
+        set "RSVARS_PATH=%%I\rsvars.bat"
+        echo Found: %%I
+        goto :env_ready
     )
 )
 
-if "%FOUND_VIA_DPT%"=="0" (
-    echo WARNING: DPT could not find path for version "%DELPHI_VERSION%". Using fallback path:
-    echo "%RSVARS_PATH%"
-    if not exist "%RSVARS_PATH%" (
-        echo ERROR: Fallback path not found. Cannot set up Delphi environment.
-        exit /b 1
-    )
+:no_dpt
+echo WARNING: DPT not found or version %DELPHI_VERSION% not located.
+echo Using fallback path: %RSVARS_PATH%
+
+if not exist "%RSVARS_PATH%" (
+    echo ERROR: Delphi environment not found.
+    exit /b 1
 )
 
+:env_ready
 for %%i in ("%RSVARS_PATH%\..\..") do set "PRODUCTVERSION=%%~nxi"
 
 if not defined PRODUCTVERSION (
@@ -74,7 +71,7 @@ if %ERRORLEVEL% neq 0 (
 )
 
 echo.
-echo BDS environment variable is: "%BDS%"
+echo BDS is: "%BDS%"
 echo PRODUCTVERSION is: "%PRODUCTVERSION%"
 echo.
 
