@@ -83,7 +83,7 @@ begin
   begin
     FSlimServer.Active := False;
     FSlimServer.Free;
-    LogToIde('DPT Slim Server stopped');
+    // Do not log here, as IDE services might be already destroyed during shutdown
   end;
   inherited;
 end;
