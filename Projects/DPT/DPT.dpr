@@ -270,7 +270,7 @@ end;
 
 procedure InstructionScreen;
 begin
-  Writeln('Delphi (Package) Tools');
+  Writeln('Delphi Processing Tools');
   Writeln('0.05 - 2026 - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;

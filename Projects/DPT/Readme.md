@@ -1,4 +1,4 @@
-# DPT.exe
+# DPT (Delphi Processing Tools)
 This project was created for automated Delphi configuration from batch scripts. 
 
 Currently it supports not all Delphi versions, but will be expanded on demand.
@@ -26,6 +26,9 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
 
     RegisterPackage PathToBPL
       Register a package specified in PathToBPL as design time package
+
+    IsPackageRegistered PackageFileName
+      Checks if a package is registered (ExitCode 1 if not)
 
     PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path

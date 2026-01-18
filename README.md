@@ -7,7 +7,7 @@
 The `Projects/` folder contains standalone tools:
 
 *   **[DcuCompileTimes](Projects/DcuCompileTimes/Readme.md)**: An analysis tool that identifies compilation bottlenecks based on `.dcu` file timestamps.
-*   **[DPT (Delphi Project Tool)](Projects/DPT/Readme.md)**: A CLI tool for managing Delphi installations and packages (registering/unregistering BPLs, opening units in the IDE).
+*   **[DPT (Delphi Processing Tools)](Projects/DPT/Readme.md)**: A CLI tool for managing Delphi installations and packages (registering/unregistering BPLs, opening units in the IDE).
 *   **[FileVersion](Projects/FileVersion/Readme.md)**: A command-line tool for outputting version information of binary files (based on `WDDT.FileVersion.pas`).
 *   **[StaticGenerics](Projects/StaticGenerics/README.md) & [TmplCodeGen](Projects/TmplCodeGen/README.md)**: A system for generating static, typed lists and dictionaries at compile time to improve compilation speed when using generics extensively.
 
