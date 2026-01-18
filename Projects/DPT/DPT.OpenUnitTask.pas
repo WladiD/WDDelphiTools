@@ -15,8 +15,8 @@ uses
   Winapi.ShellAPI,
   Winapi.TlHelp32,
   Winapi.Windows,
+  Winapi.Winsock,
 
-  Generics.Collections,
   System.Classes,
   System.SysUtils,
   System.RegularExpressions,
@@ -29,7 +29,8 @@ type
   TDPOpenUnitTask = class(TDPTaskBase)
   private
     function  GetBdsProcessPath(ProcessID: DWORD): String;
-    function  IsBdsRunning(const BinPath: String; out FoundWnd: HWND): Boolean;
+    function  GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
+    function  IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
     procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
   public
     FullPathToUnit      : String;
@@ -39,6 +40,30 @@ type
   end;
 
 implementation
+
+const
+
+  TCP_TABLE_OWNER_PID_LISTENER = 3;
+  AF_INET = 2;
+
+type
+  PMibTcpRowOwnerPid = ^TMibTcpRowOwnerPid;
+  TMibTcpRowOwnerPid = record
+    dwState: DWORD;
+    dwLocalAddr: DWORD;
+    dwLocalPort: DWORD;
+    dwRemoteAddr: DWORD;
+    dwRemotePort: DWORD;
+    dwOwningPid: DWORD;
+  end;
+
+  PMibTcpTableOwnerPid = ^TMibTcpTableOwnerPid;
+  TMibTcpTableOwnerPid = record
+    dwNumEntries: DWORD;
+    table: array [0..0] of TMibTcpRowOwnerPid;
+  end;
+
+function GetExtendedTcpTable(pTcpTable: Pointer; var pdwSize: DWORD; bOrder: BOOL; ulAf: ULONG; TableClass: Integer; Reserved: ULONG): DWORD; stdcall; external 'iphlpapi.dll';
 
 type
 
@@ -52,10 +77,9 @@ type
 
   TEnumContext = class
   public
-    Candidates: TList<TWindowInfo>;
+    Candidates: TArray<TWindowInfo>;
     TargetPID : DWORD;
     constructor Create(PID: DWORD);
-    destructor Destroy; override;
   end;
 
 { TEnumContext }
@@ -63,13 +87,6 @@ type
 constructor TEnumContext.Create(PID: DWORD);
 begin
   TargetPID := PID;
-  Candidates := TList<TWindowInfo>.Create;
-end;
-
-destructor TEnumContext.Destroy;
-begin
-  Candidates.Free;
-  inherited;
 end;
 
 function EnumWindowsProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
@@ -95,7 +112,8 @@ begin
       GetWindowText(Handle, TitleBuf, 255);
       Info.Title := TitleBuf;
 
-      Context.Candidates.Add(Info);
+      SetLength(Context.Candidates, Length(Context.Candidates) + 1);
+      Context.Candidates[High(Context.Candidates)] := Info;
     end;
   end;
   Result := True;
@@ -121,12 +139,44 @@ begin
   end;
 end;
 
-function TDPOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND): Boolean;
+function TDPOpenUnitTask.GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
+var
+  Size   : DWORD;
+  Table  : PMibTcpTableOwnerPid;
+  Res    : DWORD;
+  Row    : PMibTcpRowOwnerPid;
+begin
+  Result := nil;
+  Size := 0;
+  GetExtendedTcpTable(nil, Size, False, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+
+  if Size = 0 then Exit;
+
+  GetMem(Table, Size);
+  try
+    Res := GetExtendedTcpTable(Table, Size, False, AF_INET, TCP_TABLE_OWNER_PID_LISTENER, 0);
+    if Res <> NO_ERROR then
+      Exit;
+
+    for var Loop: Integer := 0 to Table.dwNumEntries - 1 do
+    begin
+      Row := PMibTcpRowOwnerPid(PByte(@Table.table[0]) + (Loop * SizeOf(TMibTcpRowOwnerPid)));
+      if Row.dwOwningPid = ProcessID then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := ntohs(Row.dwLocalPort);
+      end;
+    end;
+  finally
+    FreeMem(Table);
+  end;
+end;
+
+function TDPOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
 var
   BestMatchHandle: HWND;
   Context        : TEnumContext;
   Entry          : TProcessEntry32;
-  FoundPID       : DWORD;
   FullProcessPath: String;
   I              : Integer;
   Snapshot       : THandle;
@@ -166,13 +216,13 @@ begin
     try
       EnumWindows(@EnumWindowsProc, LPARAM(Context));
 
-      if Context.Candidates.Count > 0 then
+      if Length(Context.Candidates) > 0 then
       begin
         BestMatchHandle := 0;
 
         // Strategy:
         // 1. Visible and Enabled
-        for I := 0 to Context.Candidates.Count - 1 do
+        for I := 0 to Length(Context.Candidates) - 1 do
           if Context.Candidates[I].IsVisible and Context.Candidates[I].IsEnabled then
           begin
             BestMatchHandle := Context.Candidates[I].Handle;
@@ -181,7 +231,7 @@ begin
 
         // 2. Visible
         if BestMatchHandle = 0 then
-          for I := 0 to Context.Candidates.Count - 1 do
+          for I := 0 to Length(Context.Candidates) - 1 do
             if Context.Candidates[I].IsVisible then
             begin
               BestMatchHandle := Context.Candidates[I].Handle;
@@ -255,6 +305,7 @@ procedure TDPOpenUnitTask.Execute;
 var
   BdsExe     : String;
   BinPath    : String;
+  FoundPID   : DWORD;
   FoundWnd   : HWND;
   IsEn       : Boolean;
   IsVis      : Boolean;
@@ -262,6 +313,8 @@ var
   Retries    : Integer;
   Title      : array[0..255] of Char;
   IdeClient  : TDptIdeClient;
+  ListeningPorts: TArray<Integer>;
+  Port       : Integer;
 
   procedure LaunchBDS;
   var
@@ -291,7 +344,7 @@ begin
       Writeln(Format('Warning: Member "%s" not found in implementation.', [MemberImplementation]));
   end;
 
-  // Try via IDE Plugin (Slim Server) - First Attempt
+  // Try via IDE Plugin (Slim Server) - First Attempt with default logic
   IdeClient := TDptIdeClient.Create;
   try
     if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
@@ -303,14 +356,14 @@ begin
     IdeClient.Free;
   end;
 
-  Writeln('IDE Plugin not reachable. Checking IDE status...');
+  Writeln('IDE Plugin not reachable via standard port. Checking IDE status...');
 
   BinPath := Installation.BinFolderName;
   BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
 
   Writeln('Checking for running BDS instance...');
 
-  if not IsBdsRunning(BinPath, FoundWnd) then
+  if not IsBdsRunning(BinPath, FoundWnd, FoundPID) then
   begin
     LaunchBDS;
 
@@ -318,19 +371,19 @@ begin
     Retries := 0;
     repeat
       Sleep(1000);
-      IsBdsRunning(BinPath, FoundWnd);
+      IsBdsRunning(BinPath, FoundWnd, FoundPID);
       Inc(Retries);
       Write('.');
     until (FoundWnd <> 0) or (Retries > 60);
     Writeln;
   end
   else
-    Writeln('BDS is already running (but plugin did not respond).');
+    Writeln('BDS is already running (PID: ' + IntToStr(FoundPID) + ').');
 
   Writeln('Waiting for main window to become visible and enabled...');
   Retries := 0;
   repeat
-    if not IsBdsRunning(BinPath, FoundWnd) then
+    if not IsBdsRunning(BinPath, FoundWnd, FoundPID) then
     begin
        Writeln;
        Writeln('BDS process is gone (terminated?). Restarting...');
@@ -375,18 +428,27 @@ begin
     ShowWindow(FoundWnd, SW_RESTORE);
   SetForegroundWindow(FoundWnd);
 
-  Writeln('IDE is ready. Retrying connection to IDE Plugin...');
+  Writeln('IDE is ready. Scanning for listening Slim ports (9000-9100) on PID ' + IntToStr(FoundPID) + '...');
 
   IdeClient := TDptIdeClient.Create;
   try
-    // Retry loop (give the expert some time to start the server if IDE just started)
+    // Retry loop: expert might need time to start server
     for Retries := 1 to 30 do
     begin
-       if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
+       ListeningPorts := GetListeningPorts(FoundPID);
+       for Port in ListeningPorts do
        begin
-         Writeln('Successfully opened unit via IDE Plugin.');
-         Exit;
+         if (Port >= 9000) and (Port <= 9100) then
+         begin
+           Writeln(Format(' Found candidate port %d. Trying to connect...', [Port]));
+           if IdeClient.TryOpenUnitOnPort(Port, FullPathToUnit, GoToLine) then
+           begin
+             Writeln('Successfully opened unit via IDE Plugin.');
+             Exit;
+           end;
+         end;
        end;
+
        Sleep(1000);
        Write('.');
     end;
@@ -395,7 +457,7 @@ begin
   end;
 
   Writeln;
-  raise Exception.Create('Failed to connect to IDE Plugin (Slim Server) even after IDE is ready. Ensure DptIdeExpert is installed.');
+  raise Exception.Create('Failed to connect to IDE Plugin (Slim Server). No matching listening port found or connection rejected.');
 end;
 
 end.

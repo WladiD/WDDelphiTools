@@ -28,6 +28,7 @@ type
     function SendInstructions(APort: Integer; const AInstructions: String): Boolean;
   public
     function TryOpenUnit(ADelphiVersion: TDelphiVersion; const AUnitPath: String; ALine: Integer): Boolean;
+    function TryOpenUnitOnPort(APort: Integer; const AUnitPath: String; ALine: Integer): Boolean;
   end;
 
 implementation
@@ -115,23 +116,20 @@ begin
       
     except
       on E: Exception do
-        Writeln('Debug: Connection failed: ' + E.Message);
+        Writeln(Format('Debug: Connection to %d failed: %s', [APort, E.Message]));
     end;
   finally
     Client.Free;
   end;
 end;
 
-function TDptIdeClient.TryOpenUnit(ADelphiVersion: TDelphiVersion; const AUnitPath: String; ALine: Integer): Boolean;
+function TDptIdeClient.TryOpenUnitOnPort(APort: Integer; const AUnitPath: String; ALine: Integer): Boolean;
 var
   Instructions: String;
   MasterList  : TSlimList;
-  Port        : Integer;
 begin
   Result := False;
-  Port := GetPortForVersion(ADelphiVersion);
-  if Port = 0 then
-    Exit;
+  if APort <= 0 then Exit;
 
   MasterList := SlimList([
     SlimList(['id1', 'make', 'inst_1', 'TDptIdeOpenUnitFixture']),
@@ -142,10 +140,18 @@ begin
   
   try
     Instructions := SlimListSerialize(MasterList);
-    Result := SendInstructions(Port, Instructions);
+    Result := SendInstructions(APort, Instructions);
   finally
     MasterList.Free;
   end;
+end;
+
+function TDptIdeClient.TryOpenUnit(ADelphiVersion: TDelphiVersion; const AUnitPath: String; ALine: Integer): Boolean;
+var
+  Port: Integer;
+begin
+  Port := GetPortForVersion(ADelphiVersion);
+  Result := TryOpenUnitOnPort(Port, AUnitPath, ALine);
 end;
 
 end.
