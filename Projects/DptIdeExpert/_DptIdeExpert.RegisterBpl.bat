@@ -1,6 +1,7 @@
 @echo off
 chcp 65001 > nul
 setlocal
+pushd %~dp0
 
 set "DPT_EXE=..\DPT\DPT.exe"
 
@@ -17,7 +18,7 @@ if "%BPL_PATH%"=="" (
     exit /b 1
 )
 
-set "BPL_FILE=%BPL_PATH%DptIdeExpert.bpl"
+set "BPL_FILE=%BPL_PATH%\DptIdeExpert.bpl"
 
 if not exist "%BPL_FILE%" (
     echo ERROR: DptIdeExpert.bpl not found at "%BPL_FILE%".
