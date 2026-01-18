@@ -1,6 +1,6 @@
 # DptIdeExpert
 
-A Delphi IDE Expert (Wizard) that embeds a **Slim Server** to allow remote control and automation of the IDE via the [Slim Protocol](http://fitnesse.org/FitNesse.UserGuide.WritingAcceptanceTests.SliM) (used by FitNesse).
+A Delphi IDE Expert (Wizard) that embeds a **Slim Server** to allow remote control and automation of the IDE via the [Slim Protocol](https://fitnesse.org/FitNesse/UserGuide/WritingAcceptanceTests/SliM/SlimProtocol.html) (used by FitNesse).
 
 This expert is currently used by the **DPT (Delphi Processing Tools)** CLI to reliably open units and navigate to a specific line or method from the command line or external scripts.
 
@@ -45,3 +45,4 @@ This command connects to the `DptIdeExpert` running in the most recent Delphi in
 - **`DptIdeExpert.Fixtures.pas`**: Contains the Slim fixtures (e.g., `TDptIdeOpenUnitFixture`) that expose IDE functionality (via `ToolsAPI`) to the Slim protocol.
 - **`_DptIdeExpert.Build.bat`**: Script to compile the project.
 - **`_DptIdeExpert.RegisterBpl.bat`**: Helper script to register the compiled BPL using `DPT.exe`.
+
