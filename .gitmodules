@@ -1,6 +1,12 @@
 [submodule "Lib/mORMot"]
 	path = Lib/mORMot
 	url = https://github.com/synopse/mORMot2.git
+	shallow = true
 [submodule "Lib/SendInputHelper"]
 	path = Lib/SendInputHelper
 	url = https://github.com/WladiD/SendInputHelper
+	shallow = true
+[submodule "Lib/jcl"]
+	path = Lib/jcl
+	url = https://github.com/project-jedi/jcl.git
+	shallow = true
