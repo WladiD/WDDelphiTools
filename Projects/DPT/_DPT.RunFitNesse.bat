@@ -9,7 +9,7 @@ rem Navigate to the FitNesse directory relative to the project root
 cd ..\..\..\SlimForDelphi\FitNesse
 
 echo Running Suite...
-java -jar fitnesse-standalone.jar -c "Playground.DPT?suite&format=text"
+java -jar fitnesse-standalone.jar -c "WDProject.DPT?suite&format=text"
 
 if %ERRORLEVEL% neq 0 (
     echo FitNesse test execution failed.
