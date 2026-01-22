@@ -316,6 +316,40 @@ type
 
 begin
   try
+    {$IFDEF FITNESSE}
+    var LPort: Integer;
+    var LIsSlimStart: Boolean;
+    LIsSlimStart := HasSlimPortParam(LPort);
+
+    // If no explicit port param and no other CLI params (<= 1, likely just exe name or empty), default to Slim Server on 9000
+    if (not LIsSlimStart) and (ParamCount <= 1) then
+    begin
+      LIsSlimStart := True;
+      LPort := 9000;
+    end;
+
+    if LIsSlimStart then
+    begin
+      var SlimServer: TSlimServer := TSlimServer.Create(nil);
+      try
+        SlimServer.DefaultPort := LPort;
+        SlimServer.Active := True;
+
+        Writeln('Slim Server started on port ', LPort);
+
+        Writeln('Registered Fixtures:');
+        for var Loop: Integer := 0 to TSlimFixtureResolverHelper.FFixtures.Count - 1 do
+          Writeln('  ', TClass(TSlimFixtureResolverHelper.FFixtures[Loop]).ClassName);
+
+        Writeln('Server running... (Ctrl+C or call StopServer to stop)');
+        TDptControl.StopServerEvent.WaitFor(INFINITE);
+      finally
+        SlimServer.Free;
+      end;
+      Exit;
+    end;
+    {$ENDIF}
+
     // Always process CLI commands if arguments are present (Version + Mode)
     if ParamCount > 1 then
     begin
@@ -323,28 +357,7 @@ begin
       Exit;
     end;
 
-    {$IFDEF FITNESSE}
-    var SlimServer: TSlimServer := TSlimServer.Create(nil);
-    try
-      var LPort: Integer;
-      if not HasSlimPortParam(LPort) then
-        LPort := 9000;
-
-      SlimServer.DefaultPort := LPort;
-      SlimServer.Active := True;
-
-      Writeln('Slim Server started on port ', LPort);
-
-      Writeln('Registered Fixtures:');
-      for var Loop: Integer := 0 to TSlimFixtureResolverHelper.FFixtures.Count - 1 do
-        Writeln('  ', TClass(TSlimFixtureResolverHelper.FFixtures[Loop]).ClassName);
-
-      Writeln('Server running... (Ctrl+C or call StopServer to stop)');
-      TDptControl.StopServerEvent.WaitFor(INFINITE);
-    finally
-      SlimServer.Free;
-    end;
-    {$ELSE}
+    {$IFNDEF FITNESSE}
     InstructionScreen;
     {$ENDIF}
   except
