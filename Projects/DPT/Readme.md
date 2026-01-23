@@ -30,7 +30,9 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
     IsPackageRegistered PackageFileName
       Checks if a package is registered (ExitCode 1 if not)
 
-    PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
+    PrintPath (BDSPath|BDSBINPath|
+               BPLOutputPath-Win32|BPLOutputPath-Win64|
+               DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path
 
     OpenUnit FullPathToUnit [GoToLine LineNumber] [GoToMemberImplementation Class.Member]
