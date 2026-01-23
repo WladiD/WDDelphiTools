@@ -322,9 +322,8 @@ begin
   Writeln('      Starts the IDE and waits until it is responsive.');
   Writeln;
   Writeln('    Stop');
-  Writeln('      Terminates the IDE process.');
+  Writeln('      Terminates the IDE process immediately. WARNING: Unsaved changes will be lost!');
 end;
-
 {$IFDEF FITNESSE}
 type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
