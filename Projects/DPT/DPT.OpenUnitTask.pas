@@ -21,6 +21,7 @@ uses
   System.SysUtils,
   System.RegularExpressions,
 
+  DPT.IdeManager,
   DPT.IdeClient,
   DPT.Types;
 
@@ -28,10 +29,7 @@ type
 
   TDptOpenUnitTask = class(TDptTaskBase)
   private
-    function  GetBdsProcessPath(ProcessID: DWORD): String;
     function  GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
-    function  IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
-    procedure WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
   public
     FullPathToUnit      : String;
     GoToLine            : Integer;
@@ -65,79 +63,7 @@ type
 
 function GetExtendedTcpTable(pTcpTable: Pointer; var pdwSize: DWORD; bOrder: BOOL; ulAf: ULONG; TableClass: Integer; Reserved: ULONG): DWORD; stdcall; external 'iphlpapi.dll';
 
-type
-
-  TWindowInfo = record
-    Handle   : HWND;
-    IsEnabled: Boolean;
-    IsVisible: Boolean;
-    PID      : DWORD;
-    Title    : String;
-  end;
-
-  TEnumContext = class
-  public
-    Candidates: TArray<TWindowInfo>;
-    TargetPID : DWORD;
-    constructor Create(PID: DWORD);
-  end;
-
-{ TEnumContext }
-
-constructor TEnumContext.Create(PID: DWORD);
-begin
-  TargetPID := PID;
-end;
-
-function EnumWindowsProc(Handle: HWND; LParam: LPARAM): BOOL; stdcall;
-var
-  ProcID   : DWORD;
-  ClassName: Array[0..255] of Char;
-  TitleBuf : Array[0..255] of Char;
-  Context  : TEnumContext;
-  Info     : TWindowInfo;
-begin
-  Context := TEnumContext(LParam);
-  GetWindowThreadProcessId(Handle, @ProcID);
-
-  if ProcID = Context.TargetPID then
-  begin
-    GetClassName(Handle, ClassName, 255);
-    if SameText(ClassName, 'TAppBuilder') then
-    begin
-      Info.Handle := Handle;
-      Info.PID := ProcID;
-      Info.IsVisible := IsWindowVisible(Handle);
-      Info.IsEnabled := IsWindowEnabled(Handle);
-      GetWindowText(Handle, TitleBuf, 255);
-      Info.Title := TitleBuf;
-
-      SetLength(Context.Candidates, Length(Context.Candidates) + 1);
-      Context.Candidates[High(Context.Candidates)] := Info;
-    end;
-  end;
-  Result := True;
-end;
-
 { TDptOpenUnitTask }
-
-function TDptOpenUnitTask.GetBdsProcessPath(ProcessID: DWORD): String;
-var
-  Buffer       : Array[0..MAX_PATH] of Char;
-  ProcessHandle: THandle;
-begin
-  Result := '';
-  ProcessHandle := OpenProcess(PROCESS_QUERY_INFORMATION or PROCESS_VM_READ, False, ProcessID);
-  if ProcessHandle = 0 then
-    Exit;
-
-  try
-    if GetModuleFileNameEx(ProcessHandle, 0, Buffer, MAX_PATH) > 0 then
-      Result := Buffer;
-  finally
-    CloseHandle(ProcessHandle);
-  end;
-end;
 
 function TDptOpenUnitTask.GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
 var
@@ -170,90 +96,6 @@ begin
   finally
     FreeMem(Table);
   end;
-end;
-
-function TDptOpenUnitTask.IsBdsRunning(const BinPath: String; out FoundWnd: HWND; out FoundPID: DWORD): Boolean;
-var
-  BestMatchHandle: HWND;
-  Context        : TEnumContext;
-  Entry          : TProcessEntry32;
-  FullProcessPath: String;
-  I              : Integer;
-  Snapshot       : THandle;
-  TargetBdsExe   : String;
-begin
-  Result := False;
-  FoundWnd := 0;
-  FoundPID := 0;
-  TargetBdsExe := UpperCase(IncludeTrailingPathDelimiter(BinPath) + 'bds.exe');
-
-  Snapshot := CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-  if Snapshot = INVALID_HANDLE_VALUE then
-    Exit;
-
-  try
-    Entry.dwSize := SizeOf(Entry);
-    if Process32First(Snapshot, Entry) then
-    repeat
-      if SameText(Entry.szExeFile, 'bds.exe') then
-      begin
-        FullProcessPath := UpperCase(GetBdsProcessPath(Entry.th32ProcessID));
-        if FullProcessPath = TargetBdsExe then
-        begin
-          FoundPID := Entry.th32ProcessID;
-          Result := True;
-          Break;
-        end;
-      end;
-    until not Process32Next(Snapshot, Entry);
-  finally
-    CloseHandle(Snapshot);
-  end;
-
-  if Result and (FoundPID > 0) then
-  begin
-    Context := TEnumContext.Create(FoundPID);
-    try
-      EnumWindows(@EnumWindowsProc, LPARAM(Context));
-
-      if Length(Context.Candidates) > 0 then
-      begin
-        BestMatchHandle := 0;
-
-        // Strategy:
-        // 1. Visible and Enabled
-        for I := 0 to Length(Context.Candidates) - 1 do
-          if Context.Candidates[I].IsVisible and Context.Candidates[I].IsEnabled then
-          begin
-            BestMatchHandle := Context.Candidates[I].Handle;
-            Break;
-          end;
-
-        // 2. Visible
-        if BestMatchHandle = 0 then
-          for I := 0 to Length(Context.Candidates) - 1 do
-            if Context.Candidates[I].IsVisible then
-            begin
-              BestMatchHandle := Context.Candidates[I].Handle;
-              Break;
-            end;
-
-        // 3. Any
-        if BestMatchHandle = 0 then
-           BestMatchHandle := Context.Candidates[0].Handle;
-
-        FoundWnd := BestMatchHandle;
-      end;
-    finally
-      Context.Free;
-    end;
-  end;
-end;
-
-procedure TDptOpenUnitTask.WaitForInputIdleOrTimeout(ProcessHandle: THandle; Timeout: DWORD);
-begin
-  if WaitForInputIdle(ProcessHandle, Timeout) = WAIT_FAILED then
-    Sleep(Timeout); // Fallback
 end;
 
 function FindImplementationLine(const FileName, MemberName: String): Integer;
@@ -303,36 +145,14 @@ end;
 
 procedure TDptOpenUnitTask.Execute;
 var
-  BdsExe     : String;
   BinPath    : String;
   FoundPID   : DWORD;
   FoundWnd   : HWND;
-  IsEn       : Boolean;
-  IsVis      : Boolean;
   ProcessInfo: TProcessInformation;
   Retries    : Integer;
-  Title      : array[0..255] of Char;
   IdeClient  : TDptIdeClient;
   ListeningPorts: TArray<Integer>;
   Port       : Integer;
-
-  procedure LaunchBDS;
-  var
-    StartupInfo: TStartupInfo;
-  begin
-    Writeln('Starting BDS: ' + BdsExe);
-    FillChar(StartupInfo, SizeOf(StartupInfo), 0);
-    StartupInfo.cb := SizeOf(StartupInfo);
-
-    if not CreateProcess(PChar(BdsExe), nil, nil, nil, False, 0, nil, PChar(BinPath), StartupInfo, ProcessInfo) then
-      raise Exception.Create('Failed to start BDS: ' + SysErrorMessage(GetLastError));
-
-    CloseHandle(ProcessInfo.hThread);
-
-    Writeln('Waiting for BDS to become ready...');
-    WaitForInputIdleOrTimeout(ProcessInfo.hProcess, 60000); // Wait up to 60s for init
-    CloseHandle(ProcessInfo.hProcess);
-  end;
 
 begin
   if (GoToLine <= 0) and (MemberImplementation <> '') then
@@ -359,74 +179,20 @@ begin
   Writeln('IDE Plugin not reachable via standard port. Checking IDE status...');
 
   BinPath := Installation.BinFolderName;
-  BdsExe := IncludeTrailingPathDelimiter(BinPath) + 'bds.exe';
 
   Writeln('Checking for running BDS instance...');
 
-  if not IsBdsRunning(BinPath, FoundWnd, FoundPID) then
+  if not TDptIdeManager.IsBdsRunning(BinPath, FoundWnd, FoundPID) then
   begin
-    LaunchBDS;
-
-    // Poll for the window
-    Retries := 0;
-    repeat
-      Sleep(1000);
-      IsBdsRunning(BinPath, FoundWnd, FoundPID);
-      Inc(Retries);
-      Write('.');
-    until (FoundWnd <> 0) or (Retries > 60);
-    Writeln;
+    TDptIdeManager.StartIDE(BinPath, ProcessInfo);
+    CloseHandle(ProcessInfo.hProcess);
   end
   else
     Writeln('BDS is already running (PID: ' + IntToStr(FoundPID) + ').');
 
-  Writeln('Waiting for main window to become visible and enabled...');
-  Retries := 0;
-  repeat
-    if not IsBdsRunning(BinPath, FoundWnd, FoundPID) then
-    begin
-       Writeln;
-       Writeln('BDS process is gone (terminated?). Restarting...');
-       LaunchBDS;
-       Retries := 0; // Reset timeout
-       FoundWnd := 0;
-    end;
+  TDptIdeManager.WaitForIDE(BinPath, FoundWnd, FoundPID);
 
-    IsVis := False;
-    IsEn := False;
-    Title[0] := #0;
-
-    if FoundWnd <> 0 then
-    begin
-      IsVis := IsWindowVisible(FoundWnd);
-      IsEn := IsWindowEnabled(FoundWnd);
-      GetWindowText(FoundWnd, Title, 255);
-
-      if IsVis and IsEn then
-      begin
-        Writeln(Format(' Window %d is ready: "%s"', [FoundWnd, Title]));
-        Break;
-      end;
-    end;
-
-    Sleep(1000);
-    Inc(Retries);
-    Write('.');
-    if (Retries mod 5) = 0 then
-       Write(Format('[Handle:%d Vis:%s En:%s Title:"%s"]', [FoundWnd, BoolToStr(IsVis, True), BoolToStr(IsEn, True), Title]));
-
-  until Retries > 120; // Wait up to 2 mins
-  Writeln;
-
-  if FoundWnd = 0 then
-      raise Exception.Create('BDS main window could not be found.');
-
-  // Give it a bit more time to settle
-  Sleep(2000);
-
-  if IsIconic(FoundWnd) then
-    ShowWindow(FoundWnd, SW_RESTORE);
-  SetForegroundWindow(FoundWnd);
+  TDptIdeManager.BringToFront(FoundWnd);
 
   Writeln('IDE is ready. Scanning for listening Slim ports (9000-9100) on PID ' + IntToStr(FoundPID) + '...');
 

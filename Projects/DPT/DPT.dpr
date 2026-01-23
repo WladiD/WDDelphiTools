@@ -255,6 +255,16 @@ begin
       CMDLine.ConsumeParameter;
       SerializeHandleProtocolTask;
     end
+    else if SameText(ParamValue, 'Start') then
+    begin
+      CMDLine.ConsumeParameter;
+      InitDPTask(TDptStartTask);
+    end
+    else if SameText(ParamValue, 'Stop') then
+    begin
+      CMDLine.ConsumeParameter;
+      InitDPTask(TDptStopTask);
+    end
     else
       CMDLine.InvalidParameter('Not accepted mode');
 
@@ -307,6 +317,12 @@ begin
   Writeln;
   Writeln('    HandleProtocol dpt://Command/?Params');
   Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)');
+  Writeln;
+  Writeln('    Start');
+  Writeln('      Starts the IDE and waits until it is responsive.');
+  Writeln;
+  Writeln('    Stop');
+  Writeln('      Terminates the IDE process.');
 end;
 
 {$IFDEF FITNESSE}
