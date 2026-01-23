@@ -35,7 +35,8 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
                DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path
 
-    OpenUnit FullPathToUnit [GoToLine LineNumber] [GoToMemberImplementation Class.Member]
+    OpenUnit FullPathToUnit ([GoToLine LineNumber]|
+                             [GoToMemberImplementation Class.Member])
       Opens the specified unit in the IDE. Starts IDE if not running.
 
     HandleProtocol dpt://Command/?Params
