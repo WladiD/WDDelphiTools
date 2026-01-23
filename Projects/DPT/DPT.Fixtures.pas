@@ -49,6 +49,16 @@ type
     property PathType: String read FPathType write FPathType;
   end;
 
+  [SlimFixture('TDptIdeLifecycleFixture')]
+  TDptIdeLifecycleFixture = class(TSlimFixture)
+  private
+    FDelphiVersion: String;
+  public
+    procedure SetDelphiVersion(const Value: String);
+    function StartIde: Boolean;
+    function StopIde: Boolean;
+  end;
+
   [SlimFixture('TDptControl')]
   TDptControl = class(TSlimFixture)
   public
@@ -125,6 +135,61 @@ begin
   end;
 end;
 
+{ TDptIdeLifecycleFixture }
+
+procedure TDptIdeLifecycleFixture.SetDelphiVersion(const Value: String);
+begin
+  FDelphiVersion := Value;
+end;
+
+function TDptIdeLifecycleFixture.StartIde: Boolean;
+var
+  LTask: TDptStartTask;
+  LVersion: TDelphiVersion;
+begin
+  Result := True;
+  LTask := TDptStartTask.Create;
+  try
+    try
+      if SameText(FDelphiVersion, 'RECENT') then
+        LVersion := FindMostRecentDelphiVersion
+      else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
+        raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
+
+      LTask.DelphiVersion := LVersion;
+      LTask.Execute;
+    except
+      Result := False;
+    end;
+  finally
+    LTask.Free;
+  end;
+end;
+
+function TDptIdeLifecycleFixture.StopIde: Boolean;
+var
+  LTask: TDptStopTask;
+  LVersion: TDelphiVersion;
+begin
+  Result := True;
+  LTask := TDptStopTask.Create;
+  try
+    try
+      if SameText(FDelphiVersion, 'RECENT') then
+        LVersion := FindMostRecentDelphiVersion
+      else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
+        raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
+
+      LTask.DelphiVersion := LVersion;
+      LTask.Execute;
+    except
+      Result := False;
+    end;
+  finally
+    LTask.Free;
+  end;
+end;
+
 { TDptControl }
 
 class constructor TDptControl.Create;
@@ -153,5 +218,6 @@ initialization
 RegisterSlimFixture(TDptControl);
 RegisterSlimFixture(TDptOpenUnitFixture);
 RegisterSlimFixture(TDptPrintPathFixture);
+RegisterSlimFixture(TDptIdeLifecycleFixture);
 
 end.
