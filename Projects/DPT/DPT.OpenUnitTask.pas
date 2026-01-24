@@ -153,8 +153,9 @@ var
   IdeClient  : TDptIdeClient;
   ListeningPorts: TArray<Integer>;
   Port       : Integer;
-
 begin
+  BinPath := Installation.BinFolderName;
+
   if (GoToLine <= 0) and (MemberImplementation <> '') then
   begin
     GoToLine := FindImplementationLine(FullPathToUnit, MemberImplementation);
@@ -170,6 +171,9 @@ begin
     if IdeClient.TryOpenUnit(DelphiVersion, FullPathToUnit, GoToLine) then
     begin
       Writeln('Successfully opened unit via IDE Plugin.');
+      // Ensure IDE is brought to front even if plugin handled the request
+      if TDptIdeManager.IsBdsRunning(BinPath, FoundWnd, FoundPID) then
+        TDptIdeManager.BringToFront(FoundWnd);
       Exit;
     end;
   finally
@@ -177,8 +181,6 @@ begin
   end;
 
   Writeln('IDE Plugin not reachable via standard port. Checking IDE status...');
-
-  BinPath := Installation.BinFolderName;
 
   Writeln('Checking for running BDS instance...');
 

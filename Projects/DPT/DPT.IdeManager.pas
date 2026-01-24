@@ -212,11 +212,30 @@ begin
 end;
 
 class procedure TDptIdeManager.BringToFront(AWnd: HWND);
+var
+  CurThreadID : DWORD;
+  FgThreadID  : DWORD;
 begin
   if AWnd = 0 then Exit;
-  if IsIconic(AWnd) then
-    ShowWindow(AWnd, SW_RESTORE);
-  SetForegroundWindow(AWnd);
+
+  CurThreadID := GetCurrentThreadId;
+  FgThreadID := GetWindowThreadProcessId(GetForegroundWindow, nil);
+
+  if CurThreadID <> FgThreadID then
+    AttachThreadInput(FgThreadID, CurThreadID, True);
+
+  try
+    if IsIconic(AWnd) then
+      ShowWindow(AWnd, SW_RESTORE)
+    else
+      ShowWindow(AWnd, SW_SHOW);
+
+    SetForegroundWindow(AWnd);
+    BringWindowToTop(AWnd);
+  finally
+    if CurThreadID <> FgThreadID then
+      AttachThreadInput(FgThreadID, CurThreadID, False);
+  end;
 end;
 
 class procedure TDptIdeManager.WaitForIDE(const ABinPath: String; out AFoundWnd: HWND; out AFoundPID: DWORD);
