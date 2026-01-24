@@ -73,6 +73,17 @@ type
     procedure Execute; override;
   end;
 
+  TDptBuildTask = class(TDptTaskBase)
+  private
+    function RunShellCommand(const CommandLine: String): Integer;
+  public
+    Config        : String;
+    ExtraArgs     : String;
+    ProjectFile   : String;
+    TargetPlatform: String;
+    procedure Execute; override;
+  end;
+
 const
   ValidPathBds            = 'BDSPath';
   ValidPathBdsBin         = 'BDSBINPath';
@@ -259,6 +270,68 @@ begin
     Writeln('IDE stopped.')
   else
     Writeln('IDE was not running or could not be stopped.');
+end;
+
+{ TDptBuildTask }
+
+function TDptBuildTask.RunShellCommand(const CommandLine: String): Integer;
+var
+  Cmd: String;
+  PI : TProcessInformation;
+  SI : TStartupInfo;
+begin
+  FillChar(SI, SizeOf(SI), 0);
+  SI.cb := SizeOf(SI);
+  // Ensure the new process inherits standard handles if we want to pipe output,
+  // but for console sharing, simple inheritance usually works if bInheritHandles is True.
+  // However, simply running in the same console usually just requires not creating a new console.
+  Cmd := CommandLine;
+  UniqueString(Cmd);
+
+  if not CreateProcess(nil, PChar(Cmd), nil, nil, True, 0, nil, nil, SI, PI) then
+    RaiseLastOSError;
+
+  try
+    WaitForSingleObject(PI.hProcess, INFINITE);
+    GetExitCodeProcess(PI.hProcess, DWORD(Result));
+  finally
+    CloseHandle(PI.hProcess);
+    CloseHandle(PI.hThread);
+  end;
+end;
+
+procedure TDptBuildTask.Execute;
+var
+  CmdLine       : String;
+  ExitCode      : Integer;
+  ProductVersion: String;
+  RsvarsPath    : String;
+begin
+  RsvarsPath := IncludeTrailingPathDelimiter(Installation.BinFolderName) + 'rsvars.bat';
+  if not FileExists(RsvarsPath) then
+    raise Exception.Create('rsvars.bat not found at ' + RsvarsPath);
+
+  // Extract ProductVersion from RootDir (e.g. "23.0" from ".../Studio/23.0")
+  ProductVersion := ExtractFileName(ExcludeTrailingPathDelimiter(Installation.RootDir));
+
+  Writeln('Setting up Delphi environment from: ' + RsvarsPath);
+  Writeln('PRODUCTVERSION: ' + ProductVersion);
+  Writeln('Building ' + ProjectFile + '...');
+
+  // Build command line
+  // cmd.exe /c ""rsvars.bat" && msbuild "Project" /t:Build /p:Configuration=Config;Platform=Platform;PRODUCTVERSION=ProductVersion ExtraArgs"
+  CmdLine := Format('/c ""%s" && msbuild "%s" /t:Build /p:Configuration=%s;Platform=%s;PRODUCTVERSION=%s %s"',
+    [RsvarsPath, ProjectFile, Config, TargetPlatform, ProductVersion, ExtraArgs]);
+
+  ExitCode := RunShellCommand('cmd.exe ' + CmdLine);
+
+  if ExitCode <> 0 then
+  begin
+    Writeln('ERROR: Build failed with exit code ' + IntToStr(ExitCode));
+    System.ExitCode := ExitCode;
+  end
+  else
+    Writeln('Build successful.');
 end;
 
 end.

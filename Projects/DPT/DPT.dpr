@@ -146,6 +146,44 @@ var
     Writeln('Opening unit "' + FullPathToUnit + '"...');
   end;
 
+  procedure SerializeBuildTask;
+  var
+    LocalDPTask: TDptBuildTask absolute DPTask;
+  begin
+    InitDPTask(TDptBuildTask);
+
+    // ProjectFile (Required)
+    LocalDPTask.ProjectFile := CMDLine.CheckParameter('ProjectFile');
+    CMDLine.ConsumeParameter;
+
+    // Platform (Optional)
+    if CMDLine.HasParameter then
+    begin
+      LocalDPTask.TargetPlatform := CMDLine.CheckParameter('Platform');
+      CMDLine.ConsumeParameter;
+    end
+    else
+      LocalDPTask.TargetPlatform := 'Win32';
+
+    // Config (Optional)
+    if CMDLine.HasParameter then
+    begin
+      LocalDPTask.Config := CMDLine.CheckParameter('Config');
+      CMDLine.ConsumeParameter;
+    end
+    else
+      LocalDPTask.Config := 'Debug';
+
+    // ExtraArgs (Optional - consume all remaining)
+    LocalDPTask.ExtraArgs := '';
+    while CMDLine.HasParameter do
+    begin
+       LocalDPTask.ExtraArgs := LocalDPTask.ExtraArgs + ' ' + CMDLine.CheckParameter('ExtraArg');
+       CMDLine.ConsumeParameter;
+    end;
+    LocalDPTask.ExtraArgs := Trim(LocalDPTask.ExtraArgs);
+  end;
+
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -225,6 +263,11 @@ begin
       CMDLine.ConsumeParameter;
       SerializeRemovePackagesBySourceDirTask;
     end
+    else if SameText(ParamValue, 'Build') then
+    begin
+      CMDLine.ConsumeParameter;
+      SerializeBuildTask;
+    end
     else if SameText(ParamValue, 'RemovePackage') then
     begin
       CMDLine.ConsumeParameter;
@@ -295,6 +338,11 @@ begin
 
   Writeln;
   Writeln('  Action');
+  Writeln('    Build ProjectFile [Platform] [Config] [ExtraArgs]');
+  Writeln('      Builds the specified project using MSBuild.');
+  Writeln('      Defaults: Platform=Win32, Config=Debug');
+  Writeln('      Example: DPT D12 Build MyProject.dproj Win64 Release "/t:Clean;Build"');
+  Writeln;
   Writeln('    HandleProtocol dpt://Command/?Params');
   Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)');
   Writeln;
