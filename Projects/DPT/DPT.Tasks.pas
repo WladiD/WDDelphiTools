@@ -319,9 +319,9 @@ begin
   Writeln('Building ' + ProjectFile + '...');
 
   // Build command line
-  // cmd.exe /c ""rsvars.bat" && msbuild "Project" /t:Build /p:Configuration=Config;Platform=Platform;PRODUCTVERSION=ProductVersion ExtraArgs"
-  CmdLine := Format('/c ""%s" && msbuild "%s" /t:Build /p:Configuration=%s;Platform=%s;PRODUCTVERSION=%s %s"',
-    [RsvarsPath, ProjectFile, Config, TargetPlatform, ProductVersion, ExtraArgs]);
+  // cmd.exe /c ""rsvars.bat" && msbuild "%PROJECT_FILE%" /t:Build /p:Configuration=%BUILD_CONFIG%;Config=%BUILD_CONFIG%;Platform=%BUILD_PLATFORM%;PRODUCTVERSION=%PRODUCTVERSION% %EXTRA_MSBUILD_PARAMS%"
+  CmdLine := Format('/c ""%s" && msbuild "%s" /t:Build /p:Configuration=%s;Config=%s;Platform=%s;PRODUCTVERSION=%s %s"',
+    [RsvarsPath, ProjectFile, Config, Config, TargetPlatform, ProductVersion, ExtraArgs]);
 
   ExitCode := RunShellCommand('cmd.exe ' + CmdLine);
 
