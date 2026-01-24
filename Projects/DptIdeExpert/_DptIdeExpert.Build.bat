@@ -6,9 +6,8 @@ pushd %~dp0
 set "DELPHI_VERSION=RECENT"
 if not "%~1"=="" set "DELPHI_VERSION=%~1"
 
-rem Call the base build script for DptIdeExpert.dproj
 rem Building in Debug configuration for development
-call ..\..\_BuildBase.bat "DptIdeExpert.dproj" Win32 Debug "%DELPHI_VERSION%"
+..\DPT\DPT.exe "%DELPHI_VERSION%" Build "DptIdeExpert.dproj" Win32 Debug
 
 if %ERRORLEVEL% neq 0 (
     echo Build failed!
