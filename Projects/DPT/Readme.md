@@ -5,7 +5,7 @@ Currently it supports not all Delphi versions, but will be expanded on demand.
 
 ## Usage
 ```
-DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
+DPT.exe DelphiVersion Action [OtherActionSpecificParameters]
 
   DelphiVersion
     RECENT (automatically selects the newest installed version)
@@ -15,7 +15,7 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
     D11
     D12
 
-  Mode
+  Action
     RemovePackagesBySourceDir SourceDir
       Removes the registration of design time packages for the defined
       Delphi-IDE which are located in SourceDir
@@ -30,9 +30,7 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
     IsPackageRegistered PackageFileName
       Checks if a package is registered (ExitCode 1 if not)
 
-    PrintPath (BDSPath|BDSBINPath|
-               BPLOutputPath-Win32|BPLOutputPath-Win64|
-               DCPOutputPath-Win32|DCPOutputPath-Win64)
+    PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
       Prints the path
 
     OpenUnit FullPathToUnit ([GoToLine LineNumber]|
@@ -41,6 +39,12 @@ DPT.exe DelphiVersion Mode [OtherModeSpecificParameters]
 
     HandleProtocol dpt://Command/?Params
       Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
+
+    Start
+      Starts the IDE and waits until it is responsive.
+
+    Stop
+      Terminates the IDE process immediately. WARNING: Unsaved changes will be lost!
 ```
 
 ## URL Protocol Registration

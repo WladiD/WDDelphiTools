@@ -219,7 +219,7 @@ begin
     else
       CMDLine.InvalidParameter('Not accepted version');
 
-    ParamValue := CMDLine.CheckParameter('Mode');
+    ParamValue := CMDLine.CheckParameter('Action');
     if SameText(ParamValue, 'RemovePackagesBySourceDir') then
     begin
       CMDLine.ConsumeParameter;
@@ -266,7 +266,7 @@ begin
       InitDPTask(TDptStopTask);
     end
     else
-      CMDLine.InvalidParameter('Not accepted mode');
+      CMDLine.InvalidParameter('Not accepted action');
 
     if Assigned(DPTask) then
       DPTask.Execute
@@ -285,7 +285,7 @@ begin
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
   Writeln('Usage:');
-  Writeln(ExtractFileName(ParamStr(0)) + ' DelphiVersion Mode [OtherModeSpecificParameters]');
+  Writeln(ExtractFileName(ParamStr(0)) + ' DelphiVersion Action [OtherActionSpecificParameters]');
   Writeln;
   Writeln('  DelphiVersion');
   Writeln('    RECENT (automatically selects the newest installed version)');
@@ -294,7 +294,7 @@ begin
     Writeln('    ' + DelphiVersionStringArray[TDelphiVersion(Loop)]);
 
   Writeln;
-  Writeln('  Mode');
+  Writeln('  Action');
   Writeln('    RemovePackagesBySourceDir SourceDir');
   Writeln('      Removes the registration of design time packages for the defined');
   Writeln('      Delphi-IDE which are located in SourceDir');
@@ -309,10 +309,13 @@ begin
   Writeln('    IsPackageRegistered PackageFileName');
   Writeln('      Checks if a package is registered (ExitCode 1 if not)');
   Writeln;
-  Writeln('    PrintPath (' + ValidPathToPrint + ')');
+  Writeln('    PrintPath (' + ValidPathBds + '|' + ValidPathBdsBin + '|');
+  Writeln('               ' + ValidPathBplOutputWin32 + '|' + ValidPathBplOutputWin64 + '|');
+  Writeln('               ' + ValidPathDcpOutputWin32 + '|' + ValidPathDcpOutputWin64 + ')');
   Writeln('      Prints the path');
   Writeln;
-  Writeln('    OpenUnit FullPathToUnit [GoToLine LineNumber] [GoToMemberImplementation Class.Member]');
+  Writeln('    OpenUnit FullPathToUnit ([GoToLine LineNumber]|');
+  Writeln('                             [GoToMemberImplementation Class.Member])');
   Writeln('      Opens the specified unit in the IDE. Starts IDE if not running.');
   Writeln;
   Writeln('    HandleProtocol dpt://Command/?Params');
@@ -365,7 +368,7 @@ begin
     end;
     {$ENDIF}
 
-    // Always process CLI commands if arguments are present (Version + Mode)
+    // Always process CLI commands if arguments are present (Version + Action)
     if ParamCount > 1 then
     begin
       ProcessCMDLine;
