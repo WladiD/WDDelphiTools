@@ -35,6 +35,7 @@ type
 implementation
 
 type
+
   TWindowInfo = record
     Handle   : HWND;
     IsEnabled: Boolean;
@@ -213,38 +214,39 @@ end;
 
 class procedure TDptIdeManager.BringToFront(AWnd: HWND);
 var
+  Attach      : Boolean;
   CurThreadID : DWORD;
   FgThreadID  : DWORD;
 begin
-  if AWnd = 0 then Exit;
+  if AWnd = 0 then
+    Exit;
 
   CurThreadID := GetCurrentThreadId;
   FgThreadID := GetWindowThreadProcessId(GetForegroundWindow, nil);
+  Attach := CurThreadID <> FgThreadID;
 
-  if CurThreadID <> FgThreadID then
+  if Attach then
     AttachThreadInput(FgThreadID, CurThreadID, True);
-
   try
     if IsIconic(AWnd) then
       ShowWindow(AWnd, SW_RESTORE)
     else
       ShowWindow(AWnd, SW_SHOW);
-
     SetForegroundWindow(AWnd);
     BringWindowToTop(AWnd);
   finally
-    if CurThreadID <> FgThreadID then
+    if Attach then
       AttachThreadInput(FgThreadID, CurThreadID, False);
   end;
 end;
 
 class procedure TDptIdeManager.WaitForIDE(const ABinPath: String; out AFoundWnd: HWND; out AFoundPID: DWORD);
 var
-  IsEn   : Boolean;
-  IsVis  : Boolean;
+  IsEn       : Boolean;
+  IsVis      : Boolean;
   ProcessInfo: TProcessInformation;
-  Retries: Integer;
-  Title  : array[0..255] of Char;
+  Retries    : Integer;
+  Title      : Array[0..255] of Char;
 begin
   Writeln('Waiting for main window to become visible and enabled...');
   Retries := 0;
@@ -280,22 +282,20 @@ begin
     Inc(Retries);
     Write('.');
     if (Retries mod 5) = 0 then
-       Write(Format('[Handle:%d Vis:%s En:%s Title:"%s"]', [AFoundWnd, BoolToStr(IsVis, True), BoolToStr(IsEn, True), Title]));
-
+       Write(Format('[Handle:%d Vis:%s En:%s Title:"%s"]',
+         [AFoundWnd, BoolToStr(IsVis, True), BoolToStr(IsEn, True), Title]));
   until Retries > 120; // Wait up to 2 mins
+
   Writeln;
-
   if AFoundWnd = 0 then
-      raise Exception.Create('BDS main window could not be found.');
-
-  // Give it a bit more time to settle
-  Sleep(2000);
+    raise Exception.Create('BDS main window could not be found.');
+  Sleep(2000); // Give it a bit more time to settle
 end;
 
 class function TDptIdeManager.TerminateIDE(const ABinPath: String): Boolean;
 var
-  FoundWnd: HWND;
-  FoundPID: DWORD;
+  FoundPID     : DWORD;
+  FoundWnd     : HWND;
   ProcessHandle: THandle;
 begin
   Result := False;
@@ -304,14 +304,16 @@ begin
     Writeln(Format('Terminating BDS (PID: %d)...', [FoundPID]));
     ProcessHandle := OpenProcess(PROCESS_TERMINATE, False, FoundPID);
     if ProcessHandle <> 0 then
-    try
-      Result := TerminateProcess(ProcessHandle, 0);
-      if Result then
-        Writeln('Success.')
-      else
-        Writeln('Failed: ' + SysErrorMessage(GetLastError));
-    finally
-      CloseHandle(ProcessHandle);
+    begin
+      try
+        Result := TerminateProcess(ProcessHandle, 0);
+        if Result then
+          Writeln('Success.')
+        else
+          Writeln('Failed: ' + SysErrorMessage(GetLastError));
+      finally
+        CloseHandle(ProcessHandle);
+      end
     end
     else
       Writeln('Failed to open process: ' + SysErrorMessage(GetLastError));
