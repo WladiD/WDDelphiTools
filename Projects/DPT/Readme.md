@@ -16,6 +16,11 @@ DPT.exe DelphiVersion Action [OtherActionSpecificParameters]
     D12
 
   Action
+    Build ProjectFile [Platform] [Config] [ExtraArgs]
+      Builds the specified project using MSBuild.
+      Defaults: Platform=Win32, Config=Debug
+      Example: DPT D12 Build MyProject.dproj Win64 Release "/t:Clean;Build"
+
     HandleProtocol dpt://Command/?Params
       Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
 
@@ -65,7 +70,7 @@ Once registered, you can use links like:
 ### Print BDSBinPath
 If you want simply to determine the bin path of a specific Delphi version, just try this:
 
-    DPT D10.1 PrintPath BDSBinPath
+    DPT.exe D10.1 PrintPath BDSBinPath
 
 Output
 
@@ -75,7 +80,7 @@ Output
 
 ### Print BPLOutputPath
 
-    dpt D10.1 PrintPath BPLOutputPath-Win32
+    DPT.exe D10.1 PrintPath BPLOutputPath-Win32
 
 Output
 
@@ -85,7 +90,7 @@ Output
 
 ### Remove a single package
 
-    DPT D10.1 RemovePackage JclBaseExpert240
+    DPT.exe D10.1 RemovePackage JclBaseExpert240
 
 Output
 ```
@@ -98,7 +103,7 @@ C:\Dev\Bpl\JclBaseExpert240.bpl > deleted
 ### Remove packages
 If you want to clean your registered design time packages by a specific folder, so call simply the following command:
 
-    DPT D10.1 RemovePackagesBySourceDir "C:\Dev\Bpl"
+    DPT.exe D10.1 RemovePackagesBySourceDir "C:\Dev\Bpl"
     
 Output
 ```
@@ -115,7 +120,7 @@ Note: The BPL files itself are not deleted as it looks like in output, but the r
 
 ### Register a design time package
 
-    DPT D10.1 RegisterPackage "C:\Dev\Bpl\JclBaseExpert240.bpl"
+    DPT.exe D10.1 RegisterPackage "C:\Dev\Bpl\JclBaseExpert240.bpl"
 
 Output
 ```
@@ -130,21 +135,45 @@ Registration ok
 
 ### Open a unit in IDE at specific line
 
-    DPT RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
+    DPT.exe RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
 
 ---
 
 ### Open a unit and jump to member implementation
 
-    DPT RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToMemberImplementation TMyClass.MyMethod
+    DPT.exe RECENT OpenUnit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas" GoToMemberImplementation TDptOpenUnitTask.Execute
 
 Output
 ```
+Opening unit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas"...
+Found member "TDptOpenUnitTask.Execute" at line 146.
+Debug: Connection to 9012 failed: Zeitüberschreitung der Verbindung.
+IDE Plugin not reachable via standard port. Checking IDE status...
 Checking for running BDS instance...
-BDS is already running.
+Starting BDS: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\bds.exe
+Waiting for BDS to become ready...
 Waiting for main window to become visible and enabled...
-Sending input to open unit...
-Waiting for "Open File" dialog...
-Waiting for unit "MyUnit" to appear in caption...
-Done.
+.....[Handle:394696 Vis:False En:True Title:"Delphi 12"].....[Handle:394696 Vis:False En:True Title:"DPT - Delphi 12 - ProjectGroup1.groupproj"]. Window 460232 is ready: "DPT - Delphi 12 - ProjectGroup1.groupproj"
+
+IDE is ready. Scanning for listening Slim ports (9000-9100) on PID 25656...
+ Found candidate port 9012. Trying to connect...
+Successfully opened unit via IDE Plugin.
+```
+
+---
+
+### Build a project
+
+    DPT.exe D12 Build TmplCodeGen.dproj
+
+Output
+```
+Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
+PRODUCTVERSION: 23.0
+Building TmplCodeGen.dproj...
+Microsoft (R)-Buildmodul, Version 4.8.9032.0
+[Microsoft .NET Framework, Version 4.0.30319.42000]
+Copyright (C) Microsoft Corporation. Alle Rechte vorbehalten.
+...
+Build succeeded.
 ```
