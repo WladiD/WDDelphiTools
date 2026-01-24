@@ -18,7 +18,7 @@ type
 
   EInvalidParameter = class(Exception);
 
-  TCMDLineConsumer = class
+  TCmdLineConsumer = class
   private
     FCurrentMeaningParam: String;
     FCurrentParameter   : Integer;
@@ -72,19 +72,19 @@ const
 
 implementation
 
-{ TCMDLineConsumer }
+{ TCmdLineConsumer }
 
-constructor TCMDLineConsumer.Create;
+constructor TCmdLineConsumer.Create;
 begin
   FCurrentParameter := 1;
 end;
 
-function TCMDLineConsumer.HasParameter: Boolean;
+function TCmdLineConsumer.HasParameter: Boolean;
 begin
   Result := FCurrentParameter <= ParamCount;
 end;
 
-function TCMDLineConsumer.CheckParameter(MeaningParam: String): String;
+function TCmdLineConsumer.CheckParameter(MeaningParam: String): String;
 begin
   FCurrentMeaningParam := MeaningParam;
   if not HasParameter then
@@ -92,12 +92,12 @@ begin
   Result := ParamStr(FCurrentParameter);
 end;
 
-procedure TCMDLineConsumer.ConsumeParameter;
+procedure TCmdLineConsumer.ConsumeParameter;
 begin
   Inc(FCurrentParameter);
 end;
 
-procedure TCMDLineConsumer.InvalidParameter(ErrorMessage: String);
+procedure TCmdLineConsumer.InvalidParameter(ErrorMessage: String);
 begin
   if HasParameter then
     raise EInvalidParameter.CreateFmt('%s = "%s": %s', [FCurrentMeaningParam,

@@ -31,27 +31,27 @@ uses
   DPT.Tasks,
   DPT.Types;
 
-procedure ProcessCMDLine;
+procedure ProcessCmdLine;
 var
-  CMDLine      : TCMDLineConsumer;
+  CmdLine      : TCmdLineConsumer;
   DelphiVersion: TDelphiVersion;
-  DPTask       : TDptTaskBase;
+  DptTask      : TDptTaskBase;
   ParamValue   : String;
 
-  procedure InitDPTask(DPTaskClass: TDptTaskClass);
+  procedure InitDptTask(DPTaskClass: TDptTaskClass);
   begin
-    DPTask := DPTaskClass.Create;
-    DPTask.DelphiVersion := DelphiVersion;
+    DptTask := DPTaskClass.Create;
+    DptTask.DelphiVersion := DelphiVersion;
   end;
 
   procedure SerializeRemovePackagesBySourceDirTask;
   var
-    LocalDPTask: TDptRemovePackagesBySourceDirTask absolute DPTask;
+    LocalDPTask: TDptRemovePackagesBySourceDirTask absolute DptTask;
     SourceDir  : String;
   begin
-    InitDPTask(TDptRemovePackagesBySourceDirTask);
+    InitDptTask(TDptRemovePackagesBySourceDirTask);
 
-    SourceDir := CMDLine.CheckParameter('SourceDir');
+    SourceDir := CmdLine.CheckParameter('SourceDir');
     LocalDPTask.SourceDir := SourceDir;
 
     Writeln('Unregister design time packages contained in "' + SourceDir + '"...');
@@ -59,12 +59,12 @@ var
 
   procedure SerializeRemovePackageTask;
   var
-    LocalDPTask    : TDptRemovePackageTask absolute DPTask;
+    LocalDPTask    : TDptRemovePackageTask absolute DptTask;
     PackageFileName: String;
   begin
-    InitDPTask(TDptRemovePackageTask);
+    InitDptTask(TDptRemovePackageTask);
 
-    PackageFileName := CMDLine.CheckParameter('PackageFileName');
+    PackageFileName := CmdLine.CheckParameter('PackageFileName');
     LocalDPTask.PackageFileName := PackageFileName;
 
     Writeln('Unregister design time package "' + PackageFileName + '"...');
@@ -72,12 +72,12 @@ var
 
   procedure SerializeRegisterPackageTask;
   var
-    LocalDPTask: TDptRegisterPackageTask absolute DPTask;
+    LocalDPTask: TDptRegisterPackageTask absolute DptTask;
     PathToBPL  : String;
   begin
-    InitDPTask(TDptRegisterPackageTask);
+    InitDptTask(TDptRegisterPackageTask);
 
-    PathToBPL := CMDLine.CheckParameter('PathToBPL');
+    PathToBPL := CmdLine.CheckParameter('PathToBPL');
     LocalDPTask.PathToBPL := PathToBPL;
 
     Writeln(Format('Register design time package "%s"...', [PathToBPL]));
@@ -85,12 +85,12 @@ var
 
   procedure SerializeIsPackageRegisteredTask;
   var
-    LocalDPTask    : TDptIsPackageRegisteredTask absolute DPTask;
+    LocalDPTask    : TDptIsPackageRegisteredTask absolute DptTask;
     PackageFileName: String;
   begin
-    InitDPTask(TDptIsPackageRegisteredTask);
+    InitDptTask(TDptIsPackageRegisteredTask);
 
-    PackageFileName := CMDLine.CheckParameter('PackageFileName');
+    PackageFileName := CmdLine.CheckParameter('PackageFileName');
     LocalDPTask.PackageFileName := PackageFileName;
 
     Writeln(Format('Checking if package "%s" is registered...', [PackageFileName]));
@@ -98,16 +98,16 @@ var
 
   procedure SerializePrintPathTask;
   var
-    LocalDPTask: TDptPrintPathTask absolute DPTask;
+    LocalDPTask: TDptPrintPathTask absolute DptTask;
     PathToPrint: String;
   begin
-    InitDPTask(TDptPrintPathTask);
+    InitDptTask(TDptPrintPathTask);
 
-    PathToPrint := CMDLine.CheckParameter('PathToPrint');
+    PathToPrint := CmdLine.CheckParameter('PathToPrint');
     if Pos('|' + UpperCase(PathToPrint) + '|',  '|' + UpperCase(ValidPathToPrint) + '|') >= 1 then
-      CMDLine.ConsumeParameter
+      CmdLine.ConsumeParameter
     else
-      CMDLine.InvalidParameter('Unknown path literal');
+      CmdLine.InvalidParameter('Unknown path literal');
 
     LocalDPTask.PathToPrint := PathToPrint;
   end;
@@ -115,29 +115,29 @@ var
   procedure SerializeOpenUnitTask;
   var
     FullPathToUnit: String;
-    LocalDPTask   : TDptOpenUnitTask absolute DPTask;
+    LocalDPTask   : TDptOpenUnitTask absolute DptTask;
     NextParam     : String;
   begin
-    InitDPTask(TDptOpenUnitTask);
+    InitDptTask(TDptOpenUnitTask);
 
-    FullPathToUnit := CMDLine.CheckParameter('FullPathToUnit');
-    CMDLine.ConsumeParameter; // Consume file path
+    FullPathToUnit := CmdLine.CheckParameter('FullPathToUnit');
+    CmdLine.ConsumeParameter; // Consume file path
     LocalDPTask.FullPathToUnit := FullPathToUnit;
 
-    while CMDLine.HasParameter do
+    while CmdLine.HasParameter do
     begin
-       NextParam := CMDLine.CheckParameter('Optional: GoToLine / GoToMemberImplementation');
+       NextParam := CmdLine.CheckParameter('Optional: GoToLine / GoToMemberImplementation');
        if SameText(NextParam, 'GoToLine') then
        begin
-         CMDLine.ConsumeParameter; // Consume 'GoToLine' keyword
-         LocalDPTask.GoToLine := StrToIntDef(CMDLine.CheckParameter('LineNumber'), 0);
-         CMDLine.ConsumeParameter; // Consume line number
+         CmdLine.ConsumeParameter; // Consume 'GoToLine' keyword
+         LocalDPTask.GoToLine := StrToIntDef(CmdLine.CheckParameter('LineNumber'), 0);
+         CmdLine.ConsumeParameter; // Consume line number
        end
        else if SameText(NextParam, 'GoToMemberImplementation') then
        begin
-         CMDLine.ConsumeParameter; // Consume keyword
-         LocalDPTask.MemberImplementation := CMDLine.CheckParameter('MemberName');
-         CMDLine.ConsumeParameter; // Consume value
+         CmdLine.ConsumeParameter; // Consume keyword
+         LocalDPTask.MemberImplementation := CmdLine.CheckParameter('MemberName');
+         CmdLine.ConsumeParameter; // Consume value
        end
        else
          Break;
@@ -148,38 +148,38 @@ var
 
   procedure SerializeBuildTask;
   var
-    LocalDPTask: TDptBuildTask absolute DPTask;
+    LocalDPTask: TDptBuildTask absolute DptTask;
   begin
-    InitDPTask(TDptBuildTask);
+    InitDptTask(TDptBuildTask);
 
     // ProjectFile (Required)
-    LocalDPTask.ProjectFile := CMDLine.CheckParameter('ProjectFile');
-    CMDLine.ConsumeParameter;
+    LocalDPTask.ProjectFile := CmdLine.CheckParameter('ProjectFile');
+    CmdLine.ConsumeParameter;
 
     // Platform (Optional)
-    if CMDLine.HasParameter then
+    if CmdLine.HasParameter then
     begin
-      LocalDPTask.TargetPlatform := CMDLine.CheckParameter('Platform');
-      CMDLine.ConsumeParameter;
+      LocalDPTask.TargetPlatform := CmdLine.CheckParameter('Platform');
+      CmdLine.ConsumeParameter;
     end
     else
       LocalDPTask.TargetPlatform := 'Win32';
 
     // Config (Optional)
-    if CMDLine.HasParameter then
+    if CmdLine.HasParameter then
     begin
-      LocalDPTask.Config := CMDLine.CheckParameter('Config');
-      CMDLine.ConsumeParameter;
+      LocalDPTask.Config := CmdLine.CheckParameter('Config');
+      CmdLine.ConsumeParameter;
     end
     else
       LocalDPTask.Config := 'Debug';
 
     // ExtraArgs (Optional - consume all remaining)
     LocalDPTask.ExtraArgs := '';
-    while CMDLine.HasParameter do
+    while CmdLine.HasParameter do
     begin
-       LocalDPTask.ExtraArgs := LocalDPTask.ExtraArgs + ' ' + CMDLine.CheckParameter('ExtraArg');
-       CMDLine.ConsumeParameter;
+       LocalDPTask.ExtraArgs := LocalDPTask.ExtraArgs + ' ' + CmdLine.CheckParameter('ExtraArg');
+       CmdLine.ConsumeParameter;
     end;
     LocalDPTask.ExtraArgs := Trim(LocalDPTask.ExtraArgs);
   end;
@@ -188,11 +188,11 @@ var
   var
     URL, Command, ParamsStr: String;
     Params: TStringList;
-    LocalDPTask: TDptOpenUnitTask absolute DPTask;
+    LocalDPTask: TDptOpenUnitTask absolute DptTask;
     QPos: Integer;
   begin
-    URL := CMDLine.CheckParameter('URL');
-    CMDLine.ConsumeParameter;
+    URL := CmdLine.CheckParameter('URL');
+    CmdLine.ConsumeParameter;
 
     // Remove dpt://
     if Pos('dpt://', LowerCase(URL)) <> 1 then
@@ -219,7 +219,7 @@ var
 
     if SameText(Command, 'openunit') then
     begin
-      InitDPTask(TDptOpenUnitTask);
+      InitDptTask(TDptOpenUnitTask);
 
       Params := TStringList.Create;
       try
@@ -241,83 +241,83 @@ var
   end;
 
 begin
-  DPTask := nil;
-  CMDLine := TCMDLineConsumer.Create;
+  DptTask := nil;
+  CmdLine := TCmdLineConsumer.Create;
   try
-    ParamValue := CMDLine.CheckParameter('DelphiVersion');
+    ParamValue := CmdLine.CheckParameter('DelphiVersion');
     if SameText(ParamValue, 'RECENT') then
     begin
       DelphiVersion := FindMostRecentDelphiVersion;
       if DelphiVersion = dvUnknown then
         raise Exception.Create('No supported Delphi version found on this machine');
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
     end
     else if IsValidDelphiVersion(UpperCase(ParamValue), DelphiVersion) then
-      CMDLine.ConsumeParameter
+      CmdLine.ConsumeParameter
     else
-      CMDLine.InvalidParameter('Not accepted version');
+      CmdLine.InvalidParameter('Not accepted version');
 
-    ParamValue := CMDLine.CheckParameter('Action');
+    ParamValue := CmdLine.CheckParameter('Action');
     if SameText(ParamValue, 'RemovePackagesBySourceDir') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeRemovePackagesBySourceDirTask;
     end
     else if SameText(ParamValue, 'Build') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeBuildTask;
     end
     else if SameText(ParamValue, 'RemovePackage') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeRemovePackageTask;
     end
     else if SameText(ParamValue, 'RegisterPackage') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeRegisterPackageTask;
     end
     else if SameText(ParamValue, 'IsPackageRegistered') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeIsPackageRegisteredTask;
     end
     else if SameText(ParamValue, 'PrintPath') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializePrintPathTask;
     end
     else if SameText(ParamValue, 'OpenUnit') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeOpenUnitTask;
     end
     else if SameText(ParamValue, 'HandleProtocol') then
     begin
-      CMDLine.ConsumeParameter;
+      CmdLine.ConsumeParameter;
       SerializeHandleProtocolTask;
     end
     else if SameText(ParamValue, 'Start') then
     begin
-      CMDLine.ConsumeParameter;
-      InitDPTask(TDptStartTask);
+      CmdLine.ConsumeParameter;
+      InitDptTask(TDptStartTask);
     end
     else if SameText(ParamValue, 'Stop') then
     begin
-      CMDLine.ConsumeParameter;
-      InitDPTask(TDptStopTask);
+      CmdLine.ConsumeParameter;
+      InitDptTask(TDptStopTask);
     end
     else
-      CMDLine.InvalidParameter('Not accepted action');
+      CmdLine.InvalidParameter('Not accepted action');
 
-    if Assigned(DPTask) then
-      DPTask.Execute
+    if Assigned(DptTask) then
+      DptTask.Execute
     else
-      raise Exception.Create('DPTask not initialized');
+      raise Exception.Create('DptTask not initialized');
   finally
-    DPTask.Free;
-    CMDLine.Free;
+    DptTask.Free;
+    CmdLine.Free;
   end;
 end;
 
@@ -419,7 +419,7 @@ begin
     // Always process CLI commands if arguments are present (Version + Action)
     if ParamCount > 1 then
     begin
-      ProcessCMDLine;
+      ProcessCmdLine;
       Exit;
     end;
 
