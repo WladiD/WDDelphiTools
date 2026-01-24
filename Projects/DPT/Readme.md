@@ -16,29 +16,31 @@ DPT.exe DelphiVersion Action [OtherActionSpecificParameters]
     D12
 
   Action
-    RemovePackagesBySourceDir SourceDir
-      Removes the registration of design time packages for the defined
-      Delphi-IDE which are located in SourceDir
-
-    RemovePackage PackageFileName
-      Removes the design time registration of the specified package by their
-      name (without file extension) only.
-
-    RegisterPackage PathToBPL
-      Register a package specified in PathToBPL as design time package
+    HandleProtocol dpt://Command/?Params
+      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
 
     IsPackageRegistered PackageFileName
       Checks if a package is registered (ExitCode 1 if not)
-
-    PrintPath (BDSPath|BDSBINPath|BPLOutputPath-Win32|BPLOutputPath-Win64|DCPOutputPath-Win32|DCPOutputPath-Win64)
-      Prints the path
 
     OpenUnit FullPathToUnit ([GoToLine LineNumber]|
                              [GoToMemberImplementation Class.Member])
       Opens the specified unit in the IDE. Starts IDE if not running.
 
-    HandleProtocol dpt://Command/?Params
-      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
+    PrintPath (BDSPath|BDSBINPath|
+               BPLOutputPath-Win32|BPLOutputPath-Win64|
+               DCPOutputPath-Win32|DCPOutputPath-Win64)
+      Prints the path
+
+    RegisterPackage PathToBPL
+      Register a package specified in PathToBPL as design time package
+
+    RemovePackage PackageFileName
+      Removes the design time registration of the specified package by their
+      name (without file extension) only.
+
+    RemovePackagesBySourceDir SourceDir
+      Removes the registration of design time packages for the defined
+      Delphi-IDE which are located in SourceDir
 
     Start
       Starts the IDE and waits until it is responsive.
