@@ -64,6 +64,13 @@ begin
         'Defaults: Platform=Win32, Config=Debug',
         'Example: DPT RECENT Build MyProject.dproj Win64 Release "/t:Clean;Build"'
       ]),
+      TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]', [
+        'Builds and executes the project.',
+        'Supports standard Build parameters.',
+        '--OnlyIfChanged: Skips build if executable is newer than source files.',
+        '-- <Args>: Passes all subsequent arguments to the executable.',
+        'Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug'
+      ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
         'Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).',

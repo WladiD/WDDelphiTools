@@ -10,9 +10,12 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
   Winapi.Windows,
+
+  System.Classes,
+  System.IOUtils,
+  System.SysUtils,
+  System.Types,
 
   JclIDEUtils,
 
@@ -74,13 +77,23 @@ type
   end;
 
   TDptBuildTask = class(TDptTaskBase)
-  private
+  protected
     function RunShellCommand(const CommandLine: String): Integer;
   public
     Config        : String;
     ExtraArgs     : String;
     ProjectFile   : String;
     TargetPlatform: String;
+    procedure Execute; override;
+  end;
+
+  TDptBuildAndRunTask = class(TDptBuildTask)
+  private
+    function FindExeFile: String;
+    function IsBuildNeeded(const AExePath: String): Boolean;
+  public
+    OnlyIfChanged: Boolean;
+    RunArgs: String;
     procedure Execute; override;
   end;
 
@@ -332,6 +345,122 @@ begin
   end
   else
     Writeln('Build successful.');
+end;
+
+{ TDptBuildAndRunTask }
+
+function TDptBuildAndRunTask.FindExeFile: String;
+var
+  BaseName    : String;
+  PossiblePath: String;
+begin
+  BaseName := ChangeFileExt(ExtractFileName(ProjectFile), '.exe');
+
+  // Try standard output structure: .\Platform\Config\ExeName.exe
+  PossiblePath :=
+    IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) +
+    IncludeTrailingPathDelimiter(TargetPlatform) +
+    IncludeTrailingPathDelimiter(Config) +
+    BaseName;
+
+  if FileExists(PossiblePath) then
+    Exit(PossiblePath);
+
+  // Fallback: Project root
+  PossiblePath := IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) + BaseName;
+  if FileExists(PossiblePath) then
+    Exit(PossiblePath);
+
+  // If not found, assume standard output path for the build (it might be created there)
+  Result :=
+    IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) +
+    IncludeTrailingPathDelimiter(TargetPlatform) +
+    IncludeTrailingPathDelimiter(Config) +
+    BaseName;
+end;
+
+function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String): Boolean;
+var
+  ExeTime   : TDateTime;
+  Files     : TStringDynArray;
+  ProjectDir: String;
+  SourceFile: String;
+begin
+  if not FileExists(AExePath) then
+    Exit(True);
+
+  // Allow a small tolerance (e.g., 2 seconds) for file system time differences
+  ExeTime := TFile.GetLastWriteTime(AExePath);
+  ProjectDir := ExtractFilePath(ExpandFileName(ProjectFile));
+
+  // Extensions to check
+  // We check .pas, .dpr, .dproj, .dfm, .fmx, .inc, .res
+  Files := TDirectory.GetFiles(ProjectDir, '*.*', TSearchOption.soAllDirectories);
+
+  for SourceFile in Files do
+  begin
+    var Ext: String := LowerCase(ExtractFileExt(SourceFile));
+    if (Ext = '.pas') or (Ext = '.dpr') or (Ext = '.dproj') or
+       (Ext = '.dfm') or (Ext = '.fmx') or (Ext = '.inc') or (Ext = '.res') then
+    begin
+      if TFile.GetLastWriteTime(SourceFile) > ExeTime then
+      begin
+        Writeln(Format('Source file "%s" is newer than executable.', [ExtractFileName(SourceFile)]));
+        Exit(True);
+      end;
+    end;
+  end;
+
+  Result := False;
+end;
+
+procedure TDptBuildAndRunTask.Execute;
+var
+  ExePath: String;
+  ExitCode: Integer;
+begin
+  ExePath := FindExeFile;
+
+  if OnlyIfChanged then
+  begin
+    if not IsBuildNeeded(ExePath) then
+    begin
+      Writeln('Executable is up to date. Skipping build.');
+    end
+    else
+    begin
+      inherited Execute;
+      if System.ExitCode <> 0 then
+        Exit; // Build failed
+    end;
+  end
+  else
+  begin
+    inherited Execute;
+    if System.ExitCode <> 0 then
+      Exit; // Build failed
+  end;
+
+  // Re-evaluate ExePath as it might have been created/moved
+  if not FileExists(ExePath) then
+     ExePath := FindExeFile;
+
+  if not FileExists(ExePath) then
+  begin
+    Writeln('ERROR: Executable not found at ' + ExePath);
+    System.ExitCode := 1;
+    Exit;
+  end;
+
+  Writeln('Running ' + ExePath + ' ' + RunArgs + '...');
+  Writeln('--------------------------------------------------');
+
+  ExitCode := RunShellCommand('"' + ExePath + '" ' + RunArgs);
+
+  if ExitCode <> 0 then
+    Writeln('Application exited with code ' + IntToStr(ExitCode));
+
+  System.ExitCode := ExitCode;
 end;
 
 end.

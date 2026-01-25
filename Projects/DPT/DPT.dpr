@@ -189,6 +189,85 @@ var
     LocalDPTask.ExtraArgs := Trim(LocalDPTask.ExtraArgs);
   end;
 
+  procedure SerializeBuildAndRunTask;
+  var
+    Arg         : String;
+    ArgsConsumed: Boolean;
+    LocalDPTask : TDptBuildAndRunTask absolute DptTask;
+  begin
+    InitDptTask(TDptBuildAndRunTask);
+
+    // ProjectFile (Required)
+    LocalDPTask.ProjectFile := CmdLine.CheckParameter('ProjectFile');
+    CmdLine.ConsumeParameter;
+
+    // Defaults
+    LocalDPTask.TargetPlatform := 'Win32';
+    LocalDPTask.Config := 'Debug';
+    LocalDPTask.OnlyIfChanged := False;
+    LocalDPTask.ExtraArgs := '';
+    LocalDPTask.RunArgs := '';
+
+    ArgsConsumed := False; // Flag to track if we hit "--"
+
+    while CmdLine.HasParameter do
+    begin
+      Arg := CmdLine.CheckParameter('Args');
+
+      if ArgsConsumed then
+      begin
+        // Append to RunArgs
+        LocalDPTask.RunArgs := LocalDPTask.RunArgs + ' ' + Arg;
+        CmdLine.ConsumeParameter;
+        Continue;
+      end;
+
+      if Arg = '--' then
+      begin
+        ArgsConsumed := True;
+        CmdLine.ConsumeParameter;
+        Continue;
+      end;
+
+      if SameText(Arg, '--OnlyIfChanged') then
+      begin
+        LocalDPTask.OnlyIfChanged := True;
+        CmdLine.ConsumeParameter;
+        Continue;
+      end;
+
+      // Heuristic for Platform/Config/ExtraArgs
+      // Standard Build Task logic: Platform -> Config -> ExtraArgs
+      // But here order is flexible because of flags.
+      // Let's stick to strict order for Platform/Config if they look like it?
+      // Or rely on user passing them before flags.
+
+      // Simplification: Assume standard order for Build params, but allow flags interspersed?
+      // Better: Just check values against known platforms/configs or assume position.
+      // Let's assume standard positional logic as much as possible, BUT allow OnlyIfChanged anywhere before --
+
+      if (LocalDPTask.TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
+      begin
+        LocalDPTask.TargetPlatform := Arg;
+        CmdLine.ConsumeParameter;
+      end
+      else if (LocalDPTask.Config = 'Debug') and ((SameText(Arg, 'Debug')) or (SameText(Arg, 'Release')) or (SameText(Arg, 'FitNesse'))) then
+      begin
+        LocalDPTask.Config := Arg;
+        CmdLine.ConsumeParameter;
+      end
+      else
+      begin
+        // Assume ExtraArg for MSBuild
+        LocalDPTask.ExtraArgs := LocalDPTask.ExtraArgs + ' ' + Arg;
+        CmdLine.ConsumeParameter;
+      end;
+    end;
+
+    LocalDPTask.ExtraArgs := Trim(LocalDPTask.ExtraArgs);
+    LocalDPTask.RunArgs := Trim(LocalDPTask.RunArgs);
+  end;
+
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -272,6 +351,11 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeBuildTask;
+    end
+    else if SameText(ParamValue, 'BuildAndRun') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeBuildAndRunTask;
     end
     else if SameText(ParamValue, 'RemovePackage') then
     begin
