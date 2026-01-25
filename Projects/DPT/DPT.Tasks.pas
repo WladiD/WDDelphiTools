@@ -14,6 +14,7 @@ uses
 
   System.Classes,
   System.IOUtils,
+  System.RegularExpressions,
   System.SysUtils,
   System.Types,
 
@@ -351,32 +352,53 @@ end;
 
 function TDptBuildAndRunTask.FindExeFile: String;
 var
-  BaseName    : String;
-  PossiblePath: String;
+  BaseName      : String;
+  ExeOutput     : String;
+  Match         : TMatch;
+  PossiblePath  : String;
+  ProjectContent: String;
 begin
   BaseName := ChangeFileExt(ExtractFileName(ProjectFile), '.exe');
 
+  // Try to find custom output path in .dproj
+  if FileExists(ProjectFile) then
+  begin
+    ProjectContent := TFile.ReadAllText(ProjectFile);
+    // Simple heuristic: find DCC_ExeOutput.
+    Match := TRegEx.Match(ProjectContent, '<DCC_ExeOutput>(.*?)</DCC_ExeOutput>', [roIgnoreCase]);
+    if Match.Success then
+    begin
+      ExeOutput := Match.Groups[1].Value;
+      // Replace variables
+      ExeOutput := ExeOutput.Replace('$(Platform)', TargetPlatform, [rfReplaceAll, rfIgnoreCase]);
+      ExeOutput := ExeOutput.Replace('$(Config)', Config, [rfReplaceAll, rfIgnoreCase]);
+
+      PossiblePath := ExpandFileName(
+        IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
+        IncludeTrailingPathDelimiter(ExeOutput) +
+        BaseName);
+      if FileExists(PossiblePath) then
+        Exit(PossiblePath);
+    end;
+  end;
+
   // Try standard output structure: .\Platform\Config\ExeName.exe
-  PossiblePath :=
-    IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) +
+  PossiblePath := ExpandFileName(
+    IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
     IncludeTrailingPathDelimiter(TargetPlatform) +
     IncludeTrailingPathDelimiter(Config) +
-    BaseName;
+    BaseName);
 
   if FileExists(PossiblePath) then
     Exit(PossiblePath);
 
   // Fallback: Project root
-  PossiblePath := IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) + BaseName;
+  PossiblePath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) + BaseName);
   if FileExists(PossiblePath) then
     Exit(PossiblePath);
 
-  // If not found, assume standard output path for the build (it might be created there)
-  Result :=
-    IncludeTrailingPathDelimiter(ExtractFilePath(ExpandFileName(ProjectFile))) +
-    IncludeTrailingPathDelimiter(TargetPlatform) +
-    IncludeTrailingPathDelimiter(Config) +
-    BaseName;
+  // Default guess if nothing found
+  Result := PossiblePath;
 end;
 
 function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String): Boolean;

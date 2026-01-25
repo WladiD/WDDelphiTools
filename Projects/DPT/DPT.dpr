@@ -158,7 +158,7 @@ var
     InitDptTask(TDptBuildTask);
 
     // ProjectFile (Required)
-    LocalDPTask.ProjectFile := CmdLine.CheckParameter('ProjectFile');
+    LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
     CmdLine.ConsumeParameter;
 
     // Platform (Optional)
@@ -198,7 +198,7 @@ var
     InitDptTask(TDptBuildAndRunTask);
 
     // ProjectFile (Required)
-    LocalDPTask.ProjectFile := CmdLine.CheckParameter('ProjectFile');
+    LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
     CmdLine.ConsumeParameter;
 
     // Defaults
