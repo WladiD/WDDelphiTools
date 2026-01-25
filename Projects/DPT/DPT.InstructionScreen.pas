@@ -60,38 +60,49 @@ begin
     FActions := [
       TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [ExtraArgs]', [
         'Builds the specified project using MSBuild.',
+        'Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.',
         'Defaults: Platform=Win32, Config=Debug',
         'Example: DPT RECENT Build MyProject.dproj Win64 Release "/t:Clean;Build"'
       ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
-        'Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...)'
+        'Internal handler for "dpt://" URI schemes.',
+        'Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).',
+        'Example: dpt://openunit/?file=C:\MyUnit.pas&line=50'
       ]),
       TActionInfo.Create('IsPackageRegistered', '<PackageFileName>', [
-        'Checks if a package is registered in the IDE (ExitCode 1 if not).'
+        'Checks if a specific BPL package is currently registered in the IDE.',
+        'Returns ExitCode 0 if registered, 1 if not.'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
-        'Opens the specified unit in the IDE. Starts IDE if not running.'
+        'Opens a source file in the Delphi IDE via the Slim Server plugin.',
+        'Supports navigating to a specific line number or finding a member implementation (Class.Method).',
+        'Automatically starts the IDE if it is not running and waits for the plugin to become available.'
       ]),
       TActionInfo.Create('PrintPath', '<PathLiteral>', [
-        'Prints IDE paths. Available literals:',
+        'Outputs various IDE configuration paths to the console.',
+        'Useful for build scripts to locate BDS, Bin, or default BPL/DCP output directories.',
+        'Available literals:',
         ValidPathBds + ', ' + ValidPathBdsBin + ',',
         ValidPathBplOutputWin32 + ', ' + ValidPathBplOutputWin64 + ',',
         ValidPathDcpOutputWin32 + ', ' + ValidPathDcpOutputWin64
       ]),
       TActionInfo.Create('RegisterPackage', '<PathToBPL>', [
-        'Registers a design-time package in the IDE.'
+        'Registers a specific BPL file as a design-time package in the currently selected Delphi version.'
       ]),
       TActionInfo.Create('RemovePackage', '<PackageFileName>', [
-        'Removes a design-time package registration by its name.'
+        'Unregisters a design-time package by its file name (without path or extension).'
       ]),
       TActionInfo.Create('RemovePackagesBySourceDir', '<SourceDir>', [
-        'Removes all design-time packages located in SourceDir.'
+        'Scans the registry for design-time packages located inside the specified directory tree and unregisters them.'
       ]),
       TActionInfo.Create('Start', '', [
-        'Starts the IDE and waits until it is responsive.'
+        'Ensures the Delphi IDE is running.',
+        'If not, it launches the process and waits for it to become responsive.',
+        'Brings the IDE window to the front.'
       ]),
       TActionInfo.Create('Stop', '', [
-        'Terminates the IDE process. WARNING: Unsaved changes will be lost!'
+        'Forcefully terminates the running Delphi IDE process associated with the selected version.',
+        'WARNING: Unsaved data will be lost.'
       ])
     ];
   end;
