@@ -27,6 +27,7 @@ uses
 
   JclIDEUtils,
 
+  DPT.InstructionScreen,
   DPT.OpenUnitTask,
   DPT.Tasks,
   DPT.Types;
@@ -52,6 +53,7 @@ var
     InitDptTask(TDptRemovePackagesBySourceDirTask);
 
     SourceDir := CmdLine.CheckParameter('SourceDir');
+    CmdLine.ConsumeParameter;
     LocalDPTask.SourceDir := SourceDir;
 
     Writeln('Unregister design time packages contained in "' + SourceDir + '"...');
@@ -65,6 +67,7 @@ var
     InitDptTask(TDptRemovePackageTask);
 
     PackageFileName := CmdLine.CheckParameter('PackageFileName');
+    CmdLine.ConsumeParameter;
     LocalDPTask.PackageFileName := PackageFileName;
 
     Writeln('Unregister design time package "' + PackageFileName + '"...');
@@ -78,6 +81,7 @@ var
     InitDptTask(TDptRegisterPackageTask);
 
     PathToBPL := CmdLine.CheckParameter('PathToBPL');
+    CmdLine.ConsumeParameter;
     LocalDPTask.PathToBPL := PathToBPL;
 
     Writeln(Format('Register design time package "%s"...', [PathToBPL]));
@@ -91,6 +95,7 @@ var
     InitDptTask(TDptIsPackageRegisteredTask);
 
     PackageFileName := CmdLine.CheckParameter('PackageFileName');
+    CmdLine.ConsumeParameter;
     LocalDPTask.PackageFileName := PackageFileName;
 
     Writeln(Format('Checking if package "%s" is registered...', [PackageFileName]));
@@ -321,60 +326,6 @@ begin
   end;
 end;
 
-procedure InstructionScreen;
-begin
-  Writeln('Delphi Processing Tools');
-  Writeln('0.06 - 2026 - Waldemar Derr');
-  Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
-  Writeln;
-  Writeln('Usage:');
-  Writeln(ExtractFileName(ParamStr(0)) + ' DelphiVersion Action [OtherActionSpecificParameters]');
-  Writeln;
-  Writeln('  DelphiVersion');
-  Writeln('    RECENT (automatically selects the newest installed version)');
-
-  for var Loop: Integer := 1 to Integer(High(TDelphiVersion)) do
-    Writeln('    ' + DelphiVersionStringArray[TDelphiVersion(Loop)]);
-
-  Writeln;
-  Writeln('  Action');
-  Writeln('    Build ProjectFile [Platform] [Config] [ExtraArgs]');
-  Writeln('      Builds the specified project using MSBuild.');
-  Writeln('      Defaults: Platform=Win32, Config=Debug');
-  Writeln('      Example: DPT D12 Build MyProject.dproj Win64 Release "/t:Clean;Build"');
-  Writeln;
-  Writeln('    HandleProtocol dpt://Command/?Params');
-  Writeln('      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)');
-  Writeln;
-  Writeln('    IsPackageRegistered PackageFileName');
-  Writeln('      Checks if a package is registered (ExitCode 1 if not)');
-  Writeln;
-  Writeln('    OpenUnit FullPathToUnit ([GoToLine LineNumber]|');
-  Writeln('                             [GoToMemberImplementation Class.Member])');
-  Writeln('      Opens the specified unit in the IDE. Starts IDE if not running.');
-  Writeln;
-  Writeln('    PrintPath (' + ValidPathBds + '|' + ValidPathBdsBin + '|');
-  Writeln('               ' + ValidPathBplOutputWin32 + '|' + ValidPathBplOutputWin64 + '|');
-  Writeln('               ' + ValidPathDcpOutputWin32 + '|' + ValidPathDcpOutputWin64 + ')');
-  Writeln('      Prints the path');
-  Writeln;
-  Writeln('    RegisterPackage PathToBPL');
-  Writeln('      Register a package specified in PathToBPL as design time package');
-  Writeln;
-  Writeln('    RemovePackage PackageFileName');
-  Writeln('      Removes the design time registration of the specified package by their');
-  Writeln('      name (without file extension) only.');
-  Writeln;
-  Writeln('    RemovePackagesBySourceDir SourceDir');
-  Writeln('      Removes the registration of design time packages for the defined');
-  Writeln('      Delphi-IDE which are located in SourceDir');
-  Writeln;
-  Writeln('    Start');
-  Writeln('      Starts the IDE and waits until it is responsive.');
-  Writeln;
-  Writeln('    Stop');
-  Writeln('      Terminates the IDE process immediately. WARNING: Unsaved changes will be lost!');
-end;
 {$IFDEF FITNESSE}
 type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
@@ -416,6 +367,13 @@ begin
     end;
     {$ENDIF}
 
+    // Check for Help command
+    if (ParamCount >= 1) and (SameText(ParamStr(1), 'Help') or SameText(ParamStr(1), '-h') or SameText(ParamStr(1), '/?')) then
+    begin
+      TDptInstructionScreen.ShowHelp(ParamStr(2));
+      Exit;
+    end;
+
     // Always process CLI commands if arguments are present (Version + Action)
     if ParamCount > 1 then
     begin
@@ -424,7 +382,7 @@ begin
     end;
 
     {$IFNDEF FITNESSE}
-    InstructionScreen;
+    TDptInstructionScreen.ShowCompact;
     {$ENDIF}
   except
     on E:Exception do
