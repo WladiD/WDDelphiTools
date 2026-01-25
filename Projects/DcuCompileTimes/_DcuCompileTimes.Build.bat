@@ -4,10 +4,12 @@ setlocal
 pushd %~dp0
 
 ..\DPT\DPT.exe RECENT Build "DcuCompileTimes.dproj" %1
+set BUILD_ERROR=%ERRORLEVEL%
 
-if %ERRORLEVEL% neq 0 (
+if %BUILD_ERROR% neq 0 (
+    echo Build failed.
     popd
-    exit /b %ERRORLEVEL%
+    exit /b %BUILD_ERROR%
 )
 
 popd
