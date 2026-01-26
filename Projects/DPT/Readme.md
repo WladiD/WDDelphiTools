@@ -221,3 +221,32 @@ Copyright (C) Microsoft Corporation. Alle Rechte vorbehalten.
 ...
 Build succeeded.
 ```
+
+---
+
+### Build and Run a project
+
+    DPT.exe RECENT BuildAndRun TmplCodeGen.dproj Win32 Debug --OnlyIfChanged
+
+Output (First run)
+```
+Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
+PRODUCTVERSION: 23.0
+Building C:\...\TmplCodeGen.dproj...
+Microsoft (R)-Buildmodul, Version 4.8.9032.0
+...
+Build succeeded.
+Running C:\...\TmplCodeGen.exe ...
+--------------------------------------------------
+TmplCodeGen.exe prefix
+TmplCodeGen.exe include_partials target_file
+```
+
+Output (Subsequent run with `--OnlyIfChanged`)
+```
+Executable is up to date. Skipping build.
+Running C:\...\TmplCodeGen.exe ...
+--------------------------------------------------
+TmplCodeGen.exe prefix
+TmplCodeGen.exe include_partials target_file
+```
