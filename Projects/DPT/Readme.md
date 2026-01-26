@@ -27,6 +27,11 @@ For more details use: DPT.exe Help Action
 ```
 
 ### Detailed Help
+To see all available actions and their descriptions, run:
+
+    DPT.exe Help
+
+Output
 ```
 Usage: DPT.exe Help <Action>
 
