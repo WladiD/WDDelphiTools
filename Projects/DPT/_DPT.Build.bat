@@ -12,7 +12,7 @@ echo  Building DPT using DPT (Self-Hosting)
 echo ------------------------------------------
 echo.
 
-"_DPT_Builder.exe" RECENT Build "DPT.dproj" Win32 %BUILD_CONFIG%
+"_DPT_Builder.exe" RECENT Build "Source\DPT.dproj" Win32 %BUILD_CONFIG%
 set BUILD_ERROR=%ERRORLEVEL%
 
 REM Clean up

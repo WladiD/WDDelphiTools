@@ -25,7 +25,7 @@ REM    - Use Win32 Platform and Debug Config (defaults)
 REM    - --OnlyIfChanged: Use smart build check
 REM    - -- %*: Pass all script arguments to the built DPT.exe instance
 
-"%PROJ_DIR%_DPT_Runner.exe" RECENT BuildAndRun "%PROJ_DIR%DPT.dproj" Win32 Debug --OnlyIfChanged -- %*
+"%PROJ_DIR%_DPT_Runner.exe" RECENT BuildAndRun "%PROJ_DIR%Source\DPT.dproj" Win32 Debug --OnlyIfChanged -- %*
 set EXIT_CODE=%ERRORLEVEL%
 
 REM 4. Cleanup
