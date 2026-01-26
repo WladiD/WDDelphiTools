@@ -4,54 +4,93 @@ This project was created for automated Delphi configuration from batch scripts.
 Currently it supports not all Delphi versions, but will be expanded on demand.
 
 ## Usage
+
+### Overview
 ```
-DPT.exe DelphiVersion Action [OtherActionSpecificParameters]
+DPT.exe DelphiVersion Action [Parameters]
+DPT.exe Help [Action]
 
-  DelphiVersion
-    RECENT (automatically selects the newest installed version)
-    D2007
-    D10.1
-    D10.3
-    D11
-    D12
+Actions:
+  Build <ProjectFile> [Platform] [Config] [ExtraArgs]
+  BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
+  HandleProtocol <dpt://URL>
+  IsPackageRegistered <PackageFileName>
+  OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
+  PrintPath <PathLiteral>
+  RegisterPackage <PathToBPL>
+  RemovePackage <PackageFileName>
+  RemovePackagesBySourceDir <SourceDir>
+  Start
+  Stop
 
-  Action
-    Build ProjectFile [Platform] [Config] [ExtraArgs]
-      Builds the specified project using MSBuild.
-      Defaults: Platform=Win32, Config=Debug
-      Example: DPT D12 Build MyProject.dproj Win64 Release "/t:Clean;Build"
+For more details use: DPT.exe Help Action
+```
 
-    HandleProtocol dpt://Command/?Params
-      Handles URL protocol requests (e.g. dpt://openunit/?file=...&line=...&member=...)
+### Detailed Help
+```
+Usage: DPT.exe Help <Action>
 
-    IsPackageRegistered PackageFileName
-      Checks if a package is registered (ExitCode 1 if not)
+DelphiVersion:
+  RECENT              Automatically selects the newest installed version
+  D2007
+  D10.1
+  D10.3
+  D11
+  D12
 
-    OpenUnit FullPathToUnit ([GoToLine LineNumber]|
-                             [GoToMemberImplementation Class.Member])
-      Opens the specified unit in the IDE. Starts IDE if not running.
+Available Actions:
+  Build <ProjectFile> [Platform] [Config] [ExtraArgs]
+    Builds the specified project using MSBuild.
+    Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.   
+    Defaults: Platform=Win32, Config=Debug
+    Example: DPT RECENT Build MyProject.dproj Win64 Release "/t:Clean;Build"
 
-    PrintPath (BDSPath|BDSBINPath|
-               BPLOutputPath-Win32|BPLOutputPath-Win64|
-               DCPOutputPath-Win32|DCPOutputPath-Win64)
-      Prints the path
+  BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
+    Builds and executes the project.
+    Supports standard Build parameters.
+    --OnlyIfChanged: Skips build if executable is newer than source files.
+    -- <Args>: Passes all subsequent arguments to the executable.
+    Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
 
-    RegisterPackage PathToBPL
-      Register a package specified in PathToBPL as design time package
+  HandleProtocol <dpt://URL>
+    Internal handler for "dpt://" URI schemes.
+    Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).
+    Example: dpt://openunit/?file=C:\MyUnit.pas&line=50
 
-    RemovePackage PackageFileName
-      Removes the design time registration of the specified package by their
-      name (without file extension) only.
+  IsPackageRegistered <PackageFileName>
+    Checks if a specific BPL package is currently registered in the IDE.
+    Returns ExitCode 0 if registered, 1 if not.
 
-    RemovePackagesBySourceDir SourceDir
-      Removes the registration of design time packages for the defined
-      Delphi-IDE which are located in SourceDir
+  OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
+    Opens a source file in the Delphi IDE via the Slim Server plugin.
+    Supports navigating to a specific line number or finding a member implementation (Class.Method).      
+    Automatically starts the IDE if it is not running and waits for the plugin to become available.       
 
-    Start
-      Starts the IDE and waits until it is responsive.
+  PrintPath <PathLiteral>
+    Outputs various IDE configuration paths to the console.
+    Useful for build scripts to locate BDS, Bin, or default BPL/DCP output directories.
+    Available literals:
+    BDSPath, BDSBINPath,
+    BPLOutputPath-Win32, BPLOutputPath-Win64,
+    DCPOutputPath-Win32, DCPOutputPath-Win64
 
-    Stop
-      Terminates the IDE process immediately. WARNING: Unsaved changes will be lost!
+  RegisterPackage <PathToBPL>
+    Registers a specific BPL file as a design-time package in the currently selected Delphi version.      
+
+  RemovePackage <PackageFileName>
+    Unregisters a design-time package by its file name (without path or extension).
+
+  RemovePackagesBySourceDir <SourceDir>
+    Scans the registry for design-time packages located inside the specified directory tree and unregisters them.
+
+  Start
+    Ensures the Delphi IDE is running.
+    If not, it launches the process and waits for it to become responsive.
+    Brings the IDE window to the front.
+
+  Stop
+    Forcefully terminates the running Delphi IDE process associated with the selected version.
+    WARNING: Unsaved data will be lost.
 ```
 
 ## URL Protocol Registration
@@ -147,7 +186,7 @@ Output
 ```
 Opening unit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas"...
 Found member "TDptOpenUnitTask.Execute" at line 146.
-Debug: Connection to 9012 failed: Zeitüberschreitung der Verbindung.
+Debug: Connection to 9012 failed: ZeitÃ¼berschreitung der Verbindung.
 IDE Plugin not reachable via standard port. Checking IDE status...
 Checking for running BDS instance...
 Starting BDS: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\bds.exe
