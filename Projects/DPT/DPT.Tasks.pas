@@ -89,7 +89,7 @@ type
   end;
 
   TDptBuildAndRunTask = class(TDptBuildTask)
-  private
+  protected
     function FindExeFile: String;
     function IsBuildNeeded(const AExePath: String): Boolean;
   public
@@ -354,51 +354,93 @@ function TDptBuildAndRunTask.FindExeFile: String;
 var
   BaseName      : String;
   ExeOutput     : String;
-  Match         : TMatch;
   PossiblePath  : String;
   ProjectContent: String;
+  GroupMatches  : TMatchCollection;
+  GroupMatch    : TMatch;
+  Condition     : String;
+  ValMatch      : TMatch;
+  Body          : String;
+  CondMatch     : TMatch;
+  SkipGroup     : Boolean;
+  RootPath      : String;
 begin
   BaseName := ChangeFileExt(ExtractFileName(ProjectFile), '.exe');
+  ExeOutput := '';
 
-  // Try to find custom output path in .dproj
+  // Try to find custom output path in .dproj by parsing PropertyGroups
   if FileExists(ProjectFile) then
   begin
     ProjectContent := TFile.ReadAllText(ProjectFile);
-    // Simple heuristic: find DCC_ExeOutput.
-    Match := TRegEx.Match(ProjectContent, '<DCC_ExeOutput>(.*?)</DCC_ExeOutput>', [roIgnoreCase]);
-    if Match.Success then
-    begin
-      ExeOutput := Match.Groups[1].Value;
-      // Replace variables
-      ExeOutput := ExeOutput.Replace('$(Platform)', TargetPlatform, [rfReplaceAll, rfIgnoreCase]);
-      ExeOutput := ExeOutput.Replace('$(Config)', Config, [rfReplaceAll, rfIgnoreCase]);
 
-      PossiblePath := ExpandFileName(
-        IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
-        IncludeTrailingPathDelimiter(ExeOutput) +
-        BaseName);
-      if FileExists(PossiblePath) then
-        Exit(PossiblePath);
+    // Find all PropertyGroups. Use [\s\S] to match across lines.
+    GroupMatches := TRegEx.Matches(ProjectContent, '<PropertyGroup(.*?)>([\s\S]*?)</PropertyGroup>', [roIgnoreCase]);
+
+    for GroupMatch in GroupMatches do
+    begin
+      // Extract Condition from attributes (Group 1)
+      Condition := GroupMatch.Groups[1].Value; // e.g. ' Condition="..."'
+      Body := GroupMatch.Groups[2].Value;
+
+      // Optimization: If no DCC_ExeOutput inside, skip this group
+      if not Body.Contains('DCC_ExeOutput') then
+        Continue;
+
+      // Check Condition compatibility
+      SkipGroup := False;
+
+      // Check Config mismatch: '$(Config)'=='Something'
+      // We look for patterns like: '$(Config)'=='Debug'
+      // If 'Something' is not our Config, we skip.
+      for CondMatch in TRegEx.Matches(Condition, '''\$\(Config\)''==''([^'']*)''', [roIgnoreCase]) do
+      begin
+        if not SameText(CondMatch.Groups[1].Value, Config) then
+        begin
+          SkipGroup := True;
+          Break;
+        end;
+      end;
+      if SkipGroup then Continue;
+
+      // Check Platform mismatch
+      for CondMatch in TRegEx.Matches(Condition, '''\$\(Platform\)''==''([^'']*)''', [roIgnoreCase]) do
+      begin
+        if not SameText(CondMatch.Groups[1].Value, TargetPlatform) then
+        begin
+          SkipGroup := True;
+          Break;
+        end;
+      end;
+      if SkipGroup then Continue;
+
+      // If we are here, the group is applicable (or generic).
+      // Look for DCC_ExeOutput
+      ValMatch := TRegEx.Match(Body, '<DCC_ExeOutput>(.*?)</DCC_ExeOutput>', [roIgnoreCase]);
+      if ValMatch.Success then
+      begin
+        ExeOutput := ValMatch.Groups[1].Value;
+      end;
     end;
   end;
 
-  // Try standard output structure: .\Platform\Config\ExeName.exe
-  PossiblePath := ExpandFileName(
-    IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
-    IncludeTrailingPathDelimiter(TargetPlatform) +
-    IncludeTrailingPathDelimiter(Config) +
-    BaseName);
+  if ExeOutput <> '' then
+  begin
+    // Replace variables
+    ExeOutput := ExeOutput.Replace('$(Platform)', TargetPlatform, [rfReplaceAll, rfIgnoreCase]);
+    ExeOutput := ExeOutput.Replace('$(Config)', Config, [rfReplaceAll, rfIgnoreCase]);
 
-  if FileExists(PossiblePath) then
-    Exit(PossiblePath);
+    // Construct path
+    PossiblePath := ExpandFileName(
+      IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
+      IncludeTrailingPathDelimiter(ExeOutput) +
+      BaseName);
 
-  // Fallback: Project root
-  PossiblePath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) + BaseName);
-  if FileExists(PossiblePath) then
-    Exit(PossiblePath);
+    Exit(PossiblePath); // Return calculated path, even if not exists!
+  end;
 
-  // Default guess if nothing found
-  Result := PossiblePath;
+  // If no explicit output found, fall back to Project Root (default for empty DCC_ExeOutput)
+  RootPath := ExpandFileName(IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) + BaseName);
+  Result := RootPath;
 end;
 
 function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String): Boolean;

@@ -229,9 +229,7 @@ begin
     AttachThreadInput(FgThreadID, CurThreadID, True);
   try
     if IsIconic(AWnd) then
-      ShowWindow(AWnd, SW_RESTORE)
-    else
-      ShowWindow(AWnd, SW_SHOW);
+      ShowWindow(AWnd, SW_RESTORE);
     SetForegroundWindow(AWnd);
     BringWindowToTop(AWnd);
   finally
