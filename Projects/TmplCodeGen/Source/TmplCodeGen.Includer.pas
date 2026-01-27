@@ -26,12 +26,14 @@ type
 
   TIncludePartials = class
   private
-    FLogger    : ILogger;
-    FTargetFile: String;
+    FLogger            : ILogger;
+    FTargetFile        : String;
+    FWriteOnlyIfChanged: Boolean;
     function RetakeInterfaceGuids(const AOldPartial, ANewPartial: String): String;
   public
     constructor Create(const ATargetFile: String; const ALogger: ILogger);
     procedure Execute;
+    property WriteOnlyIfChanged: Boolean read FWriteOnlyIfChanged write FWriteOnlyIfChanged;
   end;
 
 implementation
@@ -66,7 +68,6 @@ begin
   EndRegEx := TRegEx.Create(CreateRegExpr(IncludePartial, false), [roIgnoreCase]);
 
   TargetContent := TFile.ReadAllText(FTargetFile, TEncoding.UTF8);
-
   FoundIncludes := StartRegEx.Matches(TargetContent).Count;
 
   if FoundIncludes = 0 then
@@ -127,7 +128,11 @@ begin
   end;
 
   TargetContent := RemoveBigNewLineGaps(TargetContent);
-  TFile.WriteAllText(FTargetFile, TargetContent, TEncoding.UTF8);
+
+  if FWriteOnlyIfChanged and (TFile.ReadAllText(FTargetFile, TEncoding.UTF8) = TargetContent) then
+    FLogger.Log('File is up to date: ' + FTargetFile)
+  else
+    TFile.WriteAllText(FTargetFile, TargetContent, TEncoding.UTF8);
 end;
 
 /// <remarks>

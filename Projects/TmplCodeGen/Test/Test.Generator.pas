@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -32,7 +32,7 @@ type
     FTestTemplatesPath: String;
     function  CountOccurrences(const AText, ASubString: String): Integer;
     procedure CreateCaseAMockEnvironment;
-    procedure ExecuteTmplCodeGen(const APrefix: String);
+    procedure ExecuteTmplCodeGen(const APrefix: String; AWriteOnlyIfChanged: Boolean = False);
   public
     [Setup]
     procedure Setup; override;
@@ -42,6 +42,10 @@ type
     procedure TestProcessPostFixParamsDefine;
     [Test]
     procedure TestProcessTemplatesPath;
+    [Test]
+    procedure TestWriteOnlyIfChanged;
+    [Test]
+    procedure TestWriteAlways;
   end;
 
 implementation
@@ -55,10 +59,11 @@ begin
   ForceDirectories(FTestTemplatesPath);
 end;
 
-procedure TTestTmplCodeGen.ExecuteTmplCodeGen(const APrefix: String);
+procedure TTestTmplCodeGen.ExecuteTmplCodeGen(const APrefix: String; AWriteOnlyIfChanged: Boolean = False);
 begin
   var Generator := TTmplCodeGen.Create(APrefix, FLogger);
   try
+    Generator.WriteOnlyIfChanged := AWriteOnlyIfChanged;
     Generator.ProcessTemplate;
   finally
     Generator.Free;
@@ -142,9 +147,9 @@ end;
 procedure TTestTmplCodeGen.TestProcessPostFixParamsDefine;
 begin
   TFile.WriteAllText(TPath.Combine(FTestPath, 'TestProj' + ConfJsonFileApndx),
-    '{ "Template": "Main.pas.tmpl", "Data": "Hello World" }');
+    '{ "Template": "Main.pas", "Data": "Hello World" }');
 
-  TFile.WriteAllText(TPath.Combine(FTestTemplatesPath, 'Main.pas.tmpl'), '''
+  TFile.WriteAllText(TPath.Combine(FTestTemplatesPath, 'Main.pas'), '''
     unit Test;
     interface
 
@@ -214,6 +219,85 @@ begin
 
   Assert.IsTrue(TFile.Exists('CustomProj.pas'), 'Output file should exist');
   Assert.IsTrue(TFile.ReadAllText('CustomProj.pas').Contains('unit CustomOutput;'), 'Content should match template');
+end;
+
+procedure TTestTmplCodeGen.TestWriteOnlyIfChanged;
+var
+  ConfFile    : String;
+  OutputFile  : String;
+  Prefix      : String;
+  TemplateFile: String;
+  Time1       : TDateTime;
+  Time2       : TDateTime;
+begin
+  Prefix := 'TimestampTest';
+  ConfFile := Prefix + ConfJsonFileApndx;
+  TemplateFile := TPath.Combine(FTestTemplatesPath, 'TimestampTest.pas');
+  OutputFile := Prefix + '.pas';
+
+  // Setup initial files
+  var EscapedTemplatesPath: String := FTestTemplatesPath.Replace('\', '\\');
+  TFile.WriteAllText(TPath.Combine(FTestPath, ConfFile),
+    Format('{ "Template": "TimestampTest.pas", "TemplatesPath": "%s", "Value": "A" }', [EscapedTemplatesPath]));
+  TFile.WriteAllText(TemplateFile, 'Value: {{Value}}');
+
+  // 1. Initial Generation
+  ExecuteTmplCodeGen(Prefix, True);
+  Assert.IsTrue(TFile.Exists(OutputFile), 'Output file should be created');
+  Assert.AreEqual('Value: A', TFile.ReadAllText(OutputFile));
+
+  Time1 := TFile.GetLastWriteTime(OutputFile);
+  Sleep(50); // Wait a bit to ensure FS timestamp resolution allows detection of change
+
+  // 2. Re-run with SAME content
+  ExecuteTmplCodeGen(Prefix, True);
+  Time2 := TFile.GetLastWriteTime(OutputFile);
+
+  Assert.AreEqual(Time1, Time2, 0.000001, 'File should not be touched if content is identical');
+
+  // 3. Re-run with CHANGED content
+  TFile.WriteAllText(TPath.Combine(FTestPath, ConfFile),
+    Format('{ "Template": "TimestampTest.pas", "TemplatesPath": "%s", "Value": "B" }', [EscapedTemplatesPath]));
+
+  Sleep(50); // Wait again just to be sure we are past Time2
+  ExecuteTmplCodeGen(Prefix, True);
+  Time2 := TFile.GetLastWriteTime(OutputFile);
+  
+  // Timestamp SHOULD have changed
+  Assert.AreNotEqual(Time1, Time2, 'File should be updated when content changes');
+  Assert.AreEqual('Value: B', TFile.ReadAllText(OutputFile));
+end;
+
+procedure TTestTmplCodeGen.TestWriteAlways;
+var
+  ConfFile    : String;
+  OutputFile  : String;
+  Prefix      : String;
+  TemplateFile: String;
+  Time1       : TDateTime;
+  Time2       : TDateTime;
+begin
+  Prefix := 'WriteAlwaysTest';
+  ConfFile := Prefix + ConfJsonFileApndx;
+  TemplateFile := TPath.Combine(FTestTemplatesPath, 'WriteAlwaysTest.pas');
+  OutputFile := Prefix + '.pas';
+
+  var EscapedTemplatesPath: String := FTestTemplatesPath.Replace('\', '\\');
+  TFile.WriteAllText(TPath.Combine(FTestPath, ConfFile), Format('{ "Template": "WriteAlwaysTest.pas", "TemplatesPath": "%s", "Value": "A" }', [EscapedTemplatesPath]));
+  TFile.WriteAllText(TemplateFile, 'Value: {{Value}}');
+
+  // 1. Initial Generation
+  ExecuteTmplCodeGen(Prefix, False); // Explicitly False (default)
+
+  Time1 := TFile.GetLastWriteTime(OutputFile);
+  Sleep(50);
+
+  // 2. Re-run with SAME content
+  ExecuteTmplCodeGen(Prefix, False);
+  Time2 := TFile.GetLastWriteTime(OutputFile);
+
+  // Timestamp SHOULD have changed because WriteOnlyIfChanged is False
+  Assert.AreNotEqual(Time1, Time2, 'File should always be updated when WriteOnlyIfChanged is False');
 end;
 
 initialization

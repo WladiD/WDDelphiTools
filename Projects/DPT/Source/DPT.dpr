@@ -27,8 +27,16 @@ uses
 
   JclIDEUtils,
 
+  TmplCodeGen.Common,
+  TmplCodeGen.Generator,
+  TmplCodeGen.Includer,
+  TmplCodeGen.Logger,
+  TmplCodeGen.PreProcess,
+  TmplCodeGen.Utils,
+
   DPT.InstructionScreen,
   DPT.OpenUnitTask,
+  DPT.Preprocessor,
   DPT.Tasks,
   DPT.Types;
 
@@ -38,6 +46,21 @@ var
   DelphiVersion: TDelphiVersion;
   DptTask      : TDptTaskBase;
   ParamValue   : String;
+
+  procedure CheckAndExecutePreProcessor(var AProjectFile: String);
+  var
+    PreProcessor: TDptPreprocessor;
+  begin
+    if not SameText(ExtractFileExt(AProjectFile), '.dproj') then
+    begin
+      PreProcessor := TDptPreprocessor.Create;
+      try
+        AProjectFile := PreProcessor.Execute(AProjectFile);
+      finally
+        PreProcessor.Free;
+      end;
+    end;
+  end;
 
   procedure InitDptTask(DPTaskClass: TDptTaskClass);
   begin
@@ -159,6 +182,7 @@ var
 
     // ProjectFile (Required)
     LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+    CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
     CmdLine.ConsumeParameter;
 
     // Platform (Optional)
@@ -199,6 +223,7 @@ var
 
     // ProjectFile (Required)
     LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+    CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
     CmdLine.ConsumeParameter;
 
     // Defaults

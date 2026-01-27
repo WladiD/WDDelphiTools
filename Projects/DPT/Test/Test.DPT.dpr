@@ -13,7 +13,9 @@ uses
   DUnitX.Loggers.Xml.NUnit,
   {$ENDIF }
   DUnitX.TestFramework,
-  Test.DptBuildAndRunTask in 'Test.DptBuildAndRunTask.pas';
+
+  Test.DPT.Preprocessor,
+  Test.DptBuildAndRunTask;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

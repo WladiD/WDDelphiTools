@@ -9,12 +9,18 @@ unit TmplCodeGen.Logger;
 interface
 
 type
+
   ILogger = interface
     ['{B8A1E7F0-1234-4567-89AB-CDEF01234567}']
     procedure Log(const AMessage: String);
   end;
 
   TConsoleLogger = class(TInterfacedObject, ILogger)
+  public
+    procedure Log(const AMessage: String);
+  end;
+
+  TSilentLogger = class(TInterfacedObject, ILogger)
   public
     procedure Log(const AMessage: String);
   end;
@@ -26,6 +32,13 @@ implementation
 procedure TConsoleLogger.Log(const AMessage: String);
 begin
   Writeln(AMessage);
+end;
+
+{ TSilentLogger }
+
+procedure TSilentLogger.Log(const AMessage: String);
+begin
+  // Do nothing
 end;
 
 end.

@@ -61,12 +61,16 @@ begin
       TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [ExtraArgs]', [
         'Builds the specified project using MSBuild.',
         'Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.',
+        'If <ProjectFile> is not a .dproj file, it is processed by the internal TmplCodeGen preprocessor first.',
+        '  - Supports embedded configs: (* Name-conf.json ... *)',
+        '  - Supports generation instructions: // TmplCodeGen Prefix',
+        '  - Supports include partials: // TmplCodeGen include_partials [Target]',
         'Defaults: Platform=Win32, Config=Debug',
         'Example: DPT RECENT Build MyProject.dproj Win64 Release "/t:Clean;Build"'
       ]),
       TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]', [
         'Builds and executes the project.',
-        'Supports standard Build parameters.',
+        'Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).',
         '--OnlyIfChanged: Skips build if executable is newer than source files.',
         '-- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug'
@@ -119,7 +123,7 @@ end;
 class procedure TDptInstructionScreen.PrintHeader;
 begin
   Writeln('Delphi Processing Tools (DPT)');
-  Writeln('Version 0.1 - 2026 - Waldemar Derr');
+  Writeln('Version 0.2 - 2026 - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
 end;

@@ -44,6 +44,7 @@ type
     FParamsDefineRegEx    : TRegEx;
     FParamsDefineSubRegEx : TRegEx;
     FPrefix               : String;
+    FWriteOnlyIfChanged   : Boolean;
     procedure ExportPartials(const AOutputContent: String);
     function  PostFix(const AOutputContent: String): String;
     function  PostFixParamsCall(const ALine: String): String;
@@ -54,6 +55,9 @@ type
   public
     constructor Create(const APrefix: String; const ALogger: ILogger);
     procedure ProcessTemplate;
+    procedure SetConfig(const AJsonContent: String);
+    property OutputFileName: String read FOutputFileName;
+    property WriteOnlyIfChanged: Boolean read FWriteOnlyIfChanged write FWriteOnlyIfChanged;
   end;
 
 implementation
@@ -70,6 +74,12 @@ begin
   FParamsDefineRegEx := TRegEx.Create('(procedure|function|constructor)\s*([\w\.])*(?P<Parentheses>\([^\)]*\))', [roIgnoreCase, roCompiled]);
   FParamsDefineSubRegEx := TRegEx.Create('\((?P<Params>[^\)]+);\s*\)', [roCompiled]);
   FEmptyParenthesesRegEx := TRegEx.Create('\(\s*\)', [roCompiled]);
+end;
+
+procedure TTmplCodeGen.SetConfig(const AJsonContent: String);
+begin
+  if not FConfJson.InitJson(UTF8String(AJsonContent)) then
+    raise Exception.Create('Provided JSON content is not valid');
 end;
 
 /// <remarks>
@@ -260,8 +270,12 @@ procedure TTmplCodeGen.ExportPartials(const AOutputContent: String);
     if EndIndex < StartIndex then
       raise Exception.Create('Invalid match positions');
 
-    FLogger.Log('- ' + PartialFileName);
     PartialContent := Copy(AOutputContent, StartIndex, EndIndex - StartIndex);
+
+    if FWriteOnlyIfChanged and FileExists(PartialFileName) and (TFile.ReadAllText(PartialFileName, TEncoding.UTF8) = PartialContent) then
+      Exit;
+
+    FLogger.Log('- ' + PartialFileName);
     FileStream := nil;
     StringStream := TStringStream.Create(PartialContent, TEncoding.UTF8, false);
     try
@@ -302,6 +316,7 @@ procedure TTmplCodeGen.ProcessTemplate;
 var
   ConfJsonContent    : RawUtf8;
   FullTemplatesDir   : String;
+  GeneratedString    : String;
   Helpers            : TSynMustacheHelpers;
   mustache           : TSynMustache;
   OutputContent      : RawUtf8;
@@ -315,13 +330,17 @@ var
 begin
   FConfJsonFileName := FPrefix + ConfJsonFileApndx;
 
-  if not FileExists(FConfJsonFileName) then
-    raise Exception.CreateFmt('File not found "%s"', [FConfJsonFileName]);
+  if FConfJson.Count = 0 then
+  begin
+     // Try load from file
+     if not FileExists(FConfJsonFileName) then
+       raise Exception.CreateFmt('File not found "%s"', [FConfJsonFileName]);
 
-  ConfJsonContent := RawUtf8FromFile(FConfJsonFileName);
+     ConfJsonContent := RawUtf8FromFile(FConfJsonFileName);
 
-  if not FConfJson.InitJson(ConfJsonContent) then
-    raise Exception.CreateFmt('Conf file "%s" not valid', [FConfJsonFileName]);
+     if not FConfJson.InitJson(ConfJsonContent) then
+       raise Exception.CreateFmt('Conf file "%s" not valid', [FConfJsonFileName]);
+  end;
 
   if not (FConfJson.GetValueIndex('Template') >= 0) then
     raise Exception.Create('No template defined (Key "Template" missing)');
@@ -340,11 +359,20 @@ begin
   if not FileExists(FMainTemplateFileName) then
     raise Exception.CreateFmt('Template not found "%s"', [FMainTemplateFileName]);
 
-  FOutputFileName := ExpandFileName(FPrefix + OutputApndx);
-
   FLogger.Log('Conf file         : ' + FConfJsonFileName);
   FLogger.Log('Main template     : ' + FMainTemplate);
   FLogger.Log('Main template file: ' + FMainTemplateFileName);
+
+  if FConfJson.GetValueIndex('OutputExtension') >= 0 then
+    FOutputFileName := ExpandFileName(FPrefix + FConfJson.S['OutputExtension'])
+  else
+  begin
+    var TemplateExt: String := ExtractFileExt(FMainTemplate);
+    if TemplateExt.IsEmpty then
+      TemplateExt := OutputApndx;
+    FOutputFileName := ExpandFileName(FPrefix + TemplateExt);
+  end;
+
   FLogger.Log('Output file       : ' + FOutputFileName);
 
   TemplateContent := RawUtf8FromFile(FMainTemplateFileName);
@@ -358,21 +386,34 @@ begin
     for PartialFileName in PartialFileNames do
     begin
       PartialFileNameOnly := ExtractFileName(PartialFileName);
-      PartialName := UTF8String(StringReplace(PartialFileNameOnly, PartialApndx, '',
+      PartialName := StringToUTF8(StringReplace(PartialFileNameOnly, PartialApndx, '',
         [rfReplaceAll]));
       Partials.Add(PartialName, RawUtf8FromFile(PartialFileName));
     end;
 
     OutputContent := mustache.Render(Variant(FConfJson), Partials, Helpers, nil,
       { EscapeInvert = } true);
-    OutputContent := UTF8String(RemoveMultipleCommentLines(String(OutputContent)));
-    OutputContent := UTF8String(RemoveBigNewLineGaps(String(OutputContent)));
-    OutputContent := UTF8String(PostFix(String(OutputContent)));
+    
+    GeneratedString := String(OutputContent);
+    GeneratedString := RemoveMultipleCommentLines(GeneratedString);
+    GeneratedString := RemoveBigNewLineGaps(GeneratedString);
+    GeneratedString := PostFix(GeneratedString);
 
+    if FWriteOnlyIfChanged and FileExists(FOutputFileName) then
+    begin
+      var ExistingContent: String := TFile.ReadAllText(FOutputFileName, TEncoding.UTF8);
+      if ExistingContent = GeneratedString then
+      begin
+        FLogger.Log('Output file is up to date: ' + FOutputFileName);
+        Exit;
+      end;
+    end;
+
+    OutputContent := UTF8String(GeneratedString);
     if not FileFromString(OutputContent, FOutputFileName) then
       raise Exception.Create('Output file could not be written');
 
-    ExportPartials(String(OutputContent));
+    ExportPartials(GeneratedString);
   finally
     Partials.Free;
   end;

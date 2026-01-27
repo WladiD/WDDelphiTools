@@ -45,7 +45,7 @@
         <DCC_DcuOutput>.\$(Platform)\$(Config)</DCC_DcuOutput>
         <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..\Source;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\mORMot\src;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\Source;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <UsingDelphiRTL>true</UsingDelphiRTL>
@@ -84,7 +84,6 @@
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Test.DptBuildAndRunTask.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
