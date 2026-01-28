@@ -13,6 +13,9 @@ DPT.exe Help [Action]
 Actions:
   Build <ProjectFile> [Platform] [Config] [ExtraArgs]
   BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
+  DProjShowConfigs <ProjectFile>
+  DProjShowCurConfig <ProjectFile>
+  DProjShowSearchPaths <ProjectFile> [Config] [Platform]
   HandleProtocol <dpt://URL>
   IsPackageRegistered <PackageFileName>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
@@ -60,6 +63,20 @@ Available Actions:
     --OnlyIfChanged: Skips build if executable is newer than source files.
     -- <Args>: Passes all subsequent arguments to the executable.
     Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
+
+  DProjShowConfigs <ProjectFile>
+    Lists all build configurations defined in the specified .dproj file.
+    Example: DPT D12 DProjShowConfigs MyProject.dproj
+
+  DProjShowCurConfig <ProjectFile>
+    Displays the default/active build configuration of the specified .dproj file.
+    Example: DPT D12 DProjShowCurConfig MyProject.dproj
+
+  DProjShowSearchPaths <ProjectFile> [Config] [Platform]
+    Displays the effective unit search path for the project.
+    Combines the project's specific search path (resolving variables) with the IDE's global library path.
+    Defaults: Config=<ActiveConfig>, Platform=Win32.
+    Example: DPT D12 DProjShowSearchPaths MyProject.dproj Release Win64
 
   HandleProtocol <dpt://URL>
     Internal handler for "dpt://" URI schemes.
@@ -206,6 +223,40 @@ Waiting for main window to become visible and enabled...
 IDE is ready. Scanning for listening Slim ports (9000-9100) on PID 25656...
  Found candidate port 9012. Trying to connect...
 Successfully opened unit via IDE Plugin.
+```
+
+---
+
+### Analyze Project (.dproj)
+
+**List Configs:**
+
+    DPT.exe D12 DProjShowConfigs MyProject.dproj
+
+Output
+```
+Debug
+Release
+```
+
+**Show Active Config:**
+
+    DPT.exe D12 DProjShowCurConfig MyProject.dproj
+
+Output
+```
+Debug
+```
+
+**Show Effective Search Paths:**
+
+    DPT.exe D12 DProjShowSearchPaths MyProject.dproj Release Win64
+
+Output
+```
+C:\Program Files (x86)\Embarcadero\Studio\23.0\lib\win64\release
+C:\MyProject\Source
+C:\MyProject\Common
 ```
 
 ---

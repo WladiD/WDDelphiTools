@@ -293,6 +293,48 @@ var
     LocalDPTask.RunArgs := Trim(LocalDPTask.RunArgs);
   end;
 
+  procedure SerializeDProjShowConfigsTask;
+  var
+    LocalDPTask: TDptDProjShowConfigsTask absolute DptTask;
+  begin
+    InitDptTask(TDptDProjShowConfigsTask);
+    LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+    CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
+    CmdLine.ConsumeParameter;
+  end;
+
+  procedure SerializeDProjShowCurConfigTask;
+  var
+    LocalDPTask: TDptDProjShowCurConfigTask absolute DptTask;
+  begin
+    InitDptTask(TDptDProjShowCurConfigTask);
+    LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+    CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
+    CmdLine.ConsumeParameter;
+  end;
+
+  procedure SerializeDProjShowSearchPathsTask;
+  var
+    LocalDPTask: TDptDProjShowSearchPathsTask absolute DptTask;
+  begin
+    InitDptTask(TDptDProjShowSearchPathsTask);
+    LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+    CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
+    CmdLine.ConsumeParameter;
+
+    if CmdLine.HasParameter then
+    begin
+      LocalDPTask.Config := CmdLine.CheckParameter('Config');
+      CmdLine.ConsumeParameter;
+    end;
+
+    if CmdLine.HasParameter then
+    begin
+      LocalDPTask.Platform := CmdLine.CheckParameter('Platform');
+      CmdLine.ConsumeParameter;
+    end;
+  end;
+
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -406,6 +448,21 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeOpenUnitTask;
+    end
+    else if SameText(ParamValue, 'DProjShowConfigs') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeDProjShowConfigsTask;
+    end
+    else if SameText(ParamValue, 'DProjShowCurConfig') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeDProjShowCurConfigTask;
+    end
+    else if SameText(ParamValue, 'DProjShowSearchPaths') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeDProjShowSearchPathsTask;
     end
     else if SameText(ParamValue, 'HandleProtocol') then
     begin

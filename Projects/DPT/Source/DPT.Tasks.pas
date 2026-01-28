@@ -20,6 +20,7 @@ uses
 
   JclIDEUtils,
 
+  DPT.DProjAnalyzer,
   DPT.IdeManager,
   DPT.Types;
 
@@ -64,6 +65,26 @@ type
   public
     PathToPrint: String;
     function GetPathResult: String;
+    procedure Execute; override;
+  end;
+
+  TDptDProjShowConfigsTask = class(TDptTaskBase)
+  public
+    ProjectFile: String;
+    procedure Execute; override;
+  end;
+
+  TDptDProjShowCurConfigTask = class(TDptTaskBase)
+  public
+    ProjectFile: String;
+    procedure Execute; override;
+  end;
+
+  TDptDProjShowSearchPathsTask = class(TDptTaskBase)
+  public
+    ProjectFile: String;
+    Config     : String;
+    Platform   : String;
     procedure Execute; override;
   end;
 
@@ -245,6 +266,76 @@ end;
 procedure TDptPrintPathTask.Execute;
 begin
   Writeln(GetPathResult);
+end;
+
+{ TDptDProjShowConfigsTask }
+
+procedure TDptDProjShowConfigsTask.Execute;
+var
+  Analyzer: TDProjAnalyzer;
+  Configs : TArray<String>;
+  C       : String;
+begin
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    Configs := Analyzer.GetConfigs;
+    for C in Configs do
+      Writeln(C);
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+{ TDptDProjShowCurConfigTask }
+
+procedure TDptDProjShowCurConfigTask.Execute;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    Writeln(Analyzer.GetDefaultConfig);
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+{ TDptDProjShowSearchPathsTask }
+
+procedure TDptDProjShowSearchPathsTask.Execute;
+var
+  Analyzer: TDProjAnalyzer;
+  BDSPath : String;
+  Full    : String;
+  IdePath : String;
+  ProjPath: String;
+begin
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    if Config = '' then
+      Config := Analyzer.GetDefaultConfig;
+    if Platform = '' then
+      Platform := 'Win32';
+
+    ProjPath := Analyzer.GetProjectSearchPath(Config, Platform);
+    BDSPath := ExcludeTrailingPathDelimiter(Installation.RootDir);
+    ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
+    
+    if SameText(Platform, 'Win64') then
+      IdePath := Installation.LibrarySearchPath[bpWin64]
+    else
+      IdePath := Installation.LibrarySearchPath[bpWin32];
+
+    if (ProjPath <> '') and (IdePath <> '') then
+      Full := IdePath + ';' + ProjPath
+    else
+      Full := IdePath + ProjPath;
+
+    for var PathEntry in Full.Split([';'], TStringSplitOptions.ExcludeEmpty) do
+      Writeln(PathEntry);
+  finally
+    Analyzer.Free;
+  end;
 end;
 
 { TDptStartTask }

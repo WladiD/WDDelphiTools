@@ -75,6 +75,20 @@ begin
         '-- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug'
       ]),
+      TActionInfo.Create('DProjShowConfigs', '<ProjectFile>', [
+        'Lists all build configurations defined in the specified .dproj file.',
+        'Example: DPT D12 DProjShowConfigs MyProject.dproj'
+      ]),
+      TActionInfo.Create('DProjShowCurConfig', '<ProjectFile>', [
+        'Displays the default/active build configuration of the specified .dproj file.',
+        'Example: DPT D12 DProjShowCurConfig MyProject.dproj'
+      ]),
+      TActionInfo.Create('DProjShowSearchPaths', '<ProjectFile> [Config] [Platform]', [
+        'Displays the effective unit search path for the project.',
+        'Combines the project''s specific search path (resolving variables) with the IDE''s global library path.',
+        'Defaults: Config=<ActiveConfig>, Platform=Win32.',
+        'Example: DPT D12 DProjShowSearchPaths MyProject.dproj Release Win64'
+      ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
         'Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).',

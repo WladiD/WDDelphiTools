@@ -15,7 +15,8 @@ uses
   DUnitX.TestFramework,
 
   Test.DPT.Preprocessor,
-  Test.DptBuildAndRunTask;
+  Test.DptBuildAndRunTask,
+  Test.DProjAnalyzer;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}
