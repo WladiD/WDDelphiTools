@@ -35,13 +35,13 @@ type
     [TearDown]
     procedure TearDown;
     [Test]
-    procedure TestSimpleConfig;
+    procedure SimpleConfig;
     [Test]
-    procedure TestMultipleConfigs;
+    procedure MultipleConfigs;
     [Test]
-    procedure TestIncludePartials;
+    procedure IncludePartials;
     [Test]
-    procedure TestEmbeddedConfig;
+    procedure EmbeddedConfig;
   end;
 
 implementation
@@ -62,7 +62,7 @@ begin
     TDirectory.Delete(FTestDir, True);
 end;
 
-procedure TTestDptPreprocessor.TestSimpleConfig;
+procedure TTestDptPreprocessor.SimpleConfig;
 var
   PreProcessor: TDptPreprocessor;
   ResultFile  : String;
@@ -89,7 +89,7 @@ begin
   end;
 end;
 
-procedure TTestDptPreprocessor.TestMultipleConfigs;
+procedure TTestDptPreprocessor.MultipleConfigs;
 var
   Conf2File   : String;
   PreProcessor: TDptPreprocessor;
@@ -122,7 +122,7 @@ begin
   end;
 end;
 
-procedure TTestDptPreprocessor.TestIncludePartials;
+procedure TTestDptPreprocessor.IncludePartials;
 var
   PartialFile : String;
   PreProcessor: TDptPreprocessor;
@@ -156,7 +156,7 @@ begin
   end;
 end;
 
-procedure TTestDptPreprocessor.TestEmbeddedConfig;
+procedure TTestDptPreprocessor.EmbeddedConfig;
 var
   PreProcessor: TDptPreprocessor;
   ResultFile  : String;

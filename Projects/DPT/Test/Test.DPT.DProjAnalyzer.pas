@@ -31,13 +31,13 @@ type
     procedure Teardown;
 
     [Test]
-    procedure TestGetConfigs;
+    procedure GetConfigs;
     [Test]
-    procedure TestGetDefaultConfig;
+    procedure GetDefaultConfig;
     [Test]
-    procedure TestGetProjectSearchPath_Inheritance;
+    procedure GetProjectSearchPath_Inheritance;
     [Test]
-    procedure TestGetProjectSearchPath_Overwrite;
+    procedure GetProjectSearchPath_Overwrite;
   end;
 
 implementation
@@ -60,7 +60,7 @@ begin
   TFile.WriteAllText(FTestFile, Content);
 end;
 
-procedure TTestDProjAnalyzer.TestGetConfigs;
+procedure TTestDProjAnalyzer.GetConfigs;
 var
   Analyzer: TDProjAnalyzer;
   Configs : TArray<String>;
@@ -94,7 +94,7 @@ begin
   end;
 end;
 
-procedure TTestDProjAnalyzer.TestGetDefaultConfig;
+procedure TTestDProjAnalyzer.GetDefaultConfig;
 var
   Analyzer: TDProjAnalyzer;
 begin
@@ -113,7 +113,7 @@ begin
   end;
 end;
 
-procedure TTestDProjAnalyzer.TestGetProjectSearchPath_Inheritance;
+procedure TTestDProjAnalyzer.GetProjectSearchPath_Inheritance;
 var
   Analyzer: TDProjAnalyzer;
 begin
@@ -135,7 +135,7 @@ begin
   end;
 end;
 
-procedure TTestDProjAnalyzer.TestGetProjectSearchPath_Overwrite;
+procedure TTestDProjAnalyzer.GetProjectSearchPath_Overwrite;
 var
   Analyzer: TDProjAnalyzer;
 begin
