@@ -61,28 +61,27 @@ begin
 end;
 
 procedure TTestDProjAnalyzer.TestGetConfigs;
-const
-  CONTENT = 
-    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
-    '  <ItemGroup>' +
-    '    <BuildConfiguration Include="Base">' +
-    '      <Key>Base</Key>' +
-    '    </BuildConfiguration>' +
-    '    <BuildConfiguration Include="Release">' +
-    '      <Key>Cfg_1</Key>' +
-    '      <CfgParent>Base</CfgParent>' +
-    '    </BuildConfiguration>' +
-    '    <BuildConfiguration Include="Debug">' +
-    '      <Key>Cfg_2</Key>' +
-    '      <CfgParent>Base</CfgParent>' +
-    '    </BuildConfiguration>' +
-    '  </ItemGroup>' +
-    '</Project>';
 var
   Analyzer: TDProjAnalyzer;
   Configs : TArray<String>;
 begin
-  CreateDProj(CONTENT);
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <ItemGroup>
+        <BuildConfiguration Include="Base">
+          <Key>Base</Key>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Release">
+          <Key>Cfg_1</Key>
+          <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+        <BuildConfiguration Include="Debug">
+          <Key>Cfg_2</Key>
+          <CfgParent>Base</CfgParent>
+        </BuildConfiguration>
+      </ItemGroup>
+    </Project>
+    ''');
   Analyzer := TDProjAnalyzer.Create(FTestFile);
   try
     Configs := Analyzer.GetConfigs;
@@ -96,17 +95,16 @@ begin
 end;
 
 procedure TTestDProjAnalyzer.TestGetDefaultConfig;
-const
-  CONTENT = 
-    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
-    '  <PropertyGroup>' +
-    '    <Config Condition="''$(Config)''==''''">Release</Config>' +
-    '  </PropertyGroup>' +
-    '</Project>';
 var
   Analyzer: TDProjAnalyzer;
 begin
-  CreateDProj(CONTENT);
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <Config Condition="'$(Config)'==''">Release</Config>
+      </PropertyGroup>
+    </Project>
+    ''');
   Analyzer := TDProjAnalyzer.Create(FTestFile);
   try
     Assert.AreEqual('Release', Analyzer.GetDefaultConfig);
@@ -116,20 +114,19 @@ begin
 end;
 
 procedure TTestDProjAnalyzer.TestGetProjectSearchPath_Inheritance;
-const
-  CONTENT = 
-    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
-    '  <PropertyGroup>' +
-    '    <DCC_UnitSearchPath>BaseDir</DCC_UnitSearchPath>' +
-    '  </PropertyGroup>' +
-    '  <PropertyGroup Condition="''$(Config)''==''Debug''">' +
-    '    <DCC_UnitSearchPath>$(DCC_UnitSearchPath);DebugDir</DCC_UnitSearchPath>' +
-    '  </PropertyGroup>' +
-    '</Project>';
 var
   Analyzer: TDProjAnalyzer;
 begin
-  CreateDProj(CONTENT);
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_UnitSearchPath>BaseDir</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Debug'">
+        <DCC_UnitSearchPath>$(DCC_UnitSearchPath);DebugDir</DCC_UnitSearchPath>
+      </PropertyGroup>
+    </Project>
+    ''');
   Analyzer := TDProjAnalyzer.Create(FTestFile);
   try
     Assert.AreEqual('BaseDir;DebugDir', Analyzer.GetProjectSearchPath('Debug', 'Win32'));
@@ -139,20 +136,19 @@ begin
 end;
 
 procedure TTestDProjAnalyzer.TestGetProjectSearchPath_Overwrite;
-const
-  CONTENT = 
-    '<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">' +
-    '  <PropertyGroup>' +
-    '    <DCC_UnitSearchPath>BaseDir</DCC_UnitSearchPath>' +
-    '  </PropertyGroup>' +
-    '  <PropertyGroup Condition="''$(Config)''==''Release''">' +
-    '    <DCC_UnitSearchPath>ReleaseDir</DCC_UnitSearchPath>' +
-    '  </PropertyGroup>' +
-    '</Project>';
 var
   Analyzer: TDProjAnalyzer;
 begin
-  CreateDProj(CONTENT);
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_UnitSearchPath>BaseDir</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Release'">
+        <DCC_UnitSearchPath>ReleaseDir</DCC_UnitSearchPath>
+      </PropertyGroup>
+    </Project>
+    ''');
   Analyzer := TDProjAnalyzer.Create(FTestFile);
   try
     Assert.AreEqual('ReleaseDir', Analyzer.GetProjectSearchPath('Release', 'Win32'));
