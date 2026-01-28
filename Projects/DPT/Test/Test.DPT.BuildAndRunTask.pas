@@ -1,4 +1,4 @@
-﻿unit Test.DptBuildAndRunTask;
+﻿unit Test.DPT.BuildAndRunTask;
 
 interface
 

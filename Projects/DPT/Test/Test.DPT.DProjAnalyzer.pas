@@ -4,7 +4,7 @@
 // Licensed under the MIT license. See included LICENSE file for details.
 // ======================================================================
 
-unit Test.DProjAnalyzer;
+unit Test.DPT.DProjAnalyzer;
 
 interface
 
