@@ -68,19 +68,19 @@ type
     procedure Execute; override;
   end;
 
-  TDptDProjShowConfigsTask = class(TDptTaskBase)
+  TDptDProjPrintConfigsTask = class(TDptTaskBase)
   public
     ProjectFile: String;
     procedure Execute; override;
   end;
 
-  TDptDProjShowCurConfigTask = class(TDptTaskBase)
+  TDptDProjPrintCurConfigTask = class(TDptTaskBase)
   public
     ProjectFile: String;
     procedure Execute; override;
   end;
 
-  TDptDProjShowSearchPathsTask = class(TDptTaskBase)
+  TDptDProjPrintSearchPathsTask = class(TDptTaskBase)
   public
     ProjectFile: String;
     Config     : String;
@@ -268,9 +268,9 @@ begin
   Writeln(GetPathResult);
 end;
 
-{ TDptDProjShowConfigsTask }
+{ TDptDProjPrintConfigsTask }
 
-procedure TDptDProjShowConfigsTask.Execute;
+procedure TDptDProjPrintConfigsTask.Execute;
 var
   Analyzer: TDProjAnalyzer;
   Configs : TArray<String>;
@@ -286,9 +286,9 @@ begin
   end;
 end;
 
-{ TDptDProjShowCurConfigTask }
+{ TDptDProjPrintCurConfigTask }
 
-procedure TDptDProjShowCurConfigTask.Execute;
+procedure TDptDProjPrintCurConfigTask.Execute;
 var
   Analyzer: TDProjAnalyzer;
 begin
@@ -300,9 +300,9 @@ begin
   end;
 end;
 
-{ TDptDProjShowSearchPathsTask }
+{ TDptDProjPrintSearchPathsTask }
 
-procedure TDptDProjShowSearchPathsTask.Execute;
+procedure TDptDProjPrintSearchPathsTask.Execute;
 var
   Analyzer: TDProjAnalyzer;
   BDSPath : String;

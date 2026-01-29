@@ -13,9 +13,9 @@ DPT.exe Help [Action]
 Actions:
   Build <ProjectFile> [Platform] [Config] [ExtraArgs]
   BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
-  DProjShowConfigs <ProjectFile>
-  DProjShowCurConfig <ProjectFile>
-  DProjShowSearchPaths <ProjectFile> [Config] [Platform]
+  DProjPrintConfigs <ProjectFile>
+  DProjPrintCurConfig <ProjectFile>
+  DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
   HandleProtocol <dpt://URL>
   IsPackageRegistered <PackageFileName>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
@@ -64,19 +64,19 @@ Available Actions:
     -- <Args>: Passes all subsequent arguments to the executable.
     Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
 
-  DProjShowConfigs <ProjectFile>
+  DProjPrintConfigs <ProjectFile>
     Lists all build configurations defined in the specified .dproj file.
-    Example: DPT D12 DProjShowConfigs MyProject.dproj
+    Example: DPT D12 DProjPrintConfigs MyProject.dproj
 
-  DProjShowCurConfig <ProjectFile>
+  DProjPrintCurConfig <ProjectFile>
     Displays the default/active build configuration of the specified .dproj file.
-    Example: DPT D12 DProjShowCurConfig MyProject.dproj
+    Example: DPT D12 DProjPrintCurConfig MyProject.dproj
 
-  DProjShowSearchPaths <ProjectFile> [Config] [Platform]
+  DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
     Displays the effective unit search path for the project.
     Combines the project's specific search path (resolving variables) with the IDE's global library path.
     Defaults: Config=<ActiveConfig>, Platform=Win32.
-    Example: DPT D12 DProjShowSearchPaths MyProject.dproj Release Win64
+    Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64
 
   HandleProtocol <dpt://URL>
     Internal handler for "dpt://" URI schemes.
@@ -231,7 +231,7 @@ Successfully opened unit via IDE Plugin.
 
 **List Configs:**
 
-    DPT.exe D12 DProjShowConfigs MyProject.dproj
+    DPT.exe D12 DProjPrintConfigs MyProject.dproj
 
 Output
 ```
@@ -241,7 +241,7 @@ Release
 
 **Show Active Config:**
 
-    DPT.exe D12 DProjShowCurConfig MyProject.dproj
+    DPT.exe D12 DProjPrintCurConfig MyProject.dproj
 
 Output
 ```
@@ -250,7 +250,7 @@ Debug
 
 **Show Effective Search Paths:**
 
-    DPT.exe D12 DProjShowSearchPaths MyProject.dproj Release Win64
+    DPT.exe D12 DProjPrintSearchPaths MyProject.dproj Release Win64
 
 Output
 ```

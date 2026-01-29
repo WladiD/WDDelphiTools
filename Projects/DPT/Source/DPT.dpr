@@ -293,31 +293,31 @@ var
     LocalDPTask.RunArgs := Trim(LocalDPTask.RunArgs);
   end;
 
-  procedure SerializeDProjShowConfigsTask;
+  procedure SerializeDProjPrintConfigsTask;
   var
-    LocalDPTask: TDptDProjShowConfigsTask absolute DptTask;
+    LocalDPTask: TDptDProjPrintConfigsTask absolute DptTask;
   begin
-    InitDptTask(TDptDProjShowConfigsTask);
+    InitDptTask(TDptDProjPrintConfigsTask);
     LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
     CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
     CmdLine.ConsumeParameter;
   end;
 
-  procedure SerializeDProjShowCurConfigTask;
+  procedure SerializeDProjPrintCurConfigTask;
   var
-    LocalDPTask: TDptDProjShowCurConfigTask absolute DptTask;
+    LocalDPTask: TDptDProjPrintCurConfigTask absolute DptTask;
   begin
-    InitDptTask(TDptDProjShowCurConfigTask);
+    InitDptTask(TDptDProjPrintCurConfigTask);
     LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
     CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
     CmdLine.ConsumeParameter;
   end;
 
-  procedure SerializeDProjShowSearchPathsTask;
+  procedure SerializeDProjPrintSearchPathsTask;
   var
-    LocalDPTask: TDptDProjShowSearchPathsTask absolute DptTask;
+    LocalDPTask: TDptDProjPrintSearchPathsTask absolute DptTask;
   begin
-    InitDptTask(TDptDProjShowSearchPathsTask);
+    InitDptTask(TDptDProjPrintSearchPathsTask);
     LocalDPTask.ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
     CheckAndExecutePreProcessor(LocalDPTask.ProjectFile);
     CmdLine.ConsumeParameter;
@@ -449,20 +449,20 @@ begin
       CmdLine.ConsumeParameter;
       SerializeOpenUnitTask;
     end
-    else if SameText(ParamValue, 'DProjShowConfigs') then
+    else if SameText(ParamValue, 'DProjPrintConfigs') then
     begin
       CmdLine.ConsumeParameter;
-      SerializeDProjShowConfigsTask;
+      SerializeDProjPrintConfigsTask;
     end
-    else if SameText(ParamValue, 'DProjShowCurConfig') then
+    else if SameText(ParamValue, 'DProjPrintCurConfig') then
     begin
       CmdLine.ConsumeParameter;
-      SerializeDProjShowCurConfigTask;
+      SerializeDProjPrintCurConfigTask;
     end
-    else if SameText(ParamValue, 'DProjShowSearchPaths') then
+    else if SameText(ParamValue, 'DProjPrintSearchPaths') then
     begin
       CmdLine.ConsumeParameter;
-      SerializeDProjShowSearchPathsTask;
+      SerializeDProjPrintSearchPathsTask;
     end
     else if SameText(ParamValue, 'HandleProtocol') then
     begin
