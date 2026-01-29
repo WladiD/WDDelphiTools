@@ -344,6 +344,12 @@ var
     CmdLine.ConsumeParameter;
   end;
 
+  procedure SerializeImportBuildEnvironmentTask;
+  begin
+    InitDptTask(TDptImportBuildEnvironmentTask);
+    // No extra parameters needed, it assumes running from the export dir
+  end;
+
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -477,6 +483,11 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeExportBuildEnvironmentTask;
+    end
+    else if SameText(ParamValue, 'ImportBuildEnvironment') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeImportBuildEnvironmentTask;
     end
     else if SameText(ParamValue, 'HandleProtocol') then
     begin

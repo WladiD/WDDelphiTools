@@ -18,6 +18,7 @@ Actions:
   DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
   ExportBuildEnvironment <TargetPath>
   HandleProtocol <dpt://URL>
+  ImportBuildEnvironment
   IsPackageRegistered <PackageFileName>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
   PrintPath <PathLiteral>
@@ -87,13 +88,20 @@ Available Actions:
       - Registry settings (.reg files for HKCU and HKLM)
       - DPT.exe (current version)
       - Initialization scripts (InitD12BuildEnvironment.bat/dpr)
-    Note: The initialization script requires Administrator privileges to restore files to Program Files and import HKLM settings.
+    Generates a smart Init...bat script that handles Admin rights and Unattended mode.
     Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build
 
   HandleProtocol <dpt://URL>
     Internal handler for "dpt://" URI schemes.
     Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).
     Example: dpt://openunit/?file=C:\MyUnit.pas&line=50
+
+  ImportBuildEnvironment
+    Restores a build environment from the directory where this DPT.exe is located.
+    Copies BDS files to Program Files, restores AppData, and imports Registry settings.
+    The target paths are determined automatically based on the DelphiVersion parameter.
+    Intended to be called by the generated Init...bat script.
+    Example: DPT D12 ImportBuildEnvironment
 
   IsPackageRegistered <PackageFileName>
     Checks if a specific BPL package is currently registered in the IDE.
@@ -270,6 +278,18 @@ C:\Program Files (x86)\Embarcadero\Studio\23.0\lib\win64\release
 C:\MyProject\Source
 C:\MyProject\Common
 ```
+
+---
+
+### Import Build Environment
+This action is usually triggered by the `Init<Version>BuildEnvironment.bat` script generated during export.
+It restores the environment from the current directory.
+
+    DPT.exe D12 ImportBuildEnvironment
+
+For automated setups (Docker/CI), use the generated batch file with the unattended flag:
+
+    InitD12BuildEnvironment.bat --Unattended
 
 ---
 

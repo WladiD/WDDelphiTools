@@ -93,14 +93,21 @@ begin
         'Exports a minimal Delphi build environment to the specified directory.',
         'The environment can be used on a clean Windows machine for CI/CD builds.',
         'Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.',
+        'Generates a smart Init...bat script that handles Admin rights and Unattended mode.',
         'WARNING: The target machine still requires a valid license/activation.',
-        'NOTE: The initialization script requires Administrator privileges.',
         'Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build'
       ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
         'Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).',
         'Example: dpt://openunit/?file=C:\MyUnit.pas&line=50'
+      ]),
+      TActionInfo.Create('ImportBuildEnvironment', '', [
+        'Restores a build environment from the directory where this DPT.exe is located.',
+        'Copies BDS files to Program Files, restores AppData, and imports Registry settings.',
+        'The target paths are determined automatically based on the DelphiVersion parameter.',
+        'Intended to be called by the generated Init...bat script.',
+        'Example: DPT D12 ImportBuildEnvironment'
       ]),
       TActionInfo.Create('IsPackageRegistered', '<PackageFileName>', [
         'Checks if a specific BPL package is currently registered in the IDE.',
