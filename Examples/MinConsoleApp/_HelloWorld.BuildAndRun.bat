@@ -1,0 +1,1 @@
+..\..\Projects\DPT\_DPT.BuildAndRun.bat D12 BuildAndRun HelloWorld.dpr --OnlyIfChanged

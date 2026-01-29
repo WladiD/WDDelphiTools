@@ -88,6 +88,16 @@ type
     procedure Execute; override;
   end;
 
+  TDptExportBuildEnvironmentTask = class(TDptTaskBase)
+  private
+    procedure CopyDirectory(const SourceDir, DestDir: String);
+    procedure ExportRegistry;
+    procedure CreateInitScripts;
+  public
+    TargetPath: String;
+    procedure Execute; override;
+  end;
+
   TDptStartTask = class(TDptTaskBase)
   public
     procedure Execute; override;
@@ -336,6 +346,236 @@ begin
   finally
     Analyzer.Free;
   end;
+end;
+
+{ TDptExportBuildEnvironmentTask }
+
+procedure TDptExportBuildEnvironmentTask.CopyDirectory(const SourceDir, DestDir: String);
+var
+  SR: TSearchRec;
+begin
+  if not DirectoryExists(DestDir) then
+    TDirectory.CreateDirectory(DestDir);
+
+  if FindFirst(IncludeTrailingPathDelimiter(SourceDir) + '*', faAnyFile, SR) = 0 then
+  begin
+    try
+      repeat
+        if (SR.Name <> '.') and (SR.Name <> '..') then
+        begin
+          if (SR.Attr and faDirectory) <> 0 then
+            CopyDirectory(IncludeTrailingPathDelimiter(SourceDir) + SR.Name, IncludeTrailingPathDelimiter(DestDir) + SR.Name)
+          else
+            TFile.Copy(IncludeTrailingPathDelimiter(SourceDir) + SR.Name, IncludeTrailingPathDelimiter(DestDir) + SR.Name, True);
+        end;
+      until FindNext(SR) <> 0;
+    finally
+      FindClose(SR);
+    end;
+  end;
+end;
+
+procedure TDptExportBuildEnvironmentTask.ExportRegistry;
+var
+  RegPath: String;
+  RegFileHKCU: String;
+  RegFileHKLM: String;
+  ProductVersion: String;
+
+  procedure RunReg(const ARegCmd: String);
+  var
+    LSI: TStartupInfo;
+    LPI: TProcessInformation;
+    LCmd: String;
+  begin
+    LCmd := ARegCmd;
+    UniqueString(LCmd);
+    FillChar(LSI, SizeOf(LSI), 0);
+    LSI.cb := SizeOf(LSI);
+    if CreateProcess(nil, PChar(LCmd), nil, nil, False, 0, nil, nil, LSI, LPI) then
+    begin
+      WaitForSingleObject(LPI.hProcess, INFINITE);
+      CloseHandle(LPI.hProcess);
+      CloseHandle(LPI.hThread);
+    end;
+  end;
+
+begin
+  // Extract ProductVersion from RootDir (e.g. "23.0" from ".../Studio/23.0")
+  ProductVersion := ExtractFileName(ExcludeTrailingPathDelimiter(Installation.RootDir));
+  RegPath := Format('Software\Embarcadero\BDS\%s', [ProductVersion]);
+  
+  if not DirectoryExists(IncludeTrailingPathDelimiter(TargetPath) + 'Registry') then
+    TDirectory.CreateDirectory(IncludeTrailingPathDelimiter(TargetPath) + 'Registry');
+
+  RegFileHKCU := IncludeTrailingPathDelimiter(TargetPath) + 'Registry\BDS_Registry_HKCU.reg';
+  RegFileHKLM := IncludeTrailingPathDelimiter(TargetPath) + 'Registry\BDS_Registry_HKLM.reg';
+
+  RunReg(Format('reg export "HKEY_CURRENT_USER\%s" "%s" /y', [RegPath, RegFileHKCU]));
+  RunReg(Format('reg export "HKEY_LOCAL_MACHINE\%s" "%s" /y', [RegPath, RegFileHKLM]));
+end;
+
+procedure TDptExportBuildEnvironmentTask.CreateInitScripts;
+var
+  VerStr : String;
+  DprPath: String;
+  BatPath: String;
+  DprContent: TStringList;
+  BatContent: TStringList;
+  TargetBdsRoot: String;
+begin
+  VerStr := DelphiVersionStringArray[DelphiVersion];
+  DprPath := IncludeTrailingPathDelimiter(TargetPath) + 'Init' + VerStr + 'BuildEnvironment.dpr';
+  BatPath := IncludeTrailingPathDelimiter(TargetPath) + 'Init' + VerStr + 'BuildEnvironment.bat';
+  TargetBdsRoot := ExcludeTrailingPathDelimiter(Installation.RootDir);
+  var ProductVersion: String := ExtractFileName(TargetBdsRoot);
+
+  DprContent := TStringList.Create;
+  try
+    DprContent.Add('(* Init' + VerStr + 'BuildEnvironment-conf.json');
+    DprContent.Add('{');
+    DprContent.Add('  "Template": "ConsoleApp.TMPL.dproj"');
+    DprContent.Add('}');
+    DprContent.Add('*)');
+    DprContent.Add('// TmplCodeGen Init' + VerStr + 'BuildEnvironment');
+    DprContent.Add('');
+    DprContent.Add('program Init' + VerStr + 'BuildEnvironment;');
+    DprContent.Add('{$APPTYPE CONSOLE}');
+    DprContent.Add('begin');
+    DprContent.Add('  Writeln(''Delphi Build Environment Initialized Successfully.'');');
+    DprContent.Add('end.');
+    DprContent.SaveToFile(DprPath, TEncoding.UTF8);
+  finally
+    DprContent.Free;
+  end;
+
+  BatContent := TStringList.Create;
+  try
+    BatContent.Add('@echo off');
+    BatContent.Add('setlocal');
+    BatContent.Add('cd /d "%~dp0"');
+    BatContent.Add('');
+    BatContent.Add('REM Check for Admin rights');
+    BatContent.Add('net session >nul 2>&1');
+    BatContent.Add('if %errorLevel% neq 0 (');
+    BatContent.Add('    echo ERROR: This script requires Administrator privileges.');
+    BatContent.Add('    echo Please right-click and select "Run as administrator".');
+    BatContent.Add('    pause');
+    BatContent.Add('    exit /b 1');
+    BatContent.Add(')');
+    BatContent.Add('');
+    BatContent.Add('set "REG_EXE=reg"');
+    BatContent.Add('if exist "%SystemRoot%\SysWOW64\reg.exe" set "REG_EXE=%SystemRoot%\SysWOW64\reg.exe"');
+    BatContent.Add('');
+    BatContent.Add('set "TARGET_BDS=' + TargetBdsRoot + '"');
+    BatContent.Add('set "SOURCE_BDS=%~dp0BDS"');
+    BatContent.Add('');
+    BatContent.Add('echo Restoring BDS files to %TARGET_BDS%...');
+    BatContent.Add('if not exist "%TARGET_BDS%" mkdir "%TARGET_BDS%"');
+    BatContent.Add('xcopy "%SOURCE_BDS%\*" "%TARGET_BDS%\" /E /I /Y /Q');
+    BatContent.Add('');
+    BatContent.Add('echo Restoring EnvOptions.proj...');
+    BatContent.Add('set "TARGET_ENV_PROJ=%APPDATA%\Embarcadero\BDS\' + ProductVersion + '"');
+    BatContent.Add('if not exist "%TARGET_ENV_PROJ%" mkdir "%TARGET_ENV_PROJ%"');
+    BatContent.Add('if exist "%~dp0AppData\EnvOptions.proj" copy /Y "%~dp0AppData\EnvOptions.proj" "%TARGET_ENV_PROJ%\EnvOptions.proj"');
+    BatContent.Add('echo Restoring environment.proj...');
+    BatContent.Add('if exist "%~dp0AppData\environment.proj" copy /Y "%~dp0AppData\environment.proj" "%TARGET_ENV_PROJ%\environment.proj"');
+    BatContent.Add('');
+    BatContent.Add('echo Importing Registry settings...');
+    BatContent.Add('"%REG_EXE%" import "Registry\BDS_Registry_HKCU.reg"');
+    BatContent.Add('if exist "Registry\BDS_Registry_HKLM.reg" (') ;
+    BatContent.Add('  echo Importing HKLM Registry settings ^(Requires Admin rights^)...');
+    BatContent.Add('  "%REG_EXE%" import "Registry\BDS_Registry_HKLM.reg"');
+    BatContent.Add(')');
+    BatContent.Add('');
+    BatContent.Add('echo Testing Build Environment...');
+    BatContent.Add('DPT.exe ' + VerStr + ' BuildAndRun "' + ExtractFileName(DprPath) + '" --OnlyIfChanged');
+    BatContent.Add('');
+    BatContent.Add('if %ERRORLEVEL% equ 0 (');
+    BatContent.Add('  echo SUCCESS > init_success.marker');
+    BatContent.Add('  echo Initialization complete.');
+    BatContent.Add(') else (');
+    BatContent.Add('  echo ERROR: Initialization failed during build test.');
+    BatContent.Add('  exit /b 1');
+    BatContent.Add(')');
+    BatContent.SaveToFile(BatPath, TEncoding.Default);
+  finally
+    BatContent.Free;
+  end;
+end;
+
+procedure TDptExportBuildEnvironmentTask.Execute;
+var
+  BdsRoot: String;
+  TargetBds: String;
+  Whitelist: TArray<String>;
+  Folder: String;
+begin
+  if DirectoryExists(TargetPath) and (Length(TDirectory.GetFileSystemEntries(TargetPath)) > 0) then
+    raise Exception.Create('Target directory must be empty or not exist.');
+
+  TDirectory.CreateDirectory(TargetPath);
+  TDirectory.CreateDirectory(IncludeTrailingPathDelimiter(TargetPath) + 'BDS');
+  TDirectory.CreateDirectory(IncludeTrailingPathDelimiter(TargetPath) + 'Templates');
+
+  BdsRoot := IncludeTrailingPathDelimiter(Installation.RootDir);
+  TargetBds := IncludeTrailingPathDelimiter(TargetPath) + 'BDS';
+
+  Writeln('Exporting BDS files from: ' + BdsRoot);
+  Whitelist := ['bin', 'lib', 'Imports', 'include', 'redist'];
+  for Folder in Whitelist do
+  begin
+    if DirectoryExists(BdsRoot + Folder) then
+    begin
+      Writeln('  Copying ' + Folder + '...');
+      CopyDirectory(BdsRoot + Folder, TargetBds + '\' + Folder);
+    end;
+  end;
+
+  Writeln('Exporting Registry...');
+  ExportRegistry;
+
+  Writeln('Copying DPT.exe...');
+  TFile.Copy(ParamStr(0), IncludeTrailingPathDelimiter(TargetPath) + 'DPT.exe', True);
+
+  Writeln('Copying Template...');
+  // Try to find the template relative to the DPT.exe or project root
+  var ProjectRoot: String := ExpandFileName(ExtractFilePath(ParamStr(0)) + '..\..\');
+  var TemplateSrc: String := ProjectRoot + 'Examples\MinConsoleApp\Templates\ConsoleApp.TMPL.dproj';
+  
+  if not FileExists(TemplateSrc) then
+     TemplateSrc := ExpandFileName(ExtractFilePath(ParamStr(0)) + '..\Examples\MinConsoleApp\Templates\ConsoleApp.TMPL.dproj');
+
+  if FileExists(TemplateSrc) then
+    TFile.Copy(TemplateSrc, IncludeTrailingPathDelimiter(TargetPath) + 'Templates\ConsoleApp.TMPL.dproj', True)
+  else
+    Writeln('Warning: Template ConsoleApp.TMPL.dproj not found at ' + TemplateSrc);
+
+  Writeln('Creating Init scripts...');
+  CreateInitScripts;
+
+  var AppDataDir: String := GetEnvironmentVariable('APPDATA');
+  var ProductVersion: String := ExtractFileName(ExcludeTrailingPathDelimiter(Installation.RootDir));
+
+  if not DirectoryExists(IncludeTrailingPathDelimiter(TargetPath) + 'AppData') then
+    TDirectory.CreateDirectory(IncludeTrailingPathDelimiter(TargetPath) + 'AppData');
+
+  Writeln('Exporting EnvOptions.proj...');
+  var EnvOptionsSrc: String := AppDataDir + '\Embarcadero\BDS\' + ProductVersion + '\EnvOptions.proj';
+  if FileExists(EnvOptionsSrc) then
+    TFile.Copy(EnvOptionsSrc, IncludeTrailingPathDelimiter(TargetPath) + 'AppData\EnvOptions.proj', True)
+  else
+    Writeln('Warning: EnvOptions.proj not found at ' + EnvOptionsSrc);
+
+  Writeln('Exporting environment.proj...');
+  var EnvironmentSrc: String := AppDataDir + '\Embarcadero\BDS\' + ProductVersion + '\environment.proj';
+
+  if FileExists(EnvironmentSrc) then
+    TFile.Copy(EnvironmentSrc, IncludeTrailingPathDelimiter(TargetPath) + 'AppData\environment.proj', True)
+  else
+    Writeln('Warning: environment.proj not found at ' + EnvOptionsSrc);
+
+  Writeln('Export completed successfully to: ' + TargetPath);
 end;
 
 { TDptStartTask }

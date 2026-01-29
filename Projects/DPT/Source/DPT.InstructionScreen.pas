@@ -89,6 +89,14 @@ begin
         'Defaults: Config=<ActiveConfig>, Platform=Win32.',
         'Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64'
       ]),
+      TActionInfo.Create('ExportBuildEnvironment', '<TargetPath>', [
+        'Exports a minimal Delphi build environment to the specified directory.',
+        'The environment can be used on a clean Windows machine for CI/CD builds.',
+        'Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.',
+        'WARNING: The target machine still requires a valid license/activation.',
+        'NOTE: The initialization script requires Administrator privileges.',
+        'Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build'
+      ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
         'Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).',

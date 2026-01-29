@@ -16,6 +16,7 @@ Actions:
   DProjPrintConfigs <ProjectFile>
   DProjPrintCurConfig <ProjectFile>
   DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
+  ExportBuildEnvironment <TargetPath>
   HandleProtocol <dpt://URL>
   IsPackageRegistered <PackageFileName>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
@@ -77,6 +78,17 @@ Available Actions:
     Combines the project's specific search path (resolving variables) with the IDE's global library path.
     Defaults: Config=<ActiveConfig>, Platform=Win32.
     Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64
+
+  ExportBuildEnvironment <TargetPath>
+    Exports a minimal Delphi build environment to the specified directory.
+    Useful for setting up CI/CD pipelines on clean Windows VMs without the full IDE installation.
+    Includes:
+      - Required BDS files (bin, lib, Imports, include, redist)
+      - Registry settings (.reg files for HKCU and HKLM)
+      - DPT.exe (current version)
+      - Initialization scripts (InitD12BuildEnvironment.bat/dpr)
+    Note: The initialization script requires Administrator privileges to restore files to Program Files and import HKLM settings.
+    Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build
 
   HandleProtocol <dpt://URL>
     Internal handler for "dpt://" URI schemes.

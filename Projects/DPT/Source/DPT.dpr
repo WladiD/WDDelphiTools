@@ -335,6 +335,15 @@ var
     end;
   end;
 
+  procedure SerializeExportBuildEnvironmentTask;
+  var
+    LocalDPTask: TDptExportBuildEnvironmentTask absolute DptTask;
+  begin
+    InitDptTask(TDptExportBuildEnvironmentTask);
+    LocalDPTask.TargetPath := ExpandFileName(CmdLine.CheckParameter('TargetPath'));
+    CmdLine.ConsumeParameter;
+  end;
+
   procedure SerializeHandleProtocolTask;
   var
     URL, Command, ParamsStr: String;
@@ -463,6 +472,11 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeDProjPrintSearchPathsTask;
+    end
+    else if SameText(ParamValue, 'ExportBuildEnvironment') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeExportBuildEnvironmentTask;
     end
     else if SameText(ParamValue, 'HandleProtocol') then
     begin
