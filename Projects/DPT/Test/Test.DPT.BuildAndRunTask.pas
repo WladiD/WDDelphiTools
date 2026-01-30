@@ -10,7 +10,7 @@ uses
 
   DUnitX.TestFramework,
 
-  DPT.Tasks;
+  DPT.Build.Task;
 
 type
 

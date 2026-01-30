@@ -16,7 +16,8 @@ uses
   Slim.Fixture,
 
   DPT.OpenUnitTask,
-  DPT.Tasks,
+  DPT.PrintPath.Task,
+  DPT.IdeControl.Task,
   DPT.Types;
 
 type

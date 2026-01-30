@@ -34,10 +34,16 @@ uses
   TmplCodeGen.PreProcess,
   TmplCodeGen.Utils,
 
+  DPT.Build.Task,
+  DPT.BuildEnvironment.Task,
+  DPT.DProj.Task,
+  DPT.IdeControl.Task,
   DPT.InstructionScreen,
   DPT.OpenUnitTask,
   DPT.Preprocessor,
-  DPT.Tasks,
+  DPT.PrintPath.Task,
+  DPT.RegisterPackage.Task,
+  DPT.RemovePackage.Task,
   DPT.Types;
 
 procedure ProcessCmdLine;

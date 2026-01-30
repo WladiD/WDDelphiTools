@@ -12,8 +12,8 @@ uses
 
   System.SysUtils,
 
-  DPT.Types,
-  DPT.Tasks;
+  DPT.PrintPath.Task,
+  DPT.Types;
 
 type
 
