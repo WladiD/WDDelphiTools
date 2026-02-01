@@ -3,11 +3,12 @@ chcp 65001 > nul
 setlocal
 pushd %~dp0
 
-call ..\..\..\_BuildBase.bat "Test.TmplCodeGen.dproj" %1
-
-if %ERRORLEVEL% neq 0 (
+..\..\DPT\DPT.exe RECENT Build "Test.TmplCodeGen.dproj"
+set BUILD_ERROR=%ERRORLEVEL%
+if %BUILD_ERROR% neq 0 (
+    echo Build failed.
     popd
-    exit /b %ERRORLEVEL%
+    exit /b %BUILD_ERROR%
 )
 
 popd

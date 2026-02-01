@@ -8,11 +8,11 @@ if not "%~1"=="" set "DELPHI_VERSION=%~1"
 
 rem Building in Debug configuration for development
 ..\DPT\DPT.exe "%DELPHI_VERSION%" Build "DptIdeExpert.dproj" Win32 Debug
-
-if %ERRORLEVEL% neq 0 (
+set BUILD_ERROR=%ERRORLEVEL%
+if %BUILD_ERROR% NEQ 0 (
     echo Build failed!
     popd
-    exit /b %ERRORLEVEL%
+    exit /b %BUILD_ERROR%
 )
 
 echo.
