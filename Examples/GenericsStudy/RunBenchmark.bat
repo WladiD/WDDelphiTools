@@ -23,8 +23,9 @@ echo.
 echo [1/4] Compiling StaticGenerics...
 cd StaticGenerics
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_HELPER%" "..\..\..\_BuildBase.bat \"Benchmark_StaticGenerics.dproj\"" > ..\build_static.log
+set BUILD_ERROR=%ERRORLEVEL%
 timeout /t 1 /nobreak > nul
-if %errorlevel% neq 0 (
+if %BUILD_ERROR% neq 0 (
     echo BUILD FAILED! See build_static.log
     type ..\build_static.log
 ) else (
@@ -40,8 +41,9 @@ echo.
 echo [2/4] Compiling mORMotGenerics...
 cd mORMotGenerics
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_HELPER%" "..\..\..\_BuildBase.bat \"Benchmark_mORMotGenerics.dproj\"" > ..\build_mormot.log
+set BUILD_ERROR=%ERRORLEVEL%
 timeout /t 1 /nobreak > nul
-if %errorlevel% neq 0 (
+if %BUILD_ERROR% neq 0 (
     echo BUILD FAILED! See build_mormot.log
     type ..\build_mormot.log
 ) else (
@@ -57,8 +59,9 @@ echo.
 echo [3/4] Compiling DelphiGenerics...
 cd DelphiGenerics
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_HELPER%" "..\..\..\_BuildBase.bat \"Benchmark_DelphiGenerics.dproj\"" > ..\build_delphi.log
+set BUILD_ERROR=%ERRORLEVEL%
 timeout /t 1 /nobreak > nul
-if %errorlevel% neq 0 (
+if %BUILD_ERROR% neq 0 (
     echo BUILD FAILED! See build_delphi.log
     type ..\build_delphi.log
 ) else (
@@ -74,8 +77,9 @@ echo.
 echo [4/4] Compiling SpringGenerics...
 cd SpringGenerics
 powershell -NoProfile -ExecutionPolicy Bypass -File "%PS_HELPER%" "..\..\..\_BuildBase.bat \"Benchmark_SpringGenerics.dproj\"" > ..\build_spring.log
+set BUILD_ERROR=%ERRORLEVEL%
 timeout /t 1 /nobreak > nul
-if %errorlevel% neq 0 (
+if %BUILD_ERROR% neq 0 (
     echo BUILD FAILED! See build_spring.log
     echo. >> ..\summary.log
     echo [SpringGenerics - FAILED] >> ..\summary.log
