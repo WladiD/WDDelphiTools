@@ -78,7 +78,7 @@ implementation
 procedure TDptOpenUnitFixture.Reset;
 begin
   inherited;
-  FDelphiVersion := 'RECENT';
+  FDelphiVersion := 'LATEST';
   FUnitPath := '';
   FLine := '';
   FMember := '';
@@ -92,7 +92,7 @@ begin
   Result := True;
   LTask := TDptOpenUnitTask.Create;
   try
-    if SameText(FDelphiVersion, 'RECENT') then
+    if IsLatestVersionAlias(FDelphiVersion) then
       LVersion := FindMostRecentDelphiVersion
     else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
       raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
@@ -112,7 +112,7 @@ end;
 procedure TDptPrintPathFixture.Reset;
 begin
   inherited;
-  FDelphiVersion := 'RECENT';
+  FDelphiVersion := 'LATEST';
   FPathType := '';
 end;
 
@@ -123,7 +123,7 @@ var
 begin
   LTask := TDptPrintPathTask.Create;
   try
-    if SameText(FDelphiVersion, 'RECENT') then
+    if IsLatestVersionAlias(FDelphiVersion) then
       LVersion := FindMostRecentDelphiVersion
     else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
       raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
@@ -152,7 +152,7 @@ begin
   LTask := TDptStartTask.Create;
   try
     try
-      if SameText(FDelphiVersion, 'RECENT') then
+      if IsLatestVersionAlias(FDelphiVersion) then
         LVersion := FindMostRecentDelphiVersion
       else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
         raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);
@@ -176,7 +176,7 @@ begin
   LTask := TDptStopTask.Create;
   try
     try
-      if SameText(FDelphiVersion, 'RECENT') then
+      if IsLatestVersionAlias(FDelphiVersion) then
         LVersion := FindMostRecentDelphiVersion
       else if not IsValidDelphiVersion(FDelphiVersion, LVersion) then
         raise Exception.Create('Invalid Delphi version: ' + FDelphiVersion);

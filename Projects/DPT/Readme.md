@@ -41,7 +41,7 @@ Output
 Usage: DPT.exe Help <Action>
 
 DelphiVersion:
-  RECENT              Automatically selects the newest installed version
+  LATEST              Automatically selects the newest installed version (Alias: RECENT)
   D2007
   D10.1
   D10.3
@@ -57,14 +57,14 @@ Available Actions:
       - Supports generation instructions: // TmplCodeGen Prefix
       - Supports include partials: // TmplCodeGen include_partials [Target]
     Defaults: Platform=Win32, Config=Debug
-    Example: DPT RECENT Build MyProject.dproj Win64 Release "/t:Clean;Build"
+    Example: DPT LATEST Build MyProject.dproj Win64 Release "/t:Clean;Build"
 
   BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
     Builds and executes the project.
     Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).
     --OnlyIfChanged: Skips build if executable is newer than source files.
     -- <Args>: Passes all subsequent arguments to the executable.
-    Example: DPT RECENT BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
+    Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
 
   DProjPrintConfigs <ProjectFile>
     Lists all build configurations defined in the specified .dproj file.
@@ -220,13 +220,13 @@ Registration ok
 
 ### Open a unit in IDE at specific line
 
-    DPT.exe RECENT OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
+    DPT.exe LATEST OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
 
 ---
 
 ### Open a unit and jump to member implementation
 
-    DPT.exe RECENT OpenUnit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas" GoToMemberImplementation TDptOpenUnitTask.Execute
+    DPT.exe LATEST OpenUnit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas" GoToMemberImplementation TDptOpenUnitTask.Execute
 
 Output
 ```
@@ -339,7 +339,7 @@ Build succeeded.
 
 ### Build and Run a project
 
-    DPT.exe RECENT BuildAndRun TmplCodeGen.dproj Win32 Debug --OnlyIfChanged
+    DPT.exe LATEST BuildAndRun TmplCodeGen.dproj Win32 Debug --OnlyIfChanged
 
 Output (First run)
 ```

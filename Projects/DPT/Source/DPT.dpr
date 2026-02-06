@@ -417,7 +417,7 @@ begin
   CmdLine := TCmdLineConsumer.Create;
   try
     ParamValue := CmdLine.CheckParameter('DelphiVersion');
-    if SameText(ParamValue, 'RECENT') then
+    if IsLatestVersionAlias(ParamValue) then
     begin
       DelphiVersion := FindMostRecentDelphiVersion;
       if DelphiVersion = dvUnknown then
