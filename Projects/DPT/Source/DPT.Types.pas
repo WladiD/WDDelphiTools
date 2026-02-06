@@ -52,6 +52,7 @@ type
 
 function FindMostRecentDelphiVersion: TDelphiVersion;
 function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
+function IsLatestVersionAlias(const AValue: String): Boolean;
 
 const
 
@@ -175,6 +176,11 @@ begin
   finally
     Installations.Free;
   end;
+end;
+
+function IsLatestVersionAlias(const AValue: String): Boolean;
+begin
+  Result := SameText(AValue, 'LATEST') or SameText(AValue, 'RECENT');
 end;
 
 end.
