@@ -1053,7 +1053,13 @@ begin
                 LNeedsNewBlock := True;
             end;
 
-            if (LMember.MemberType = mtConstructor) or (LCurrentBlockType = mtConstructor) then LNeedsNewBlock := True;
+            // Rule: Constructors and Destruktors should stay together but be isolated from others
+            if (LMember.MemberType = mtConstructor) and (LCurrentBlockType = mtConstructor) then
+              LNeedsNewBlock := False
+            else if (LMember.MemberType = mtConstructor) or (LCurrentBlockType = mtConstructor) then
+              LNeedsNewBlock := True;
+
+            // Rule: Class methods always form their own group
             if (LMember.MemberType = mtClassMethod) or (LCurrentBlockType = mtClassMethod) then LNeedsNewBlock := True;
 
             if LNeedsNewBlock then
