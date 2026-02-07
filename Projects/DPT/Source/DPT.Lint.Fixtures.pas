@@ -412,16 +412,30 @@ begin
       U.GroupIdx := -1;
 
       // Find group
+      var LWildcardMatchGroupIdx: Integer := -1;
       for var GIdx := 0 to FGroups.Count - 1 do
       begin
         for var Pat in FGroups[GIdx].Patterns do
+        begin
           if MatchNamespace(LName, Pat) then
           begin
-            U.GroupIdx := GIdx;
-            Break;
+            if Pat = '*' then
+            begin
+              if LWildcardMatchGroupIdx = -1 then
+                LWildcardMatchGroupIdx := GIdx;
+            end
+            else
+            begin
+              U.GroupIdx := GIdx;
+              Break;
+            end;
           end;
+        end;
         if U.GroupIdx <> -1 then Break;
       end;
+
+      if (U.GroupIdx = -1) and (LWildcardMatchGroupIdx <> -1) then
+        U.GroupIdx := LWildcardMatchGroupIdx;
       
       FUnits.Add(U);
     end;
