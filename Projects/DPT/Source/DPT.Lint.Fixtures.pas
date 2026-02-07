@@ -105,6 +105,7 @@ type
     function GroupsAreSortedAlphabetically: Boolean;
     function GroupsAreSeparatedByBlankLines: Boolean;
     function GroupsFollowOrder: Boolean;
+    function BlankLineAfterUsesExists: Boolean;
 
     function GetLinesAfterLastUsesLine(ALinesCount: Integer): String;
     function GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): string;
@@ -704,15 +705,34 @@ begin
     var Curr := FUnits[I];
     if (Curr.GroupIdx <> -1) and (Prev.GroupIdx <> -1) and (Curr.GroupIdx < Prev.GroupIdx) then
     begin
-      ReportError(Curr.Line, Format('Group "%s" must appear before group "%s".',
+      ReportError(Curr.Line, Format('Group "%s" must appear before group "%s".', 
         [FGroups[Curr.GroupIdx].Name, FGroups[Prev.GroupIdx].Name]));
       Result := False;
     end;
   end;
 end;
 
-function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): String;
+function TDptLintUsesFixture.BlankLineAfterUsesExists: Boolean;
 var
+  LLines: TArray<string>;
+begin
+  Result := False;
+  LLines := FContent.Split([sLineBreak]);
+  for var I := 0 to High(LLines) do
+  begin
+    if SameText(LLines[I].Trim, 'uses') then
+    begin
+      // Check if next line is empty
+      if (I < High(LLines)) and (LLines[I+1].Trim = '') then
+        Exit(True);
+      
+      ReportError(I + 1, 'Missing blank line after "uses" keyword.');
+      Exit(False);
+    end;
+  end;
+end;
+
+function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): String;var
   LLines: TArray<string>;
   LInUses: Boolean;
   LLastLineIdx: Integer;
@@ -881,18 +901,14 @@ begin
     Exit;
   end;
 
-  // Field? (starts with prefix and has colon)
-  if FFieldNamePrefix <> '' then
+  // Field? (Ident: Type)
+  LMatch := TRegEx.Match(ALine, '^(\s*)(\w+)\s*:', [roIgnoreCase]);
+  if LMatch.Success then
   begin
-    var LRegex := '^(\s*)(' + FFieldNamePrefix + '\w+)\s*:';
-    LMatch := TRegEx.Match(ALine, LRegex, [roIgnoreCase]);
-    if LMatch.Success then
-    begin
-      Result.MemberType := mtField;
-      Result.Name := LMatch.Groups[2].Value;
-      Result.NameStartPos := LMatch.Groups[2].Index;
-      Exit;
-    end;
+    Result.MemberType := mtField;
+    Result.Name := LMatch.Groups[2].Value;
+    Result.NameStartPos := LMatch.Groups[2].Index;
+    Exit;
   end;
 end;
 
@@ -909,28 +925,41 @@ begin
     mtProperty: LMustBeSorted := FPropertiesMustBeSorted;
   end;
 
-  for var I := 1 to ABlock.Members.Count - 1 do
-  begin
-    var Prev := ABlock.Members[I-1];
-    var Curr := ABlock.Members[I];
-
-    // Check Sorting
-    if LMustBeSorted and (CompareText(Curr.Name, Prev.Name) < 0) then
+    for var I := 0 to ABlock.Members.Count - 1 do
     begin
-      ReportError(Curr.LineIdx + 1, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
-      AResult := False;
-    end;
-
-    // Check Alignment
-    if FAlignMemberNames and (Curr.NameStartPos <> Prev.NameStartPos) then
-    begin
-      ReportError(Curr.LineIdx + 1, Format('Member "%s" should be vertically aligned with "%s" (Pos %d vs %d).',
-        [Curr.Name, Prev.Name, Curr.NameStartPos, Prev.NameStartPos]));
-      AResult := False;
+      var Curr := ABlock.Members[I];
+  
+      // Check Field Prefix
+      if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
+      begin
+        if not Curr.Name.StartsWith(FFieldNamePrefix) then
+        begin
+          ReportError(Curr.LineIdx + 1, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
+          AResult := False;
+        end;
+      end;
+  
+      if I > 0 then
+      begin
+        var Prev := ABlock.Members[I-1];
+  
+        // Check Sorting
+        if LMustBeSorted and (CompareText(Curr.Name, Prev.Name) < 0) then
+        begin
+          ReportError(Curr.LineIdx + 1, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
+          AResult := False;
+        end;
+  
+        // Check Alignment
+        if FAlignMemberNames and (Curr.NameStartPos <> Prev.NameStartPos) then
+        begin
+          ReportError(Curr.LineIdx + 1, Format('Member "%s" should be vertically aligned with "%s" (Pos %d vs %d).', 
+            [Curr.Name, Prev.Name, Curr.NameStartPos, Prev.NameStartPos]));
+          AResult := False;
+        end;
+      end;
     end;
   end;
-end;
-
 function TDptLintClassDeclarationFixture.LintClassDeclarations: Boolean;
 var
   LLines: TArray<string>;
