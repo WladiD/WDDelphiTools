@@ -56,6 +56,8 @@ function IsLatestVersionAlias(const AValue: String): Boolean;
 
 const
 
+  DptConfigFileName = 'DptConfig.ini';
+
   DelphiVersionStringArray: Array [TDelphiVersion] of String = (
     { dvUnknown } '',
     { dvD2007   } 'D2007',

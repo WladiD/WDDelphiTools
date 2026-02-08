@@ -17,6 +17,8 @@ uses
   System.Win.Registry,
   System.NetEncoding,
   System.Contnrs,
+  System.IniFiles,
+  System.IOUtils,
 
   Slim.Server,
   Slim.Fixture,
@@ -91,6 +93,10 @@ var
   procedure SerializeLintTask;
   var
     LocalDPTask: TDptLintTask absolute DptTask;
+    FitNesseDir: string;
+    IniPath: string;
+    Ini: TIniFile;
+    Param: string;
   begin
     InitDptTask(TDptLintTask);
     LocalDPTask.StyleFile := ExpandFileName(CmdLine.CheckParameter('StyleFile'));
@@ -99,15 +105,45 @@ var
     CmdLine.ConsumeParameter;
 
     LocalDPTask.Verbose := False;
+    FitNesseDir := '';
+
     while CmdLine.HasParameter do
     begin
-      if SameText(CmdLine.CheckParameter('--verbose'), '--verbose') then
-        LocalDPTask.Verbose := True;
+      Param := CmdLine.CheckParameter('Option');
+      if SameText(Param, '--verbose') then
+        LocalDPTask.Verbose := True
+      else if Param.StartsWith('--fitnesse-dir=', True) then
+        FitNesseDir := Param.Substring(15).DeQuotedString('"')
+      else
+        Break;
       CmdLine.ConsumeParameter;
     end;
 
-    LocalDPTask.FitNesseDir := 'C:\WDC\SlimForDelphi\FitNesse';
-    LocalDPTask.FitNesseRoot := 'C:\WDC\SlimForDelphi\FitNesse\FitNesseRoot';
+    if FitNesseDir = '' then
+    begin
+      IniPath := TPath.Combine(ExtractFilePath(ParamStr(0)), DptConfigFileName);
+      if not TFile.Exists(IniPath) then
+        IniPath := FileSearch(DptConfigFileName, GetEnvironmentVariable('PATH'));
+
+      if IniPath <> '' then
+      begin
+        Ini := TIniFile.Create(IniPath);
+        try
+          FitNesseDir := Ini.ReadString('FitNesse', 'Dir', '');
+        finally
+          Ini.Free;
+        end;
+      end;
+    end;
+
+    if FitNesseDir = '' then
+      raise Exception.Create('FitNesse directory not configured.' + sLineBreak +
+        'Please provide it via --fitnesse-dir="X:\Path" or create a ' + DptConfigFileName + ' in your PATH with:' + sLineBreak +
+        '[FitNesse]' + sLineBreak +
+        'Dir=C:\Path\To\FitNesse');
+
+    LocalDPTask.FitNesseDir := FitNesseDir;
+    LocalDPTask.FitNesseRoot := TPath.Combine(FitNesseDir, 'FitNesseRoot');
   end;
 
   procedure SerializeRemovePackageTask;
