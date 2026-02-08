@@ -550,7 +550,7 @@ begin
     var LLine := FContext.Lines[I].Trim.ToLower;
     if not LInRecord then
     begin
-      if LLine.Contains('record') then
+      if TRegEx.IsMatch(LLine, '=\s*(?:packed\s+)?record', [roIgnoreCase]) then
       begin
         LInRecord := True;
         LRecordStart := I + 1;
@@ -1322,8 +1322,13 @@ begin
 
   for I := 1 to FContext.Lines.Count - 1 do
   begin
-    var LLine := FContext.Lines[I].Trim;
-    if LLine.StartsWith('procedure') or LLine.StartsWith('function') or LLine.StartsWith('constructor') or LLine.StartsWith('destructor') then
+    var LLine := FContext.Lines[I];
+    var LTrimmed := LLine.Trim;
+
+    // Method implementation rule: Must start at column 0 (not indented)
+    if (LLine <> '') and (LLine[1] > ' ') and
+       (LTrimmed.StartsWith('procedure') or LTrimmed.StartsWith('function') or
+        LTrimmed.StartsWith('constructor') or LTrimmed.StartsWith('destructor')) then
     begin
       if (I < FLineOffset) or (I >= FLineOffset + Length(LContentLines)) then
         Continue;
@@ -1331,10 +1336,13 @@ begin
       var LHasPrevMethod := False;
       for J := I - 1 downto 0 do
       begin
-        if FContext.Lines[J].Trim.StartsWith('procedure') or
-           FContext.Lines[J].Trim.StartsWith('function') or
-           FContext.Lines[J].Trim.StartsWith('constructor') or
-           FContext.Lines[J].Trim.StartsWith('destructor') then
+        var LPrevLine := FContext.Lines[J];
+        var LPrevTrimmed := LPrevLine.Trim;
+        if (LPrevLine <> '') and (LPrevLine[1] > ' ') and
+           (LPrevTrimmed.StartsWith('procedure') or
+            LPrevTrimmed.StartsWith('function') or
+            LPrevTrimmed.StartsWith('constructor') or
+            LPrevTrimmed.StartsWith('destructor')) then
         begin
           LHasPrevMethod := True;
           Break;
