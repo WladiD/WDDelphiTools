@@ -58,6 +58,7 @@ type
 
     function ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: string): Boolean;
     function ColonsInRecordsAreAligned: Boolean;
+    function LastLineBeforeEndIsDoubleSeparator: Boolean;
   end;
 
   [SlimFixture('DptLintRegexFixture')]
@@ -156,6 +157,23 @@ type
     property AlignMemberNames: Boolean read FAlignMemberNames write FAlignMemberNames;
 
     function LintClassDeclarations: Boolean;
+  end;
+
+  [SlimFixture('DptLintImplementationFixture')]
+  TDptLintImplementationFixture = class(TSlimFixture)
+  private
+    FFile: string;
+    FContent: string;
+    FLineOffset: Integer;
+    procedure ReportError(ALine: Integer; const AMsg: string);
+  public
+    constructor Create(const AFile: string);
+    procedure SetContent(const AValue: string);
+    procedure SetLineOffset(const AValue: string);
+
+    function ValidateClassBanners: Boolean;
+    function ValidateMethodOrderAndSeparators: Boolean;
+    function DestructorsMustCallInherited: Boolean;
   end;
 
 implementation
@@ -460,6 +478,22 @@ begin
   end;
 end;
 
+function TDptLintFixture.LastLineBeforeEndIsDoubleSeparator: Boolean;
+begin
+  Result := False;
+  for var I := FLines.Count - 1 downto 0 do
+  begin
+    if FLines[I].Trim.ToLower = 'end.' then
+    begin
+      if (I > 0) and FLines[I-1].Contains('=======') then
+        Exit(True);
+
+      ReportError(I + 1, 'Double separator expected before "end."');
+      Exit(False);
+    end;
+  end;
+end;
+
 { TDptLintRegexFixture }
 
 constructor TDptLintRegexFixture.Create(const AContent: string);
@@ -705,7 +739,7 @@ begin
     var Curr := FUnits[I];
     if (Curr.GroupIdx <> -1) and (Prev.GroupIdx <> -1) and (Curr.GroupIdx < Prev.GroupIdx) then
     begin
-      ReportError(Curr.Line, Format('Group "%s" must appear before group "%s".', 
+      ReportError(Curr.Line, Format('Group "%s" must appear before group "%s".',
         [FGroups[Curr.GroupIdx].Name, FGroups[Prev.GroupIdx].Name]));
       Result := False;
     end;
@@ -722,17 +756,17 @@ begin
   begin
     if SameText(LLines[I].Trim, 'uses') then
     begin
-      // Check if next line is empty
       if (I < High(LLines)) and (LLines[I+1].Trim = '') then
         Exit(True);
-      
+
       ReportError(I + 1, 'Missing blank line after "uses" keyword.');
       Exit(False);
     end;
   end;
 end;
 
-function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): String;var
+function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): String;
+var
   LLines: TArray<string>;
   LInUses: Boolean;
   LLastLineIdx: Integer;
@@ -828,7 +862,6 @@ begin
   inherited Create;
   FFile := AFile;
   FLineOffset := 0;
-  // Default values
   FClassNamePrefixes := 'C,T';
   FVisibilityExtraIndent := 1;
   FFieldNamePrefix := 'F';
@@ -861,7 +894,6 @@ begin
   Result.LineIdx := ALineIdx;
   Result.FullLine := ALine;
 
-  // Class Method/Var/Const? (class procedure, class function, class constructor, class destructor, class var)
   LMatch := TRegEx.Match(ALine, '^(\s*)class\s+(procedure|function|constructor|destructor|var)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
@@ -871,7 +903,6 @@ begin
     Exit;
   end;
 
-  // Property?
   LMatch := TRegEx.Match(ALine, '^(\s*)property\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
@@ -881,7 +912,6 @@ begin
     Exit;
   end;
 
-  // Constructor/Destructor?
   LMatch := TRegEx.Match(ALine, '^(\s*)(constructor|destructor)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
@@ -891,7 +921,6 @@ begin
     Exit;
   end;
 
-  // Standard Method? (procedure, function)
   LMatch := TRegEx.Match(ALine, '^(\s*)(procedure|function)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
@@ -901,7 +930,6 @@ begin
     Exit;
   end;
 
-  // Field? (Ident: Type)
   LMatch := TRegEx.Match(ALine, '^(\s*)(\w+)\s*:', [roIgnoreCase]);
   if LMatch.Success then
   begin
@@ -915,51 +943,41 @@ end;
 procedure TDptLintClassDeclarationFixture.ValidateBlock(ABlock: TMemberBlock; var AResult: Boolean);
 begin
   if ABlock.Members.Count < 1 then Exit;
-
   var LFirst := ABlock.Members[0];
   var LMustBeSorted := False;
-
   case LFirst.MemberType of
     mtField: LMustBeSorted := FFieldsMustBeSorted;
     mtMethod: LMustBeSorted := FMethodsMustBeSorted;
     mtProperty: LMustBeSorted := FPropertiesMustBeSorted;
   end;
-
-    for var I := 0 to ABlock.Members.Count - 1 do
+  for var I := 0 to ABlock.Members.Count - 1 do
+  begin
+    var Curr := ABlock.Members[I];
+    if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
     begin
-      var Curr := ABlock.Members[I];
-  
-      // Check Field Prefix
-      if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
+      if not Curr.Name.StartsWith(FFieldNamePrefix) then
       begin
-        if not Curr.Name.StartsWith(FFieldNamePrefix) then
-        begin
-          ReportError(Curr.LineIdx + 1, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
-          AResult := False;
-        end;
+        ReportError(Curr.LineIdx + 1, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
+        AResult := False;
       end;
-  
-      if I > 0 then
+    end;
+    if I > 0 then
+    begin
+      var Prev := ABlock.Members[I-1];
+      if LMustBeSorted and (CompareText(Curr.Name, Prev.Name) < 0) then
       begin
-        var Prev := ABlock.Members[I-1];
-  
-        // Check Sorting
-        if LMustBeSorted and (CompareText(Curr.Name, Prev.Name) < 0) then
-        begin
-          ReportError(Curr.LineIdx + 1, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
-          AResult := False;
-        end;
-  
-        // Check Alignment
-        if FAlignMemberNames and (Curr.NameStartPos <> Prev.NameStartPos) then
-        begin
-          ReportError(Curr.LineIdx + 1, Format('Member "%s" should be vertically aligned with "%s" (Pos %d vs %d).', 
-            [Curr.Name, Prev.Name, Curr.NameStartPos, Prev.NameStartPos]));
-          AResult := False;
-        end;
+        ReportError(Curr.LineIdx + 1, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
+        AResult := False;
+      end;
+      if FAlignMemberNames and (Curr.NameStartPos <> Prev.NameStartPos) then
+      begin
+        ReportError(Curr.LineIdx + 1, Format('Member "%s" should be vertically aligned with "%s" (Pos %d vs %d).', [Curr.Name, Prev.Name, Curr.NameStartPos, Prev.NameStartPos]));
+        AResult := False;
       end;
     end;
   end;
+end;
+
 function TDptLintClassDeclarationFixture.LintClassDeclarations: Boolean;
 var
   LLines: TArray<string>;
@@ -969,7 +987,6 @@ var
   LCurrentBlock: TMemberBlock;
   LPrevMemberType: TMemberType;
   LVisibilityKeywordFoundSinceLastMember: Boolean;
-
   procedure FlushBlock;
   begin
     if Assigned(LCurrentBlock) then
@@ -978,7 +995,6 @@ var
       FreeAndNil(LCurrentBlock);
     end;
   end;
-
 begin
   Result := True;
   LLines := FContent.Split([sLineBreak]);
@@ -987,19 +1003,12 @@ begin
   LCurrentBlock := nil;
   LPrevMemberType := mtUnknown;
   LVisibilityKeywordFoundSinceLastMember := False;
-
   try
     for var I := 0 to High(LLines) do
     begin
       var LLine := LLines[I];
       var LTrimmed := LLine.Trim;
-
-      if LTrimmed = '' then
-      begin
-        FlushBlock;
-        Continue;
-      end;
-
+      if LTrimmed = '' then begin FlushBlock; Continue; end;
       if not LInClass then
       begin
         var LMatch := TRegEx.Match(LLine, '^(\s*)(\w+)\s*=\s*(?:packed\s+)?class', [roIgnoreCase]);
@@ -1009,34 +1018,16 @@ begin
           LClassIndent := LMatch.Groups[1].Length;
           LClassName := LMatch.Groups[2].Value;
           LPrevMemberType := mtUnknown;
-          LVisibilityKeywordFoundSinceLastMember := True; // Assume implicit or about to find
-          
+          LVisibilityKeywordFoundSinceLastMember := True;
           var LPrefixes := FClassNamePrefixes.Split([',']);
           var LPrefixOk := False;
-          for var P in LPrefixes do
-            if LClassName.StartsWith(P.Trim) then
-            begin
-              LPrefixOk := True;
-              Break;
-            end;
-          
-          if not LPrefixOk then
-          begin
-            ReportError(I + 1, Format('Class name "%s" should start with one of: %s', [LClassName, FClassNamePrefixes]));
-            Result := False;
-          end;
+          for var P in LPrefixes do if LClassName.StartsWith(P.Trim) then begin LPrefixOk := True; Break; end;
+          if not LPrefixOk then begin ReportError(I + 1, Format('Class name "%s" should start with one of: %s', [LClassName, FClassNamePrefixes])); Result := False; end;
         end;
       end;
-
       if LInClass then
       begin
-        if TRegEx.IsMatch(LLine, '^\s*end\s*;', [roIgnoreCase]) then
-        begin
-          FlushBlock;
-          LInClass := False;
-          Continue;
-        end;
-
+        if TRegEx.IsMatch(LLine, '^\s*end\s*;', [roIgnoreCase]) then begin FlushBlock; LInClass := False; Continue; end;
         var LVisMatch := TRegEx.Match(LLine, '^(\s*)(strict\s+)?(?:private|protected|public|published)', [roIgnoreCase]);
         if LVisMatch.Success then
         begin
@@ -1045,59 +1036,37 @@ begin
           var LVisIndent := LVisMatch.Groups[1].Length;
           if LVisIndent <> (LClassIndent + FVisibilityExtraIndent) then
           begin
-            ReportError(I + 1, Format('Visibility keyword should have %d extra spaces (Found %d, Class at %d).', 
-              [FVisibilityExtraIndent, LVisIndent - LClassIndent, LClassIndent]));
+            ReportError(I + 1, Format('Visibility keyword should have %d extra spaces (Found %d, Class at %d).', [FVisibilityExtraIndent, LVisIndent - LClassIndent, LClassIndent]));
             Result := False;
           end;
           Continue;
         end;
-
         var LMember := ParseMember(LLine, I);
         if LMember.MemberType <> mtUnknown then
         begin
-          if not Assigned(LCurrentBlock) then
-            LCurrentBlock := TMemberBlock.Create;
-
-          // Rule: Class members must be in their own visibility block
+          if not Assigned(LCurrentBlock) then LCurrentBlock := TMemberBlock.Create;
+          if (LCurrentBlock.Members.Count > 0) then
+          begin
+            var LCurrentBlockType := LCurrentBlock.Members[0].MemberType;
+            var LNeedsNewBlock := False;
+            if LMember.MemberType <> LCurrentBlockType then
+            begin
+              if not (((LCurrentBlockType = mtMethod) and (LMember.MemberType = mtProperty)) or
+                      ((LCurrentBlockType = mtProperty) and (LMember.MemberType = mtMethod))) then LNeedsNewBlock := True;
+            end;
+            if (LMember.MemberType = mtConstructor) and (LCurrentBlockType = mtConstructor) then LNeedsNewBlock := False
+            else if (LMember.MemberType = mtConstructor) or (LCurrentBlockType = mtConstructor) then LNeedsNewBlock := True;
+            if (LMember.MemberType = mtClassMethod) or (LCurrentBlockType = mtClassMethod) then LNeedsNewBlock := True;
+            if LNeedsNewBlock then begin FlushBlock; LCurrentBlock := TMemberBlock.Create; end;
+          end;
           if (LPrevMemberType <> mtUnknown) and (LPrevMemberType <> LMember.MemberType) then
           begin
-            if ((LMember.MemberType = mtClassMethod) or (LPrevMemberType = mtClassMethod))
-               and not LVisibilityKeywordFoundSinceLastMember then
+            if ((LMember.MemberType = mtClassMethod) or (LPrevMemberType = mtClassMethod)) and not LVisibilityKeywordFoundSinceLastMember then
             begin
               ReportError(I + 1, 'Class members must be separated from instance members by a visibility keyword.');
               Result := False;
             end;
           end;
-
-          // Block flushing for alignment/sorting groups
-          if (LCurrentBlock.Members.Count > 0) then
-          begin
-            var LCurrentBlockType := LCurrentBlock.Members[0].MemberType;
-            var LNeedsNewBlock := False;
-
-            if LMember.MemberType <> LCurrentBlockType then
-            begin
-              if not (((LCurrentBlockType = mtMethod) and (LMember.MemberType = mtProperty)) or
-                      ((LCurrentBlockType = mtProperty) and (LMember.MemberType = mtMethod))) then
-                LNeedsNewBlock := True;
-            end;
-
-            // Rule: Constructors and Destruktors should stay together but be isolated from others
-            if (LMember.MemberType = mtConstructor) and (LCurrentBlockType = mtConstructor) then
-              LNeedsNewBlock := False
-            else if (LMember.MemberType = mtConstructor) or (LCurrentBlockType = mtConstructor) then
-              LNeedsNewBlock := True;
-
-            // Rule: Class methods always form their own group
-            if (LMember.MemberType = mtClassMethod) or (LCurrentBlockType = mtClassMethod) then LNeedsNewBlock := True;
-
-            if LNeedsNewBlock then
-            begin
-              FlushBlock;
-              LCurrentBlock := TMemberBlock.Create;
-            end;
-          end;
-
           LCurrentBlock.Members.Add(LMember);
           LPrevMemberType := LMember.MemberType;
           LVisibilityKeywordFoundSinceLastMember := False;
@@ -1108,10 +1077,154 @@ begin
     FlushBlock;
   end;
 end;
+
+{ TDptLintImplementationFixture }
+
+constructor TDptLintImplementationFixture.Create(const AFile: string);
+begin
+  inherited Create;
+  FFile := AFile;
+  FLineOffset := 0;
+end;
+
+procedure TDptLintImplementationFixture.SetContent(const AValue: string);
+begin
+  FContent := AValue;
+end;
+
+procedure TDptLintImplementationFixture.SetLineOffset(const AValue: string);
+begin
+  FLineOffset := StrToIntDef(AValue, 0);
+end;
+
+procedure TDptLintImplementationFixture.ReportError(ALine: Integer; const AMsg: string);
+begin
+  TDptLintFixture.ReportError(FFile, ALine + FLineOffset, AMsg);
+end;
+
+function TDptLintImplementationFixture.ValidateClassBanners: Boolean;
+var
+  LLines: TArray<string>;
+  LCurrentClassBanner: string;
+  LReportedClasses: TStringList;
+begin
+  Result := True;
+  LLines := FContent.Split([sLineBreak]);
+  LCurrentClassBanner := '';
+  LReportedClasses := TStringList.Create;
+  LReportedClasses.Sorted := True;
+  LReportedClasses.Duplicates := dupIgnore;
+  try
+    for var I := 0 to High(LLines) do
+    begin
+      var LLine := LLines[I].Trim;
+
+      // Check for class banner
+      if LLine.Contains('=======') then
+      begin
+        if (I < High(LLines) - 1) and LLines[I+2].Contains('=======') then
+        begin
+           var LPotentialClassName := LLines[I+1].Trim(['{', '}', ' ']);
+           if LPotentialClassName <> '' then
+             LCurrentClassBanner := LPotentialClassName;
+        end;
+      end;
+
+      // Method header: (procedure|function|constructor|destructor) ClassName.MethodName
+      var LMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+(\w+)\.(\w+)', [roIgnoreCase]);
+      if LMatch.Success then
+      begin
+        var LClassName := LMatch.Groups[1].Value;
+        if not SameText(LClassName, LCurrentClassBanner) then
+        begin
+          if LReportedClasses.IndexOf(LClassName) = -1 then
+          begin
+            ReportError(I + 1, Format('Missing or incorrect class implementation banner for "%s".', [LClassName]));
+            LReportedClasses.Add(LClassName);
+            Result := False;
+          end;
+        end;
+      end;
+    end;
+  finally
+    LReportedClasses.Free;
+  end;
+end;
+
+function TDptLintImplementationFixture.ValidateMethodOrderAndSeparators: Boolean;
+var
+  LLines: TArray<string>;
+begin
+  Result := True;
+  LLines := FContent.Split([sLineBreak]);
+  for var I := 1 to High(LLines) do
+  begin
+    var LLine := LLines[I].Trim;
+    if LLine.StartsWith('procedure') or LLine.StartsWith('function') or LLine.StartsWith('constructor') or LLine.StartsWith('destructor') then
+    begin
+      // Check separator before method (must be blank -> ---- -> blank)
+      // Except for the very first method in implementation
+      var LHasPrevMethod := False;
+      for var J := I - 1 downto 0 do
+        if LLines[J].Trim.StartsWith('procedure') or LLines[J].Trim.StartsWith('function') then begin LHasPrevMethod := True; Break; end;
+
+      if LHasPrevMethod then
+      begin
+        if not ((I >= 3) and (LLines[I-1].Trim = '') and LLines[I-2].Contains('-------') and (LLines[I-3].Trim = '')) then
+        begin
+          ReportError(I + 1, 'Methods must be separated by: blank line, separator line (---), and another blank line.');
+          Result := False;
+        end;
+      end;
+    end;
+  end;
+end;
+
+function TDptLintImplementationFixture.DestructorsMustCallInherited: Boolean;
+var
+  LLines: TArray<string>;
+  LInDestructor: Boolean;
+  LHasInherited: Boolean;
+  LDestructorStartLine: Integer;
+begin
+  Result := True;
+  LLines := FContent.Split([sLineBreak]);
+  LInDestructor := False;
+  LHasInherited := False;
+  LDestructorStartLine := 0;
+  for var I := 0 to High(LLines) do
+  begin
+    var LLine := LLines[I].Trim.ToLower;
+    if not LInDestructor then
+    begin
+      if LLine.StartsWith('destructor') then
+      begin
+        LInDestructor := True;
+        LHasInherited := False;
+        LDestructorStartLine := I + 1;
+      end;
+    end
+    else
+    begin
+      if LLine.Contains('inherited;') then LHasInherited := True;
+      if LLine.StartsWith('end;') then
+      begin
+        if not LHasInherited then
+        begin
+          ReportError(LDestructorStartLine, 'Destructor must call "inherited;".');
+          Result := False;
+        end;
+        LInDestructor := False;
+      end;
+    end;
+  end;
+end;
+
 initialization
   RegisterSlimFixture(TDptLintFixture);
   RegisterSlimFixture(TDptLintRegexFixture);
   RegisterSlimFixture(TDptLintUsesFixture);
   RegisterSlimFixture(TDptLintClassDeclarationFixture);
+  RegisterSlimFixture(TDptLintImplementationFixture);
 
 end.
