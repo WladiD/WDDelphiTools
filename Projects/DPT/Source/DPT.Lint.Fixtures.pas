@@ -1351,7 +1351,21 @@ begin
 
       if LHasPrevMethod then
       begin
-        if not ((I >= 3) and (FContext.Lines[I - 1].Trim = '') and FContext.Lines[I - 2].Contains(LSeparator) and (FContext.Lines[I - 3].Trim = '')) then
+        // Skip comments (like documentation comments) before method
+        var LBeforeCommentIdx := I - 1;
+        while (LBeforeCommentIdx >= 0) and
+              (FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('//') or
+               FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('{') or
+               FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('(*')) do
+        begin
+          // Do not skip the separator line itself!
+          if FContext.Lines[LBeforeCommentIdx].Contains(LSeparator) or
+             FContext.Lines[LBeforeCommentIdx].Contains(FContext.DoubleSeparatorLine) then
+            Break;
+          Dec(LBeforeCommentIdx);
+        end;
+
+        if not ((LBeforeCommentIdx >= 2) and (FContext.Lines[LBeforeCommentIdx].Trim = '') and FContext.Lines[LBeforeCommentIdx - 1].Contains(LSeparator) and (FContext.Lines[LBeforeCommentIdx - 2].Trim = '')) then
         begin
           var LIsAfterBanner := False;
           for K := I - 1 downto 0 do
@@ -1404,7 +1418,7 @@ begin
     end
     else
     begin
-      if LLine.Contains('inherited;') then
+      if TRegEx.IsMatch(LLine, '\binherited\b') then
         LHasInherited := True;
       if LLine.StartsWith('end;') then
       begin
