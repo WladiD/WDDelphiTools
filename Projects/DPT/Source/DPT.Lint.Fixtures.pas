@@ -194,7 +194,8 @@ type
 implementation
 
 uses
-  System.RegularExpressions;
+  System.RegularExpressions,
+  WDDT.StringTools;
 
 { TDptLintUnitContextFixture }
 
@@ -790,7 +791,7 @@ begin
   begin
     var Prev := FUnits[I - 1];
     var Curr := FUnits[I];
-    if (Curr.GroupIdx = Prev.GroupIdx) and (CompareText(Curr.Name, Prev.Name) < 0) then
+    if (Curr.GroupIdx = Prev.GroupIdx) and (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
     begin
       ReportViolation(Curr.Line + FLineOffset, Format('Units in group "%s" must be sorted alphabetically: "%s" before "%s".', [FGroups[Curr.GroupIdx].Name, Curr.Name, Prev.Name]));
       Result := False;
@@ -1071,7 +1072,7 @@ begin
     if I > 0 then
     begin
       var Prev := ABlock.Members[I - 1];
-      if LMustBeSorted and (CompareText(Curr.Name, Prev.Name) < 0) then
+      if LMustBeSorted and (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
       begin
         ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
         AResult := False;
