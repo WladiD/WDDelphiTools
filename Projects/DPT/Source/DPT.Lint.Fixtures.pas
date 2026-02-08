@@ -724,7 +724,9 @@ begin
       U.Line := I + 1;
       U.GroupIdx := -1;
 
+      var LBestMatchLen := -1;
       var LWildcardMatchGroupIdx := -1;
+
       for var GIdx := 0 to FGroups.Count - 1 do
       begin
         for var Pat in FGroups[GIdx].Patterns do
@@ -738,13 +740,14 @@ begin
             end
             else
             begin
-              U.GroupIdx := GIdx;
-              Break;
+              if Pat.Length > LBestMatchLen then
+              begin
+                LBestMatchLen := Pat.Length;
+                U.GroupIdx := GIdx;
+              end;
             end;
           end;
         end;
-        if U.GroupIdx <> -1 then
-          Break;
       end;
 
       if (U.GroupIdx = -1) and (LWildcardMatchGroupIdx <> -1) then
