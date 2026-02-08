@@ -18,6 +18,8 @@ uses
 type
 
   TDptLintTask = class(TDptTaskBase)
+  public
+    const TEST_PAGE_NAME = 'DPT_LintTest';
   private
     FStyleFile: string;
     FTargetFile: string;
@@ -41,6 +43,7 @@ implementation
 uses
   IdTCPClient,
   System.SysUtils,
+  System.Generics.Collections,
   JclSysUtils;
 
 { TDptLintTask }
@@ -158,8 +161,8 @@ var
   LFilteredOutput: TStringBuilder;
   I: Integer;
 begin
-  LTestPageDir := TPath.Combine(FFitNesseRoot, 'DPT_LintTest');
-  
+  LTestPageDir := TPath.Combine(FFitNesseRoot, TEST_PAGE_NAME);
+
   if not TDirectory.Exists(LTestPageDir) then
     TDirectory.CreateDirectory(LTestPageDir);
 
@@ -191,7 +194,7 @@ begin
   // Reset error collector before run
   TDptLintContext.Clear;
 
-  var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "DPT_LintTest?test&format=text"', [APort, LFitNesseJar, FFitNesseDir]);
+  var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?test&format=text"', [APort, LFitNesseJar, FFitNesseDir, TEST_PAGE_NAME]);
   var LRunResult := JclSysUtils.Execute(LJavaCmd, LOutput);
   
   if FVerbose then
@@ -219,6 +222,27 @@ begin
       Writeln(LFilteredOutput.ToString.Trim);
     finally
       LFilteredOutput.Free;
+    end;
+  end;
+
+  if LRunResult <> 0 then
+  begin
+    var LResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + TEST_PAGE_NAME);
+    var LLatestFile := '';
+    if TDirectory.Exists(LResultsDir) then
+    begin
+      var LFiles := TDirectory.GetFiles(LResultsDir, '*.xml');
+      if Length(LFiles) > 0 then
+      begin
+        TArray.Sort<string>(LFiles);
+        LLatestFile := LFiles[High(LFiles)];
+      end;
+    end;
+
+    if LLatestFile <> '' then
+    begin
+      Writeln;
+      Writeln('Error details: ' + LLatestFile);
     end;
   end;
   
