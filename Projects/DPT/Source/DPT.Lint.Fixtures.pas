@@ -708,6 +708,10 @@ begin
     if LLine = '' then
       Continue;
 
+    // Ignore compiler directives and full-line comments
+    if LLine.StartsWith('{$') or LLine.StartsWith('//') or LLine.StartsWith('{') then
+      Continue;
+
     var LStrippedLine := LLine;
     var LIsEnd := LStrippedLine.Contains(';');
     if LIsEnd then
@@ -1089,7 +1093,7 @@ end;
 function TDptLintClassDeclarationFixture.LintClassDeclarations: Boolean;
 var
   LLines: TArray<string>;
-  LInClass: Boolean;
+  LClassIndents: TList<Integer>;
   LClassIndent: Integer;
   LClassName: string;
   LCurrentBlock: TMemberBlock;
@@ -1113,7 +1117,7 @@ begin
     Exit(False);
 
   LLines := FContent.Split([sLineBreak]);
-  LInClass := False;
+  LClassIndents := TList<Integer>.Create;
   LClassIndent := 0;
   LCurrentBlock := nil;
   LPrevMemberType := mtUnknown;
@@ -1131,43 +1135,46 @@ begin
         Continue;
       end;
 
-      if not LInClass then
+      var LClassMatch := TRegEx.Match(LLine, '^(\s*)(\w+)\s*=\s*(?:packed\s+)?class', [roIgnoreCase]);
+      if LClassMatch.Success then
       begin
-        var LMatch := TRegEx.Match(LLine, '^(\s*)(\w+)\s*=\s*(?:packed\s+)?class', [roIgnoreCase]);
-        if LMatch.Success then
+        FlushBlock;
+        LClassIndent := LClassMatch.Groups[1].Length;
+        LClassIndents.Add(LClassIndent);
+        LClassName := LClassMatch.Groups[2].Value;
+        LPrevMemberType := mtUnknown;
+        LVisibilityKeywordFoundSinceLastMember := True;
+        LCurrentVisibility := 'published';
+
+        var LPrefixes := FClassNamePrefixes.Split([',']);
+        var LPrefixOk := False;
+        for var P in LPrefixes do
         begin
-          LInClass := True;
-          LClassIndent := LMatch.Groups[1].Length;
-          LClassName := LMatch.Groups[2].Value;
-          LPrevMemberType := mtUnknown;
-          LVisibilityKeywordFoundSinceLastMember := True;
-          LCurrentVisibility := 'published'; // Default visibility if not specified (e.g. after 'class')
-
-          var LPrefixes := FClassNamePrefixes.Split([',']);
-          var LPrefixOk := False;
-          for var P in LPrefixes do
+          if LClassName.StartsWith(P.Trim) then
           begin
-            if LClassName.StartsWith(P.Trim) then
-            begin
-              LPrefixOk := True;
-              Break;
-            end;
-          end;
-
-          if not LPrefixOk then
-          begin
-            ReportViolation(I + 1 + FLineOffset, Format('Class name "%s" should start with one of: %s', [LClassName, FClassNamePrefixes]));
-            Result := False;
+            LPrefixOk := True;
+            Break;
           end;
         end;
+
+        if not LPrefixOk then
+        begin
+          ReportViolation(I + 1 + FLineOffset, Format('Class name "%s" should start with one of: %s', [LClassName, FClassNamePrefixes]));
+          Result := False;
+        end;
+        Continue;
       end;
 
-      if LInClass then
+      if LClassIndents.Count > 0 then
       begin
         if TRegEx.IsMatch(LLine, '^\s*end\s*;', [roIgnoreCase]) then
         begin
           FlushBlock;
-          LInClass := False;
+          LClassIndents.Delete(LClassIndents.Count - 1);
+          if LClassIndents.Count > 0 then
+            LClassIndent := LClassIndents[LClassIndents.Count - 1]
+          else
+            LClassIndent := 0;
           Continue;
         end;
 
@@ -1201,10 +1208,7 @@ begin
             var LNeedsNewBlock := False;
 
             if LMember.MemberType <> LCurrentBlockType then
-            begin
-              if not (((LCurrentBlockType = mtMethod) and (LMember.MemberType = mtProperty)) or ((LCurrentBlockType = mtProperty) and (LMember.MemberType = mtMethod))) then
-                LNeedsNewBlock := True;
-            end;
+              LNeedsNewBlock := True;
 
             if (LMember.MemberType = mtConstructor) and (LCurrentBlockType = mtConstructor) then
               LNeedsNewBlock := False
@@ -1239,6 +1243,7 @@ begin
     end;
   finally
     FlushBlock;
+    LClassIndents.Free;
   end;
 end;
 
@@ -1287,7 +1292,7 @@ begin
         end;
       end;
 
-      var LMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+(\w+)\.(\w+)', [roIgnoreCase]);
+      var LMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+([\w\.]+)\.(\w+)', [roIgnoreCase]);
       if LMatch.Success then
       begin
         var LClassName := LMatch.Groups[1].Value;
