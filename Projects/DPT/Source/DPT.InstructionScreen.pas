@@ -113,9 +113,10 @@ begin
         'Checks if a specific BPL package is currently registered in the IDE.',
         'Returns ExitCode 0 if registered, 1 if not.'
       ]),
-      TActionInfo.Create('Lint', '<StyleFile> <TargetFile>', [
+      TActionInfo.Create('Lint', '<StyleFile> <TargetFile> [--verbose]', [
         'Analyzes a Delphi unit for style violations based on the specified StyleFile.',
         'Uses an internal Slim/FitNesse engine to verify the code structure.',
+        '--verbose: Displays full FitNesse and Slim server logs.',
         'Example: DPT LATEST Lint Lint\TaifunUnitStyle.pas MyUnit.pas'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [

@@ -54,6 +54,9 @@ begin
   if not TFile.Exists(FStyleFile) then
     raise Exception.Create('Style template not found: ' + FStyleFile);
 
+  if not TFile.Exists(FTargetFile) then
+    raise Exception.Create('Target file not found: ' + FTargetFile);
+
   Writeln('Linting file: ' + FTargetFile + ' using style ' + ExtractFileName(FStyleFile));
 
   LTestContent := ExtractTestFromStyle(FStyleFile);
