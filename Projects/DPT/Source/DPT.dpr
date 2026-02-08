@@ -98,6 +98,14 @@ var
     LocalDPTask.TargetFile := ExpandFileName(CmdLine.CheckParameter('TargetFile'));
     CmdLine.ConsumeParameter;
 
+    LocalDPTask.Verbose := False;
+    while CmdLine.HasParameter do
+    begin
+      if SameText(CmdLine.CheckParameter('--verbose'), '--verbose') then
+        LocalDPTask.Verbose := True;
+      CmdLine.ConsumeParameter;
+    end;
+
     LocalDPTask.FitNesseDir := 'C:\WDC\SlimForDelphi\FitNesse';
     LocalDPTask.FitNesseRoot := 'C:\WDC\SlimForDelphi\FitNesse\FitNesseRoot';
   end;

@@ -23,6 +23,7 @@ type
     FTargetFile: string;
     FFitNesseDir: string;
     FFitNesseRoot: string;
+    FVerbose: Boolean;
     function  ExtractTestFromStyle(const AStylePath: string): string;
     function  GetFreePort: Integer;
     procedure RunFitNesse(APort: Integer; const ATestContent: string);
@@ -32,6 +33,7 @@ type
     property TargetFile: string read FTargetFile write FTargetFile;
     property FitNesseDir: string read FFitNesseDir write FFitNesseDir;
     property FitNesseRoot: string read FFitNesseRoot write FFitNesseRoot;
+    property Verbose: Boolean read FVerbose write FVerbose;
   end;
 
 implementation
@@ -63,7 +65,8 @@ begin
     LSlimServer.DefaultPort := LPort;
     LSlimServer.Active := True;
 
-    Writeln('Internal Slim server started on port ' + LPort.ToString);
+    if FVerbose then
+      Writeln('Internal Slim server started on port ' + LPort.ToString);
 
     // Run FitNesse (this blocks until FitNesse finishes)
     RunFitNesse(LPort, LTestContent);
@@ -80,14 +83,16 @@ var
   LAnchor: string;
   LAnchorPos: Integer;
   LPipePos: Integer;
+  I: Integer;
 begin
   LLines := TFile.ReadAllLines(AStylePath, TEncoding.UTF8);
   LBuilder := TStringBuilder.Create;
   LAnchor := '// Start: AI-Generated FitNesse-Test';
   LAnchorPos := -1;
   try
-    for var Line in LLines do
+    for I := 0 to High(LLines) do
     begin
+      var Line := LLines[I];
       if LAnchorPos = -1 then
       begin
         LAnchorPos := Line.IndexOf(LAnchor);
@@ -146,6 +151,9 @@ var
   LFitNesseJar: string;
   LOutput: string;
   LTestPageDir: string;
+  LLines: TArray<string>;
+  LFilteredOutput: TStringBuilder;
+  I: Integer;
 begin
   LTestPageDir := TPath.Combine(FFitNesseRoot, 'DPT_LintTest');
   
@@ -174,7 +182,8 @@ begin
     LContentList.Free;
   end;
 
-  Writeln('Executing FitNesse tests against Slim server on port ' + APort.ToString + '...');
+  if FVerbose then
+    Writeln('Executing FitNesse tests against Slim server on port ' + APort.ToString + '...');
 
   // Reset error collector before run
   TDptLintContext.Clear;
@@ -182,7 +191,33 @@ begin
   var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "DPT_LintTest?test&format=text"', [APort, LFitNesseJar, FFitNesseDir]);
   var LRunResult := JclSysUtils.Execute(LJavaCmd, LOutput);
   
-  Writeln(LOutput);
+  if FVerbose then
+    Writeln(LOutput)
+  else
+  begin
+    // Filter output: only show relevant test result lines
+    LLines := LOutput.Split([sLineBreak]);
+    LFilteredOutput := TStringBuilder.Create;
+    try
+      for I := 0 to High(LLines) do
+      begin
+        var LLine := LLines[I];
+        var LTrimmed := LLine.Trim;
+        if LTrimmed.StartsWith('Executing command:') or
+           LTrimmed.StartsWith('Starting Test System:') or
+           LTrimmed.Contains(' R:') or
+           LTrimmed.StartsWith('--------') or
+           LTrimmed.Contains('Tests,') or
+           LTrimmed.Contains('Failures') then
+        begin
+          LFilteredOutput.AppendLine(LLine);
+        end;
+      end;
+      Writeln(LFilteredOutput.ToString.Trim);
+    finally
+      LFilteredOutput.Free;
+    end;
+  end;
   
   // Print collected style violations at the very end
   if TDptLintContext.Violations.Count > 0 then
@@ -192,18 +227,17 @@ begin
     Writeln('-------------------------');
     for var V in TDptLintContext.Violations do
       Writeln(Format('  %s(%d): %s', [V.FileSpec, V.Line, V.Message]));
-    Writeln;
   end;
 
+  Writeln;
   if LRunResult = 0 then
   begin
-    if LOutput.Contains('Assertions: 0 right') or LOutput.Contains('wrong') or LOutput.Contains('exceptions') then
-    begin
-      Writeln('Linting failed.');
-      System.ExitCode := 1;
-    end
-    else
-      Writeln('Linting passed.');
+    Writeln('Linting passed.');
+  end
+  else if LRunResult = 1 then
+  begin
+    Writeln('Linting failed.');
+    System.ExitCode := 1;
   end
   else
   begin
