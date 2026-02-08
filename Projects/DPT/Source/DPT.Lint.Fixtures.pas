@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -144,6 +144,7 @@ type
       end;
       TMemberBlock = class
         Members: TList<TMemberInfo>;
+        Visibility: string;
         constructor Create;
         destructor Destroy; override;
       end;
@@ -1053,10 +1054,14 @@ begin
     var Curr := ABlock.Members[I];
     if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
     begin
-      if not Curr.Name.StartsWith(FFieldNamePrefix) then
+      // Rule: Published fields are allowed without 'F' prefix
+      if not SameText(ABlock.Visibility, 'published') then
       begin
-        ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
-        AResult := False;
+        if not Curr.Name.StartsWith(FFieldNamePrefix) then
+        begin
+          ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
+          AResult := False;
+        end;
       end;
     end;
 
@@ -1086,6 +1091,7 @@ var
   LCurrentBlock: TMemberBlock;
   LPrevMemberType: TMemberType;
   LVisibilityKeywordFoundSinceLastMember: Boolean;
+  LCurrentVisibility: string;
   I: Integer;
 
   procedure FlushBlock;
@@ -1108,6 +1114,7 @@ begin
   LCurrentBlock := nil;
   LPrevMemberType := mtUnknown;
   LVisibilityKeywordFoundSinceLastMember := False;
+  LCurrentVisibility := '';
 
   try
     for I := 0 to High(LLines) do
@@ -1130,6 +1137,7 @@ begin
           LClassName := LMatch.Groups[2].Value;
           LPrevMemberType := mtUnknown;
           LVisibilityKeywordFoundSinceLastMember := True;
+          LCurrentVisibility := 'published'; // Default visibility if not specified (e.g. after 'class')
 
           var LPrefixes := FClassNamePrefixes.Split([',']);
           var LPrefixOk := False;
@@ -1159,11 +1167,12 @@ begin
           Continue;
         end;
 
-        var LVisMatch := TRegEx.Match(LLine, '^(\s*)(strict\s+)?(?:private|protected|public|published)', [roIgnoreCase]);
+        var LVisMatch := TRegEx.Match(LLine, '^(\s*)(strict\s+)?(private|protected|public|published)', [roIgnoreCase]);
         if LVisMatch.Success then
         begin
           FlushBlock;
           LVisibilityKeywordFoundSinceLastMember := True;
+          LCurrentVisibility := LVisMatch.Groups[3].Value.ToLower;
           var LVisIndent := LVisMatch.Groups[1].Length;
           if LVisIndent <> (LClassIndent + FVisibilityExtraIndent) then
           begin
@@ -1177,7 +1186,10 @@ begin
         if LMember.MemberType <> mtUnknown then
         begin
           if not Assigned(LCurrentBlock) then
+          begin
             LCurrentBlock := TMemberBlock.Create;
+            LCurrentBlock.Visibility := LCurrentVisibility;
+          end;
 
           if (LCurrentBlock.Members.Count > 0) then
           begin
@@ -1202,6 +1214,7 @@ begin
             begin
               FlushBlock;
               LCurrentBlock := TMemberBlock.Create;
+              LCurrentBlock.Visibility := LCurrentVisibility;
             end;
           end;
 
