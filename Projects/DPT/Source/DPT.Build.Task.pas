@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -191,10 +191,13 @@ begin
     ExeOutput := ExeOutput.Replace('$(Config)', Config, [rfReplaceAll, rfIgnoreCase]);
 
     // Construct path
-    PossiblePath := ExpandFileName(
-      IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
-      IncludeTrailingPathDelimiter(ExeOutput) +
-      BaseName);
+    if TPath.IsPathRooted(ExeOutput) then
+      PossiblePath := TPath.Combine(ExeOutput, BaseName)
+    else
+      PossiblePath := ExpandFileName(
+        IncludeTrailingPathDelimiter(ExtractFilePath(ProjectFile)) +
+        IncludeTrailingPathDelimiter(ExeOutput) +
+        BaseName);
 
     Exit(PossiblePath); // Return calculated path, even if not exists!
   end;
