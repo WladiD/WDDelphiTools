@@ -24,3 +24,4 @@ Win32
 /Examples/GenericsStudy/StaticGenerics/Benchmark_StaticGenerics.exe
 /Examples/GenericsStudy/mORMotGenerics/Benchmark_mORMotGenerics.exe
 /Examples/GenericsStudy/*_run.txt
+/Projects/DPT/DptConfig.ini

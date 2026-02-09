@@ -17,13 +17,14 @@ uses
   System.Win.Registry,
   System.NetEncoding,
   System.Contnrs,
+  System.IniFiles,
+  System.IOUtils,
 
-  {$IFDEF FITNESSE}
   Slim.Server,
   Slim.Fixture,
   Slim.CmdUtils,
   DPT.Fixtures,
-  {$ENDIF}
+  DPT.Lint.Fixtures,
 
   JclIDEUtils,
 
@@ -39,6 +40,7 @@ uses
   DPT.DProj.Task,
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
+  DPT.Lint.Task,
   DPT.OpenUnitTask,
   DPT.Preprocessor,
   DPT.PrintPath.Task,
@@ -86,6 +88,62 @@ var
     LocalDPTask.SourceDir := SourceDir;
 
     Writeln('Unregister design time packages contained in "' + SourceDir + '"...');
+  end;
+
+  procedure SerializeLintTask;
+  var
+    LocalDPTask: TDptLintTask absolute DptTask;
+    FitNesseDir: string;
+    IniPath: string;
+    Ini: TIniFile;
+    Param: string;
+  begin
+    InitDptTask(TDptLintTask);
+    LocalDPTask.StyleFile := ExpandFileName(CmdLine.CheckParameter('StyleFile'));
+    CmdLine.ConsumeParameter;
+    LocalDPTask.TargetFile := ExpandFileName(CmdLine.CheckParameter('TargetFile'));
+    CmdLine.ConsumeParameter;
+
+    LocalDPTask.Verbose := False;
+    FitNesseDir := '';
+
+    while CmdLine.HasParameter do
+    begin
+      Param := CmdLine.CheckParameter('Option');
+      if SameText(Param, '--verbose') then
+        LocalDPTask.Verbose := True
+      else if Param.StartsWith('--fitnesse-dir=', True) then
+        FitNesseDir := Param.Substring(15).DeQuotedString('"')
+      else
+        Break;
+      CmdLine.ConsumeParameter;
+    end;
+
+    if FitNesseDir = '' then
+    begin
+      IniPath := TPath.Combine(ExtractFilePath(ParamStr(0)), DptConfigFileName);
+      if not TFile.Exists(IniPath) then
+        IniPath := FileSearch(DptConfigFileName, GetEnvironmentVariable('PATH'));
+
+      if IniPath <> '' then
+      begin
+        Ini := TIniFile.Create(IniPath);
+        try
+          FitNesseDir := Ini.ReadString('FitNesse', 'Dir', '');
+        finally
+          Ini.Free;
+        end;
+      end;
+    end;
+
+    if FitNesseDir = '' then
+      raise Exception.Create('FitNesse directory not configured.' + sLineBreak +
+        'Please provide it via --fitnesse-dir="X:\Path" or create a ' + DptConfigFileName + ' in your PATH with:' + sLineBreak +
+        '[FitNesse]' + sLineBreak +
+        'Dir=C:\Path\To\FitNesse');
+
+    LocalDPTask.FitNesseDir := FitNesseDir;
+    LocalDPTask.FitNesseRoot := TPath.Combine(FitNesseDir, 'FitNesseRoot');
   end;
 
   procedure SerializeRemovePackageTask;
@@ -417,7 +475,7 @@ begin
   CmdLine := TCmdLineConsumer.Create;
   try
     ParamValue := CmdLine.CheckParameter('DelphiVersion');
-    if SameText(ParamValue, 'RECENT') then
+    if IsLatestVersionAlias(ParamValue) then
     begin
       DelphiVersion := FindMostRecentDelphiVersion;
       if DelphiVersion = dvUnknown then
@@ -459,6 +517,11 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeIsPackageRegisteredTask;
+    end
+    else if SameText(ParamValue, 'Lint') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeLintTask;
     end
     else if SameText(ParamValue, 'PrintPath') then
     begin
@@ -523,24 +586,26 @@ begin
   end;
 end;
 
-{$IFDEF FITNESSE}
 type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
-{$ENDIF}
 
 begin
   try
-    {$IFDEF FITNESSE}
     var LPort: Integer;
     var LIsSlimStart: Boolean;
     LIsSlimStart := HasSlimPortParam(LPort);
 
-    // If no explicit port param and no other CLI params (<= 1, likely just exe name or empty), default to Slim Server on 9000
+    // If explicit port param was given, we ALWAYS start the server.
+    // If NO port param was given, we ONLY start on 9000 if:
+    // 1. Compiled with FITNESSE
+    // 2. AND no other meaningful CLI commands are present (ParamCount <= 1)
+    {$IFDEF FITNESSE}
     if (not LIsSlimStart) and (ParamCount <= 1) then
     begin
       LIsSlimStart := True;
       LPort := 9000;
     end;
+    {$ENDIF}
 
     if LIsSlimStart then
     begin
@@ -562,7 +627,6 @@ begin
       end;
       Exit;
     end;
-    {$ENDIF}
 
     // Check for Help command
     if (ParamCount >= 1) and (SameText(ParamStr(1), 'Help') or SameText(ParamStr(1), '-h') or SameText(ParamStr(1), '/?')) then
