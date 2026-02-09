@@ -680,6 +680,24 @@ function TDptLintUsesFixture.MatchNamespace(const AUnitName, APattern: string): 
 begin
   if APattern = '*' then
     Exit(True);
+
+  if APattern.StartsWith('*') then
+  begin
+    if APattern.EndsWith('*') then
+    begin
+      // *Contains*
+      // Remove first and last *
+      var LSub := APattern.Substring(1, APattern.Length - 2);
+      Exit(AUnitName.ToLower.IndexOf(LSub.ToLower) >= 0);
+    end
+    else
+    begin
+      // *EndsWith
+      var LSub := APattern.Substring(1);
+      Exit(AUnitName.EndsWith(LSub, True));
+    end;
+  end;
+
   if APattern.EndsWith('.*') then
     Exit(AUnitName.StartsWith(APattern.Substring(0, APattern.Length - 1), True));
   Result := SameText(AUnitName, APattern);
