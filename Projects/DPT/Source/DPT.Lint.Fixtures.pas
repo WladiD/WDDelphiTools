@@ -1304,6 +1304,38 @@ begin
       begin
         if (I < High(LLines) - 1) and LLines[I + 2].Contains('=======') then
         begin
+          var LTopLine := LLines[I];
+          var LMidLine := LLines[I + 1];
+          var LBotLine := LLines[I + 2];
+
+          if LMidLine.Trim.StartsWith('{') then
+          begin
+            var LTopOpen := LTopLine.IndexOf('{');
+            var LTopClose := LTopLine.LastIndexOf('}');
+            var LMidOpen := LMidLine.IndexOf('{');
+            var LMidClose := LMidLine.LastIndexOf('}');
+            var LBotOpen := LBotLine.IndexOf('{');
+            var LBotClose := LBotLine.LastIndexOf('}');
+
+            if (LTopOpen >= 0) and (LMidOpen >= 0) and (LBotOpen >= 0) then
+            begin
+              if (LTopOpen <> LMidOpen) or (LBotOpen <> LMidOpen) then
+              begin
+                ReportViolation(I + 2 + FLineOffset, 'Class banner opening brace alignment mismatch.');
+                Result := False;
+              end;
+            end;
+
+            if (LTopClose >= 0) and (LMidClose >= 0) and (LBotClose >= 0) then
+            begin
+              if (LTopClose <> LMidClose) or (LBotClose <> LMidClose) then
+              begin
+                ReportViolation(I + 2 + FLineOffset, 'Class banner closing brace alignment mismatch.');
+                Result := False;
+              end;
+            end;
+          end;
+
           var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
           if LPotentialClassName <> '' then
             LCurrentClassBanner := LPotentialClassName;
