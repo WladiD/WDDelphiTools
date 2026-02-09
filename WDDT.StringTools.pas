@@ -144,7 +144,7 @@ begin
     if (not ListA[cc].IsText) and (not ListB[cc].IsText) then
       Result := ListA[cc].Number - ListB[cc].Number
     else if ListA[cc].IsText and ListB[cc].IsText then
-      Result := CompareStr(ListA[cc].Text, ListB[cc].Text)
+      Result := CompareText(ListA[cc].Text, ListB[cc].Text)
     else if (not ListA[cc].IsText) and ListB[cc].IsText then
       Result := -1
     else if ListA[cc].IsText and (not ListB[cc].IsText) then
