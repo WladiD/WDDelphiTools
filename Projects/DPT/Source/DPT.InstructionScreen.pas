@@ -125,6 +125,11 @@ begin
         '  2. "Dir" entry in [FitNesse] section of DptConfig.ini (searched in PATH)',
         'Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas'
       ]),
+      TActionInfo.Create('LintSetup', '<Split|Join> <StyleFile>', [
+        'Splits a 3-column style file into 3 separate files for easier editing,',
+        'or joins them back into a single aligned style file.',
+        'Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas'
+      ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
         'Opens a source file in the Delphi IDE via the Slim Server plugin.',
         'Supports navigating to a specific line number or finding a member implementation (Class.Method).',

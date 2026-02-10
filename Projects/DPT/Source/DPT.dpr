@@ -41,6 +41,7 @@ uses
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
   DPT.Lint.Task,
+  DPT.Lint.Setup.Task,
   DPT.OpenUnitTask,
   DPT.Preprocessor,
   DPT.PrintPath.Task,
@@ -171,6 +172,19 @@ var
 
     LocalDPTask.FitNesseDir := FitNesseDir;
     LocalDPTask.FitNesseRoot := TPath.Combine(FitNesseDir, 'FitNesseRoot');
+  end;
+
+  procedure SerializeLintSetupTask;
+  var
+    LocalDPTask: TDptLintSetupTask absolute DptTask;
+  begin
+    InitDptTask(TDptLintSetupTask);
+
+    LocalDPTask.SubAction := CmdLine.CheckParameter('SubAction (Split/Join)');
+    CmdLine.ConsumeParameter;
+
+    LocalDPTask.StyleFile := ExpandFileName(CmdLine.CheckParameter('StyleFile'));
+    CmdLine.ConsumeParameter;
   end;
 
   procedure SerializeRemovePackageTask;
@@ -549,6 +563,11 @@ begin
     begin
       CmdLine.ConsumeParameter;
       SerializeLintTask;
+    end
+    else if SameText(ParamValue, 'LintSetup') then
+    begin
+      CmdLine.ConsumeParameter;
+      SerializeLintSetupTask;
     end
     else if SameText(ParamValue, 'PrintPath') then
     begin
