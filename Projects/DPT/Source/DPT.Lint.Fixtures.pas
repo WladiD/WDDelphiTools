@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -33,6 +33,9 @@ type
     procedure DefineSingleSeparatorLine(const AValue: string);
     procedure DefineDoubleSeparatorLine(const AValue: string);
     function GetFixture: TSlimFixture;
+
+    function FileIsUtf8Bom: Boolean;
+    function FileHasCrlf: Boolean;
 
     property TargetFile: string read FTargetFile;
     property Lines: TStringList read FLines;
@@ -235,6 +238,61 @@ end;
 function TDptLintUnitContextFixture.GetFixture: TSlimFixture;
 begin
   Result := Self;
+end;
+
+function TDptLintUnitContextFixture.FileIsUtf8Bom: Boolean;
+var
+  LStream: TFileStream;
+  LPreamble: TBytes;
+  LMsg: string;
+begin
+  Result := False;
+  LStream := TFileStream.Create(FTargetFile, fmOpenRead or fmShareDenyNone);
+  try
+    LPreamble := TEncoding.UTF8.GetPreamble;
+    if LStream.Size >= Length(LPreamble) then
+    begin
+      SetLength(LPreamble, Length(LPreamble));
+      LStream.ReadBuffer(LPreamble[0], Length(LPreamble));
+      Result := (LPreamble[0] = $EF) and (LPreamble[1] = $BB) and (LPreamble[2] = $BF);
+      if not Result then
+        LMsg := Format('File must be encoded in UTF-8 with BOM. Found: %x %x %x', [LPreamble[0], LPreamble[1], LPreamble[2]])
+    end
+    else
+      LMsg := 'File too small for BOM.';
+  finally
+    LStream.Free;
+  end;
+
+  if not Result then
+    TDptLintFixture.ReportError(FTargetFile, 1, LMsg);
+end;
+
+function TDptLintUnitContextFixture.FileHasCrlf: Boolean;
+var
+  LText: string;
+begin
+  Result := False;
+  // We read the raw file to check for #10 without #13
+  LText := TFile.ReadAllText(FTargetFile);
+
+  var LFoundLFOnly := False;
+  for var I := 1 to LText.Length do
+  begin
+    if LText[I] = #10 then
+    begin
+      if (I = 1) or (LText[I-1] <> #13) then
+      begin
+        LFoundLFOnly := True;
+        Break;
+      end;
+    end;
+  end;
+
+  Result := not LFoundLFOnly;
+
+  if not Result then
+    TDptLintFixture.ReportError(FTargetFile, 1, 'File must use Windows line endings (CRLF).');
 end;
 
 { TDptLintBaseFixture }
@@ -659,8 +717,8 @@ end;
 procedure TDptLintUsesFixture.AddGroupWithNamespaces(const AGroupName, ANamespaces: string);
 var
   G: TUsesGroup;
-  LParts: TArray<string>;
   LPatterns: TList<string>;
+  LParts: TArray<string>;
 begin
   G.Name := AGroupName;
   LParts := ANamespaces.Replace(',', ' ').Replace(';', ' ').Split([' ']);
@@ -1380,7 +1438,6 @@ begin
     var LLine := FContext.Lines[I];
     var LTrimmed := LLine.Trim;
 
-    // Method implementation rule: Must start at column 0 (not indented)
     if (LLine <> '') and (LLine[1] > ' ') and
        (LTrimmed.StartsWith('procedure') or LTrimmed.StartsWith('function') or
         LTrimmed.StartsWith('constructor') or LTrimmed.StartsWith('destructor')) then
@@ -1406,14 +1463,12 @@ begin
 
       if LHasPrevMethod then
       begin
-        // Skip comments (like documentation comments) before method
         var LBeforeCommentIdx := I - 1;
         while (LBeforeCommentIdx >= 0) and
               (FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('//') or
                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('{') or
                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('(*')) do
         begin
-          // Do not skip the separator line itself!
           if FContext.Lines[LBeforeCommentIdx].Contains(LSeparator) or
              FContext.Lines[LBeforeCommentIdx].Contains(FContext.DoubleSeparatorLine) then
             Break;
