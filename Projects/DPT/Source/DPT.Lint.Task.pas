@@ -11,6 +11,7 @@ interface
 uses
   System.Classes,
   System.IOUtils,
+  System.SysUtils,
   Slim.Server,
   DPT.Types,
   DPT.Lint.Context;
@@ -44,10 +45,10 @@ implementation
 
 uses
   IdTCPClient,
-  System.SysUtils,
   System.Generics.Collections,
   System.Generics.Defaults,
-  JclSysUtils;
+  JclSysUtils,
+  DPT.Lint.StyleValidator;
 
 { TDptLintTask }
 
@@ -96,6 +97,8 @@ begin
       raise Exception.Create('Target file not found: ' + LTargetFile);
   end;
 
+  TDptLintStyleValidator.ValidateStyleFile(FStyleFile);
+
   LTestContentTemplate := ExtractTestFromStyle(FStyleFile);
 
   // Setup Suite Directory
@@ -112,10 +115,10 @@ begin
     begin
       LTargetFile := FTargetFiles[I];
       // Sanitize filename for FitNesse page name
-      LSanitizedName := ExtractFileName(LTargetFile).Replace('.', '_').Replace(' ', '_'); 
+      LSanitizedName := ExtractFileName(LTargetFile).Replace('.', '_').Replace(' ', '_');
       LTestPageDir := TPath.Combine(LSuiteDir, 'Test_' + (I + 1).ToString + '_' + LSanitizedName);
       TDirectory.CreateDirectory(LTestPageDir);
-      
+
       // Create test content
       LPageContent := LTestContentTemplate.Replace('${TargetFile}', LTargetFile);
       TFile.WriteAllText(TPath.Combine(LTestPageDir, 'content.txt'), LPageContent, LEncodingNoBOM);
@@ -133,13 +136,13 @@ begin
       // Write Suite content.txt with definitions
       // Note: !path is usually handled by Slim server classpath, but here we run in-process logic (SlimServer is inside DPT).
       // We just need to define TEST_SYSTEM and SLIM_PORT.
-      TFile.WriteAllText(TPath.Combine(LSuiteDir, 'content.txt'), 
-        '!contents -R2 -g -p -f -h' + sLineBreak + 
-        '!define TEST_SYSTEM {slim}' + sLineBreak + 
-        '!define SLIM_PORT {' + LPort.ToString + '}', 
+      TFile.WriteAllText(TPath.Combine(LSuiteDir, 'content.txt'),
+        '!contents -R2 -g -p -f -h' + sLineBreak +
+        '!define TEST_SYSTEM {slim}' + sLineBreak +
+        '!define SLIM_PORT {' + LPort.ToString + '}',
         LEncodingNoBOM);
 
-      RunFitNesse(LPort, SUITE_PAGE_NAME); 
+      RunFitNesse(LPort, SUITE_PAGE_NAME);
     finally
       LSlimServer.Active := False;
       LSlimServer.Free;
@@ -160,7 +163,7 @@ var
 begin
   LLines := TFile.ReadAllLines(AStylePath, TEncoding.UTF8);
   LBuilder := TStringBuilder.Create;
-  LAnchor := '// Start: AI-Generated FitNesse-Test';
+  LAnchor := '// START: AI-GENERATED FITNESSE-TEST';
   LAnchorPos := -1;
   try
     for I := 0 to High(LLines) do
@@ -168,7 +171,7 @@ begin
       var Line := LLines[I];
       if LAnchorPos = -1 then
       begin
-        LAnchorPos := Line.IndexOf(LAnchor);
+        LAnchorPos := Line.ToUpper.IndexOf(LAnchor);
         Continue;
       end;
 
@@ -240,7 +243,7 @@ begin
 
   var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, LFitNesseJar, FFitNesseDir, ASuiteName]);
   var LRunResult := JclSysUtils.Execute(LJavaCmd, LOutput);
-  
+
   if FVerbose then
     Writeln(LOutput)
   else
@@ -289,7 +292,7 @@ begin
       Writeln('Error details: ' + LLatestFile);
     end;
   end;
-  
+
   // Print collected style violations at the very end, sorted
   if TDptLintContext.Violations.Count > 0 then
   begin
