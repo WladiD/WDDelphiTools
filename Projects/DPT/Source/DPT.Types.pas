@@ -44,6 +44,7 @@ type
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;
   public
+    constructor Create; virtual;
     destructor Destroy; override;
     procedure Execute; virtual; abstract;
   end;
@@ -111,6 +112,10 @@ begin
 end;
 
 { TDptTaskBase }
+
+constructor TDptTaskBase.Create;
+begin
+end;
 
 destructor TDptTaskBase.Destroy;
 begin

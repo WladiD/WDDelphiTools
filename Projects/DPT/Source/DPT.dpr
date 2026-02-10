@@ -103,7 +103,7 @@ var
     LocalDPTask.Verbose := False;
     FitNesseDir := '';
     LocalDPTask.StyleFile := '';
-    LocalDPTask.TargetFile := '';
+    LocalDPTask.TargetFiles.Clear;
 
     while CmdLine.HasParameter do
     begin
@@ -131,15 +131,11 @@ var
           LocalDPTask.StyleFile := ExpandFileName(Param);
           CmdLine.ConsumeParameter;
         end
-        else if LocalDPTask.TargetFile = '' then
-        begin
-          LocalDPTask.TargetFile := ExpandFileName(Param);
-          CmdLine.ConsumeParameter;
-        end
         else
         begin
-          // Both positional args already set, stop processing or error
-          Break; 
+          // Any subsequent parameter is treated as a target file
+          LocalDPTask.TargetFiles.Add(ExpandFileName(Param));
+          CmdLine.ConsumeParameter;
         end;
       end;
     end;
@@ -147,8 +143,8 @@ var
     if LocalDPTask.StyleFile = '' then
       CmdLine.InvalidParameter('Missing parameter: StyleFile');
 
-    if LocalDPTask.TargetFile = '' then
-      CmdLine.InvalidParameter('Missing parameter: TargetFile');
+    if LocalDPTask.TargetFiles.Count = 0 then
+      CmdLine.InvalidParameter('Missing parameter: TargetFile(s)');
 
     if FitNesseDir = '' then
     begin

@@ -19,20 +19,22 @@ type
 
   TDptLintTask = class(TDptTaskBase)
   public
-    const TEST_PAGE_NAME = 'DPT_LintTest';
+    const SUITE_PAGE_NAME = 'DPT_LintSuite';
   private
     FStyleFile: string;
-    FTargetFile: string;
+    FTargetFiles: TStrings;
     FFitNesseDir: string;
     FFitNesseRoot: string;
     FVerbose: Boolean;
     function  ExtractTestFromStyle(const AStylePath: string): string;
     function  GetFreePort: Integer;
-    procedure RunFitNesse(APort: Integer; const ATestContent: string);
+    procedure RunFitNesse(APort: Integer; const ASuiteName: string);
   public
+    constructor Create; override;
+    destructor Destroy; override;
     procedure Execute; override;
     property StyleFile: string read FStyleFile write FStyleFile;
-    property TargetFile: string read FTargetFile write FTargetFile;
+    property TargetFiles: TStrings read FTargetFiles;
     property FitNesseDir: string read FFitNesseDir write FFitNesseDir;
     property FitNesseRoot: string read FFitNesseRoot write FFitNesseRoot;
     property Verbose: Boolean read FVerbose write FVerbose;
@@ -44,17 +46,38 @@ uses
   IdTCPClient,
   System.SysUtils,
   System.Generics.Collections,
+  System.Generics.Defaults,
   JclSysUtils;
 
 { TDptLintTask }
 
+constructor TDptLintTask.Create;
+begin
+  inherited;
+  FTargetFiles := TStringList.Create;
+end;
+
+destructor TDptLintTask.Destroy;
+begin
+  FTargetFiles.Free;
+  inherited;
+end;
+
 procedure TDptLintTask.Execute;
 var
-  LTestContent: string;
+  LTestContentTemplate: string;
   LPort: Integer;
   LSlimServer: TSlimServer;
   LFallbackStyleFile: string;
+  LSuiteDir: string;
+  LTestPageDir: string;
+  LTargetFile: string;
+  LSanitizedName: string;
+  LPageContent: string;
+  I: Integer;
+  LEncodingNoBOM: TEncoding;
 begin
+  // Fallback Logic for StyleFile
   if not TFile.Exists(FStyleFile) then
   begin
     LFallbackStyleFile := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Lint'), ExtractFileName(FStyleFile));
@@ -64,28 +87,65 @@ begin
       raise Exception.Create('Style template not found: ' + FStyleFile);
   end;
 
-  if not TFile.Exists(FTargetFile) then
-    raise Exception.Create('Target file not found: ' + FTargetFile);
+  if FTargetFiles.Count = 0 then
+    raise Exception.Create('No target files specified.');
 
-  Writeln('Linting file: ' + FTargetFile + ' using style ' + ExtractFileName(FStyleFile));
+  for LTargetFile in FTargetFiles do
+  begin
+    if not TFile.Exists(LTargetFile) then
+      raise Exception.Create('Target file not found: ' + LTargetFile);
+  end;
 
-  LTestContent := ExtractTestFromStyle(FStyleFile);
-  LTestContent := LTestContent.Replace('${TargetFile}', FTargetFile);
+  LTestContentTemplate := ExtractTestFromStyle(FStyleFile);
 
-  LPort := GetFreePort;
-  LSlimServer := TSlimServer.Create(nil);
+  // Setup Suite Directory
+  LSuiteDir := TPath.Combine(FFitNesseRoot, SUITE_PAGE_NAME);
+  if TDirectory.Exists(LSuiteDir) then
+    TDirectory.Delete(LSuiteDir, True);
+  TDirectory.CreateDirectory(LSuiteDir);
+
+  Writeln(Format('Linting %d files using style %s...', [FTargetFiles.Count, ExtractFileName(FStyleFile)]));
+
+  LEncodingNoBOM := TUTF8Encoding.Create(False);
   try
-    LSlimServer.DefaultPort := LPort;
-    LSlimServer.Active := True;
+    for I := 0 to FTargetFiles.Count - 1 do
+    begin
+      LTargetFile := FTargetFiles[I];
+      // Sanitize filename for FitNesse page name
+      LSanitizedName := ExtractFileName(LTargetFile).Replace('.', '_').Replace(' ', '_'); 
+      LTestPageDir := TPath.Combine(LSuiteDir, 'Test_' + (I + 1).ToString + '_' + LSanitizedName);
+      TDirectory.CreateDirectory(LTestPageDir);
+      
+      // Create test content
+      LPageContent := LTestContentTemplate.Replace('${TargetFile}', LTargetFile);
+      TFile.WriteAllText(TPath.Combine(LTestPageDir, 'content.txt'), LPageContent, LEncodingNoBOM);
+    end;
 
-    if FVerbose then
-      Writeln('Internal Slim server started on port ' + LPort.ToString);
+    LPort := GetFreePort;
+    LSlimServer := TSlimServer.Create(nil);
+    try
+      LSlimServer.DefaultPort := LPort;
+      LSlimServer.Active := True;
 
-    // Run FitNesse (this blocks until FitNesse finishes)
-    RunFitNesse(LPort, LTestContent);
+      if FVerbose then
+        Writeln('Internal Slim server started on port ' + LPort.ToString);
+
+      // Write Suite content.txt with definitions
+      // Note: !path is usually handled by Slim server classpath, but here we run in-process logic (SlimServer is inside DPT).
+      // We just need to define TEST_SYSTEM and SLIM_PORT.
+      TFile.WriteAllText(TPath.Combine(LSuiteDir, 'content.txt'), 
+        '!contents -R2 -g -p -f -h' + sLineBreak + 
+        '!define TEST_SYSTEM {slim}' + sLineBreak + 
+        '!define SLIM_PORT {' + LPort.ToString + '}', 
+        LEncodingNoBOM);
+
+      RunFitNesse(LPort, SUITE_PAGE_NAME); 
+    finally
+      LSlimServer.Active := False;
+      LSlimServer.Free;
+    end;
   finally
-    LSlimServer.Active := False;
-    LSlimServer.Free;
+    LEncodingNoBOM.Free;
   end;
 end;
 
@@ -158,50 +218,27 @@ begin
   end;
 end;
 
-procedure TDptLintTask.RunFitNesse(APort: Integer; const ATestContent: string);
+procedure TDptLintTask.RunFitNesse(APort: Integer; const ASuiteName: string);
 var
-  LTestFile: string;
   LFitNesseJar: string;
   LOutput: string;
-  LTestPageDir: string;
   LLines: TArray<string>;
   LFilteredOutput: TStringBuilder;
   I: Integer;
 begin
-  LTestPageDir := TPath.Combine(FFitNesseRoot, TEST_PAGE_NAME);
-
-  if not TDirectory.Exists(LTestPageDir) then
-    TDirectory.CreateDirectory(LTestPageDir);
-
-  LTestFile := TPath.Combine(LTestPageDir, 'content.txt');
-  
   // Path to FitNesse JAR
   LFitNesseJar := TPath.Combine(FFitNesseDir, 'fitnesse-standalone.jar');
 
   if not TFile.Exists(LFitNesseJar) then
     raise Exception.Create('FitNesse JAR not found: ' + LFitNesseJar);
 
-  // Write content.txt without BOM
-  var LContentList: TStringList := TStringList.Create;
-  try
-    LContentList.WriteBOM := False;
-    LContentList.Text := 
-      '!define TEST_SYSTEM {slim}' + sLineBreak +
-      '!define SLIM_PORT {' + APort.ToString + '}' + sLineBreak +
-      sLineBreak +
-      ATestContent;
-    LContentList.SaveToFile(LTestFile, TEncoding.UTF8);
-  finally
-    LContentList.Free;
-  end;
-
   if FVerbose then
-    Writeln('Executing FitNesse tests against Slim server on port ' + APort.ToString + '...');
+    Writeln('Executing FitNesse suite "' + ASuiteName + '" against Slim server on port ' + APort.ToString + '...');
 
   // Reset error collector before run
   TDptLintContext.Clear;
 
-  var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?test&format=text"', [APort, LFitNesseJar, FFitNesseDir, TEST_PAGE_NAME]);
+  var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, LFitNesseJar, FFitNesseDir, ASuiteName]);
   var LRunResult := JclSysUtils.Execute(LJavaCmd, LOutput);
   
   if FVerbose then
@@ -234,7 +271,7 @@ begin
 
   if LRunResult <> 0 then
   begin
-    var LResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + TEST_PAGE_NAME);
+    var LResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + ASuiteName);
     var LLatestFile := '';
     if TDirectory.Exists(LResultsDir) then
     begin
@@ -253,9 +290,17 @@ begin
     end;
   end;
   
-  // Print collected style violations at the very end
+  // Print collected style violations at the very end, sorted
   if TDptLintContext.Violations.Count > 0 then
   begin
+    TDptLintContext.Violations.Sort(TComparer<TStyleViolation>.Construct(
+      function(const Left, Right: TStyleViolation): Integer
+      begin
+        Result := CompareText(Left.FileSpec, Right.FileSpec);
+        if Result = 0 then
+          Result := Left.Line - Right.Line;
+      end));
+
     Writeln;
     Writeln('Style Violations Summary:');
     Writeln('-------------------------');
