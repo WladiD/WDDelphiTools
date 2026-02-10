@@ -20,6 +20,7 @@ Actions:
   HandleProtocol <dpt://URL>
   ImportBuildEnvironment
   IsPackageRegistered <PackageFileName>
+  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFile>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
   PrintPath <PathLiteral>
   RegisterPackage <PathToBPL>
@@ -82,13 +83,10 @@ Available Actions:
 
   ExportBuildEnvironment <TargetPath>
     Exports a minimal Delphi build environment to the specified directory.
-    Useful for setting up CI/CD pipelines on clean Windows VMs without the full IDE installation.
-    Includes:
-      - Required BDS files (bin, lib, Imports, include, redist)
-      - Registry settings (.reg files for HKCU and HKLM)
-      - DPT.exe (current version)
-      - Initialization scripts (InitD12BuildEnvironment.bat/dpr)
+    The environment can be used on a clean Windows machine for CI/CD builds.
+    Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.       
     Generates a smart Init...bat script that handles Admin rights and Unattended mode.
+    WARNING: The target machine still requires a valid license/activation.
     Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build
 
   HandleProtocol <dpt://URL>
@@ -106,6 +104,17 @@ Available Actions:
   IsPackageRegistered <PackageFileName>
     Checks if a specific BPL package is currently registered in the IDE.
     Returns ExitCode 0 if registered, 1 if not.
+
+  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFile>
+    Analyzes a Delphi unit for style violations based on the specified StyleFile.
+    Uses an internal Slim/FitNesse engine to verify the code structure.
+    Options:
+      --verbose: Displays full FitNesse and Slim server logs.
+      --fitnesse-dir=<Path>: Explicitly sets the FitNesse installation directory.
+    Configuration Priority:
+      1. --fitnesse-dir parameter
+      2. "Dir" entry in [FitNesse] section of DptConfig.ini (searched in PATH)
+    Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas MyUnit.pas
 
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
     Opens a source file in the Delphi IDE via the Slim Server plugin.

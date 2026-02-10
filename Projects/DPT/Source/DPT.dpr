@@ -99,25 +99,56 @@ var
     Param: string;
   begin
     InitDptTask(TDptLintTask);
-    LocalDPTask.StyleFile := ExpandFileName(CmdLine.CheckParameter('StyleFile'));
-    CmdLine.ConsumeParameter;
-    LocalDPTask.TargetFile := ExpandFileName(CmdLine.CheckParameter('TargetFile'));
-    CmdLine.ConsumeParameter;
-
+    
     LocalDPTask.Verbose := False;
     FitNesseDir := '';
+    LocalDPTask.StyleFile := '';
+    LocalDPTask.TargetFile := '';
 
     while CmdLine.HasParameter do
     begin
-      Param := CmdLine.CheckParameter('Option');
+      Param := CmdLine.CheckParameter('Option/File');
+
       if SameText(Param, '--verbose') then
-        LocalDPTask.Verbose := True
+      begin
+        LocalDPTask.Verbose := True;
+        CmdLine.ConsumeParameter;
+      end
       else if Param.StartsWith('--fitnesse-dir=', True) then
-        FitNesseDir := Param.Substring(15).DeQuotedString('"')
+      begin
+        FitNesseDir := Param.Substring(15).DeQuotedString('"');
+        CmdLine.ConsumeParameter;
+      end
+      else if Param.StartsWith('--') then
+      begin
+        CmdLine.InvalidParameter('Unknown option: ' + Param);
+      end
       else
-        Break;
-      CmdLine.ConsumeParameter;
+      begin
+        // Positional arguments
+        if LocalDPTask.StyleFile = '' then
+        begin
+          LocalDPTask.StyleFile := ExpandFileName(Param);
+          CmdLine.ConsumeParameter;
+        end
+        else if LocalDPTask.TargetFile = '' then
+        begin
+          LocalDPTask.TargetFile := ExpandFileName(Param);
+          CmdLine.ConsumeParameter;
+        end
+        else
+        begin
+          // Both positional args already set, stop processing or error
+          Break; 
+        end;
+      end;
     end;
+
+    if LocalDPTask.StyleFile = '' then
+      CmdLine.InvalidParameter('Missing parameter: StyleFile');
+
+    if LocalDPTask.TargetFile = '' then
+      CmdLine.InvalidParameter('Missing parameter: TargetFile');
 
     if FitNesseDir = '' then
     begin

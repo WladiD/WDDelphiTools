@@ -113,7 +113,7 @@ begin
         'Checks if a specific BPL package is currently registered in the IDE.',
         'Returns ExitCode 0 if registered, 1 if not.'
       ]),
-      TActionInfo.Create('Lint', '<StyleFile> <TargetFile> [--verbose] [--fitnesse-dir=<Path>]', [
+      TActionInfo.Create('Lint', '[--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFile>', [
         'Analyzes a Delphi unit for style violations based on the specified StyleFile.',
         'Uses an internal Slim/FitNesse engine to verify the code structure.',
         'Options:',
@@ -122,7 +122,7 @@ begin
         'Configuration Priority:',
         '  1. --fitnesse-dir parameter',
         '  2. "Dir" entry in [FitNesse] section of DptConfig.ini (searched in PATH)',
-        'Example: DPT LATEST Lint Lint\TaifunUnitStyle.pas MyUnit.pas'
+        'Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas MyUnit.pas'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
         'Opens a source file in the Delphi IDE via the Slim Server plugin.',

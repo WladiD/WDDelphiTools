@@ -53,9 +53,16 @@ var
   LTestContent: string;
   LPort: Integer;
   LSlimServer: TSlimServer;
+  LFallbackStyleFile: string;
 begin
   if not TFile.Exists(FStyleFile) then
-    raise Exception.Create('Style template not found: ' + FStyleFile);
+  begin
+    LFallbackStyleFile := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Lint'), ExtractFileName(FStyleFile));
+    if TFile.Exists(LFallbackStyleFile) then
+      FStyleFile := LFallbackStyleFile
+    else
+      raise Exception.Create('Style template not found: ' + FStyleFile);
+  end;
 
   if not TFile.Exists(FTargetFile) then
     raise Exception.Create('Target file not found: ' + FTargetFile);
