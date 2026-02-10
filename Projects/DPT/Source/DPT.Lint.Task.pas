@@ -293,6 +293,16 @@ begin
     end;
   end;
 
+  // Print collected warnings
+  if TDptLintContext.Warnings.Count > 0 then
+  begin
+    Writeln;
+    Writeln('Linting Warnings:');
+    Writeln('-----------------');
+    for var W in TDptLintContext.Warnings do
+      Writeln('  ' + W);
+  end;
+
   // Print collected style violations at the very end, sorted
   if TDptLintContext.Violations.Count > 0 then
   begin

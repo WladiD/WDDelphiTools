@@ -34,8 +34,9 @@ type
     procedure DefineDoubleSeparatorLine(const AValue: string);
     function GetFixture: TSlimFixture;
 
-    function FileIsUtf8Bom: Boolean;
-    function FileHasCrlf: Boolean;
+    // File property guards (ensure properties, fix if needed)
+    procedure EnsureUtf8Bom;
+    procedure EnsureCrlf;
 
     property TargetFile: string read FTargetFile;
     property Lines: TStringList read FLines;
@@ -240,13 +241,13 @@ begin
   Result := Self;
 end;
 
-function TDptLintUnitContextFixture.FileIsUtf8Bom: Boolean;
+procedure TDptLintUnitContextFixture.EnsureUtf8Bom;
 var
   LStream: TFileStream;
   LPreamble: TBytes;
-  LMsg: string;
+  LHasBom: Boolean;
 begin
-  Result := False;
+  LHasBom := False;
   LStream := TFileStream.Create(FTargetFile, fmOpenRead or fmShareDenyNone);
   try
     LPreamble := TEncoding.UTF8.GetPreamble;
@@ -254,29 +255,30 @@ begin
     begin
       SetLength(LPreamble, Length(LPreamble));
       LStream.ReadBuffer(LPreamble[0], Length(LPreamble));
-      Result := (LPreamble[0] = $EF) and (LPreamble[1] = $BB) and (LPreamble[2] = $BF);
-      if not Result then
-        LMsg := Format('File must be encoded in UTF-8 with BOM. Found: %x %x %x', [LPreamble[0], LPreamble[1], LPreamble[2]])
-    end
-    else
-      LMsg := 'File too small for BOM.';
+      LHasBom := (LPreamble[0] = $EF) and (LPreamble[1] = $BB) and (LPreamble[2] = $BF);
+    end;
   finally
     LStream.Free;
   end;
 
-  if not Result then
-    TDptLintFixture.ReportError(FTargetFile, 1, LMsg);
+  if not LHasBom then
+  begin
+    var LContent := TFile.ReadAllText(FTargetFile);
+    TFile.WriteAllText(FTargetFile, LContent, TEncoding.UTF8);
+    // Reload lines to reflect changes (though encoding doesn't change text content)
+    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
+    TDptLintContext.AddWarning(Format('Warning: File "%s" was converted to UTF-8 with BOM.', [ExtractFileName(FTargetFile)]));
+  end;
 end;
 
-function TDptLintUnitContextFixture.FileHasCrlf: Boolean;
+procedure TDptLintUnitContextFixture.EnsureCrlf;
 var
   LText: string;
+  LFoundLFOnly: Boolean;
 begin
-  Result := False;
-  // We read the raw file to check for #10 without #13
   LText := TFile.ReadAllText(FTargetFile);
 
-  var LFoundLFOnly := False;
+  LFoundLFOnly := False;
   for var I := 1 to LText.Length do
   begin
     if LText[I] = #10 then
@@ -289,10 +291,15 @@ begin
     end;
   end;
 
-  Result := not LFoundLFOnly;
-
-  if not Result then
-    TDptLintFixture.ReportError(FTargetFile, 1, 'File must use Windows line endings (CRLF).');
+  if LFoundLFOnly then
+  begin
+    // Normalize to CRLF
+    var LFixed := LText.Replace(#13#10, #10).Replace(#13, #10).Replace(#10, #13#10);
+    TFile.WriteAllText(FTargetFile, LFixed, TEncoding.UTF8);
+    // Reload lines
+    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
+    TDptLintContext.AddWarning(Format('Warning: Line endings in file "%s" were converted to CRLF.', [ExtractFileName(FTargetFile)]));
+  end;
 end;
 
 { TDptLintBaseFixture }

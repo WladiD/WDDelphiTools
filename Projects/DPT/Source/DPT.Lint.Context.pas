@@ -24,13 +24,16 @@ type
   TDptLintContext = class
   private
     class var FViolations: TList<TStyleViolation>;
+    class var FWarnings: TList<string>;
     class var FLock: TObject;
     class procedure CheckInit;
   public
     class destructor Destroy;
     class procedure Clear;
     class procedure Add(ALine: Integer; const AFile, AMsg: string);
+    class procedure AddWarning(const AMsg: string);
     class function Violations: TList<TStyleViolation>;
+    class function Warnings: TList<string>;
   end;
 
 implementation
@@ -46,7 +49,10 @@ begin
     if TInterlocked.CompareExchange(Pointer(FLock), Pointer(LLock), nil) <> nil then
       LLock.Free
     else
+    begin
       FViolations := TList<TStyleViolation>.Create;
+      FWarnings := TList<string>.Create;
+    end;
   end;
 end;
 
@@ -66,12 +72,24 @@ begin
   end;
 end;
 
+class procedure TDptLintContext.AddWarning(const AMsg: string);
+begin
+  CheckInit;
+  TMonitor.Enter(FLock);
+  try
+    FWarnings.Add(AMsg);
+  finally
+    TMonitor.Exit(FLock);
+  end;
+end;
+
 class procedure TDptLintContext.Clear;
 begin
   CheckInit;
   TMonitor.Enter(FLock);
   try
     FViolations.Clear;
+    FWarnings.Clear;
   finally
     TMonitor.Exit(FLock);
   end;
@@ -80,6 +98,7 @@ end;
 class destructor TDptLintContext.Destroy;
 begin
   FViolations.Free;
+  FWarnings.Free;
   FLock.Free;
 end;
 
@@ -87,6 +106,12 @@ class function TDptLintContext.Violations: TList<TStyleViolation>;
 begin
   CheckInit;
   Result := FViolations;
+end;
+
+class function TDptLintContext.Warnings: TList<string>;
+begin
+  CheckInit;
+  Result := FWarnings;
 end;
 
 end.
