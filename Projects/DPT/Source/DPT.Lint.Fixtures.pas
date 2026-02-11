@@ -1252,6 +1252,7 @@ var
   LLines: TArray<string>;
   LClassIndents: TList<Integer>;
   LClassIndent: Integer;
+  LNestedDepth: Integer;
   LClassName: string;
   LCurrentBlock: TMemberBlock;
   LPrevMemberType: TMemberType;
@@ -1276,6 +1277,7 @@ begin
   LLines := FContent.Split([sLineBreak]);
   LClassIndents := TList<Integer>.Create;
   LClassIndent := 0;
+  LNestedDepth := 0;
   LCurrentBlock := nil;
   LPrevMemberType := mtUnknown;
   LVisibilityKeywordFoundSinceLastMember := False;
@@ -1324,14 +1326,29 @@ begin
 
       if LClassIndents.Count > 0 then
       begin
-        if TRegEx.IsMatch(LLine, '^\s*end\s*;', [roIgnoreCase]) then
+        if TRegEx.IsMatch(LLine, '^\s*end\s*[;$]', [roIgnoreCase]) then
         begin
+          if LNestedDepth > 0 then
+          begin
+            Dec(LNestedDepth);
+            Continue;
+          end;
+
           FlushBlock;
           LClassIndents.Delete(LClassIndents.Count - 1);
           if LClassIndents.Count > 0 then
             LClassIndent := LClassIndents[LClassIndents.Count - 1]
           else
             LClassIndent := 0;
+          Continue;
+        end;
+
+        if LNestedDepth > 0 then
+          Continue;
+
+        if TRegEx.IsMatch(LLine, '=\s*(?:packed\s+)?(?:record|interface|dispinterface|object)', [roIgnoreCase]) then
+        begin
+          Inc(LNestedDepth);
           Continue;
         end;
 
