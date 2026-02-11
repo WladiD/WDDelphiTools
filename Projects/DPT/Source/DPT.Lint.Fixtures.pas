@@ -965,7 +965,7 @@ var
   LLines: TArray<string>;
   I: Integer;
 begin
-  Result := False;
+  Result := True;
   LLines := FContent.Split([sLineBreak]);
   for I := 0 to High(LLines) do
   begin
