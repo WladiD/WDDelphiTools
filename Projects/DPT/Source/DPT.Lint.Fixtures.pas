@@ -224,6 +224,26 @@ type
     property ArithmeticOperators: string read FArithmeticOperators write FArithmeticOperators;
   end;
 
+  [SlimFixture('DptLintLocalVarFixture')]
+  TDptLintLocalVarFixture = class(TDptLintBaseFixture)
+  private
+    FContent: string;
+    FLineOffset: Integer;
+    FVariablesMustBeSorted: Boolean;
+    FAlignColons: Boolean;
+    FExactSpacesAfterColon: Integer;
+    function ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
+  public
+    constructor Create;
+    procedure SetContent(const AValue: string);
+    procedure SetLineOffset(const AValue: string);
+    function LintLocalVars: Boolean;
+
+    property VariablesMustBeSorted: Boolean read FVariablesMustBeSorted write FVariablesMustBeSorted;
+    property AlignColons: Boolean read FAlignColons write FAlignColons;
+    property ExactSpacesAfterColon: Integer read FExactSpacesAfterColon write FExactSpacesAfterColon;
+  end;
+
 implementation
 
 uses
@@ -1790,6 +1810,161 @@ begin
   Result := TDptLintContext.Violations.Count = LViolationsBefore;
 end;
 
+{ TDptLintLocalVarFixture }
+
+constructor TDptLintLocalVarFixture.Create;
+begin
+  inherited Create;
+  FVariablesMustBeSorted := True;
+  FAlignColons := True;
+  FExactSpacesAfterColon := 1;
+end;
+
+procedure TDptLintLocalVarFixture.SetContent(const AValue: string);
+begin
+  FContent := AValue;
+end;
+
+procedure TDptLintLocalVarFixture.SetLineOffset(const AValue: string);
+begin
+  FLineOffset := StrToIntDef(AValue, 0);
+end;
+
+function TDptLintLocalVarFixture.ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
+var
+  I, LColonPos, LPrevColonPos: Integer;
+  LVarName, LPrevVarName: string;
+  LMatch: TMatch;
+begin
+  Result := True;
+  LPrevVarName := '';
+  LPrevColonPos := -1;
+
+  for I := 0 to AVarLines.Count - 1 do
+  begin
+    var LLine := AVarLines[I];
+    var LFullLineIdx := AStartLineIdx + I + 1 + FLineOffset;
+
+    LColonPos := LLine.IndexOf(':');
+
+    // Check for multiple variables per line (comma before colon)
+    if (LColonPos > 0) and LLine.Substring(0, LColonPos).Contains(',') then
+    begin
+      ReportViolation(LFullLineIdx, 'Only one variable allowed per line.');
+      Result := False;
+    end;
+
+    // Parse variable name and type
+    LMatch := TRegEx.Match(LLine, '^\s*(\w+)\s*:\s*(.+);', [roIgnoreCase]);
+    if LMatch.Success then
+    begin
+      LVarName := LMatch.Groups[1].Value;
+      // LColonPos already found above
+
+      // Check Sorting
+      if FVariablesMustBeSorted and (LPrevVarName <> '') then
+      begin
+        if CompareStringNatural(LVarName, LPrevVarName) < 0 then
+        begin
+          ReportViolation(LFullLineIdx, Format('Variables should be sorted alphabetically: "%s" before "%s".', [LVarName, LPrevVarName]));
+          Result := False;
+        end;
+      end;
+
+      // Check Colon Alignment
+      if FAlignColons and (LPrevColonPos <> -1) then
+      begin
+        if LColonPos <> LPrevColonPos then
+        begin
+          ReportViolation(LFullLineIdx, Format('Colons should be vertically aligned (Pos %d vs %d).', [LColonPos, LPrevColonPos]));
+          Result := False;
+        end;
+      end;
+
+      // Check Spaces After Colon
+      if FExactSpacesAfterColon >= 0 then
+      begin
+        var LAfterColon := LLine.Substring(LColonPos + 1);
+        var LSpacesCount := 0;
+        while (LSpacesCount < LAfterColon.Length) and (LAfterColon[LSpacesCount + 1] = ' ') do
+          Inc(LSpacesCount);
+        
+        if LSpacesCount <> FExactSpacesAfterColon then
+        begin
+          ReportViolation(LFullLineIdx, Format('Exactly %d space(s) required after colon (Found %d).', [FExactSpacesAfterColon, LSpacesCount]));
+          Result := False;
+        end;
+      end;
+
+      LPrevVarName := LVarName;
+      LPrevColonPos := LColonPos;
+    end;
+  end;
+end;
+
+function TDptLintLocalVarFixture.LintLocalVars: Boolean;
+var
+  LLines: TArray<string>;
+  I: Integer;
+  LInVarBlock: Boolean;
+  LCurrentVarLines: TList<string>;
+  LVarBlockStartIdx: Integer;
+begin
+  Result := True;
+  LLines := FContent.Split([sLineBreak]);
+  LInVarBlock := False;
+  LVarBlockStartIdx := 0;
+  LCurrentVarLines := TList<string>.Create;
+  try
+    for I := 0 to High(LLines) do
+    begin
+      var LLine := LLines[I].Trim;
+      var LLower := LLine.ToLower;
+
+      if not LInVarBlock then
+      begin
+        if LLower = 'var' then
+        begin
+          LInVarBlock := True;
+          LVarBlockStartIdx := I + 1;
+          LCurrentVarLines.Clear;
+        end;
+      end
+      else
+      begin
+        if (LLower = 'begin') or (LLower = 'const') or (LLower = 'type') or (LLower = 'var') or
+           LLower.StartsWith('procedure') or LLower.StartsWith('function') or
+           LLower.StartsWith('constructor') or LLower.StartsWith('destructor') then
+        begin
+          if not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
+            Result := False;
+          
+          if LLower = 'var' then
+          begin
+            LVarBlockStartIdx := I + 1;
+            LCurrentVarLines.Clear;
+          end
+          else
+          begin
+            LInVarBlock := False;
+          end;
+        end
+        else if LLine <> '' then
+        begin
+          LCurrentVarLines.Add(LLines[I]);
+        end;
+      end;
+    end;
+    
+    if LInVarBlock then
+      if not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
+        Result := False;
+
+  finally
+    LCurrentVarLines.Free;
+  end;
+end;
+
 initialization
 
 RegisterSlimFixture(TDptLintUnitContextFixture);
@@ -1799,5 +1974,6 @@ RegisterSlimFixture(TDptLintUsesFixture);
 RegisterSlimFixture(TDptLintClassDeclarationFixture);
 RegisterSlimFixture(TDptLintImplementationFixture);
 RegisterSlimFixture(TDptLintMethodBodyFixture);
+RegisterSlimFixture(TDptLintLocalVarFixture);
 
 end.
