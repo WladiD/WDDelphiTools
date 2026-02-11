@@ -9,12 +9,17 @@ unit DPT.Lint.Fixtures;
 interface
 
 uses
+
   System.Classes,
-  System.SysUtils,
-  System.Types,
   System.Generics.Collections,
   System.IOUtils,
+  System.RegularExpressions,
+  System.SysUtils,
+  System.Types,
+
   Slim.Fixture,
+  WDDT.StringTools,
+
   DPT.Lint.Context;
 
 type
@@ -22,33 +27,31 @@ type
   [SlimFixture('DptLintUnitContextFixture')]
   TDptLintUnitContextFixture = class(TSlimFixture)
   private
-    FTargetFile: string;
-    FLines: TStringList;
-    FSingleSeparatorLine: string;
-    FDoubleSeparatorLine: string;
+    FDoubleSeparatorLine: String;
+    FLines              : TStringList;
+    FSingleSeparatorLine: String;
+    FTargetFile         : String;
   public
-    constructor Create(const ATargetFile: string);
-    destructor Destroy; override;
+    constructor Create(const ATargetFile: String);
+    destructor  Destroy; override;
 
-    procedure DefineSingleSeparatorLine(const AValue: string);
-    procedure DefineDoubleSeparatorLine(const AValue: string);
-    function GetFixture: TSlimFixture;
-
-    // File property guards (ensure properties, fix if needed)
-    procedure EnsureUtf8Bom;
+    procedure DefineDoubleSeparatorLine(const AValue: String);
+    procedure DefineSingleSeparatorLine(const AValue: String);
     procedure EnsureCrlf;
     procedure EnsureNoMultipleBlanklines;
+    procedure EnsureUtf8Bom;
+    function  GetFixture: TSlimFixture;
 
-    property TargetFile: string read FTargetFile;
+    property TargetFile: String read FTargetFile;
     property Lines: TStringList read FLines;
-    property SingleSeparatorLine: string read FSingleSeparatorLine;
-    property DoubleSeparatorLine: string read FDoubleSeparatorLine;
+    property SingleSeparatorLine: String read FSingleSeparatorLine;
+    property DoubleSeparatorLine: String read FDoubleSeparatorLine;
   end;
 
   TDptLintBaseFixture = class(TSlimFixture)
   protected
     FContext: TDptLintUnitContextFixture;
-    procedure ReportViolation(ALine: Integer; const AMsg: string);
+    procedure ReportViolation(ALine: Integer; const AMsg: String);
   public
     procedure SetContext(AContext: TSlimFixture);
   end;
@@ -56,83 +59,75 @@ type
   [SlimFixture('DptLintFixture')]
   TDptLintFixture = class(TDptLintBaseFixture)
   private
-    function GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: string; AIncludeStart: Boolean): string;
-    function GetPartOffset(const AStartKey: string; AIncludeStart: Boolean): Integer;
+    function GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: String; AIncludeStart: Boolean): String;
+    function GetPartOffset(const AStartKey: String; AIncludeStart: Boolean): Integer;
   public
-    class procedure ReportError(const AFile: string; ALine: Integer; const AMsg: string);
-
-    // General Purpose Primitives
-    function LineStartsWith(ALine: string; const AText: string): Boolean;
-    function FileMatchesRegex(const APattern: string): Boolean;
-    function FileContainsInclude(const AIncludeNames: string): Boolean;
-    function UnitNameMatchesFileName: Boolean;
-    function KeywordIsSurroundedBy(const AKeyword, ASeparator: string): Boolean;
-
-    // Unit Part Extractors for further analysis
-    function GetBeforeUnitKeywordPart: string;
-    function GetInterfacePart: string;
-    function GetImplementationPart: string;
-    function GetInitializationPart: string;
-    function GetFinalizationPart: string;
-
-    function GetBeforeUnitKeywordPartOffset: string;
-    function GetInterfacePartOffset: string;
-    function GetImplementationPartOffset: string;
-    function GetInitializationPartOffset: string;
-    function GetFinalizationPartOffset: string;
-
-    function ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: string): Boolean;
+    class procedure ReportError(const AFile: String; ALine: Integer; const AMsg: String);
+  public
+    function ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: String): Boolean;
     function ColonsInRecordsAreAligned: Boolean;
+    function FileContainsInclude(const AIncludeNames: String): Boolean;
+    function FileMatchesRegex(const APattern: String): Boolean;
+    function GetBeforeUnitKeywordPart: String;
+    function GetBeforeUnitKeywordPartOffset: String;
+    function GetFinalizationPart: String;
+    function GetFinalizationPartOffset: String;
+    function GetImplementationPart: String;
+    function GetImplementationPartOffset: String;
+    function GetInitializationPart: String;
+    function GetInitializationPartOffset: String;
+    function GetInterfacePart: String;
+    function GetInterfacePartOffset: String;
+    function KeywordIsSurroundedBy(const AKeyword, ASeparator: String): Boolean;
     function LastLineBeforeEndIsDoubleSeparator: Boolean;
+    function LineStartsWith(ALine: String; const AText: String): Boolean;
+    function UnitNameMatchesFileName: Boolean;
   end;
 
   [SlimFixture('DptLintRegexFixture')]
   TDptLintRegexFixture = class(TSlimFixture)
   private
-    FContent: string;
+    FContent: String;
     FLineOffset: Integer;
   public
-    constructor Create(const AContent: string);
-    procedure SetLineOffset(const AValue: string);
-    function Match(const APattern: string): Boolean;
-    function Fetch(const APattern: string; const AGroupName: string): string;
+    constructor Create(const AContent: String);
+    function  Fetch(const APattern: String; const AGroupName: String): String;
+    function  Match(const APattern: String): Boolean;
+    procedure SetLineOffset(const AValue: String);
   end;
 
   [SlimFixture('DptLintUsesFixture')]
   TDptLintUsesFixture = class(TDptLintBaseFixture)
   type
     TUsesGroup = record
-      Name: string;
-      Patterns: TArray<string>;
+      Name    : String;
+      Patterns: TArray<String>;
     end;
     TUnitInfo = record
-      Name: string;
-      Line: Integer; // Local line within FContent
       GroupIdx: Integer;
+      Line    : Integer; // Local line within FContent
+      Name    : String;
     end;
   private
-    FContent: string;
+    FContent   : String;
+    FGroups    : TList<TUsesGroup>;
     FLineOffset: Integer;
-    FGroups: TList<TUsesGroup>;
-    FUnits: TList<TUnitInfo>;
+    FUnits     : TList<TUnitInfo>;
+    function  MatchNamespace(const AUnitName, APattern: String): Boolean;
     procedure ParseUnits;
-    function MatchNamespace(const AUnitName, APattern: string): Boolean;
   public
     constructor Create;
-    destructor Destroy; override;
-
-    procedure SetContent(const AValue: string);
-    procedure SetLineOffset(const AValue: string);
-    procedure AddGroupWithNamespaces(const AGroupName: string; const ANamespaces: string);
-
-    function AllUnitsOnSeparateLines: Boolean;
-    function GroupsAreSortedAlphabetically: Boolean;
-    function GroupsAreSeparatedByBlankLines: Boolean;
-    function GroupsFollowOrder: Boolean;
-    function BlankLineAfterUsesExists: Boolean;
-
-    function GetLinesAfterLastUsesLine(ALinesCount: Integer): string;
-    function GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): string;
+    destructor  Destroy; override;
+    procedure AddGroupWithNamespaces(const AGroupName: String; const ANamespaces: String);
+    function  AllUnitsOnSeparateLines: Boolean;
+    function  BlankLineAfterUsesExists: Boolean;
+    function  GetLinesAfterLastUsesLine(ALinesCount: Integer): String;
+    function  GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): String;
+    function  GroupsAreSeparatedByBlankLines: Boolean;
+    function  GroupsAreSortedAlphabetically: Boolean;
+    function  GroupsFollowOrder: Boolean;
+    procedure SetContent(const AValue: String);
+    procedure SetLineOffset(const AValue: String);
   end;
 
   [SlimFixture('DptLintClassDeclarationFixture')]
@@ -141,118 +136,108 @@ type
     type
       TMemberType = (mtField, mtMethod, mtProperty, mtClassMethod, mtConstructor, mtUnknown);
       TMemberInfo = record
-        MemberType: TMemberType;
-        Name: string;
-        FullLine: string;
-        LineIdx: Integer;
+        FullLine    : String;
+        LineIdx     : Integer;
+        MemberType  : TMemberType;
+        Name        : String;
         NameStartPos: Integer;
       end;
       TMemberBlock = class
-        Members: TList<TMemberInfo>;
-        Visibility: string;
+        Members   : TList<TMemberInfo>;
+        Visibility: String;
         constructor Create;
         destructor Destroy; override;
       end;
   private
-    FContent: string;
-    FLineOffset: Integer;
-    FClassNamePrefixes: string;
-    FVisibilityExtraIndent: Integer;
-    FFieldNamePrefix: string;
-    FFieldsMustBeSorted: Boolean;
-    FMethodsMustBeSorted: Boolean;
+    FAlignMemberNames      : Boolean;
+    FClassNamePrefixes     : String;
+    FContent               : String;
+    FFieldNamePrefix       : String;
+    FFieldsMustBeSorted    : Boolean;
+    FLineOffset            : Integer;
+    FMethodsMustBeSorted   : Boolean;
     FPropertiesMustBeSorted: Boolean;
-    FAlignMemberNames: Boolean;
-    function ParseMember(const ALine: string; ALineIdx: Integer): TMemberInfo;
+    FVisibilityExtraIndent : Integer;
+    function  ParseMember(const ALine: String; ALineIdx: Integer): TMemberInfo;
     procedure ValidateBlock(ABlock: TMemberBlock; var AResult: Boolean);
   public
     constructor Create;
-    procedure SetContent(const AValue: string);
-    procedure SetLineOffset(const AValue: string);
-
-    property ClassNamePrefixes: string read FClassNamePrefixes write FClassNamePrefixes;
-    property VisibilityExtraIndent: Integer read FVisibilityExtraIndent write FVisibilityExtraIndent;
-    property FieldNamePrefix: string read FFieldNamePrefix write FFieldNamePrefix;
+    function  LintClassDeclarations: Boolean;
+    procedure SetContent(const AValue: String);
+    procedure SetLineOffset(const AValue: String);
+    property AlignMemberNames: Boolean read FAlignMemberNames write FAlignMemberNames;
+    property ClassNamePrefixes: String read FClassNamePrefixes write FClassNamePrefixes;
+    property FieldNamePrefix: String read FFieldNamePrefix write FFieldNamePrefix;
     property FieldsMustBeSorted: Boolean read FFieldsMustBeSorted write FFieldsMustBeSorted;
     property MethodsMustBeSorted: Boolean read FMethodsMustBeSorted write FMethodsMustBeSorted;
     property PropertiesMustBeSorted: Boolean read FPropertiesMustBeSorted write FPropertiesMustBeSorted;
-    property AlignMemberNames: Boolean read FAlignMemberNames write FAlignMemberNames;
-
-    function LintClassDeclarations: Boolean;
+    property VisibilityExtraIndent: Integer read FVisibilityExtraIndent write FVisibilityExtraIndent;
   end;
 
   [SlimFixture('DptLintImplementationFixture')]
   TDptLintImplementationFixture = class(TDptLintBaseFixture)
   private
-    FContent: string;
+    FContent   : String;
     FLineOffset: Integer;
   public
     constructor Create;
-    procedure SetContent(const AValue: string);
-    procedure SetLineOffset(const AValue: string);
-
-    function ValidateClassBanners: Boolean;
-    function ValidateMethodOrderAndSeparators: Boolean;
-    function DestructorsMustCallInherited: Boolean;
+    function  DestructorsMustCallInherited: Boolean;
+    procedure SetContent(const AValue: String);
+    procedure SetLineOffset(const AValue: String);
+    function  ValidateClassBanners: Boolean;
+    function  ValidateMethodOrderAndSeparators: Boolean;
   end;
 
   [SlimFixture('DptLintMethodBodyFixture')]
   TDptLintMethodBodyFixture = class(TDptLintBaseFixture)
-  public
-    type
-      TSpaceRule = (srForbidden, srRequired, srIgnore);
+  public type
+    TSpaceRule = (srForbidden, srRequired, srIgnore);
   private
-    FContent: string;
-    FLineOffset: Integer;
-    FAssignmentRuleBefore: TSpaceRule;
-    FAssignmentRuleAfter: TSpaceRule;
+    FArithmeticOperators : String;
+    FArithmeticRuleAfter : TSpaceRule;
     FArithmeticRuleBefore: TSpaceRule;
-    FArithmeticRuleAfter: TSpaceRule;
-    FArithmeticOperators: string;
-    function StringToRule(const AValue: string): TSpaceRule;
-    procedure ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: string; ARuleBefore, ARuleAfter: TSpaceRule);
+    FAssignmentRuleAfter : TSpaceRule;
+    FAssignmentRuleBefore: TSpaceRule;
+    FContent             : String;
+    FLineOffset          : Integer;
+    function  StringToRule(const AValue: String): TSpaceRule;
+    procedure ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: String; ARuleBefore, ARuleAfter: TSpaceRule);
   public
     constructor Create;
-    procedure SetContent(const AValue: string);
-    procedure SetLineOffset(const AValue: string);
-    function ValidateOperatorSpacing: Boolean;
-
-    procedure SetAssignmentSpaceBefore(const AValue: string);
-    procedure SetAssignmentSpaceAfter(const AValue: string);
-    procedure SetArithmeticSpaceBefore(const AValue: string);
-    procedure SetArithmeticSpaceAfter(const AValue: string);
-    property ArithmeticOperators: string read FArithmeticOperators write FArithmeticOperators;
+    procedure SetArithmeticSpaceAfter(const AValue: String);
+    procedure SetArithmeticSpaceBefore(const AValue: String);
+    procedure SetAssignmentSpaceAfter(const AValue: String);
+    procedure SetAssignmentSpaceBefore(const AValue: String);
+    procedure SetContent(const AValue: String);
+    procedure SetLineOffset(const AValue: String);
+    function  ValidateOperatorSpacing: Boolean;
+    property ArithmeticOperators: String read FArithmeticOperators write FArithmeticOperators;
   end;
 
   [SlimFixture('DptLintLocalVarFixture')]
   TDptLintLocalVarFixture = class(TDptLintBaseFixture)
   private
-    FContent: string;
-    FLineOffset: Integer;
-    FVariablesMustBeSorted: Boolean;
-    FAlignColons: Boolean;
+    FAlignColons          : Boolean;
+    FContent              : String;
     FExactSpacesAfterColon: Integer;
+    FLineOffset           : Integer;
+    FVariablesMustBeSorted: Boolean;
     function ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
   public
     constructor Create;
-    procedure SetContent(const AValue: string);
-    procedure SetLineOffset(const AValue: string);
-    function LintLocalVars: Boolean;
-
-    property VariablesMustBeSorted: Boolean read FVariablesMustBeSorted write FVariablesMustBeSorted;
+    function  LintLocalVars: Boolean;
+    procedure SetContent(const AValue: String);
+    procedure SetLineOffset(const AValue: String);
     property AlignColons: Boolean read FAlignColons write FAlignColons;
     property ExactSpacesAfterColon: Integer read FExactSpacesAfterColon write FExactSpacesAfterColon;
+    property VariablesMustBeSorted: Boolean read FVariablesMustBeSorted write FVariablesMustBeSorted;
   end;
 
 implementation
 
-uses
-  System.RegularExpressions,
-  WDDT.StringTools;
-
 { TDptLintUnitContextFixture }
 
-constructor TDptLintUnitContextFixture.Create(const ATargetFile: string);
+constructor TDptLintUnitContextFixture.Create(const ATargetFile: String);
 begin
   inherited Create;
   FTargetFile := ATargetFile;
@@ -271,16 +256,16 @@ begin
   inherited;
 end;
 
-procedure TDptLintUnitContextFixture.DefineSingleSeparatorLine(const AValue: string);
+procedure TDptLintUnitContextFixture.DefineSingleSeparatorLine(const AValue: String);
 begin
-  var LVal := AValue.Trim(['{', '}', ' ', '!', '-']);
+  var LVal: String := AValue.Trim(['{', '}', ' ', '!', '-']);
   if LVal <> '' then
     FSingleSeparatorLine := LVal;
 end;
 
-procedure TDptLintUnitContextFixture.DefineDoubleSeparatorLine(const AValue: string);
+procedure TDptLintUnitContextFixture.DefineDoubleSeparatorLine(const AValue: String);
 begin
-  var LVal := AValue.Trim(['{', '}', ' ', '!', '=', '-']);
+  var LVal: String := AValue.Trim(['{', '}', ' ', '!', '=', '-']);
   if LVal <> '' then
     FDoubleSeparatorLine := LVal;
 end;
@@ -292,9 +277,9 @@ end;
 
 procedure TDptLintUnitContextFixture.EnsureUtf8Bom;
 var
-  LStream: TFileStream;
+  LHasBom  : Boolean;
   LPreamble: TBytes;
-  LHasBom: Boolean;
+  LStream  : TFileStream;
 begin
   LHasBom := False;
   LStream := TFileStream.Create(FTargetFile, fmOpenRead or fmShareDenyNone);
@@ -322,13 +307,13 @@ end;
 
 procedure TDptLintUnitContextFixture.EnsureCrlf;
 var
-  LText: string;
   LFoundLFOnly: Boolean;
+  LText       : String;
 begin
   LText := TFile.ReadAllText(FTargetFile);
 
   LFoundLFOnly := False;
-  for var I := 1 to LText.Length do
+  for var I: Integer := 1 to LText.Length do
   begin
     if LText[I] = #10 then
     begin
@@ -343,19 +328,18 @@ begin
   if LFoundLFOnly then
   begin
     // Normalize to CRLF
-    var LFixed := LText.Replace(#13#10, #10).Replace(#13, #10).Replace(#10, #13#10);
+    var LFixed: String := LText.Replace(#13#10, #10).Replace(#13, #10).Replace(#10, #13#10);
     TFile.WriteAllText(FTargetFile, LFixed, TEncoding.UTF8);
-    // Reload lines
-    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
+    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8); // Reload lines
     TDptLintContext.AddWarning(Format('Warning: Line endings in file "%s" were converted to CRLF.', [ExtractFileName(FTargetFile)]));
   end;
 end;
 
 procedure TDptLintUnitContextFixture.EnsureNoMultipleBlanklines;
 var
-  LText: string;
-  LNewText: string;
-  LRegex: TRegEx;
+  LNewText: String;
+  LRegex  : TRegEx;
+  LText   : String;
 begin
   LText := TFile.ReadAllText(FTargetFile, TEncoding.UTF8);
   
@@ -384,7 +368,7 @@ begin
     FContext := TDptLintUnitContextFixture(AContext);
 end;
 
-procedure TDptLintBaseFixture.ReportViolation(ALine: Integer; const AMsg: string);
+procedure TDptLintBaseFixture.ReportViolation(ALine: Integer; const AMsg: String);
 begin
   if Assigned(FContext) then
     TDptLintFixture.ReportError(FContext.TargetFile, ALine, AMsg)
@@ -394,26 +378,26 @@ end;
 
 { TDptLintFixture }
 
-class procedure TDptLintFixture.ReportError(const AFile: string; ALine: Integer; const AMsg: string);
+class procedure TDptLintFixture.ReportError(const AFile: String; ALine: Integer; const AMsg: String);
 begin
   TDptLintContext.Add(ALine, AFile, AMsg);
 end;
 
-function TDptLintFixture.LineStartsWith(ALine: string; const AText: string): Boolean;
+function TDptLintFixture.LineStartsWith(ALine: String; const AText: String): Boolean;
 var
   LLine: Integer;
 begin
   LLine := StrToIntDef(ALine, 0);
   Result := Assigned(FContext) and
-            (LLine > 0) and
-            (LLine <= FContext.Lines.Count) and
-            FContext.Lines[LLine - 1].Trim.StartsWith(AText);
+    (LLine > 0) and
+    (LLine <= FContext.Lines.Count) and
+    FContext.Lines[LLine - 1].Trim.StartsWith(AText);
 
   if not Result then
     ReportViolation(LLine, Format('Line should start with: "%s"', [AText]));
 end;
 
-function TDptLintFixture.FileMatchesRegex(const APattern: string): Boolean;
+function TDptLintFixture.FileMatchesRegex(const APattern: String): Boolean;
 begin
   Result := Assigned(FContext) and TRegEx.IsMatch(FContext.Lines.Text, APattern);
 
@@ -421,7 +405,7 @@ begin
     ReportViolation(1, Format('File content does not match mandatory pattern: "%s"', [APattern]));
 end;
 
-function TDptLintFixture.FileContainsInclude(const AIncludeNames: string): Boolean;
+function TDptLintFixture.FileContainsInclude(const AIncludeNames: String): Boolean;
 var
   LFound: Boolean;
   LNames: TArray<string>;
@@ -452,14 +436,13 @@ end;
 
 function TDptLintFixture.UnitNameMatchesFileName: Boolean;
 var
-  LFileName: string;
-  I: Integer;
+  LFileName: String;
 begin
   if not Assigned(FContext) then
     Exit(False);
 
   LFileName := TPath.GetFileNameWithoutExtension(FContext.TargetFile);
-  for I := 0 to FContext.Lines.Count - 1 do
+  for var I: Integer := 0 to FContext.Lines.Count - 1 do
   begin
     if FContext.Lines[I].Trim.StartsWith('unit ', True) then
     begin
@@ -475,10 +458,9 @@ begin
   Result := False;
 end;
 
-function TDptLintFixture.KeywordIsSurroundedBy(const AKeyword, ASeparator: string): Boolean;
+function TDptLintFixture.KeywordIsSurroundedBy(const AKeyword, ASeparator: String): Boolean;
 var
-  LSeparator: string;
-  I: Integer;
+  LSeparator: String;
 begin
   Result := False;
   if not Assigned(FContext) then
@@ -488,7 +470,7 @@ begin
   if LSeparator = '' then
     LSeparator := FContext.DoubleSeparatorLine;
 
-  for I := 0 to FContext.Lines.Count - 1 do
+  for var I: Integer := 0 to FContext.Lines.Count - 1 do
   begin
     if SameText(FContext.Lines[I].Trim, AKeyword) then
     begin
@@ -505,11 +487,12 @@ begin
   ReportViolation(1, Format('Keyword "%s" not found.', [AKeyword]));
 end;
 
-function TDptLintFixture.GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: string; AIncludeStart: Boolean): string;
+function TDptLintFixture.GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: String; AIncludeStart: Boolean): String;
 var
-  LStartIdx, LEndIdx: Integer;
-  LBuilder: TStringBuilder;
   I: Integer;
+  LBuilder : TStringBuilder;
+  LEndIdx  : Integer;
+  LStartIdx: Integer;
 begin
   Result := '';
   if not Assigned(FContext) then
@@ -566,42 +549,40 @@ begin
   end;
 end;
 
-function TDptLintFixture.GetBeforeUnitKeywordPart: string;
+function TDptLintFixture.GetBeforeUnitKeywordPart: String;
 begin
   Result := GetPart('', 'unit', '', '', False);
 end;
 
-function TDptLintFixture.GetInterfacePart: string;
+function TDptLintFixture.GetInterfacePart: String;
 begin
   Result := GetPart('interface', 'implementation', '', '', False);
 end;
 
-function TDptLintFixture.GetImplementationPart: string;
+function TDptLintFixture.GetImplementationPart: String;
 begin
   Result := GetPart('implementation', 'initialization', 'finalization', 'end.', False);
 end;
 
-function TDptLintFixture.GetInitializationPart: string;
+function TDptLintFixture.GetInitializationPart: String;
 begin
   Result := GetPart('initialization', 'finalization', 'end.', '', False);
 end;
 
-function TDptLintFixture.GetFinalizationPart: string;
+function TDptLintFixture.GetFinalizationPart: String;
 begin
   Result := GetPart('finalization', 'end.', '', '', False);
 end;
 
-function TDptLintFixture.GetPartOffset(const AStartKey: string; AIncludeStart: Boolean): Integer;
-var
-  I: Integer;
+function TDptLintFixture.GetPartOffset(const AStartKey: String; AIncludeStart: Boolean): Integer;
 begin
   Result := 0;
   if not Assigned(FContext) or (AStartKey = '') then
     Exit;
 
-  for I := 0 to FContext.Lines.Count - 1 do
+  for var I: Integer := 0 to FContext.Lines.Count - 1 do
   begin
-    if FContext.Lines[I].Trim.ToLower.StartsWith(AStartKey.ToLower) then
+    if FContext.Lines[I].Trim.StartsWith(AStartKey, True) then
     begin
       if AIncludeStart then
         Exit(I)
@@ -611,35 +592,37 @@ begin
   end;
 end;
 
-function TDptLintFixture.GetBeforeUnitKeywordPartOffset: string;
+function TDptLintFixture.GetBeforeUnitKeywordPartOffset: String;
 begin
   Result := '0';
 end;
 
-function TDptLintFixture.GetInterfacePartOffset: string;
+function TDptLintFixture.GetInterfacePartOffset: String;
 begin
   Result := IntToStr(GetPartOffset('interface', False));
 end;
 
-function TDptLintFixture.GetImplementationPartOffset: string;
+function TDptLintFixture.GetImplementationPartOffset: String;
 begin
   Result := IntToStr(GetPartOffset('implementation', False));
 end;
 
-function TDptLintFixture.GetInitializationPartOffset: string;
+function TDptLintFixture.GetInitializationPartOffset: String;
 begin
   Result := IntToStr(GetPartOffset('initialization', False));
 end;
 
-function TDptLintFixture.GetFinalizationPartOffset: string;
+function TDptLintFixture.GetFinalizationPartOffset: String;
 begin
   Result := IntToStr(GetPartOffset('finalization', False));
 end;
 
-function TDptLintFixture.ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: string): Boolean;
+function TDptLintFixture.ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: String): Boolean;
 var
-  LStart, LEnd, LFirstPos, LPos: Integer;
-  I: Integer;
+  LEnd     : Integer;
+  LFirstPos: Integer;
+  LPos     : Integer;
+  LStart   : Integer;
 begin
   if not Assigned(FContext) then
     Exit(False);
@@ -655,7 +638,7 @@ begin
     Exit(False);
   end;
 
-  for I := LStart - 1 to LEnd - 1 do
+  for var I: Integer := LStart - 1 to LEnd - 1 do
   begin
     LPos := FContext.Lines[I].IndexOf(':');
     if LPos >= 0 then
@@ -673,8 +656,7 @@ end;
 
 function TDptLintFixture.ColonsInRecordsAreAligned: Boolean;
 var
-  I: Integer;
-  LInRecord: Boolean;
+  LInRecord   : Boolean;
   LRecordStart: Integer;
 begin
   Result := True;
@@ -684,7 +666,7 @@ begin
   LInRecord := False;
   LRecordStart := -1;
 
-  for I := 0 to FContext.Lines.Count - 1 do
+  for var I: Integer := 0 to FContext.Lines.Count - 1 do
   begin
     var LLine := FContext.Lines[I].Trim.ToLower;
     if not LInRecord then
@@ -706,56 +688,56 @@ end;
 
 function TDptLintFixture.LastLineBeforeEndIsDoubleSeparator: Boolean;
 var
-  I, J: Integer;
+  J: Integer;
 begin
   Result := False;
   if not Assigned(FContext) then
     Exit(False);
 
-  for I := FContext.Lines.Count - 1 downto 0 do
+  for var I: Integer := FContext.Lines.Count - 1 downto 0 do
   begin
-    if FContext.Lines[I].Trim.ToLower = 'end.' then
+    if not SameText(FContext.Lines[I].Trim, 'end.') then
+      Continue;
+
+    var LFound: Boolean := False;
+    J := I - 1;
+    while (J >= 0) and (FContext.Lines[J].Trim = '') do
+      Dec(J);
+
+    if (J >= 0) and FContext.Lines[J].Contains(FContext.DoubleSeparatorLine) then
+      LFound := True;
+
+    if not LFound then
     begin
-      var LFound := False;
-      J := I - 1;
-      while (J >= 0) and (FContext.Lines[J].Trim = '') do
-        Dec(J);
-
-      if (J >= 0) and FContext.Lines[J].Contains(FContext.DoubleSeparatorLine) then
-        LFound := True;
-
-      if not LFound then
-      begin
-        ReportViolation(I + 1, 'Double separator expected before "end."');
-        Exit(False);
-      end;
-      Exit(True);
+      ReportViolation(I + 1, 'Double separator expected before "end."');
+      Exit(False);
     end;
+    Exit(True);
   end;
 end;
 
 { TDptLintRegexFixture }
 
-constructor TDptLintRegexFixture.Create(const AContent: string);
+constructor TDptLintRegexFixture.Create(const AContent: String);
 begin
   inherited Create;
   FContent := AContent;
   FLineOffset := 0;
 end;
 
-procedure TDptLintRegexFixture.SetLineOffset(const AValue: string);
+procedure TDptLintRegexFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
-function TDptLintRegexFixture.Match(const APattern: string): Boolean;
+function TDptLintRegexFixture.Match(const APattern: String): Boolean;
 begin
   if FContent = '' then
     Exit(True);
   Result := TRegEx.IsMatch(FContent, APattern, [roSingleLine, roIgnoreCase]);
 end;
 
-function TDptLintRegexFixture.Fetch(const APattern: string; const AGroupName: string): string;
+function TDptLintRegexFixture.Fetch(const APattern: String; const AGroupName: String): String;
 var
   LMatch: TMatch;
 begin
@@ -785,25 +767,25 @@ begin
   inherited;
 end;
 
-procedure TDptLintUsesFixture.SetContent(const AValue: string);
+procedure TDptLintUsesFixture.SetContent(const AValue: String);
 begin
   FContent := AValue;
 end;
 
-procedure TDptLintUsesFixture.SetLineOffset(const AValue: string);
+procedure TDptLintUsesFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
-procedure TDptLintUsesFixture.AddGroupWithNamespaces(const AGroupName, ANamespaces: string);
+procedure TDptLintUsesFixture.AddGroupWithNamespaces(const AGroupName, ANamespaces: String);
 var
-  G: TUsesGroup;
-  LPatterns: TList<string>;
-  LParts: TArray<string>;
+  G        : TUsesGroup;
+  LParts   : TArray<String>;
+  LPatterns: TList<String>;
 begin
   G.Name := AGroupName;
   LParts := ANamespaces.Replace(',', ' ').Replace(';', ' ').Split([' ']);
-  LPatterns := TList<string>.Create;
+  LPatterns := TList<String>.Create;
   try
     for var S in LParts do
       if S.Trim <> '' then
@@ -815,7 +797,9 @@ begin
   FGroups.Add(G);
 end;
 
-function TDptLintUsesFixture.MatchNamespace(const AUnitName, APattern: string): Boolean;
+function TDptLintUsesFixture.MatchNamespace(const AUnitName, APattern: String): Boolean;
+var
+  LSub: String;
 begin
   if APattern = '*' then
     Exit(True);
@@ -824,15 +808,14 @@ begin
   begin
     if APattern.EndsWith('*') then
     begin
-      // *Contains*
-      // Remove first and last *
-      var LSub := APattern.Substring(1, APattern.Length - 2);
+      // *Contains*: Remove first and last *
+      LSub := APattern.Substring(1, APattern.Length - 2);
       Exit(AUnitName.ToLower.IndexOf(LSub.ToLower) >= 0);
     end
     else
     begin
       // *EndsWith
-      var LSub := APattern.Substring(1);
+      LSub := APattern.Substring(1);
       Exit(AUnitName.EndsWith(LSub, True));
     end;
   end;
@@ -844,9 +827,9 @@ end;
 
 procedure TDptLintUsesFixture.ParseUnits;
 var
-  LLines: TArray<string>;
+  I      : Integer;
   LInUses: Boolean;
-  I: Integer;
+  LLines : TArray<String>;
 begin
   FUnits.Clear;
   LLines := FContent.Split([sLineBreak]);
@@ -929,7 +912,7 @@ begin
   Result := True;
   var LLinesWithUnits := TDictionary<Integer, Integer>.Create;
   try
-    for var U in FUnits do
+    for var U: TUnitInfo in FUnits do
     begin
       if LLinesWithUnits.ContainsKey(U.Line) then
       begin
@@ -948,10 +931,10 @@ function TDptLintUsesFixture.GroupsAreSortedAlphabetically: Boolean;
 begin
   ParseUnits;
   Result := True;
-  for var I := 1 to FUnits.Count - 1 do
+  for var I: Integer := 1 to FUnits.Count - 1 do
   begin
-    var Prev := FUnits[I - 1];
-    var Curr := FUnits[I];
+    var Prev: TUnitInfo := FUnits[I - 1];
+    var Curr: TUnitInfo := FUnits[I];
     if (Curr.GroupIdx = Prev.GroupIdx) and (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
     begin
       ReportViolation(Curr.Line + FLineOffset, Format('Units in group "%s" must be sorted alphabetically: "%s" before "%s".', [FGroups[Curr.GroupIdx].Name, Curr.Name, Prev.Name]));
@@ -962,19 +945,19 @@ end;
 
 function TDptLintUsesFixture.GroupsAreSeparatedByBlankLines: Boolean;
 var
-  LLines: TArray<string>;
+  LLines: TArray<String>;
 begin
   ParseUnits;
   Result := True;
   LLines := FContent.Split([sLineBreak]);
-  for var I := 1 to FUnits.Count - 1 do
+  for var I: Integer := 1 to FUnits.Count - 1 do
   begin
-    var Prev := FUnits[I - 1];
-    var Curr := FUnits[I];
+    var Prev: TUnitInfo := FUnits[I - 1];
+    var Curr: TUnitInfo := FUnits[I];
     if Curr.GroupIdx > Prev.GroupIdx then
     begin
-      var LFoundBlank := False;
-      for var LIdx := Prev.Line to Curr.Line - 2 do
+      var LFoundBlank: Boolean := False;
+      for var LIdx: Integer := Prev.Line to Curr.Line - 2 do
       begin
         if LLines[LIdx].Trim = '' then
         begin
@@ -996,10 +979,10 @@ function TDptLintUsesFixture.GroupsFollowOrder: Boolean;
 begin
   ParseUnits;
   Result := True;
-  for var I := 1 to FUnits.Count - 1 do
+  for var I: Integer := 1 to FUnits.Count - 1 do
   begin
-    var Prev := FUnits[I - 1];
-    var Curr := FUnits[I];
+    var Prev: TUnitInfo := FUnits[I - 1];
+    var Curr: TUnitInfo := FUnits[I];
     if (Curr.GroupIdx <> -1) and (Prev.GroupIdx <> -1) and (Curr.GroupIdx < Prev.GroupIdx) then
     begin
       ReportViolation(Curr.Line + FLineOffset, Format('Group "%s" must appear before group "%s".', [FGroups[Curr.GroupIdx].Name, FGroups[Prev.GroupIdx].Name]));
@@ -1010,12 +993,11 @@ end;
 
 function TDptLintUsesFixture.BlankLineAfterUsesExists: Boolean;
 var
-  LLines: TArray<string>;
-  I: Integer;
+  LLines: TArray<String>;
 begin
   Result := True;
   LLines := FContent.Split([sLineBreak]);
-  for I := 0 to High(LLines) do
+  for var I: Integer := 0 to High(LLines) do
   begin
     if SameText(LLines[I].Trim, 'uses') then
     begin
@@ -1027,12 +1009,14 @@ begin
   end;
 end;
 
-function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): string;
+function TDptLintUsesFixture.GetLinesAfterLastUsesLine(ALinesCount: Integer): String;
 var
-  LLines: TArray<string>;
-  LInUses: Boolean;
-  LLastLineIdx, LCount, I: Integer;
-  LBuilder: TStringBuilder;
+  I           : Integer;
+  LBuilder    : TStringBuilder;
+  LCount      : Integer;
+  LInUses     : Boolean;
+  LLastLineIdx: Integer;
+  LLines      : TArray<String>;
 begin
   Result := '';
   LLines := FContent.Split([sLineBreak]);
@@ -1074,7 +1058,7 @@ begin
   end;
 end;
 
-function TDptLintUsesFixture.GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): string;
+function TDptLintUsesFixture.GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): String;
 var
   LLines: TArray<string>;
   LInUses: Boolean;
@@ -1133,17 +1117,17 @@ begin
   FAlignMemberNames := True;
 end;
 
-procedure TDptLintClassDeclarationFixture.SetContent(const AValue: string);
+procedure TDptLintClassDeclarationFixture.SetContent(const AValue: String);
 begin
   FContent := AValue;
 end;
 
-procedure TDptLintClassDeclarationFixture.SetLineOffset(const AValue: string);
+procedure TDptLintClassDeclarationFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
-function TDptLintClassDeclarationFixture.ParseMember(const ALine: string; ALineIdx: Integer): TMemberInfo;
+function TDptLintClassDeclarationFixture.ParseMember(const ALine: String; ALineIdx: Integer): TMemberInfo;
 var
   LMatch: TMatch;
 begin
@@ -1253,11 +1237,11 @@ var
   LClassIndents: TList<Integer>;
   LClassIndent: Integer;
   LNestedDepth: Integer;
-  LClassName: string;
+  LClassName: String;
   LCurrentBlock: TMemberBlock;
   LPrevMemberType: TMemberType;
   LVisibilityKeywordFoundSinceLastMember: Boolean;
-  LCurrentVisibility: string;
+  LCurrentVisibility: String;
   I: Integer;
 
   procedure FlushBlock;
@@ -1429,12 +1413,12 @@ begin
   FLineOffset := 0;
 end;
 
-procedure TDptLintImplementationFixture.SetContent(const AValue: string);
+procedure TDptLintImplementationFixture.SetContent(const AValue: String);
 begin
   FContent := AValue;
 end;
 
-procedure TDptLintImplementationFixture.SetLineOffset(const AValue: string);
+procedure TDptLintImplementationFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
@@ -1442,7 +1426,7 @@ end;
 function TDptLintImplementationFixture.ValidateClassBanners: Boolean;
 var
   LLines: TArray<string>;
-  LCurrentClassBanner: string;
+  LCurrentClassBanner: String;
   LReportedClasses: TStringList;
   I: Integer;
 begin
@@ -1520,7 +1504,7 @@ end;
 
 function TDptLintImplementationFixture.ValidateMethodOrderAndSeparators: Boolean;
 var
-  LSeparator: string;
+  LSeparator: String;
   LContentLines: TArray<string>;
   I, J, K: Integer;
 begin
@@ -1653,46 +1637,46 @@ begin
   FArithmeticOperators := '+,-,*,/';
 end;
 
-function TDptLintMethodBodyFixture.StringToRule(const AValue: string): TSpaceRule;
+function TDptLintMethodBodyFixture.StringToRule(const AValue: String): TSpaceRule;
 begin
   if SameText(AValue, 'Forbidden') then Result := srForbidden
   else if SameText(AValue, 'Required') then Result := srRequired
   else Result := srIgnore;
 end;
 
-procedure TDptLintMethodBodyFixture.SetAssignmentSpaceBefore(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetAssignmentSpaceBefore(const AValue: String);
 begin
   FAssignmentRuleBefore := StringToRule(AValue);
 end;
 
-procedure TDptLintMethodBodyFixture.SetAssignmentSpaceAfter(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetAssignmentSpaceAfter(const AValue: String);
 begin
   FAssignmentRuleAfter := StringToRule(AValue);
 end;
 
-procedure TDptLintMethodBodyFixture.SetArithmeticSpaceBefore(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetArithmeticSpaceBefore(const AValue: String);
 begin
   FArithmeticRuleBefore := StringToRule(AValue);
 end;
 
-procedure TDptLintMethodBodyFixture.SetArithmeticSpaceAfter(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetArithmeticSpaceAfter(const AValue: String);
 begin
   FArithmeticRuleAfter := StringToRule(AValue);
 end;
 
-procedure TDptLintMethodBodyFixture.SetContent(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetContent(const AValue: String);
 begin
   FContent := AValue;
 end;
 
-procedure TDptLintMethodBodyFixture.SetLineOffset(const AValue: string);
+procedure TDptLintMethodBodyFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
-procedure TDptLintMethodBodyFixture.ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: string; ARuleBefore, ARuleAfter: TSpaceRule);
+procedure TDptLintMethodBodyFixture.ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: String; ARuleBefore, ARuleAfter: TSpaceRule);
 var
-  LEscaped: string;
+  LEscaped: String;
 begin
   LEscaped := TRegEx.Escape(AOp);
 
@@ -1722,7 +1706,7 @@ function TDptLintMethodBodyFixture.ValidateOperatorSpacing: Boolean;
 var
   LLines: TArray<string>;
   I, J: Integer;
-  LLine, LCode: string;
+  LLine, LCode: String;
   LInCurlyComment, LInParenComment, LInString: Boolean;
   C, NextC: Char;
   LViolationsBefore: Integer;
@@ -1837,12 +1821,12 @@ begin
   FExactSpacesAfterColon := 1;
 end;
 
-procedure TDptLintLocalVarFixture.SetContent(const AValue: string);
+procedure TDptLintLocalVarFixture.SetContent(const AValue: String);
 begin
   FContent := AValue;
 end;
 
-procedure TDptLintLocalVarFixture.SetLineOffset(const AValue: string);
+procedure TDptLintLocalVarFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
@@ -1850,7 +1834,7 @@ end;
 function TDptLintLocalVarFixture.ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
 var
   I, LColonPos, LPrevColonPos: Integer;
-  LVarName, LPrevVarName: string;
+  LVarName, LPrevVarName: String;
   LMatch: TMatch;
 begin
   Result := True;
