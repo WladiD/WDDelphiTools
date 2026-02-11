@@ -135,6 +135,11 @@ end;                                                                            
 { ----------------------------------------------------------------------- }                        //                                                                                                  //
                                                                                                    //                                                                                                  //
 procedure CSomeClass.CalcVar1;                                                                     //                                                                                                  //
+var                                                                                                // - Variablendeklarationsblock in einer Methode, Funktion oder Prozedur:                           //
+  Age         : Byte;                                                                              //   - Ist Alphabetisch nach Variablennamen sortiert                                                //
+  Name        : String;                                                                            //   - Jede Zeile listet nur eine Variable                                                          //
+  PlaceOfBirth: String;                                                                            //   - Doppelpunkte stehen untereinander                                                            //
+  XyChromosome: Boolean;                                                                           //   - Nach dem Doppelpunkt kommt ein Leerzeichen gefolgt vom Variablentyp                          //
 begin                                                                                              //                                                                                                  //
                                                                                                    //                                                                                                  //
 end;                                                                                               //                                                                                                  //
