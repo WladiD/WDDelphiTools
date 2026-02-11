@@ -1611,9 +1611,11 @@ end;
 
 function TDptLintImplementationFixture.DestructorsMustCallInherited: Boolean;
 var
-  LLines: TArray<string>;
-  LInDestructor, LHasInherited: Boolean;
-  LDestructorStartLine, I: Integer;
+  I                   : Integer;
+  LDestructorStartLine: Integer;
+  LHasInherited       : Boolean;
+  LInDestructor       : Boolean;
+  LLines              : TArray<string>;
 begin
   Result := True;
   LLines := FContent.Split([sLineBreak]);
@@ -1623,7 +1625,7 @@ begin
 
   for I := 0 to High(LLines) do
   begin
-    var LLine := LLines[I].Trim.ToLower;
+    var LLine: String := LLines[I].Trim.ToLower;
     if not LInDestructor then
     begin
       if LLine.StartsWith('destructor') then
@@ -1664,9 +1666,12 @@ end;
 
 function TDptLintMethodBodyFixture.StringToRule(const AValue: String): TSpaceRule;
 begin
-  if SameText(AValue, 'Forbidden') then Result := srForbidden
-  else if SameText(AValue, 'Required') then Result := srRequired
-  else Result := srIgnore;
+  if SameText(AValue, 'Forbidden') then
+    Result := srForbidden
+  else if SameText(AValue, 'Required') then
+    Result := srRequired
+  else
+    Result := srIgnore;
 end;
 
 procedure TDptLintMethodBodyFixture.SetAssignmentSpaceBefore(const AValue: String);
@@ -1729,19 +1734,23 @@ end;
 
 function TDptLintMethodBodyFixture.ValidateOperatorSpacing: Boolean;
 var
-  LLines: TArray<string>;
-  I, J: Integer;
-  LLine, LCode: String;
-  LInCurlyComment, LInParenComment, LInString: Boolean;
-  C, NextC: Char;
+  C                : Char;
+  J                : Integer;
+  LCode            : String;
+  LInCurlyComment  : Boolean;
+  LInParenComment  : Boolean;
+  LInString        : Boolean;
+  LLine            : String;
+  LLines           : TArray<String>;
   LViolationsBefore: Integer;
+  NextC            : Char;
 begin
   LViolationsBefore := TDptLintContext.Violations.Count;
   LLines := FContent.Split([sLineBreak]);
   LInCurlyComment := False;
   LInParenComment := False;
 
-  for I := 0 to High(LLines) do
+  for var I: Integer := 0 to High(LLines) do
   begin
     LLine := LLines[I];
     LCode := '';
@@ -1751,7 +1760,10 @@ begin
     while J <= Length(LLine) do
     begin
       C := LLine[J];
-      if J < Length(LLine) then NextC := LLine[J+1] else NextC := #0;
+      if J < Length(LLine) then
+        NextC := LLine[J+1]
+      else
+        NextC := #0;
 
       if LInCurlyComment then
       begin
@@ -1823,10 +1835,10 @@ begin
 
     if (FArithmeticRuleBefore <> srIgnore) or (FArithmeticRuleAfter <> srIgnore) then
     begin
-      var LOps := FArithmeticOperators.Split([',']);
+      var LOps: TArray<String> := FArithmeticOperators.Split([',']);
       for var LOp in LOps do
       begin
-        var LTrimmedOp := LOp.Trim;
+        var LTrimmedOp: String := LOp.Trim;
         if LTrimmedOp <> '' then
           ValidateOp(I, LCode, LTrimmedOp, LTrimmedOp, FArithmeticRuleBefore, FArithmeticRuleAfter);
       end;
@@ -1858,18 +1870,20 @@ end;
 
 function TDptLintLocalVarFixture.ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
 var
-  I, LColonPos, LPrevColonPos: Integer;
-  LVarName, LPrevVarName: String;
-  LMatch: TMatch;
+  LColonPos    : Integer;
+  LMatch       : TMatch;
+  LPrevColonPos: Integer;
+  LPrevVarName : String;
+  LVarName     : String;
 begin
   Result := True;
   LPrevVarName := '';
   LPrevColonPos := -1;
 
-  for I := 0 to AVarLines.Count - 1 do
+  for var I: Integer := 0 to AVarLines.Count - 1 do
   begin
-    var LLine := AVarLines[I];
-    var LFullLineIdx := AStartLineIdx + I + 1 + FLineOffset;
+    var LLine: String := AVarLines[I];
+    var LFullLineIdx: Integer := AStartLineIdx + I + 1 + FLineOffset;
 
     LColonPos := LLine.IndexOf(':');
 
@@ -1882,58 +1896,55 @@ begin
 
     // Parse variable name and type
     LMatch := TRegEx.Match(LLine, '^\s*(\w+)\s*:\s*(.+);', [roIgnoreCase]);
-    if LMatch.Success then
+    if not LMatch.Success then
+      Continue;
+
+    LVarName := LMatch.Groups[1].Value;
+    // LColonPos already found above
+
+    // Check Sorting
+    if FVariablesMustBeSorted and
+       (LPrevVarName <> '') and
+       (CompareStringNatural(LVarName, LPrevVarName) < 0) then
     begin
-      LVarName := LMatch.Groups[1].Value;
-      // LColonPos already found above
-
-      // Check Sorting
-      if FVariablesMustBeSorted and (LPrevVarName <> '') then
-      begin
-        if CompareStringNatural(LVarName, LPrevVarName) < 0 then
-        begin
-          ReportViolation(LFullLineIdx, Format('Variables should be sorted alphabetically: "%s" before "%s".', [LVarName, LPrevVarName]));
-          Result := False;
-        end;
-      end;
-
-      // Check Colon Alignment
-      if FAlignColons and (LPrevColonPos <> -1) then
-      begin
-        if LColonPos <> LPrevColonPos then
-        begin
-          ReportViolation(LFullLineIdx, Format('Colons should be vertically aligned (Pos %d vs %d).', [LColonPos, LPrevColonPos]));
-          Result := False;
-        end;
-      end;
-
-      // Check Spaces After Colon
-      if FExactSpacesAfterColon >= 0 then
-      begin
-        var LAfterColon := LLine.Substring(LColonPos + 1);
-        var LSpacesCount := 0;
-        while (LSpacesCount < LAfterColon.Length) and (LAfterColon[LSpacesCount + 1] = ' ') do
-          Inc(LSpacesCount);
-        
-        if LSpacesCount <> FExactSpacesAfterColon then
-        begin
-          ReportViolation(LFullLineIdx, Format('Exactly %d space(s) required after colon (Found %d).', [FExactSpacesAfterColon, LSpacesCount]));
-          Result := False;
-        end;
-      end;
-
-      LPrevVarName := LVarName;
-      LPrevColonPos := LColonPos;
+      ReportViolation(LFullLineIdx, Format('Variables should be sorted alphabetically: "%s" before "%s".', [LVarName, LPrevVarName]));
+      Result := False;
     end;
+
+    // Check Colon Alignment
+    if FAlignColons and
+       (LPrevColonPos <> -1) and
+       (LColonPos <> LPrevColonPos) then
+    begin
+      ReportViolation(LFullLineIdx, Format('Colons should be vertically aligned (Pos %d vs %d).', [LColonPos, LPrevColonPos]));
+      Result := False;
+    end;
+
+    // Check Spaces After Colon
+    if FExactSpacesAfterColon >= 0 then
+    begin
+      var LAfterColon: String := LLine.Substring(LColonPos + 1);
+      var LSpacesCount: Integer := 0;
+      while (LSpacesCount < LAfterColon.Length) and (LAfterColon[LSpacesCount + 1] = ' ') do
+        Inc(LSpacesCount);
+
+      if LSpacesCount <> FExactSpacesAfterColon then
+      begin
+        ReportViolation(LFullLineIdx, Format('Exactly %d space(s) required after colon (Found %d).', [FExactSpacesAfterColon, LSpacesCount]));
+        Result := False;
+      end;
+    end;
+
+    LPrevVarName := LVarName;
+    LPrevColonPos := LColonPos;
   end;
 end;
 
 function TDptLintLocalVarFixture.LintLocalVars: Boolean;
 var
-  LLines: TArray<string>;
-  I: Integer;
-  LInVarBlock: Boolean;
-  LCurrentVarLines: TList<string>;
+  LCurrentVarLines : TList<string>;
+  LInVarBlock      : Boolean;
+  LLines           : TArray<string>;
   LVarBlockStartIdx: Integer;
 begin
   Result := True;
@@ -1942,10 +1953,10 @@ begin
   LVarBlockStartIdx := 0;
   LCurrentVarLines := TList<string>.Create;
   try
-    for I := 0 to High(LLines) do
+    for var I: Integer := 0 to High(LLines) do
     begin
-      var LLine := LLines[I].Trim;
-      var LLower := LLine.ToLower;
+      var LLine: String := LLines[I].Trim;
+      var LLower: String := LLine.ToLower;
 
       if not LInVarBlock then
       begin
@@ -1958,34 +1969,34 @@ begin
       end
       else
       begin
-        if (LLower = 'begin') or (LLower = 'const') or (LLower = 'type') or (LLower = 'var') or
-           LLower.StartsWith('procedure') or LLower.StartsWith('function') or
-           LLower.StartsWith('constructor') or LLower.StartsWith('destructor') then
+        if (LLower = 'begin') or
+           (LLower = 'const') or
+           (LLower = 'type') or
+           (LLower = 'var') or
+           LLower.StartsWith('procedure') or
+           LLower.StartsWith('function') or
+           LLower.StartsWith('constructor') or
+           LLower.StartsWith('destructor') then
         begin
           if not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
             Result := False;
-          
+
           if LLower = 'var' then
           begin
             LVarBlockStartIdx := I + 1;
             LCurrentVarLines.Clear;
           end
           else
-          begin
             LInVarBlock := False;
-          end;
         end
         else if LLine <> '' then
-        begin
           LCurrentVarLines.Add(LLines[I]);
-        end;
       end;
     end;
     
-    if LInVarBlock then
-      if not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
-        Result := False;
-
+    if LInVarBlock and
+       not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
+      Result := False;
   finally
     LCurrentVarLines.Free;
   end;
