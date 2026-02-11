@@ -1060,18 +1060,18 @@ end;
 
 function TDptLintUsesFixture.GetLinesAfterLastUsesLineOffset(ALinesCount: Integer): String;
 var
-  LLines: TArray<string>;
-  LInUses: Boolean;
-  LLastLineIdx, I: Integer;
+  LInUses     : Boolean;
+  LLastLineIdx: Integer;
+  LLines      : TArray<String>;
 begin
   Result := '0';
   LLines := FContent.Split([sLineBreak]);
   LInUses := False;
   LLastLineIdx := -1;
 
-  for I := 0 to High(LLines) do
+  for var I: Integer := 0 to High(LLines) do
   begin
-    var LLine := LLines[I].Trim;
+    var LLine: String := LLines[I].Trim;
     if not LInUses then
     begin
       if SameText(LLine, 'uses') then
@@ -1183,9 +1183,8 @@ end;
 
 procedure TDptLintClassDeclarationFixture.ValidateBlock(ABlock: TMemberBlock; var AResult: Boolean);
 var
-  LFirst: TMemberInfo;
+  LFirst       : TMemberInfo;
   LMustBeSorted: Boolean;
-  I: Integer;
 begin
   if ABlock.Members.Count < 1 then
     Exit;
@@ -1193,30 +1192,31 @@ begin
   LFirst := ABlock.Members[0];
   LMustBeSorted := False;
   case LFirst.MemberType of
-    mtField: LMustBeSorted := FFieldsMustBeSorted;
-    mtMethod: LMustBeSorted := FMethodsMustBeSorted;
-    mtProperty: LMustBeSorted := FPropertiesMustBeSorted;
+    mtField:
+      LMustBeSorted := FFieldsMustBeSorted;
+    mtMethod:
+      LMustBeSorted := FMethodsMustBeSorted;
+    mtProperty:
+      LMustBeSorted := FPropertiesMustBeSorted;
   end;
 
-  for I := 0 to ABlock.Members.Count - 1 do
+  for var I: Integer := 0 to ABlock.Members.Count - 1 do
   begin
-    var Curr := ABlock.Members[I];
+    var Curr: TMemberInfo := ABlock.Members[I];
     if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
     begin
       // Rule: Published fields are allowed without 'F' prefix
-      if not SameText(ABlock.Visibility, 'published') then
+      if not SameText(ABlock.Visibility, 'published') and
+         not Curr.Name.StartsWith(FFieldNamePrefix) then
       begin
-        if not Curr.Name.StartsWith(FFieldNamePrefix) then
-        begin
-          ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
-          AResult := False;
-        end;
+        ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Field name "%s" should start with prefix "%s".', [Curr.Name, FFieldNamePrefix]));
+        AResult := False;
       end;
     end;
 
     if I > 0 then
     begin
-      var Prev := ABlock.Members[I - 1];
+      var Prev: TMemberInfo := ABlock.Members[I - 1];
       if LMustBeSorted and (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
       begin
         ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
@@ -1233,16 +1233,16 @@ end;
 
 function TDptLintClassDeclarationFixture.LintClassDeclarations: Boolean;
 var
-  LLines: TArray<string>;
-  LClassIndents: TList<Integer>;
-  LClassIndent: Integer;
-  LNestedDepth: Integer;
-  LClassName: String;
-  LCurrentBlock: TMemberBlock;
-  LPrevMemberType: TMemberType;
-  LVisibilityKeywordFoundSinceLastMember: Boolean;
-  LCurrentVisibility: String;
-  I: Integer;
+  I                         : Integer;
+  LClassIndent              : Integer;
+  LClassIndents             : TList<Integer>;
+  LClassName                : String;
+  LCurrentBlock             : TMemberBlock;
+  LCurrentVisibility        : String;
+  LLines                    : TArray<string>;
+  LNestedDepth              : Integer;
+  LPrevMemberType           : TMemberType;
+  LVisibilitySinceLastMember: Boolean;
 
   procedure FlushBlock;
   begin
@@ -1264,7 +1264,7 @@ begin
   LNestedDepth := 0;
   LCurrentBlock := nil;
   LPrevMemberType := mtUnknown;
-  LVisibilityKeywordFoundSinceLastMember := False;
+  LVisibilitySinceLastMember := False;
   LCurrentVisibility := '';
 
   try
@@ -1286,7 +1286,7 @@ begin
         LClassIndents.Add(LClassIndent);
         LClassName := LClassMatch.Groups[2].Value;
         LPrevMemberType := mtUnknown;
-        LVisibilityKeywordFoundSinceLastMember := True;
+        LVisibilitySinceLastMember := True;
         LCurrentVisibility := 'published';
 
         var LPrefixes := FClassNamePrefixes.Split([',']);
@@ -1340,7 +1340,7 @@ begin
         if LVisMatch.Success then
         begin
           FlushBlock;
-          LVisibilityKeywordFoundSinceLastMember := True;
+          LVisibilitySinceLastMember := True;
           LCurrentVisibility := LVisMatch.Groups[3].Value.ToLower;
           var LVisIndent := LVisMatch.Groups[1].Length;
           if LVisIndent <> (LClassIndent + FVisibilityExtraIndent) then
@@ -1384,18 +1384,23 @@ begin
             end;
           end;
 
-          if (LPrevMemberType <> mtUnknown) and (LPrevMemberType <> LMember.MemberType) then
+          if (LPrevMemberType <> mtUnknown) and
+             (LPrevMemberType <> LMember.MemberType) and
+             (
+               (
+                 (LMember.MemberType = mtClassMethod) or
+                 (LPrevMemberType = mtClassMethod)
+               ) and
+               not LVisibilitySinceLastMember
+             ) then
           begin
-            if ((LMember.MemberType = mtClassMethod) or (LPrevMemberType = mtClassMethod)) and not LVisibilityKeywordFoundSinceLastMember then
-            begin
-              ReportViolation(I + 1 + FLineOffset, 'Class members must be separated from instance members by a visibility keyword.');
-              Result := False;
-            end;
+            ReportViolation(I + 1 + FLineOffset, 'Class members must be separated from instance members by a visibility keyword.');
+            Result := False;
           end;
 
           LCurrentBlock.Members.Add(LMember);
           LPrevMemberType := LMember.MemberType;
-          LVisibilityKeywordFoundSinceLastMember := False;
+          LVisibilitySinceLastMember := False;
         end;
       end;
     end;
@@ -1425,54 +1430,59 @@ end;
 
 function TDptLintImplementationFixture.ValidateClassBanners: Boolean;
 var
-  LLines: TArray<string>;
   LCurrentClassBanner: String;
-  LReportedClasses: TStringList;
-  I: Integer;
+  LLines             : TArray<String>;
+  LReportedClasses   : TStringList;
 begin
   Result := True;
   LLines := FContent.Split([sLineBreak]);
   LCurrentClassBanner := '';
   LReportedClasses := TStringList.Create;
-  LReportedClasses.Sorted := True;
-  LReportedClasses.Duplicates := dupIgnore;
   try
-    for I := 0 to High(LLines) do
+    LReportedClasses.Sorted := True;
+    LReportedClasses.Duplicates := dupIgnore;
+    for var I: Integer := 0 to High(LLines) do
     begin
-      var LLine := LLines[I].Trim;
+      var LLine: String := LLines[I].Trim;
       if LLine.Contains('=======') then
       begin
         if (I < High(LLines) - 1) and LLines[I + 2].Contains('=======') then
         begin
-          var LTopLine := LLines[I];
-          var LMidLine := LLines[I + 1];
-          var LBotLine := LLines[I + 2];
+          var LTopLine: String := LLines[I];
+          var LMidLine: String := LLines[I + 1];
+          var LBotLine: String := LLines[I + 2];
 
           if LMidLine.Trim.StartsWith('{') then
           begin
-            var LTopOpen := LTopLine.IndexOf('{');
-            var LTopClose := LTopLine.LastIndexOf('}');
-            var LMidOpen := LMidLine.IndexOf('{');
-            var LMidClose := LMidLine.LastIndexOf('}');
-            var LBotOpen := LBotLine.IndexOf('{');
-            var LBotClose := LBotLine.LastIndexOf('}');
+            var LTopOpen: Integer := LTopLine.IndexOf('{');
+            var LTopClose: Integer := LTopLine.LastIndexOf('}');
+            var LMidOpen: Integer := LMidLine.IndexOf('{');
+            var LMidClose: Integer := LMidLine.LastIndexOf('}');
+            var LBotOpen: Integer := LBotLine.IndexOf('{');
+            var LBotClose: Integer := LBotLine.LastIndexOf('}');
 
-            if (LTopOpen >= 0) and (LMidOpen >= 0) and (LBotOpen >= 0) then
+            if (LTopOpen >= 0) and
+               (LMidOpen >= 0) and
+               (LBotOpen >= 0) and
+               (
+                 (LTopOpen <> LMidOpen) or
+                 (LBotOpen <> LMidOpen)
+               ) then
             begin
-              if (LTopOpen <> LMidOpen) or (LBotOpen <> LMidOpen) then
-              begin
-                ReportViolation(I + 2 + FLineOffset, 'Class banner opening brace alignment mismatch.');
-                Result := False;
-              end;
+              ReportViolation(I + 2 + FLineOffset, 'Class banner opening brace alignment mismatch.');
+              Result := False;
             end;
 
-            if (LTopClose >= 0) and (LMidClose >= 0) and (LBotClose >= 0) then
+            if (LTopClose >= 0) and
+               (LMidClose >= 0) and
+               (LBotClose >= 0) and
+               (
+                 (LTopClose <> LMidClose) or
+                 (LBotClose <> LMidClose)
+               ) then
             begin
-              if (LTopClose <> LMidClose) or (LBotClose <> LMidClose) then
-              begin
-                ReportViolation(I + 2 + FLineOffset, 'Class banner closing brace alignment mismatch.');
-                Result := False;
-              end;
+              ReportViolation(I + 2 + FLineOffset, 'Class banner closing brace alignment mismatch.');
+              Result := False;
             end;
           end;
 
@@ -1482,18 +1492,16 @@ begin
         end;
       end;
 
-      var LMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+([\w\.]+)\.(\w+)', [roIgnoreCase]);
+      var LMatch: TMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+([\w\.]+)\.(\w+)', [roIgnoreCase]);
       if LMatch.Success then
       begin
         var LClassName := LMatch.Groups[1].Value;
-        if not SameText(LClassName, LCurrentClassBanner) then
+        if not SameText(LClassName, LCurrentClassBanner) and
+           (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
-          if LReportedClasses.IndexOf(LClassName) = -1 then
-          begin
-            ReportViolation(I + 1 + FLineOffset, Format('Missing or incorrect class implementation banner for "%s".', [LClassName]));
-            LReportedClasses.Add(LClassName);
-            Result := False;
-          end;
+          ReportViolation(I + 1 + FLineOffset, Format('Missing or incorrect class implementation banner for "%s".', [LClassName]));
+          LReportedClasses.Add(LClassName);
+          Result := False;
         end;
       end;
     end;
@@ -1504,9 +1512,10 @@ end;
 
 function TDptLintImplementationFixture.ValidateMethodOrderAndSeparators: Boolean;
 var
-  LSeparator: String;
+  J            : Integer;
+  K            : Integer;
   LContentLines: TArray<string>;
-  I, J, K: Integer;
+  LSeparator   : String;
 begin
   Result := True;
   if not Assigned(FContext) then
@@ -1515,28 +1524,36 @@ begin
   LSeparator := FContext.SingleSeparatorLine;
   LContentLines := FContent.Split([sLineBreak]);
 
-  for I := 1 to FContext.Lines.Count - 1 do
+  for var I: Integer := 1 to FContext.Lines.Count - 1 do
   begin
-    var LLine := FContext.Lines[I];
-    var LTrimmed := LLine.Trim;
+    var LLine: String := FContext.Lines[I];
+    var LTrimmed: String := LLine.Trim;
 
-    if (LLine <> '') and (LLine[1] > ' ') and
-       (LTrimmed.StartsWith('procedure') or LTrimmed.StartsWith('function') or
-        LTrimmed.StartsWith('constructor') or LTrimmed.StartsWith('destructor')) then
+    if (LLine <> '') and
+       (LLine[1] > ' ') and
+       (
+         LTrimmed.StartsWith('procedure') or
+         LTrimmed.StartsWith('function') or
+         LTrimmed.StartsWith('constructor') or
+         LTrimmed.StartsWith('destructor')
+       ) then
     begin
       if (I < FLineOffset) or (I >= FLineOffset + Length(LContentLines)) then
         Continue;
 
-      var LHasPrevMethod := False;
+      var LHasPrevMethod: Boolean := False;
       for J := I - 1 downto 0 do
       begin
-        var LPrevLine := FContext.Lines[J];
-        var LPrevTrimmed := LPrevLine.Trim;
-        if (LPrevLine <> '') and (LPrevLine[1] > ' ') and
-           (LPrevTrimmed.StartsWith('procedure') or
-            LPrevTrimmed.StartsWith('function') or
-            LPrevTrimmed.StartsWith('constructor') or
-            LPrevTrimmed.StartsWith('destructor')) then
+        var LPrevLine: String := FContext.Lines[J];
+        var LPrevTrimmed: String := LPrevLine.Trim;
+        if (LPrevLine <> '') and
+           (LPrevLine[1] > ' ') and
+           (
+             LPrevTrimmed.StartsWith('procedure') or
+             LPrevTrimmed.StartsWith('function') or
+             LPrevTrimmed.StartsWith('constructor') or
+             LPrevTrimmed.StartsWith('destructor')
+           ) then
         begin
           LHasPrevMethod := True;
           Break;
@@ -1545,11 +1562,13 @@ begin
 
       if LHasPrevMethod then
       begin
-        var LBeforeCommentIdx := I - 1;
+        var LBeforeCommentIdx: Integer := I - 1;
         while (LBeforeCommentIdx >= 0) and
-              (FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('//') or
-               FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('{') or
-               FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('(*')) do
+              (
+                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('//') or
+                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('{') or
+                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('(*')
+              ) do
         begin
           if FContext.Lines[LBeforeCommentIdx].Contains(LSeparator) or
              FContext.Lines[LBeforeCommentIdx].Contains(FContext.DoubleSeparatorLine) then
@@ -1557,12 +1576,18 @@ begin
           Dec(LBeforeCommentIdx);
         end;
 
-        if not ((LBeforeCommentIdx >= 2) and (FContext.Lines[LBeforeCommentIdx].Trim = '') and FContext.Lines[LBeforeCommentIdx - 1].Contains(LSeparator) and (FContext.Lines[LBeforeCommentIdx - 2].Trim = '')) then
+        if not
+           (
+             (LBeforeCommentIdx >= 2) and
+             (FContext.Lines[LBeforeCommentIdx].Trim = '') and
+             FContext.Lines[LBeforeCommentIdx - 1].Contains(LSeparator) and
+             (FContext.Lines[LBeforeCommentIdx - 2].Trim = '')
+           ) then
         begin
-          var LIsAfterBanner := False;
+          var LIsAfterBanner: Boolean := False;
           for K := I - 1 downto 0 do
           begin
-            var LPrevK := FContext.Lines[K].Trim;
+            var LPrevK: String := FContext.Lines[K].Trim;
             if LPrevK = '' then
               Continue;
             if LPrevK.Contains(FContext.DoubleSeparatorLine) then
