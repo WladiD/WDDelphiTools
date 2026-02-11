@@ -196,6 +196,17 @@ type
     function DestructorsMustCallInherited: Boolean;
   end;
 
+  [SlimFixture('DptLintMethodBodyFixture')]
+  TDptLintMethodBodyFixture = class(TDptLintBaseFixture)
+  private
+    FContent: string;
+    FLineOffset: Integer;
+  public
+    procedure SetContent(const AValue: string);
+    procedure SetLineOffset(const AValue: string);
+    function ValidateOperatorSpacing: Boolean;
+  end;
+
 implementation
 
 uses
@@ -1576,6 +1587,151 @@ begin
   end;
 end;
 
+{ TDptLintMethodBodyFixture }
+
+procedure TDptLintMethodBodyFixture.SetContent(const AValue: string);
+begin
+  FContent := AValue;
+end;
+
+procedure TDptLintMethodBodyFixture.SetLineOffset(const AValue: string);
+begin
+  FLineOffset := StrToIntDef(AValue, 0);
+end;
+
+function TDptLintMethodBodyFixture.ValidateOperatorSpacing: Boolean;
+var
+  LLines: TArray<string>;
+  I, J: Integer;
+  LLine, LCode: string;
+  LInCurlyComment, LInParenComment, LInString: Boolean;
+  C, NextC: Char;
+begin
+  Result := True;
+  LLines := FContent.Split([sLineBreak]);
+  LInCurlyComment := False;
+  LInParenComment := False;
+
+  for I := 0 to High(LLines) do
+  begin
+    LLine := LLines[I];
+    LCode := '';
+    LInString := False;
+    
+    J := 1;
+    while J <= Length(LLine) do
+    begin
+      C := LLine[J];
+      if J < Length(LLine) then NextC := LLine[J+1] else NextC := #0;
+
+      if LInCurlyComment then
+      begin
+        if C = '}' then
+        begin
+          LInCurlyComment := False;
+        end;
+        Inc(J);
+        Continue;
+      end;
+
+      if LInParenComment then
+      begin
+        if (C = '*') and (NextC = ')') then
+        begin
+          LInParenComment := False;
+          Inc(J, 2);
+          Continue;
+        end;
+        Inc(J);
+        Continue;
+      end;
+
+      if LInString then
+      begin
+        if C = '''' then
+        begin
+          if NextC = '''' then
+            Inc(J, 2)
+          else
+          begin
+            LInString := False;
+            Inc(J);
+            LCode := LCode + 'S';
+          end;
+        end
+        else
+          Inc(J);
+        Continue;
+      end;
+
+      if C = '{' then
+      begin
+        LInCurlyComment := True;
+        Inc(J);
+        Continue;
+      end;
+
+      if (C = '(') and (NextC = '*') then
+      begin
+        LInParenComment := True;
+        Inc(J, 2);
+        Continue;
+      end;
+
+      if (C = '/') and (NextC = '/') then
+      begin
+        Break;
+      end;
+
+      if C = '''' then
+      begin
+        LInString := True;
+        Inc(J);
+        Continue;
+      end;
+
+      LCode := LCode + C;
+      Inc(J);
+    end;
+
+    // We check for spaces around operators.
+    // Exception: If the space is trailing (at the end of LCode), we allow it
+    // because it's followed by a line break.
+    // \S\s+<op> matches space before (ignoring leading indentation).
+    // <op>\s+\S matches space after (ignoring trailing whitespace).
+
+    if TRegEx.IsMatch(LCode, '\S\s+:=') or TRegEx.IsMatch(LCode, ':=\s+\S') then
+    begin
+      ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around assignment operator ":=".');
+      Result := False;
+    end;
+
+    if TRegEx.IsMatch(LCode, '\S\s+\+') or TRegEx.IsMatch(LCode, '\+\s+\S') then
+    begin
+       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "+".');
+       Result := False;
+    end;
+    
+    if TRegEx.IsMatch(LCode, '\S\s+\-') or TRegEx.IsMatch(LCode, '\-\s+\S') then
+    begin
+       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "-".');
+       Result := False;
+    end;
+
+    if TRegEx.IsMatch(LCode, '\S\s+\*') or TRegEx.IsMatch(LCode, '\*\s+\S') then
+    begin
+       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "*".');
+       Result := False;
+    end;
+
+    if TRegEx.IsMatch(LCode, '\S\s+/') or TRegEx.IsMatch(LCode, '/\s+\S') then
+    begin
+       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "/".');
+       Result := False;
+    end;
+  end;
+end;
+
 initialization
 
 RegisterSlimFixture(TDptLintUnitContextFixture);
@@ -1584,5 +1740,6 @@ RegisterSlimFixture(TDptLintRegexFixture);
 RegisterSlimFixture(TDptLintUsesFixture);
 RegisterSlimFixture(TDptLintClassDeclarationFixture);
 RegisterSlimFixture(TDptLintImplementationFixture);
+RegisterSlimFixture(TDptLintMethodBodyFixture);
 
 end.
