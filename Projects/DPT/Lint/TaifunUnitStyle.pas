@@ -145,6 +145,7 @@ begin                                                                           
                                                                                                    //                                                                                                  //
 end;                                                                                               //                                                                                                  //
                                                                                                    //                                                                                                  //
+                                                                                                   // - Mehrere Leerzeilen (auch mit \s+) werden zu einer Leerzeile kollabiert                         //
 { ----------------------------------------------------------------------- }                        //                                                                                                  //
                                                                                                    //                                                                                                  //
 function CSomeClass.GetVarA: Integer;                                                              //                                                                                                  //
@@ -175,4 +176,4 @@ end;                                                                            
                                                                                                    //                                                                                                  //
 { ======================================================================= }                        // - Vor dem Unit-"end." steht eine doppelte Trennlinie                                             //
                                                                                                    //                                                                                                  //
-end.                                                                                               //                                                                                                  //
+end.                                                                                               //
