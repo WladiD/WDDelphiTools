@@ -48,6 +48,7 @@ procedure TDptLintSetupTask.Split;
 var
   I           : Integer;
   LAnchorFound: Boolean;
+  LAnchorLineIndex: Integer;
   LBaseName   : String;
   LCol2Idx    : Integer;
   LCol3Idx    : Integer;
@@ -67,6 +68,7 @@ begin
   LCol2Idx := -1;
   LCol3Idx := -1;
   LAnchorFound := False;
+  LAnchorLineIndex := -1;
 
   // 1. Find Anchor Line
   for I := 0 to High(LLines) do
@@ -79,6 +81,7 @@ begin
       LCol2Idx := LLineUpper.IndexOf('// START: AI-DESCRIPTIONS');
       LCol3Idx := LLineUpper.IndexOf('// START: AI-GENERATED FITNESSE-TEST');
       LAnchorFound := True;
+      LAnchorLineIndex := I;
       Break;
     end;
   end;
@@ -97,9 +100,20 @@ begin
 
       // Part 1: Template
       if LLine.Length >= LCol2Idx then
-        LTemplate.Add(LLine.Substring(0, LCol2Idx))
+      begin
+        var LPart1 := LLine.Substring(0, LCol2Idx);
+        if I = LAnchorLineIndex then
+          LTemplate.Add(LPart1)
+        else
+          LTemplate.Add(LPart1.TrimRight);
+      end
       else
-        LTemplate.Add(LLine);
+      begin
+        if I = LAnchorLineIndex then
+          LTemplate.Add(LLine)
+        else
+          LTemplate.Add(LLine.TrimRight);
+      end;
 
       // Part 2: Descriptions
       if LLine.Length >= LCol2Idx then
@@ -112,7 +126,10 @@ begin
 
         // We keep everything, including the "// " prefix for 1:1 roundtrip
         // but we want convenience. Let's store a special marker if it was "// "
-        LDescs.Add(LPart2);
+        if I = LAnchorLineIndex then
+          LDescs.Add(LPart2)
+        else
+          LDescs.Add(LPart2.TrimRight);
       end
       else
         LDescs.Add('');
@@ -121,7 +138,10 @@ begin
       if LLine.Length >= LCol3Idx then
       begin
         var LPart3 := LLine.Substring(LCol3Idx);
-        LTests.Add(LPart3);
+        if I = LAnchorLineIndex then
+          LTests.Add(LPart3)
+        else
+          LTests.Add(LPart3.TrimRight);
       end
       else
         LTests.Add('');
@@ -154,6 +174,8 @@ var
   LTemplateLine: String;
   LTestLine    : String;
   LTests       : TStringList;
+  LCol2Idx     : Integer;
+  LCol2Width   : Integer;
 begin
   LBaseName := TPath.Combine(ExtractFilePath(FStyleFile), TPath.GetFileNameWithoutExtension(FStyleFile));
   if not TFile.Exists(LBaseName + '.Template.pas') then
@@ -172,6 +194,24 @@ begin
     LDescs.LoadFromFile(LBaseName + '.Descriptions.txt', TEncoding.UTF8);
     LTests.LoadFromFile(LBaseName + '.Tests.txt', TEncoding.UTF8);
 
+    LCol2Idx := 0;
+    LCol2Width := 0;
+
+    // Find Anchor lines to determine column positions
+    for I := 0 to LTemplate.Count - 1 do
+      if LTemplate[I].ToUpper.Contains('// START: STYLE-TEMPLATE') then
+      begin
+        LCol2Idx := LTemplate[I].Length;
+        Break;
+      end;
+
+    for I := 0 to LDescs.Count - 1 do
+      if LDescs[I].ToUpper.Contains('// START: AI-DESCRIPTIONS') then
+      begin
+        LCol2Width := LDescs[I].Length;
+        Break;
+      end;
+
     LMax := LTemplate.Count;
     if LDescs.Count > LMax then LMax := LDescs.Count;
     if LTests.Count > LMax then LMax := LTests.Count;
@@ -182,8 +222,20 @@ begin
       LDescLine := ''; if I < LDescs.Count then LDescLine := LDescs[I];
       LTestLine := ''; if I < LTests.Count then LTestLine := LTests[I];
 
-      // Since we kept the prefixes during split, join is now a simple concatenation
-      // which guarantees 1:1 roundtrip.
+      // Validate lengths to prevent column overflow which would break future splits
+      if (LCol2Idx > 0) and (LTemplateLine.Length > LCol2Idx) then
+        raise Exception.CreateFmt('Template line %d is too long (%d chars). Max allowed is %d (width of header). Line: %s', [I + 1, LTemplateLine.Length, LCol2Idx, LTemplateLine.Trim]);
+
+      if (LCol2Width > 0) and (LDescLine.Length > LCol2Width) then
+        raise Exception.CreateFmt('Description line %d is too long (%d chars). Max allowed is %d (width of header). Line: %s', [I + 1, LDescLine.Length, LCol2Width, LDescLine.Trim]);
+
+      // Pad lines if they are shorter than the anchor line to keep columns aligned
+      if (LCol2Idx > 0) and (LTemplateLine.Length < LCol2Idx) and ((LDescLine <> '') or (LTestLine <> '')) then
+        LTemplateLine := LTemplateLine.PadRight(LCol2Idx);
+
+      if (LCol2Width > 0) and (LDescLine.Length < LCol2Width) and (LTestLine <> '') then
+        LDescLine := LDescLine.PadRight(LCol2Width);
+
       var NewLine := LTemplateLine + LDescLine + LTestLine;
       LOutput.Add(NewLine.TrimRight);
     end;

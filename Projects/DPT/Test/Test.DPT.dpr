@@ -17,6 +17,7 @@ uses
   Test.DPT.Preprocessor,
   Test.DPT.BuildAndRunTask,
   Test.DPT.LintTask,
+  Test.DPT.Lint.Setup.Task,
   Test.DPT.DProjAnalyzer;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
