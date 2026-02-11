@@ -128,8 +128,9 @@ end;                                                                            
                                                                                                    //                                                                                                  //
 function CSomeClass.CalcValue: Word;                                                               //                                                                                                  //
 begin                                                                                              //                                                                                                  //
-  Result:=FValue*123;                                                                              //                                                                                                  //
-end;                                                                                               //                                                                                                  //
+  Result:=FValue;                                                                                  // - Es werden keine Leerzeichen vor oder hinter dem Zuweisungsoperator eingefügt.                  //
+  Result:=Result*2+150-10;                                                                         // - Auch bei einfachen arithmetischen Operatoren (+-*/) werden keine Leerzeichen                   //
+end;                                                                                               //   davor oder danach eingefügt.                                                                   //
                                                                                                    //                                                                                                  //
 { ----------------------------------------------------------------------- }                        //                                                                                                  //
                                                                                                    //                                                                                                  //
