@@ -37,6 +37,7 @@ type
     // File property guards (ensure properties, fix if needed)
     procedure EnsureUtf8Bom;
     procedure EnsureCrlf;
+    procedure EnsureNoMultipleBlanklines;
 
     property TargetFile: string read FTargetFile;
     property Lines: TStringList read FLines;
@@ -299,6 +300,31 @@ begin
     // Reload lines
     FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
     TDptLintContext.AddWarning(Format('Warning: Line endings in file "%s" were converted to CRLF.', [ExtractFileName(FTargetFile)]));
+  end;
+end;
+
+procedure TDptLintUnitContextFixture.EnsureNoMultipleBlanklines;
+var
+  LText: string;
+  LNewText: string;
+  LRegex: TRegEx;
+begin
+  LText := TFile.ReadAllText(FTargetFile, TEncoding.UTF8);
+  
+  // Pattern matches 3 or more consecutive LineBreaks (interspersed with optional whitespace)
+  // This corresponds to 2 or more blank lines.
+  // We want to reduce this to 2 LineBreaks (1 blank line).
+  // Note: We assume CRLF because EnsureCrlf should have run before. 
+  // However, to be robust, we match \r\n explicitly as we are on Windows/Delphi usually handling this.
+  
+  LRegex := TRegEx.Create('(\r\n[ \t]*){3,}');
+  
+  if LRegex.IsMatch(LText) then
+  begin
+    LNewText := LRegex.Replace(LText, #13#10#13#10);
+    TFile.WriteAllText(FTargetFile, LNewText, TEncoding.UTF8);
+    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
+    TDptLintContext.AddWarning(Format('Warning: Multiple blank lines in file "%s" were collapsed.', [ExtractFileName(FTargetFile)]));
   end;
 end;
 
