@@ -198,13 +198,30 @@ type
 
   [SlimFixture('DptLintMethodBodyFixture')]
   TDptLintMethodBodyFixture = class(TDptLintBaseFixture)
+  public
+    type
+      TSpaceRule = (srForbidden, srRequired, srIgnore);
   private
     FContent: string;
     FLineOffset: Integer;
+    FAssignmentRuleBefore: TSpaceRule;
+    FAssignmentRuleAfter: TSpaceRule;
+    FArithmeticRuleBefore: TSpaceRule;
+    FArithmeticRuleAfter: TSpaceRule;
+    FArithmeticOperators: string;
+    function StringToRule(const AValue: string): TSpaceRule;
+    procedure ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: string; ARuleBefore, ARuleAfter: TSpaceRule);
   public
+    constructor Create;
     procedure SetContent(const AValue: string);
     procedure SetLineOffset(const AValue: string);
     function ValidateOperatorSpacing: Boolean;
+
+    procedure SetAssignmentSpaceBefore(const AValue: string);
+    procedure SetAssignmentSpaceAfter(const AValue: string);
+    procedure SetArithmeticSpaceBefore(const AValue: string);
+    procedure SetArithmeticSpaceAfter(const AValue: string);
+    property ArithmeticOperators: string read FArithmeticOperators write FArithmeticOperators;
   end;
 
 implementation
@@ -1589,6 +1606,43 @@ end;
 
 { TDptLintMethodBodyFixture }
 
+constructor TDptLintMethodBodyFixture.Create;
+begin
+  inherited Create;
+  FAssignmentRuleBefore := srForbidden;
+  FAssignmentRuleAfter := srForbidden;
+  FArithmeticRuleBefore := srForbidden;
+  FArithmeticRuleAfter := srForbidden;
+  FArithmeticOperators := '+,-,*,/';
+end;
+
+function TDptLintMethodBodyFixture.StringToRule(const AValue: string): TSpaceRule;
+begin
+  if SameText(AValue, 'Forbidden') then Result := srForbidden
+  else if SameText(AValue, 'Required') then Result := srRequired
+  else Result := srIgnore;
+end;
+
+procedure TDptLintMethodBodyFixture.SetAssignmentSpaceBefore(const AValue: string);
+begin
+  FAssignmentRuleBefore := StringToRule(AValue);
+end;
+
+procedure TDptLintMethodBodyFixture.SetAssignmentSpaceAfter(const AValue: string);
+begin
+  FAssignmentRuleAfter := StringToRule(AValue);
+end;
+
+procedure TDptLintMethodBodyFixture.SetArithmeticSpaceBefore(const AValue: string);
+begin
+  FArithmeticRuleBefore := StringToRule(AValue);
+end;
+
+procedure TDptLintMethodBodyFixture.SetArithmeticSpaceAfter(const AValue: string);
+begin
+  FArithmeticRuleAfter := StringToRule(AValue);
+end;
+
 procedure TDptLintMethodBodyFixture.SetContent(const AValue: string);
 begin
   FContent := AValue;
@@ -1599,6 +1653,34 @@ begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
+procedure TDptLintMethodBodyFixture.ValidateOp(ALineIdx: Integer; const ACode, AOp, AOpName: string; ARuleBefore, ARuleAfter: TSpaceRule);
+var
+  LEscaped: string;
+begin
+  LEscaped := TRegEx.Escape(AOp);
+
+  // Rule BEFORE
+  case ARuleBefore of
+    srForbidden:
+      if TRegEx.IsMatch(ACode, '\S\s+' + LEscaped) then
+        ReportViolation(ALineIdx + 1 + FLineOffset, Format('No space allowed before operator "%s".', [AOpName]));
+    srRequired:
+      if TRegEx.IsMatch(ACode, '\S' + LEscaped) then
+        ReportViolation(ALineIdx + 1 + FLineOffset, Format('Space required before operator "%s".', [AOpName]));
+  end;
+
+  // Rule AFTER
+  // Exception: If operator is at end of code (followed only by whitespace), we don't enforce "Required"
+  case ARuleAfter of
+    srForbidden:
+      if TRegEx.IsMatch(ACode, LEscaped + '\s+\S') then
+        ReportViolation(ALineIdx + 1 + FLineOffset, Format('No space allowed after operator "%s".', [AOpName]));
+    srRequired:
+      if TRegEx.IsMatch(ACode, LEscaped + '\S') then
+        ReportViolation(ALineIdx + 1 + FLineOffset, Format('Space required after operator "%s".', [AOpName]));
+  end;
+end;
+
 function TDptLintMethodBodyFixture.ValidateOperatorSpacing: Boolean;
 var
   LLines: TArray<string>;
@@ -1606,8 +1688,9 @@ var
   LLine, LCode: string;
   LInCurlyComment, LInParenComment, LInString: Boolean;
   C, NextC: Char;
+  LViolationsBefore: Integer;
 begin
-  Result := True;
+  LViolationsBefore := TDptLintContext.Violations.Count;
   LLines := FContent.Split([sLineBreak]);
   LInCurlyComment := False;
   LInParenComment := False;
@@ -1626,10 +1709,7 @@ begin
 
       if LInCurlyComment then
       begin
-        if C = '}' then
-        begin
-          LInCurlyComment := False;
-        end;
+        if C = '}' then LInCurlyComment := False;
         Inc(J);
         Continue;
       end;
@@ -1679,9 +1759,7 @@ begin
       end;
 
       if (C = '/') and (NextC = '/') then
-      begin
         Break;
-      end;
 
       if C = '''' then
       begin
@@ -1694,42 +1772,22 @@ begin
       Inc(J);
     end;
 
-    // We check for spaces around operators.
-    // Exception: If the space is trailing (at the end of LCode), we allow it
-    // because it's followed by a line break.
-    // \S\s+<op> matches space before (ignoring leading indentation).
-    // <op>\s+\S matches space after (ignoring trailing whitespace).
+    if FAssignmentRuleBefore <> srIgnore then
+      ValidateOp(I, LCode, ':=', ':=', FAssignmentRuleBefore, FAssignmentRuleAfter);
 
-    if TRegEx.IsMatch(LCode, '\S\s+:=') or TRegEx.IsMatch(LCode, ':=\s+\S') then
+    if (FArithmeticRuleBefore <> srIgnore) or (FArithmeticRuleAfter <> srIgnore) then
     begin
-      ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around assignment operator ":=".');
-      Result := False;
-    end;
-
-    if TRegEx.IsMatch(LCode, '\S\s+\+') or TRegEx.IsMatch(LCode, '\+\s+\S') then
-    begin
-       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "+".');
-       Result := False;
-    end;
-    
-    if TRegEx.IsMatch(LCode, '\S\s+\-') or TRegEx.IsMatch(LCode, '\-\s+\S') then
-    begin
-       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "-".');
-       Result := False;
-    end;
-
-    if TRegEx.IsMatch(LCode, '\S\s+\*') or TRegEx.IsMatch(LCode, '\*\s+\S') then
-    begin
-       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "*".');
-       Result := False;
-    end;
-
-    if TRegEx.IsMatch(LCode, '\S\s+/') or TRegEx.IsMatch(LCode, '/\s+\S') then
-    begin
-       ReportViolation(I + 1 + FLineOffset, 'No spaces allowed around operator "/".');
-       Result := False;
+      var LOps := FArithmeticOperators.Split([',']);
+      for var LOp in LOps do
+      begin
+        var LTrimmedOp := LOp.Trim;
+        if LTrimmedOp <> '' then
+          ValidateOp(I, LCode, LTrimmedOp, LTrimmedOp, FArithmeticRuleBefore, FArithmeticRuleAfter);
+      end;
     end;
   end;
+
+  Result := TDptLintContext.Violations.Count = LViolationsBefore;
 end;
 
 initialization
