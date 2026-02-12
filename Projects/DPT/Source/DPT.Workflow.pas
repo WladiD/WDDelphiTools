@@ -209,10 +209,7 @@ begin
   Result := True;
   if SameText(VarName, 'AiSessionStarted') then
   begin
-    if Assigned(FSession) and TFile.Exists(FSessionFile) then
-      Value := 1
-    else
-      Value := 0;
+    Value := Assigned(FSession) and TFile.Exists(FSessionFile);
   end
   else
     Result := False;
@@ -242,24 +239,21 @@ end;
 
 function TDptWorkflowEngine.ExprParserAiSessionStarted: Variant;
 begin
-  if Assigned(FSession) and TFile.Exists(FSessionFile) then
-    Result := 1
-  else
-    Result := 0;
+  Result := Assigned(FSession) and TFile.Exists(FSessionFile);
 end;
 
 function TDptWorkflowEngine.ExprParserIsCurrentAction(const Args: Variant): Variant;
 begin
-  Result := 0;
+  Result := False;
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-    Result := IfThen(SameText(VarToStr(Args[0]), FCurrentAction), 1, 0);
+    Result := SameText(VarToStr(Args[0]), FCurrentAction);
 end;
 
 function TDptWorkflowEngine.ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
 begin
-  Result := 0;
+  Result := False;
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-    Result := IfThen(SameText(VarToStr(Args[0]), FCurrentAiSessionAction), 1, 0);
+    Result := SameText(VarToStr(Args[0]), FCurrentAiSessionAction);
 end;
 
 function TDptWorkflowEngine.ExprParserGetCurrentLintTargetFile: Variant;
@@ -272,7 +266,7 @@ var
   FileName: string;
   Entry: TDptSessionFileEntry;
 begin
-  Result := 0;
+  Result := False;
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
   begin
     FileName := ExpandFileName(VarToStr(Args[0]));
@@ -280,7 +274,7 @@ begin
     begin
       if SameText(Entry.Path, FileName) then
       begin
-        Result := 1;
+        Result := True;
         Break;
       end;
     end;
@@ -310,7 +304,7 @@ var
   Entry: TDptSessionFileEntry;
   AllValid: Boolean;
 begin
-  Result := 1; // Default to valid if no session or no files
+  Result := True; // Default to valid if no session or no files
   if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
   begin
     FilesVar := Args[0];
@@ -324,7 +318,7 @@ begin
         FileName := ExpandFileName(FileName);
         
         // Only require lint results for files modified or created since session start
-        if TFile.GetLastWriteTime(FileName) <= FSession.StartTime then
+        if TFile.GetLastWriteTime(FileName) < FSession.StartTime then
           Continue;
 
         Found := False;
@@ -346,7 +340,7 @@ begin
         end;
       end;
     end;
-    Result := IfThen(AllValid, 1, 0);
+    Result := AllValid;
   end;
 end;
 

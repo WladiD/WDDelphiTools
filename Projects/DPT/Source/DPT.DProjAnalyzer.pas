@@ -63,8 +63,8 @@ begin
   List := TCollections.CreateList_String;
   ProjDir := ExtractFilePath(FProjectFile);
 
-  // Match <DCCReference Include="DPT.Build.Task.pas"/>
-  Matches := TRegEx.Matches(FContent, '<DCCReference Include="([^"]+)"\s*/>', [roIgnoreCase]);
+  // Match <DCCReference Include="DPT.Build.Task.pas"/> or <DCCReference Include="DPT.Build.Task.pas">
+  Matches := TRegEx.Matches(FContent, '<DCCReference\s+Include="([^"]+)"', [roIgnoreCase]);
   for Match in Matches do
   begin
     List.Add(TPath.GetFullPath(TPath.Combine(ProjDir, Match.Groups[1].Value)));
