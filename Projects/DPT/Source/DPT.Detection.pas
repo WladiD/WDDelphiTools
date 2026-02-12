@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -28,28 +28,37 @@ type
     destructor Destroy; override;
     function GetProcessName(AID: DWORD): string;
     function GetParentProcessID(AID: DWORD): DWORD;
-    function DetectAIMode: TAIMode;
+    function DetectAIMode(out AHostPID: DWORD): TAIMode;
   end;
 
-function DetectAIMode: TAIMode;
+function DetectAIMode(out AHostPID: DWORD): TAIMode; overload;
+function DetectAIMode: TAIMode; overload;
 
 implementation
 
-function DetectAIMode: TAIMode;
+function DetectAIMode(out AHostPID: DWORD): TAIMode;
 var
   Scanner: TProcessTreeScanner;
 begin
-  // First priority: Environment variable (reliable for Gemini CLI)
-  if GetEnvironmentVariable('GEMINI_CLI') = '1' then
-    Exit(amGemini);
+  AHostPID := 0;
 
-  // Second priority: Process tree traversal (for Cursor or fallback)
   Scanner := TProcessTreeScanner.Create;
   try
-    Result := Scanner.DetectAIMode;
+    Result := Scanner.DetectAIMode(AHostPID);
+    
+    // Fallback if environment says Gemini but traversal failed to find node.exe
+    if (Result = amNone) and (GetEnvironmentVariable('GEMINI_CLI') = '1') then
+      Result := amGemini;
   finally
     Scanner.Free;
   end;
+end;
+
+function DetectAIMode: TAIMode;
+var
+  DummyPID: DWORD;
+begin
+  Result := DetectAIMode(DummyPID);
 end;
 
 { TProcessTreeScanner }
@@ -104,12 +113,13 @@ begin
     Result := '';
 end;
 
-function TProcessTreeScanner.DetectAIMode: TAIMode;
+function TProcessTreeScanner.DetectAIMode(out AHostPID: DWORD): TAIMode;
 var
   CurrentPID: DWORD;
   ProcessName: string;
 begin
   Result := amNone;
+  AHostPID := 0;
   CurrentPID := GetCurrentProcessId;
   
   // Traverse up the process tree
@@ -124,11 +134,13 @@ begin
     if SameText(ProcessName, 'Cursor.exe') then
     begin
       Result := amCursor;
+      AHostPID := CurrentPID;
       Break;
     end
     else if SameText(ProcessName, 'node.exe') then
     begin
       Result := amGemini;
+      AHostPID := CurrentPID;
       Break;
     end;
   end;

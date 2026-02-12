@@ -48,6 +48,7 @@ uses
   DPT.PrintPath.Task,
   DPT.RegisterPackage.Task,
   DPT.RemovePackage.Task,
+  DPT.Workflow,
   DPT.Types;
 
 procedure ProcessCmdLine;
@@ -637,9 +638,10 @@ type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
 
 begin
-  case DetectAIMode of
-    amCursor: Writeln('AI-Mode from Cursor detected');
-    amGemini: Writeln('AI-Mode from Gemini CLI detected');
+  var LHostPID: DWORD;
+  case DetectAIMode(LHostPID) of
+    amCursor: Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
+    amGemini: Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
   end;
 
   try
@@ -685,6 +687,32 @@ begin
     begin
       TDptInstructionScreen.ShowHelp(ParamStr(2));
       Exit;
+    end;
+
+    // Workflow Engine integration
+    if ParamCount > 1 then
+    begin
+      var LAction, LAiSessionAction: string;
+      LAction := ParamStr(2);
+      LAiSessionAction := '';
+      if SameText(LAction, 'AiSession') and (ParamCount >= 3) then
+        LAiSessionAction := ParamStr(3);
+
+      var WorkflowEngine: TDptWorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+      try
+        var Instructions: string;
+        if WorkflowEngine.CheckConditions(Instructions) = waExit then
+        begin
+          Writeln('-------------------------------------------------------------------------------');
+          Writeln('DPT WORKFLOW VIOLATION:');
+          Writeln(Instructions);
+          Writeln('-------------------------------------------------------------------------------');
+          ExitCode := 1;
+          Exit;
+        end;
+      finally
+        WorkflowEngine.Free;
+      end;
     end;
 
     // Always process CLI commands if arguments are present (Version + Action)

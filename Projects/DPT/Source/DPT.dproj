@@ -60,7 +60,7 @@
         <DCC_DcuOutput>..\DCU</DCC_DcuOutput>
         <DCC_ExeOutput>..\</DCC_ExeOutput>
         <DCC_Namespace>System;Xml;Data;Datasnap;Web;Soap;Winapi;System.Win;$(DCC_Namespace)</DCC_Namespace>
-        <DCC_UnitSearchPath>..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\StaticGenerics\Source;..\..\TmplCodeGen\Source;..\..\..\..\..\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_UnitSearchPath>..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Lib\mORMot\src\crypt;..\..\..\Lib\mORMot\src\db;..\..\..\Lib\mORMot\src\lib;..\..\..\Lib\mORMot\src\net;..\..\..\Lib\mORMot\src\orm;..\..\..\Lib\mORMot\src\rest;..\..\..\Lib\mORMot\src\soa;..\..\StaticGenerics\Source;..\..\TmplCodeGen\Source;..\..\..\..\..\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icns_MainIcns>$(BDS)\bin\delphi_PROJECTICNS.icns</Icns_MainIcns>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
         <VerInfo_Keys>CompanyName=;FileDescription=;FileVersion=1.0.0.0;InternalName=;LegalCopyright=;LegalTrademarks=;OriginalFilename=;ProductName=;ProductVersion=1.0.0.0;Comments=</VerInfo_Keys>
