@@ -55,6 +55,15 @@ type
     function OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
     function OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
 
+    // Script functions logic
+    function ExprParserAiSessionStarted: Variant;
+    function ExprParserIsCurrentAction(const Args: Variant): Variant;
+    function ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
+    function ExprParserGetCurrentLintTargetFile: Variant;
+    function ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
+    function ExprParserGetCurrentProjectFiles: Variant;
+    function ExprParserHasValidLintResult(const Args: Variant): Variant;
+
   public
     constructor Create(const AAction, AAiSessionAction: string);
     destructor Destroy; override;
@@ -210,109 +219,135 @@ begin
 end;
 
 function TDptWorkflowEngine.OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
+begin
+  if SameText(FuncName, 'AiSessionStarted') then
+    ResVal := ExprParserAiSessionStarted
+  else if SameText(FuncName, 'IsCurrentAction') then
+    ResVal := ExprParserIsCurrentAction(Args)
+  else if SameText(FuncName, 'IsCurrentAiSessionAction') then
+    ResVal := ExprParserIsCurrentAiSessionAction(Args)
+  else if SameText(FuncName, 'GetCurrentLintTargetFile') then
+    ResVal := ExprParserGetCurrentLintTargetFile
+  else if SameText(FuncName, 'IsFileRegisteredInAiSession') then
+    ResVal := ExprParserIsFileRegisteredInAiSession(Args)
+  else if SameText(FuncName, 'GetCurrentProjectFiles') then
+    ResVal := ExprParserGetCurrentProjectFiles
+  else if SameText(FuncName, 'HasValidLintResult') then
+    ResVal := ExprParserHasValidLintResult(Args)
+  else
+    Exit(False);
+
+  Result := True;
+end;
+
+function TDptWorkflowEngine.ExprParserAiSessionStarted: Variant;
+begin
+  if Assigned(FSession) and TFile.Exists(FSessionFile) then
+    Result := 1
+  else
+    Result := 0;
+end;
+
+function TDptWorkflowEngine.ExprParserIsCurrentAction(const Args: Variant): Variant;
+begin
+  Result := 0;
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    Result := IfThen(SameText(VarToStr(Args[0]), FCurrentAction), 1, 0);
+end;
+
+function TDptWorkflowEngine.ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
+begin
+  Result := 0;
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    Result := IfThen(SameText(VarToStr(Args[0]), FCurrentAiSessionAction), 1, 0);
+end;
+
+function TDptWorkflowEngine.ExprParserGetCurrentLintTargetFile: Variant;
+begin
+  Result := FCurrentLintTargetFile;
+end;
+
+function TDptWorkflowEngine.ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
+var
+  FileName: string;
+  Entry: TDptSessionFileEntry;
+begin
+  Result := 0;
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+  begin
+    FileName := ExpandFileName(VarToStr(Args[0]));
+    for Entry in FSession.Files do
+    begin
+      if SameText(Entry.Path, FileName) then
+      begin
+        Result := 1;
+        Break;
+      end;
+    end;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserGetCurrentProjectFiles: Variant;
 var
   I: Integer;
+begin
+  if Length(FCurrentProjectFiles) = 0 then
+    Result := VarArrayCreate([0, -1], varVariant)
+  else
+  begin
+    Result := VarArrayCreate([0, Length(FCurrentProjectFiles) - 1], varVariant);
+    for I := 0 to Length(FCurrentProjectFiles) - 1 do
+      Result[I] := FCurrentProjectFiles[I];
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserHasValidLintResult(const Args: Variant): Variant;
+var
   FilesVar: Variant;
+  I: Integer;
   FileName: string;
   Found: Boolean;
   Entry: TDptSessionFileEntry;
   AllValid: Boolean;
 begin
-  Result := True;
-  ResVal := 0;
-  
-  if SameText(FuncName, 'AiSessionStarted') then
+  Result := 1; // Default to valid if no session or no files
+  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
   begin
-    if Assigned(FSession) and TFile.Exists(FSessionFile) then
-      ResVal := 1
-    else
-      ResVal := 0;
-  end
-  else if SameText(FuncName, 'IsCurrentAction') then
-  begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-      ResVal := IfThen(SameText(VarToStr(Args[0]), FCurrentAction), 1, 0);
-  end
-  else if SameText(FuncName, 'IsCurrentAiSessionAction') then
-  begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-      ResVal := IfThen(SameText(VarToStr(Args[0]), FCurrentAiSessionAction), 1, 0);
-  end
-  else if SameText(FuncName, 'GetCurrentLintTargetFile') then
-  begin
-    ResVal := FCurrentLintTargetFile;
-  end
-  else if SameText(FuncName, 'IsFileRegisteredInAiSession') then
-  begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    FilesVar := Args[0];
+    AllValid := True;
+    if VarIsArray(FilesVar) then
     begin
-      FileName := ExpandFileName(VarToStr(Args[0]));
-      Found := False;
-      for Entry in FSession.Files do
+      for I := 0 to VarArrayHighBound(FilesVar, 1) do
       begin
-        if SameText(Entry.Path, FileName) then
-        begin
-          Found := True;
-          Break;
-        end;
-      end;
-      ResVal := IfThen(Found, 1, 0);
-    end;
-  end
-  else if SameText(FuncName, 'GetCurrentProjectFiles') then
-  begin
-    if Length(FCurrentProjectFiles) = 0 then
-      ResVal := VarArrayCreate([0, -1], varVariant)
-    else
-    begin
-      ResVal := VarArrayCreate([0, Length(FCurrentProjectFiles) - 1], varVariant);
-      for I := 0 to Length(FCurrentProjectFiles) - 1 do
-        ResVal[I] := FCurrentProjectFiles[I];
-    end;
-  end
-  else if SameText(FuncName, 'HasValidLintResult') then
-  begin
-    ResVal := 1; // Default to valid if no session or no files
-    if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
-    begin
-      FilesVar := Args[0];
-      AllValid := True;
-      if VarIsArray(FilesVar) then
-      begin
-        for I := 0 to VarArrayHighBound(FilesVar, 1) do
-        begin
-          FileName := VarToStr(FilesVar[I]);
-          if not TFile.Exists(FileName) then Continue;
-          FileName := ExpandFileName(FileName);
-          
-          // Only require lint results for files modified or created since session start
-          if TFile.GetLastWriteTime(FileName) <= FSession.StartTime then
-            Continue;
+        FileName := VarToStr(FilesVar[I]);
+        if not TFile.Exists(FileName) then Continue;
+        FileName := ExpandFileName(FileName);
+        
+        // Only require lint results for files modified or created since session start
+        if TFile.GetLastWriteTime(FileName) <= FSession.StartTime then
+          Continue;
 
-          Found := False;
-          for Entry in FSession.Files do
+        Found := False;
+        for Entry in FSession.Files do
+        begin
+          if SameText(Entry.Path, FileName) then
           begin
-            if SameText(Entry.Path, FileName) then
-            begin
-              // Check if lint was successful and file hasn't changed since lint
-              if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
-                Found := True;
-              Break;
-            end;
-          end;
-
-          if not Found then
-          begin
-            AllValid := False;
+            // Check if lint was successful and file hasn't changed since lint
+            if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
+              Found := True;
             Break;
           end;
         end;
+
+        if not Found then
+        begin
+          AllValid := False;
+          Break;
+        end;
       end;
-      ResVal := IfThen(AllValid, 1, 0);
     end;
-  end
-  else
-    Result := False;
+    Result := IfThen(AllValid, 1, 0);
+  end;
 end;
 
 function TDptWorkflowEngine.CheckConditions(out AInstructions: string): TDptWorkflowAction;
