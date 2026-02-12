@@ -10,3 +10,7 @@
 	path = Lib/jcl
 	url = https://github.com/project-jedi/jcl.git
 	shallow = true
+[submodule "Lib/ExprParser"]
+	path = Lib/ExprParser
+	url = https://github.com/WladiD/ExprParser.git
+	shallow = true
