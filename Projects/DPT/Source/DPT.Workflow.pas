@@ -272,7 +272,8 @@ begin
   end
   else if SameText(FuncName, 'HasValidLintResult') then
   begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
+    ResVal := 1; // Default to valid if no session or no files
+    if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
     begin
       FilesVar := Args[0];
       AllValid := True;
@@ -280,23 +281,26 @@ begin
       begin
         for I := 0 to VarArrayHighBound(FilesVar, 1) do
         begin
-          FileName := ExpandFileName(VarToStr(FilesVar[I]));
+          FileName := VarToStr(FilesVar[I]);
+          if not TFile.Exists(FileName) then Continue;
+          FileName := ExpandFileName(FileName);
+          
+          // Only require lint results for files modified or created since session start
+          if TFile.GetLastWriteTime(FileName) <= FSession.StartTime then
+            Continue;
+
           Found := False;
           for Entry in FSession.Files do
           begin
             if SameText(Entry.Path, FileName) then
             begin
-              // Check if lint was successful and file hasn't changed
-              if Entry.LintSuccess then
-              begin
-                // Simple check: LastLintTime vs File modified time
-                // In a real scenario, we would use Hash.
-                if Entry.LastLintTime >= TFile.GetLastWriteTime(FileName) then
-                  Found := True;
-              end;
+              // Check if lint was successful and file hasn't changed since lint
+              if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
+                Found := True;
               Break;
             end;
           end;
+
           if not Found then
           begin
             AllValid := False;
