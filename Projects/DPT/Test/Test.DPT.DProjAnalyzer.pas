@@ -38,6 +38,8 @@ type
     procedure GetProjectSearchPath_Inheritance;
     [Test]
     procedure GetProjectSearchPath_Overwrite;
+    [Test]
+    procedure GetProjectFiles;
   end;
 
 implementation
@@ -152,6 +154,31 @@ begin
   Analyzer := TDProjAnalyzer.Create(FTestFile);
   try
     Assert.AreEqual('ReleaseDir', Analyzer.GetProjectSearchPath('Release', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectFiles;
+var
+  Analyzer: TDProjAnalyzer;
+  Files   : TArray<String>;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <ItemGroup>
+        <DCCReference Include="Unit1.pas"/>
+        <DCCReference Include="Sub\Unit2.pas"/>
+      </ItemGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Files := Analyzer.GetProjectFiles;
+    Assert.AreEqual(2, Length(Files));
+    Assert.IsTrue(Files[0].EndsWith('Unit1.pas'));
+    Assert.IsTrue(Files[1].EndsWith('Unit2.pas'));
+    Assert.IsTrue(TPath.IsPathRooted(Files[0]));
   finally
     Analyzer.Free;
   end;

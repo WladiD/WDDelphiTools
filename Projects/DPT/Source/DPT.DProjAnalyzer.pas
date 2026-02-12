@@ -32,6 +32,7 @@ type
     function GetConfigs: TArray<String>;
     function GetDefaultConfig: String;
     function GetProjectSearchPath(const AConfig, APlatform: String): String;
+    function GetProjectFiles: TArray<String>;
   end;
 
 implementation
@@ -50,6 +51,26 @@ begin
     raise Exception.CreateFmt('Project file not found: %s', [FProjectFile]);
     
   FContent := TFile.ReadAllText(FProjectFile);
+end;
+
+function TDProjAnalyzer.GetProjectFiles: TArray<String>;
+var
+  Matches: TMatchCollection;
+  Match  : TMatch;
+  List   : IList_String;
+  ProjDir: string;
+begin
+  List := TCollections.CreateList_String;
+  ProjDir := ExtractFilePath(FProjectFile);
+
+  // Match <DCCReference Include="DPT.Build.Task.pas"/>
+  Matches := TRegEx.Matches(FContent, '<DCCReference Include="([^"]+)"\s*/>', [roIgnoreCase]);
+  for Match in Matches do
+  begin
+    List.Add(TPath.GetFullPath(TPath.Combine(ProjDir, Match.Groups[1].Value)));
+  end;
+
+  Result := List.ToArray;
 end;
 
 function TDProjAnalyzer.GetConfigs: TArray<String>;

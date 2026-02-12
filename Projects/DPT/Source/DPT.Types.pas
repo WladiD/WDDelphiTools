@@ -37,12 +37,14 @@ type
   private
     FInstallation : TJclBorRADToolInstallation;
     FInstallations: TJclBorRADToolInstallations;
+    FWorkflowEngine: TObject;
   protected
     function  Installation: TJclBorRADToolInstallation;
     procedure Output(const Text: String);
   public
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;
+    property WorkflowEngine: TObject read FWorkflowEngine write FWorkflowEngine;
   public
     constructor Create; virtual;
     destructor Destroy; override;

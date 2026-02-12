@@ -15,18 +15,13 @@ uses
   System.Generics.Collections,
   Winapi.Windows,
   System.Variants,
-  
-  mormot.core.base,
-  mormot.core.data,
-  mormot.core.variants,
-  mormot.core.datetime,
-  mormot.core.unicode,
-  mormot.core.json,
-  mormot.core.text,
+  System.StrUtils,
+  System.Math,
   
   ExprParser,
   ExprParserTools,
-  DPT.Detection;
+  DPT.Detection,
+  DPT.Workflow.Session;
 
 type
   TDptWorkflowAction = (waNone, waExit);
@@ -36,24 +31,6 @@ type
     Condition: string;
     Instructions: string;
     Action: TDptWorkflowAction;
-  end;
-
-  TDptSessionFileEntry = record
-    Path: string;
-    Hash: string;
-    LastLintTime: TDateTime;
-    LintSuccess: Boolean;
-  end;
-
-  TDptSessionData = class
-  public
-    HostPID: DWORD;
-    StartTime: TDateTime;
-    Files: TList<TDptSessionFileEntry>;
-    constructor Create;
-    destructor Destroy; override;
-    procedure LoadFromFile(const AFileName: string);
-    procedure SaveToFile(const AFileName: string);
   end;
 
   TDptWorkflowEngine = class
@@ -87,88 +64,23 @@ type
 
     function CheckConditions(out AInstructions: string): TDptWorkflowAction;
     
+    // Session management
+    procedure StartSession;
+    procedure StopSession;
+    procedure ResetSession;
+    procedure AddFilesToSession(const AFiles: TArray<string>);
+    procedure ShowStatus;
+    procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
+    
     property Session: TDptSessionData read FSession;
     property WorkflowFile: string read FWorkflowFile;
+    property HostPID: DWORD read FHostPID;
   end;
 
 implementation
 
 const
   WorkflowFileName = '.DptAiWorkflow';
-
-{ TDptSessionData }
-
-constructor TDptSessionData.Create;
-begin
-  Files := TList<TDptSessionFileEntry>.Create;
-end;
-
-destructor TDptSessionData.Destroy;
-begin
-  Files.Free;
-  inherited;
-end;
-
-procedure TDptSessionData.LoadFromFile(const AFileName: string);
-var
-  JSON: RawUTF8;
-  Doc: Variant; 
-  I: Integer;
-  Entry: TDptSessionFileEntry;
-  FilesVar: Variant;
-begin
-  Files.Clear;
-  if not TFile.Exists(AFileName) then Exit;
-  
-  JSON := StringToUTF8(TFile.ReadAllText(AFileName));
-  Doc := _Json(JSON);
-  
-  if VarIsEmptyOrNull(Doc) then Exit;
-  
-  HostPID := Doc.HostPID;
-  // Explicit cast to RawUTF8 to avoid implicit conversion warning from Variant
-  StartTime := Iso8601ToDateTime(RawUTF8(Doc.StartTime));
-  
-  FilesVar := Doc.Files;
-  if VarIsArray(FilesVar) then
-  begin
-    for I := 0 to VarArrayHighBound(FilesVar, 1) do
-    begin
-      var Item: Variant := FilesVar[I];
-      Entry.Path := Item.Path;
-      Entry.Hash := Item.Hash;
-      // Explicit cast to RawUTF8
-      Entry.LastLintTime := Iso8601ToDateTime(RawUTF8(Item.LastLintTime));
-      Entry.LintSuccess := Item.LintSuccess;
-      Files.Add(Entry);
-    end;
-  end;
-end;
-
-procedure TDptSessionData.SaveToFile(const AFileName: string);
-var
-  Doc: Variant;
-  FilesArr: Variant;
-  I: Integer;
-begin
-  Doc := _Obj(['HostPID', Integer(HostPID), 'StartTime', DateTimeToIso8601(StartTime, True)]);
-  
-  TDocVariant.NewArray(FilesArr);
-  for I := 0 to Files.Count - 1 do
-  begin
-    var FileDoc: Variant := _Obj([
-      'Path', StringToUTF8(Files[I].Path),
-      'Hash', StringToUTF8(Files[I].Hash),
-      'LastLintTime', DateTimeToIso8601(Files[I].LastLintTime, True),
-      'LintSuccess', Files[I].LintSuccess
-    ]);
-    TDocVariantData(FilesArr).AddItem(FileDoc);
-  end;
-  
-  Doc.Files := FilesArr;
-  
-  TFile.WriteAllText(AFileName, UTF8ToString(VariantSaveJSON(Doc, twJsonEscape)));
-end;
 
 { TDptWorkflowEngine }
 
@@ -187,7 +99,8 @@ begin
       FSessionFile := FWorkflowFile + '.Session' + IntToStr(FHostPID) + '.json';
       FSession := TDptSessionData.Create;
       FSession.HostPID := FHostPID;
-      FSession.LoadFromFile(FSessionFile);
+      if TFile.Exists(FSessionFile) then
+        FSession.LoadFromFile(FSessionFile);
       LoadWorkflow;
     end;
   end;
@@ -203,6 +116,7 @@ end;
 function TDptWorkflowEngine.FindWorkflowFile: string;
 var
   CurrentDir: string;
+  ParentDir: string;
 begin
   Result := '';
   CurrentDir := GetCurrentDir;
@@ -213,7 +127,7 @@ begin
       Result := TPath.Combine(CurrentDir, WorkflowFileName);
       Break;
     end;
-    var ParentDir := TPath.GetDirectoryName(CurrentDir);
+    ParentDir := TPath.GetDirectoryName(CurrentDir);
     if (ParentDir = '') or (ParentDir = CurrentDir) then Break;
     CurrentDir := ParentDir;
   end;
@@ -239,32 +153,41 @@ begin
     for I := 0 to Lines.Count - 1 do
     begin
       Line := System.SysUtils.Trim(Lines[I]);
-      if Line = '' then Continue;
+      if (Line = '') or Line.StartsWith('#') then Continue;
       
-      // Use Pos/Copy instead of string helpers to avoid E2018 if helpers are shadowed/unavailable
-      if Pos('DptCondition:', Line) = 1 then // StartsWith(..., True) logic simplified
+      if Pos('DptCondition:', Line) = 1 then
       begin
         Block := TDptWorkflowBlock.Create;
         Block.Condition := System.SysUtils.Trim(Copy(Line, 14, MaxInt));
         FBlocks.Add(Block);
       end
       else if Pos('{', Line) = 1 then
-        InBlock := True
+      begin
+        InBlock := True;
+      end
       else if Pos('}', Line) = 1 then
       begin
         InBlock := False;
         Block := nil;
       end
-      else if InBlock and Assigned(Block) then
+      else if Assigned(Block) then
       begin
-        if Pos('DptAction:', Line) = 1 then
+        if InBlock then
         begin
-          ActionStr := System.SysUtils.Trim(Copy(Line, 11, MaxInt));
-          if Pos('ExitDptProcess', ActionStr) = 1 then
-            Block.Action := waExit;
+          if Pos('DptAction:', Line) = 1 then
+          begin
+            ActionStr := System.SysUtils.Trim(Copy(Line, 11, MaxInt));
+            if Pos('ExitDptProcess', ActionStr) = 1 then
+              Block.Action := waExit;
+          end
+          else
+            Block.Instructions := Block.Instructions + Lines[I] + sLineBreak;
         end
         else
-          Block.Instructions := Block.Instructions + Lines[I] + sLineBreak;
+        begin
+          // Still reading condition
+          Block.Condition := Block.Condition + ' ' + Line;
+        end;
       end;
     end;
   finally
@@ -274,36 +197,116 @@ end;
 
 function TDptWorkflowEngine.OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
 begin
-  if System.SysUtils.SameText(VarName, 'AiSessionStarted') then
+  Result := True;
+  if SameText(VarName, 'AiSessionStarted') then
   begin
-    Value := Assigned(FSession) and TFile.Exists(FSessionFile);
-    Result := True;
+    if Assigned(FSession) and TFile.Exists(FSessionFile) then
+      Value := 1
+    else
+      Value := 0;
   end
   else
     Result := False;
 end;
 
 function TDptWorkflowEngine.OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
+var
+  I: Integer;
+  FilesVar: Variant;
+  FileName: string;
+  Found: Boolean;
+  Entry: TDptSessionFileEntry;
+  AllValid: Boolean;
 begin
   Result := True;
-  if System.SysUtils.SameText(FuncName, 'IsCurrentAction') then
-    ResVal := System.SysUtils.SameText(FCurrentAction, VarToStr(Args[0]))
-  else if System.SysUtils.SameText(FuncName, 'IsCurrentAiSessionAction') then
-    ResVal := System.SysUtils.SameText(FCurrentAiSessionAction, VarToStr(Args[0]))
-  else if System.SysUtils.SameText(FuncName, 'HasValidLintResult') then
+  ResVal := 0;
+  
+  if SameText(FuncName, 'AiSessionStarted') then
   begin
-    // TODO: Logic for checking lint results
-    ResVal := False; 
+    if Assigned(FSession) and TFile.Exists(FSessionFile) then
+      ResVal := 1
+    else
+      ResVal := 0;
   end
-  else if System.SysUtils.SameText(FuncName, 'IsFileRegisteredInAiSession') then
+  else if SameText(FuncName, 'IsCurrentAction') then
   begin
-    // TODO: Check session data
-    ResVal := False;
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+      ResVal := IfThen(SameText(VarToStr(Args[0]), FCurrentAction), 1, 0);
   end
-  else if System.SysUtils.SameText(FuncName, 'GetCurrentLintTargetFile') then
-    ResVal := FCurrentLintTargetFile
-  else if System.SysUtils.SameText(FuncName, 'GetCurrentProjectFiles') then
-    ResVal := '' // Placeholder
+  else if SameText(FuncName, 'IsCurrentAiSessionAction') then
+  begin
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+      ResVal := IfThen(SameText(VarToStr(Args[0]), FCurrentAiSessionAction), 1, 0);
+  end
+  else if SameText(FuncName, 'GetCurrentLintTargetFile') then
+  begin
+    ResVal := FCurrentLintTargetFile;
+  end
+  else if SameText(FuncName, 'IsFileRegisteredInAiSession') then
+  begin
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    begin
+      FileName := ExpandFileName(VarToStr(Args[0]));
+      Found := False;
+      for Entry in FSession.Files do
+      begin
+        if SameText(Entry.Path, FileName) then
+        begin
+          Found := True;
+          Break;
+        end;
+      end;
+      ResVal := IfThen(Found, 1, 0);
+    end;
+  end
+  else if SameText(FuncName, 'GetCurrentProjectFiles') then
+  begin
+    if Length(FCurrentProjectFiles) = 0 then
+      ResVal := VarArrayCreate([0, -1], varVariant)
+    else
+    begin
+      ResVal := VarArrayCreate([0, Length(FCurrentProjectFiles) - 1], varVariant);
+      for I := 0 to Length(FCurrentProjectFiles) - 1 do
+        ResVal[I] := FCurrentProjectFiles[I];
+    end;
+  end
+  else if SameText(FuncName, 'HasValidLintResult') then
+  begin
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
+    begin
+      FilesVar := Args[0];
+      AllValid := True;
+      if VarIsArray(FilesVar) then
+      begin
+        for I := 0 to VarArrayHighBound(FilesVar, 1) do
+        begin
+          FileName := ExpandFileName(VarToStr(FilesVar[I]));
+          Found := False;
+          for Entry in FSession.Files do
+          begin
+            if SameText(Entry.Path, FileName) then
+            begin
+              // Check if lint was successful and file hasn't changed
+              if Entry.LintSuccess then
+              begin
+                // Simple check: LastLintTime vs File modified time
+                // In a real scenario, we would use Hash.
+                if Entry.LastLintTime >= TFile.GetLastWriteTime(FileName) then
+                  Found := True;
+              end;
+              Break;
+            end;
+          end;
+          if not Found then
+          begin
+            AllValid := False;
+            Break;
+          end;
+        end;
+      end;
+      ResVal := IfThen(AllValid, 1, 0);
+    end;
+  end
   else
     Result := False;
 end;
@@ -312,6 +315,7 @@ function TDptWorkflowEngine.CheckConditions(out AInstructions: string): TDptWork
 var
   Parser: TExprParser;
   Block: TDptWorkflowBlock;
+  TrimmedInstructions: string;
 begin
   Result := waNone;
   AInstructions := '';
@@ -326,10 +330,10 @@ begin
     begin
       if Parser.Eval(Block.Condition) then
       begin
-        if (TVarData(Parser.Value).VType = varBoolean) and (Parser.Value = True) then
+        if Parser.Value <> 0 then
         begin
-          // Explicitly cast Block.Instructions to string to match sLineBreak
-          AInstructions := AInstructions + string(Trim(Block.Instructions)) + sLineBreak + sLineBreak;
+          TrimmedInstructions := System.SysUtils.Trim(Block.Instructions);
+          AInstructions := AInstructions + TrimmedInstructions + sLineBreak + sLineBreak;
           if Block.Action > Result then
             Result := Block.Action;
         end;
@@ -337,6 +341,101 @@ begin
     end;
   finally
     Parser.Free;
+  end;
+end;
+
+procedure TDptWorkflowEngine.StartSession;
+begin
+  if FSessionFile = '' then
+    raise Exception.Create('No workflow file found. Cannot start session.');
+    
+  if not Assigned(FSession) then
+    FSession := TDptSessionData.Create;
+    
+  FSession.HostPID := FHostPID;
+  FSession.StartTime := Now;
+  FSession.SaveToFile(FSessionFile);
+  Writeln('AI session started for PID ', FHostPID);
+  Writeln('Session file: ', FSessionFile);
+end;
+
+procedure TDptWorkflowEngine.StopSession;
+begin
+  if TFile.Exists(FSessionFile) then
+  begin
+    TFile.Delete(FSessionFile);
+    Writeln('AI session stopped for PID ', FHostPID);
+  end
+  else
+    Writeln('No active AI session found for PID ', FHostPID);
+end;
+
+procedure TDptWorkflowEngine.ResetSession;
+begin
+  if Assigned(FSession) then
+  begin
+    FSession.Files.Clear;
+    FSession.StartTime := Now;
+    FSession.SaveToFile(FSessionFile);
+    Writeln('AI session reset.');
+  end;
+end;
+
+procedure TDptWorkflowEngine.AddFilesToSession(const AFiles: TArray<string>);
+var
+  FileName: string;
+  Entry: TDptSessionFileEntry;
+begin
+  for FileName in AFiles do
+  begin
+    Entry.Path := ExpandFileName(FileName);
+    Entry.Hash := ''; 
+    Entry.LastLintTime := 0;
+    Entry.LintSuccess := False;
+    FSession.Files.Add(Entry);
+    Writeln('Registered file in AI session: ', FileName);
+  end;
+  FSession.SaveToFile(FSessionFile);
+end;
+
+procedure TDptWorkflowEngine.ShowStatus;
+var
+  I: Integer;
+begin
+  if not TFile.Exists(FSessionFile) then
+  begin
+    Writeln('No active AI session.');
+    Exit;
+  end;
+  
+  Writeln('AI Session Status:');
+  Writeln('  Host PID:   ', FSession.HostPID);
+  Writeln('  Started:    ', DateTimeToStr(FSession.StartTime));
+  Writeln('  Files:      ', FSession.Files.Count);
+  for I := 0 to FSession.Files.Count - 1 do
+    Writeln('    - ', FSession.Files[I].Path, ' [Lint: ', IfThen(FSession.Files[I].LintSuccess, 'OK', 'FAILED'), ']');
+end;
+
+procedure TDptWorkflowEngine.ReportLintResult(const AFileName: string; ASuccess: Boolean);
+var
+  I: Integer;
+  Entry: TDptSessionFileEntry;
+  FullName: string;
+begin
+  if not Assigned(FSession) or (FSessionFile = '') then Exit;
+  
+  FullName := ExpandFileName(AFileName);
+  for I := 0 to FSession.Files.Count - 1 do
+  begin
+    Entry := FSession.Files[I];
+    if SameText(Entry.Path, FullName) then
+    begin
+      Entry.LintSuccess := ASuccess;
+      Entry.LastLintTime := Now;
+      FSession.Files[I] := Entry;
+      FSession.SaveToFile(FSessionFile);
+      Break;
+    end;
   end;
 end;
 

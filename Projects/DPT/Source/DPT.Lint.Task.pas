@@ -48,7 +48,8 @@ uses
   System.Generics.Collections,
   System.Generics.Defaults,
   JclSysUtils,
-  DPT.Lint.StyleValidator;
+  DPT.Lint.StyleValidator,
+  DPT.Workflow;
 
 { TDptLintTask }
 
@@ -325,6 +326,11 @@ begin
   if LRunResult = 0 then
   begin
     Writeln('Linting passed.');
+    if Assigned(WorkflowEngine) then
+    begin
+      for var LFile in FTargetFiles do
+        TDptWorkflowEngine(WorkflowEngine).ReportLintResult(LFile, True);
+    end;
   end
   else if LRunResult = 1 then
   begin

@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -39,6 +39,7 @@ uses
   DPT.BuildEnvironment.Task,
   DPT.Detection,
   DPT.DProj.Task,
+  DPT.DProjAnalyzer,
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
   DPT.Lint.Task,
@@ -51,7 +52,7 @@ uses
   DPT.Workflow,
   DPT.Types;
 
-procedure ProcessCmdLine;
+procedure ProcessCmdLine(AWorkflowEngine: TDptWorkflowEngine);
 var
   CmdLine      : TCmdLineConsumer;
   DelphiVersion: TDelphiVersion;
@@ -77,6 +78,7 @@ var
   begin
     DptTask := DPTaskClass.Create;
     DptTask.DelphiVersion := DelphiVersion;
+    DptTask.WorkflowEngine := AWorkflowEngine;
   end;
 
   procedure SerializeRemovePackagesBySourceDirTask;
@@ -368,16 +370,6 @@ var
         Continue;
       end;
 
-      // Heuristic for Platform/Config/ExtraArgs
-      // Standard Build Task logic: Platform -> Config -> ExtraArgs
-      // But here order is flexible because of flags.
-      // Let's stick to strict order for Platform/Config if they look like it?
-      // Or rely on user passing them before flags.
-
-      // Simplification: Assume standard order for Build params, but allow flags interspersed?
-      // Better: Just check values against known platforms/configs or assume position.
-      // Let's assume standard positional logic as much as possible, BUT allow OnlyIfChanged anywhere before --
-
       if (LocalDPTask.TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
       begin
         LocalDPTask.TargetPlatform := Arg;
@@ -524,11 +516,7 @@ begin
       if DelphiVersion = dvUnknown then
         raise Exception.Create('No supported Delphi version found on this machine');
       CmdLine.ConsumeParameter;
-    end
-    else if IsValidDelphiVersion(UpperCase(ParamValue), DelphiVersion) then
-      CmdLine.ConsumeParameter
-    else
-      CmdLine.InvalidParameter('Not accepted version');
+    end;
 
     ParamValue := CmdLine.CheckParameter('Action');
     if SameText(ParamValue, 'RemovePackagesBySourceDir') then
@@ -621,6 +609,11 @@ begin
       CmdLine.ConsumeParameter;
       InitDptTask(TDptStopTask);
     end
+    else if SameText(ParamValue, 'AiSession') then
+    begin
+      // Logic handled in main
+      Exit;
+    end
     else
       CmdLine.InvalidParameter('Not accepted action');
 
@@ -690,6 +683,7 @@ begin
     end;
 
     // Workflow Engine integration
+    var WorkflowEngine: TDptWorkflowEngine := nil;
     if ParamCount > 1 then
     begin
       var LAction, LAiSessionAction: string;
@@ -698,7 +692,28 @@ begin
       if SameText(LAction, 'AiSession') and (ParamCount >= 3) then
         LAiSessionAction := ParamStr(3);
 
-      var WorkflowEngine: TDptWorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+      WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+
+      // Configure context for engine
+      if SameText(LAction, 'Build') and (ParamCount >= 3) then
+      begin
+        var LProjFile := ExpandFileName(ParamStr(3));
+        if TFile.Exists(LProjFile) and SameText(ExtractFileExt(LProjFile), '.dproj') then
+        begin
+          var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
+          try
+            WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
+          finally
+            LAnalyzer.Free;
+          end;
+        end;
+      end
+      else if SameText(LAction, 'Lint') and (ParamCount >= 4) then
+      begin
+        // Target is from ParamStr(4) onwards
+        WorkflowEngine.SetLintTarget(ParamStr(4));
+      end;
+
       try
         var Instructions: string;
         if WorkflowEngine.CheckConditions(Instructions) = waExit then
@@ -710,15 +725,40 @@ begin
           ExitCode := 1;
           Exit;
         end;
-      finally
+
+        // NEW: AiSession command handling
+        if SameText(LAction, 'AiSession') then
+        begin
+          if SameText(LAiSessionAction, 'Start') then WorkflowEngine.StartSession
+          else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
+          else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
+          else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
+          else if SameText(LAiSessionAction, 'RegisterFiles') then
+          begin
+            var LFiles: TArray<string>;
+            SetLength(LFiles, ParamCount - 3);
+            for var I := 4 to ParamCount do
+              LFiles[I-4] := ParamStr(I);
+            WorkflowEngine.AddFilesToSession(LFiles);
+          end
+          else
+            Writeln('Unknown AiSession action: ', LAiSessionAction);
+          Exit;
+        end;
+      except
         WorkflowEngine.Free;
+        raise;
       end;
     end;
 
     // Always process CLI commands if arguments are present (Version + Action)
     if ParamCount > 1 then
     begin
-      ProcessCmdLine;
+      try
+        ProcessCmdLine(WorkflowEngine);
+      finally
+        WorkflowEngine.Free;
+      end;
       Exit;
     end;
 
