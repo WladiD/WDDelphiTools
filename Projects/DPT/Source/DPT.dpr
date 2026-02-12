@@ -37,6 +37,7 @@ uses
 
   DPT.Build.Task,
   DPT.BuildEnvironment.Task,
+  DPT.Detection,
   DPT.DProj.Task,
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
@@ -636,6 +637,11 @@ type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
 
 begin
+  case DetectAIMode of
+    amCursor: Writeln('AI-Mode from Cursor detected');
+    amGemini: Writeln('AI-Mode from Gemini CLI detected');
+  end;
+
   try
     var LPort: Integer;
     var LIsSlimStart: Boolean;
