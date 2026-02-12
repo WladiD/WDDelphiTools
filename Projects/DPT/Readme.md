@@ -15,6 +15,7 @@ DPT.exe DelphiVersion Action [Parameters]
 DPT.exe Help [Action]
 
 Actions:
+  AiSession <Start|Stop|Reset|Status|RegisterFiles> [Files...]
   Build <ProjectFile> [Platform] [Config] [ExtraArgs]
   BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
   DProjPrintConfigs <ProjectFile>
@@ -24,7 +25,8 @@ Actions:
   HandleProtocol <dpt://URL>
   ImportBuildEnvironment
   IsPackageRegistered <PackageFileName>
-  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFile>
+  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFiles...>
+  LintSetup <Split|Join> <StyleFile>
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
   PrintPath <PathLiteral>
   RegisterPackage <PathToBPL>
@@ -54,6 +56,18 @@ DelphiVersion:
   D12
 
 Available Actions:
+  AiSession <Start|Stop|Reset|Status|RegisterFiles> [Files...]
+    Manages an AI session for the current process hierarchy.
+    Uses an internal workflow engine to provide instructions and track state (e.g., Lint results).
+    Sub-actions:
+      Start:          Starts a new AI session.
+      Stop:           Stops and removes the current AI session.
+      Reset:          Clears registered files and resets the session start time.
+      Status:         Displays session information and registered files.
+      RegisterFiles:  Manually adds one or more files to the session.
+    Example: DPT LATEST AiSession Start
+    Example: DPT LATEST AiSession RegisterFiles Unit1.pas Unit2.pas
+
   Build <ProjectFile> [Platform] [Config] [ExtraArgs]
     Builds the specified project using MSBuild.
     Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.   
@@ -120,6 +134,11 @@ Available Actions:
       1. --fitnesse-dir parameter
       2. "Dir" entry in [FitNesse] section of DptConfig.ini (searched in PATH)
     Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas
+
+  LintSetup <Split|Join> <StyleFile>
+    Splits a 3-column style file into 3 separate files for easier editing,
+    or joins them back into a single aligned style file.
+    Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas
 
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
     Opens a source file in the Delphi IDE via the Slim Server plugin.
