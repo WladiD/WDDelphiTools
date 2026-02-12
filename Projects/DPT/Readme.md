@@ -3,6 +3,10 @@ This project was created for automated Delphi configuration from batch scripts.
 
 Currently it supports not all Delphi versions, but will be expanded on demand.
 
+## AI-Workflows
+DPT provides special support for AI agents through rule-based workflows. 
+See [AiWorkflow.md](AiWorkflow.md) for details.
+
 ## Usage
 
 ### Overview

@@ -58,6 +58,18 @@ begin
   if Length(FActions) = 0 then
   begin
     FActions := [
+      TActionInfo.Create('AiSession', '<Start|Stop|Reset|Status|RegisterFiles> [Files...]', [
+        'Manages an AI session for the current process hierarchy.',
+        'Uses an internal workflow engine to provide instructions and track state (e.g., Lint results).',
+        'Sub-actions:',
+        '  Start:          Starts a new AI session.',
+        '  Stop:           Stops and removes the current AI session.',
+        '  Reset:          Clears registered files and resets the session start time.',
+        '  Status:         Displays session information and registered files.',
+        '  RegisterFiles:  Manually adds one or more files to the session.',
+        'Example: DPT LATEST AiSession Start',
+        'Example: DPT LATEST AiSession RegisterFiles Unit1.pas Unit2.pas'
+      ]),
       TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [ExtraArgs]', [
         'Builds the specified project using MSBuild.',
         'Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.',
