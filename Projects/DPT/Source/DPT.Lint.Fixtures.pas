@@ -1499,7 +1499,14 @@ begin
         if not SameText(LClassName, LCurrentClassBanner) and
            (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
-          ReportViolation(I + 1 + FLineOffset, Format('Missing or incorrect class implementation banner for "%s".', [LClassName]));
+          var LExpectedBanner :=
+            '{ ' + StringOfChar('=', 71) + ' }' + sLineBreak +
+            '{ ' + LClassName.PadRight(71) + ' }' + sLineBreak +
+            '{ ' + StringOfChar('=', 71) + ' }';
+
+          ReportViolation(I + 1 + FLineOffset,
+            Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
+                   'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
           LReportedClasses.Add(LClassName);
           Result := False;
         end;
