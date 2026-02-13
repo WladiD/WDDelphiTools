@@ -30,7 +30,9 @@ type
   public
     Condition: string;
     Instructions: string;
-    Action: TDptWorkflowAction;
+    NestedBlocks: TObjectList<TDptWorkflowBlock>;
+    constructor Create;
+    destructor Destroy; override;
   end;
 
   TDptWorkflowEngine = class
@@ -47,6 +49,7 @@ type
     FCurrentAiSessionAction: string;
     FCurrentLintTargetFile: string;
     FCurrentProjectFiles: TArray<string>;
+    FExitRequested: Boolean;
 
     procedure LoadWorkflow;
     function FindWorkflowFile: string;
@@ -63,6 +66,7 @@ type
     function ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
     function ExprParserGetCurrentProjectFiles: Variant;
     function ExprParserHasValidLintResult(const Args: Variant): Variant;
+    function ExprParserRequestDptExit: Variant;
 
   public
     constructor Create(const AAction, AAiSessionAction: string);
@@ -90,6 +94,19 @@ implementation
 
 const
   WorkflowFileName = '.DptAiWorkflow';
+
+{ TDptWorkflowBlock }
+
+constructor TDptWorkflowBlock.Create;
+begin
+  NestedBlocks := TObjectList<TDptWorkflowBlock>.Create(True);
+end;
+
+destructor TDptWorkflowBlock.Destroy;
+begin
+  NestedBlocks.Free;
+  inherited;
+end;
 
 { TDptWorkflowEngine }
 
@@ -145,60 +162,78 @@ end;
 procedure TDptWorkflowEngine.LoadWorkflow;
 var
   Lines: TStringList;
-  I: Integer;
-  Block: TDptWorkflowBlock;
-  InBlock: Boolean;
-  Line: string;
-  ActionStr: string;
+  CurrentLine: Integer;
+
+  procedure ParseBlocks(ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+  var
+    Line: string;
+    CurrentBlock: TDptWorkflowBlock;
+    Remaining: string;
+  begin
+    CurrentBlock := nil;
+    while CurrentLine < Lines.Count do
+    begin
+      Line := System.SysUtils.Trim(Lines[CurrentLine]);
+      Inc(CurrentLine);
+      
+      if (Line = '') or Line.StartsWith('#') then Continue;
+
+      if Line.StartsWith('DptCondition:') then
+      begin
+        CurrentBlock := TDptWorkflowBlock.Create;
+        CurrentBlock.Condition := System.SysUtils.Trim(Copy(Line, 14, MaxInt));
+        
+        if CurrentBlock.Condition.EndsWith('{') then
+        begin
+          CurrentBlock.Condition := System.SysUtils.Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
+          ABlocks.Add(CurrentBlock);
+          ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
+          CurrentBlock := nil;
+        end
+        else
+          ABlocks.Add(CurrentBlock);
+      end
+      else if Line.StartsWith('{') then
+      begin
+        if Assigned(CurrentBlock) then
+        begin
+          Remaining := System.SysUtils.Trim(Copy(Line, 2, MaxInt));
+          if Remaining.EndsWith('}') then
+          begin
+            CurrentBlock.Instructions := System.SysUtils.Trim(Copy(Remaining, 1, Length(Remaining) - 1));
+            CurrentBlock := nil;
+          end
+          else
+          begin
+            if Remaining <> '' then
+              CurrentBlock.Instructions := Remaining + sLineBreak;
+            ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
+            CurrentBlock := nil;
+          end;
+        end;
+      end
+      else if Line.StartsWith('}') then
+      begin
+        Exit;
+      end
+      else
+      begin
+        if Assigned(CurrentBlock) then
+          CurrentBlock.Condition := CurrentBlock.Condition + ' ' + Line
+        else if Assigned(AParentBlock) then
+          AParentBlock.Instructions := AParentBlock.Instructions + Lines[CurrentLine-1] + sLineBreak;
+      end;
+    end;
+  end;
+
 begin
   if not TFile.Exists(FWorkflowFile) then Exit;
 
   Lines := TStringList.Create;
   try
     Lines.LoadFromFile(FWorkflowFile);
-    Block := nil;
-    InBlock := False;
-    
-    for I := 0 to Lines.Count - 1 do
-    begin
-      Line := System.SysUtils.Trim(Lines[I]);
-      if (Line = '') or Line.StartsWith('#') then Continue;
-      
-      if Pos('DptCondition:', Line) = 1 then
-      begin
-        Block := TDptWorkflowBlock.Create;
-        Block.Condition := System.SysUtils.Trim(Copy(Line, 14, MaxInt));
-        FBlocks.Add(Block);
-      end
-      else if Pos('{', Line) = 1 then
-      begin
-        InBlock := True;
-      end
-      else if Pos('}', Line) = 1 then
-      begin
-        InBlock := False;
-        Block := nil;
-      end
-      else if Assigned(Block) then
-      begin
-        if InBlock then
-        begin
-          if Pos('DptAction:', Line) = 1 then
-          begin
-            ActionStr := System.SysUtils.Trim(Copy(Line, 11, MaxInt));
-            if Pos('ExitDptProcess', ActionStr) = 1 then
-              Block.Action := waExit;
-          end
-          else
-            Block.Instructions := Block.Instructions + Lines[I] + sLineBreak;
-        end
-        else
-        begin
-          // Still reading condition
-          Block.Condition := Block.Condition + ' ' + Line;
-        end;
-      end;
-    end;
+    CurrentLine := 0;
+    ParseBlocks(FBlocks, nil);
   finally
     Lines.Free;
   end;
@@ -231,6 +266,8 @@ begin
     ResVal := ExprParserGetCurrentProjectFiles
   else if SameText(FuncName, 'HasValidLintResult') then
     ResVal := ExprParserHasValidLintResult(Args)
+  else if SameText(FuncName, 'RequestDptExit') then
+    ResVal := ExprParserRequestDptExit
   else
     Exit(False);
 
@@ -240,6 +277,12 @@ end;
 function TDptWorkflowEngine.ExprParserAiSessionStarted: Variant;
 begin
   Result := Assigned(FSession) and TFile.Exists(FSessionFile);
+end;
+
+function TDptWorkflowEngine.ExprParserRequestDptExit: Variant;
+begin
+  FExitRequested := True;
+  Result := True;
 end;
 
 function TDptWorkflowEngine.ExprParserIsCurrentAction(const Args: Variant): Variant;
@@ -347,11 +390,37 @@ end;
 function TDptWorkflowEngine.CheckConditions(out AInstructions: string): TDptWorkflowAction;
 var
   Parser: TExprParser;
-  Block: TDptWorkflowBlock;
-  TrimmedInstructions: string;
+
+  procedure EvalBlocks(ABlocks: TObjectList<TDptWorkflowBlock>);
+  var
+    Block: TDptWorkflowBlock;
+    TrimmedInstructions: string;
+  begin
+    for Block in ABlocks do
+    begin
+      if FExitRequested then Exit;
+
+      if Parser.Eval(Block.Condition) then
+      begin
+        if Parser.Value <> 0 then
+        begin
+          TrimmedInstructions := System.SysUtils.Trim(Block.Instructions);
+          if TrimmedInstructions <> '' then
+            AInstructions := AInstructions + TrimmedInstructions + sLineBreak + sLineBreak;
+          
+          if Block.NestedBlocks.Count > 0 then
+            EvalBlocks(Block.NestedBlocks);
+        end;
+      end;
+      
+      if FExitRequested then Exit;
+    end;
+  end;
+
 begin
   Result := waNone;
   AInstructions := '';
+  FExitRequested := False;
   if FBlocks.Count = 0 then Exit;
 
   Parser := TExprParser.Create;
@@ -359,19 +428,10 @@ begin
     Parser.OnGetVariable := OnGetVariableCallback;
     Parser.OnExecuteFunction := OnExecuteFunctionCallback;
     
-    for Block in FBlocks do
-    begin
-      if Parser.Eval(Block.Condition) then
-      begin
-        if Parser.Value <> 0 then
-        begin
-          TrimmedInstructions := System.SysUtils.Trim(Block.Instructions);
-          AInstructions := AInstructions + TrimmedInstructions + sLineBreak + sLineBreak;
-          if Block.Action > Result then
-            Result := Block.Action;
-        end;
-      end;
-    end;
+    EvalBlocks(FBlocks);
+    
+    if FExitRequested then
+      Result := waExit;
   finally
     Parser.Free;
   end;
