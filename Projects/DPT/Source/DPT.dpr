@@ -716,13 +716,26 @@ begin
 
       try
         var Instructions: string;
-        if WorkflowEngine.CheckConditions(Instructions) = waExit then
+        if WorkflowEngine.CheckConditions(Instructions, gtBefore) = waExit then
         begin
           Writeln('-------------------------------------------------------------------------------');
           Writeln('DPT WORKFLOW VIOLATION:');
           Writeln(Instructions);
           Writeln('-------------------------------------------------------------------------------');
-          ExitCode := 1;
+          
+          if WorkflowEngine.ExitCode = 0 then
+            WorkflowEngine.ExitCode := 1;
+
+          // Now check AfterDptGuard for the violation
+          var AfterInstructions: string;
+          WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
+          if AfterInstructions <> '' then
+          begin
+            Writeln(AfterInstructions);
+            Writeln('-------------------------------------------------------------------------------');
+          end;
+
+          ExitCode := WorkflowEngine.ExitCode;
           Exit;
         end;
 
@@ -756,6 +769,21 @@ begin
     begin
       try
         ProcessCmdLine(WorkflowEngine);
+        
+        // After successful or failed execution, check AfterDptGuard
+        if Assigned(WorkflowEngine) then
+        begin
+          WorkflowEngine.ExitCode := ExitCode;
+          var AfterInstructions: string;
+          WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
+          if AfterInstructions <> '' then
+          begin
+             Writeln('-------------------------------------------------------------------------------');
+             Writeln(AfterInstructions);
+             Writeln('-------------------------------------------------------------------------------');
+          end;
+          ExitCode := WorkflowEngine.ExitCode;
+        end;
       finally
         WorkflowEngine.Free;
       end;

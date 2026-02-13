@@ -26,8 +26,11 @@ uses
 type
   TDptWorkflowAction = (waNone, waExit);
 
+  TDptGuardType = (gtBefore, gtAfter);
+
   TDptWorkflowBlock = class
   public
+    GuardType: TDptGuardType;
     Condition: string;
     Instructions: string;
     NestedBlocks: TObjectList<TDptWorkflowBlock>;
@@ -50,6 +53,7 @@ type
     FCurrentLintTargetFile: string;
     FCurrentProjectFiles: TArray<string>;
     FExitRequested: Boolean;
+    FExitCode: Integer;
 
     procedure LoadWorkflow;
     function FindWorkflowFile: string;
@@ -67,6 +71,8 @@ type
     function ExprParserGetCurrentProjectFiles: Variant;
     function ExprParserHasValidLintResult(const Args: Variant): Variant;
     function ExprParserRequestDptExit: Variant;
+    function ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
+    function ExprParserGetExitCode: Variant;
 
   public
     constructor Create(const AAction, AAiSessionAction: string);
@@ -74,8 +80,9 @@ type
     
     procedure SetLintTarget(const AFile: string);
     procedure SetProjectFiles(const AFiles: TArray<string>);
+    procedure SetExitCode(ACode: Integer);
 
-    function CheckConditions(out AInstructions: string): TDptWorkflowAction;
+    function CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
     
     // Session management
     procedure StartSession;
@@ -88,6 +95,7 @@ type
     property Session: TDptSessionData read FSession;
     property WorkflowFile: string read FWorkflowFile;
     property HostPID: DWORD read FHostPID;
+    property ExitCode: Integer read FExitCode write SetExitCode;
   end;
 
 implementation
@@ -173,19 +181,36 @@ var
     CurrentBlock := nil;
     while CurrentLine < Lines.Count do
     begin
-      Line := System.SysUtils.Trim(Lines[CurrentLine]);
+      Line := Trim(Lines[CurrentLine]);
       Inc(CurrentLine);
       
       if (Line = '') or Line.StartsWith('#') then Continue;
 
-      if Line.StartsWith('DptCondition:') then
+      if Line.StartsWith('BeforeDptGuard:') then
       begin
         CurrentBlock := TDptWorkflowBlock.Create;
-        CurrentBlock.Condition := System.SysUtils.Trim(Copy(Line, 14, MaxInt));
+        CurrentBlock.GuardType := gtBefore;
+        CurrentBlock.Condition := Trim(Copy(Line, 16, MaxInt));
         
         if CurrentBlock.Condition.EndsWith('{') then
         begin
-          CurrentBlock.Condition := System.SysUtils.Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
+          CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
+          ABlocks.Add(CurrentBlock);
+          ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
+          CurrentBlock := nil;
+        end
+        else
+          ABlocks.Add(CurrentBlock);
+      end
+      else if Line.StartsWith('AfterDptGuard:') then
+      begin
+        CurrentBlock := TDptWorkflowBlock.Create;
+        CurrentBlock.GuardType := gtAfter;
+        CurrentBlock.Condition := Trim(Copy(Line, 15, MaxInt));
+        
+        if CurrentBlock.Condition.EndsWith('{') then
+        begin
+          CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
           ABlocks.Add(CurrentBlock);
           ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
           CurrentBlock := nil;
@@ -197,10 +222,10 @@ var
       begin
         if Assigned(CurrentBlock) then
         begin
-          Remaining := System.SysUtils.Trim(Copy(Line, 2, MaxInt));
+          Remaining := Trim(Copy(Line, 2, MaxInt));
           if Remaining.EndsWith('}') then
           begin
-            CurrentBlock.Instructions := System.SysUtils.Trim(Copy(Remaining, 1, Length(Remaining) - 1));
+            CurrentBlock.Instructions := Trim(Copy(Remaining, 1, Length(Remaining) - 1));
             CurrentBlock := nil;
           end
           else
@@ -268,6 +293,10 @@ begin
     ResVal := ExprParserHasValidLintResult(Args)
   else if SameText(FuncName, 'RequestDptExit') then
     ResVal := ExprParserRequestDptExit
+  else if SameText(FuncName, 'RequestDptExitWithCode') then
+    ResVal := ExprParserRequestDptExitWithCode(Args)
+  else if SameText(FuncName, 'GetExitCode') then
+    ResVal := ExprParserGetExitCode
   else
     Exit(False);
 
@@ -283,6 +312,19 @@ function TDptWorkflowEngine.ExprParserRequestDptExit: Variant;
 begin
   FExitRequested := True;
   Result := True;
+end;
+
+function TDptWorkflowEngine.ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
+begin
+  FExitRequested := True;
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    FExitCode := Args[0];
+  Result := True;
+end;
+
+function TDptWorkflowEngine.ExprParserGetExitCode: Variant;
+begin
+  Result := FExitCode;
 end;
 
 function TDptWorkflowEngine.ExprParserIsCurrentAction(const Args: Variant): Variant;
@@ -387,11 +429,37 @@ begin
   end;
 end;
 
-function TDptWorkflowEngine.CheckConditions(out AInstructions: string): TDptWorkflowAction;
+function TDptWorkflowEngine.CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
 var
   Parser: TExprParser;
 
   procedure EvalBlocks(ABlocks: TObjectList<TDptWorkflowBlock>);
+    function ProcessInstructions(const AStr: string): string;
+    var
+      StartPos, EndPos: Integer;
+      Expr: string;
+    begin
+      Result := AStr;
+      StartPos := Pos('`', Result);
+      while StartPos > 0 do
+      begin
+        EndPos := Pos('`', Result, StartPos + 1);
+        if EndPos > 0 then
+        begin
+          Expr := Copy(Result, StartPos + 1, EndPos - StartPos - 1);
+          if Parser.Eval(Expr) then
+          begin
+            Result := Copy(Result, 1, StartPos - 1) + VarToStr(Parser.Value) + Copy(Result, EndPos + 1, MaxInt);
+            StartPos := Pos('`', Result, StartPos + Length(VarToStr(Parser.Value)));
+          end
+          else
+            StartPos := Pos('`', Result, EndPos + 1);
+        end
+        else
+          Break;
+      end;
+    end;
+
   var
     Block: TDptWorkflowBlock;
     TrimmedInstructions: string;
@@ -400,13 +468,13 @@ var
     begin
       if FExitRequested then Exit;
 
-      if Parser.Eval(Block.Condition) then
+      if (Block.GuardType = AGuardType) and Parser.Eval(Block.Condition) then
       begin
         if Parser.Value <> 0 then
         begin
-          TrimmedInstructions := System.SysUtils.Trim(Block.Instructions);
+          TrimmedInstructions := Trim(Block.Instructions);
           if TrimmedInstructions <> '' then
-            AInstructions := AInstructions + TrimmedInstructions + sLineBreak + sLineBreak;
+            AInstructions := AInstructions + ProcessInstructions(TrimmedInstructions) + sLineBreak + sLineBreak;
           
           if Block.NestedBlocks.Count > 0 then
             EvalBlocks(Block.NestedBlocks);
@@ -540,6 +608,11 @@ end;
 procedure TDptWorkflowEngine.SetProjectFiles(const AFiles: TArray<string>);
 begin
   FCurrentProjectFiles := AFiles;
+end;
+
+procedure TDptWorkflowEngine.SetExitCode(ACode: Integer);
+begin
+  FExitCode := ACode;
 end;
 
 end.
