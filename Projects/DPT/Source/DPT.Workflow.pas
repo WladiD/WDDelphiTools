@@ -131,13 +131,16 @@ begin
     FWorkflowFile := FindWorkflowFile;
     if FWorkflowFile <> '' then
     begin
+      Writeln('AI Workflow file FOUND: ', FWorkflowFile);
       FSessionFile := FWorkflowFile + '.Session' + IntToStr(FHostPID) + '.json';
       FSession := TDptSessionData.Create;
       FSession.HostPID := FHostPID;
       if TFile.Exists(FSessionFile) then
         FSession.LoadFromFile(FSessionFile);
       LoadWorkflow;
-    end;
+    end
+    else
+      Writeln('AI Workflow file NOT found. Searched up from: ', GetCurrentDir);
   end;
 end;
 
@@ -151,19 +154,33 @@ function TDptWorkflowEngine.FindWorkflowFile: string;
 var
   CurrentDir: string;
   ParentDir: string;
+  Candidate: string;
 begin
   Result := '';
   CurrentDir := GetCurrentDir;
-  while True do
+  
+  // 1. Search up from current directory
+  while CurrentDir <> '' do
   begin
-    if TFile.Exists(TPath.Combine(CurrentDir, WorkflowFileName)) then
+    Candidate := TPath.Combine(CurrentDir, WorkflowFileName);
+    if TFile.Exists(Candidate) then
     begin
-      Result := TPath.Combine(CurrentDir, WorkflowFileName);
+      Result := Candidate;
       Break;
     end;
+    
     ParentDir := TPath.GetDirectoryName(CurrentDir);
-    if (ParentDir = '') or (ParentDir = CurrentDir) then Break;
+    if (ParentDir = '') or (ParentDir = CurrentDir) then 
+      Break;
     CurrentDir := ParentDir;
+  end;
+
+  // 2. Fallback: Check directory of DPT.exe itself
+  if Result = '' then
+  begin
+    Candidate := TPath.Combine(ExtractFilePath(ParamStr(0)), WorkflowFileName);
+    if TFile.Exists(Candidate) then
+      Result := Candidate;
   end;
 end;
 
@@ -432,48 +449,67 @@ function TDptWorkflowEngine.ProcessInstructions(AParser: TExprParser; const AStr
 var
   I, Start: Integer;
   Expr: string;
+  InstrLines: TStringList;
+  Line: string;
 begin
   Result := '';
-  I := 1;
-  while I <= Length(AStr) do
-  begin
-    if AStr[I] = '`' then
+  InstrLines := TStringList.Create;
+  try
+    InstrLines.Text := AStr;
+    for Line in InstrLines do
     begin
-      // Escaping: Double backtick becomes a single literal backtick
-      if (I < Length(AStr)) and (AStr[I + 1] = '`') then
-      begin
-        Result := Result + '`';
-        Inc(I, 2);
+      // Skip lines that are likely commands (no backticks, but contain function calls)
+      if (Line <> '') and (Pos('`', Line) = 0) and (Pos('(', Line) > 0) and (Pos(')', Line) > 0) then
         Continue;
-      end;
 
-      // Find expression
-      Start := I + 1;
-      I := Start;
-      while (I <= Length(AStr)) and (AStr[I] <> '`') do
-        Inc(I);
-
-      if I <= Length(AStr) then
+      var ProcessedLine := '';
+      I := 1;
+      while I <= Length(Line) do
       begin
-        Expr := Copy(AStr, Start, I - Start);
-        if AParser.Eval(Expr) then
-          Result := Result + VarToStr(AParser.Value)
+        if Line[I] = '`' then
+        begin
+          // Escaping: Double backtick becomes a single literal backtick
+          if (I < Length(Line)) and (Line[I + 1] = '`') then
+          begin
+            ProcessedLine := ProcessedLine + '`';
+            Inc(I, 2);
+            Continue;
+          end;
+
+          // Find expression
+          Start := I + 1;
+          I := Start;
+          while (I <= Length(Line)) and (Line[I] <> '`') do
+            Inc(I);
+
+          if I <= Length(Line) then
+          begin
+            Expr := Copy(Line, Start, I - Start);
+            if AParser.Eval(Expr) then
+              ProcessedLine := ProcessedLine + VarToStr(AParser.Value)
+            else
+              ProcessedLine := ProcessedLine + '`' + Expr + '`'; // Fallback: Keep as text if not a valid expression
+            Inc(I);
+          end
+          else
+          begin
+            // Unclosed backtick: treat as literal text
+            ProcessedLine := ProcessedLine + '`';
+            I := Start;
+          end;
+        end
         else
-          Result := Result + '`' + Expr + '`'; // Fallback: Keep as text if not a valid expression
-        Inc(I);
-      end
-      else
-      begin
-        // Unclosed backtick: treat as literal text
-        Result := Result + '`';
-        I := Start;
+        begin
+          ProcessedLine := ProcessedLine + Line[I];
+          Inc(I);
+        end;
       end;
-    end
-    else
-    begin
-      Result := Result + AStr[I];
-      Inc(I);
+      
+      if Trim(ProcessedLine) <> '' then
+        Result := Result + ProcessedLine + sLineBreak;
     end;
+  finally
+    InstrLines.Free;
   end;
 end;
 
@@ -481,6 +517,8 @@ procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; const ABlocks: ILi
 var
   Block: TDptWorkflowBlock;
   TrimmedInstructions: string;
+  InstrLines: TStringList;
+  Line: string;
 begin
   for Block in ABlocks do
   begin
@@ -492,7 +530,24 @@ begin
       begin
         TrimmedInstructions := Trim(Block.Instructions);
         if TrimmedInstructions <> '' then
-          AInstructions := AInstructions + ProcessInstructions(AParser, TrimmedInstructions) + sLineBreak + sLineBreak;
+        begin
+          // Execute commands (lines without backticks)
+          InstrLines := TStringList.Create;
+          try
+            InstrLines.Text := TrimmedInstructions;
+            for Line in InstrLines do
+            begin
+              if (Line <> '') and (Pos('`', Line) = 0) then
+                AParser.Eval(Line);
+            end;
+          finally
+            InstrLines.Free;
+          end;
+
+          var Processed := ProcessInstructions(AParser, TrimmedInstructions);
+          if Processed <> '' then
+            AInstructions := AInstructions + Processed + sLineBreak;
+        end;
         
         if Block.NestedBlocks.Count > 0 then
           EvalBlocks(AParser, Block.NestedBlocks, AGuardType, AInstructions);

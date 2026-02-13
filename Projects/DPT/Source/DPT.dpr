@@ -684,34 +684,66 @@ begin
 
     // Workflow Engine integration
     var WorkflowEngine: TDptWorkflowEngine := nil;
-    if ParamCount > 1 then
+    if ParamCount >= 1 then
     begin
       var LAction, LAiSessionAction: string;
-      LAction := ParamStr(2);
-      LAiSessionAction := '';
-      if SameText(LAction, 'AiSession') and (ParamCount >= 3) then
-        LAiSessionAction := ParamStr(3);
+      var LCmdLine := TCmdLineConsumer.Create;
+      try
+        // Try to identify action (skip version if present)
+        var LArg := LCmdLine.CheckParameter('Version/Action');
+        var LDummyVersion: TDelphiVersion;
+        if IsLatestVersionAlias(LArg) or IsValidDelphiVersion(LArg, LDummyVersion) then
+        begin
+          LCmdLine.ConsumeParameter;
+          if LCmdLine.HasParameter then
+            LArg := LCmdLine.CheckParameter('Action')
+          else
+            LArg := '';
+        end;
+        LAction := LArg;
+        
+        LAiSessionAction := '';
+        if SameText(LAction, 'AiSession') and LCmdLine.HasParameter then
+        begin
+          LCmdLine.ConsumeParameter;
+          if LCmdLine.HasParameter then
+            LAiSessionAction := LCmdLine.CheckParameter('AiAction');
+        end;
 
-      WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+        WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+      finally
+        LCmdLine.Free;
+      end;
 
       // Configure context for engine
-      if SameText(LAction, 'Build') and (ParamCount >= 3) then
+      if SameText(LAction, 'Build') and (ParamCount >= 2) then
       begin
-        var LProjFile := ExpandFileName(ParamStr(3));
-        if TFile.Exists(LProjFile) and SameText(ExtractFileExt(LProjFile), '.dproj') then
+        // Find project file parameter (might be ParamStr(2) or ParamStr(3))
+        var LProjFileArgIdx := 2;
+        if IsLatestVersionAlias(ParamStr(1)) then LProjFileArgIdx := 3;
+        
+        if ParamCount >= LProjFileArgIdx then
         begin
-          var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
-          try
-            WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
-          finally
-            LAnalyzer.Free;
+          var LProjFile := ExpandFileName(ParamStr(LProjFileArgIdx));
+          if TFile.Exists(LProjFile) and SameText(ExtractFileExt(LProjFile), '.dproj') then
+          begin
+            var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
+            try
+              WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
+            finally
+              LAnalyzer.Free;
+            end;
           end;
         end;
       end
-      else if SameText(LAction, 'Lint') and (ParamCount >= 4) then
+      else if SameText(LAction, 'Lint') then
       begin
-        // Target is from ParamStr(4) onwards
-        WorkflowEngine.SetLintTarget(ParamStr(4));
+        // Find lint target parameter
+        var LLintTargetIdx := 3; // DPT.exe LATEST Lint [Style] [Target]
+        if not IsLatestVersionAlias(ParamStr(1)) then LLintTargetIdx := 2; // DPT.exe Lint [Style] [Target]
+        // Actually Style is before Target. Target is ParamStr(LLintTargetIdx + 1)
+        if ParamCount >= LLintTargetIdx + 1 then
+          WorkflowEngine.SetLintTarget(ParamStr(LLintTargetIdx + 1));
       end;
 
       try
@@ -723,8 +755,9 @@ begin
           Writeln(Instructions);
           Writeln('-------------------------------------------------------------------------------');
           
-          if WorkflowEngine.ExitCode = 0 then
-            WorkflowEngine.ExitCode := 1;
+          var LFinalExitCode := WorkflowEngine.ExitCode;
+          if LFinalExitCode = 0 then
+            LFinalExitCode := 1;
 
           // Now check AfterDptGuard for the violation
           var AfterInstructions: string;
@@ -735,7 +768,7 @@ begin
             Writeln('-------------------------------------------------------------------------------');
           end;
 
-          ExitCode := WorkflowEngine.ExitCode;
+          System.ExitCode := LFinalExitCode;
           Exit;
         end;
 
