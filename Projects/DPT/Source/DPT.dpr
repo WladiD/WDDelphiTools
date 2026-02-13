@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -732,6 +732,7 @@ begin
           begin
             var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
             try
+              WorkflowEngine.SetCurrentProjectFile(LProjFile);
               WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
             finally
               LAnalyzer.Free;

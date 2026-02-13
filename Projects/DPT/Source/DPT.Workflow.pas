@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -54,6 +54,7 @@ type
     FCurrentAction: string;
     FCurrentAiSessionAction: string;
     FCurrentLintTargetFile: string;
+    FCurrentProjectFile: string;
     FCurrentProjectFiles: TArray<string>;
     FExitRequested: Boolean;
     FExitCode: Integer;
@@ -73,10 +74,12 @@ type
     function ExprParserAiSessionStarted: Variant;
     function ExprParserIsCurrentAction(const Args: Variant): Variant;
     function ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
+    function ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
     function ExprParserGetCurrentLintTargetFile: Variant;
     function ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
     function ExprParserGetCurrentProjectFiles: Variant;
     function ExprParserHasValidLintResult(const Args: Variant): Variant;
+    function ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
     function ExprParserRequestDptExit: Variant;
     function ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
     function ExprParserGetExitCode: Variant;
@@ -86,6 +89,7 @@ type
     destructor Destroy; override;
     
     procedure SetLintTarget(const AFile: string);
+    procedure SetCurrentProjectFile(const AFile: string);
     procedure SetProjectFiles(const AFiles: TArray<string>);
     procedure SetExitCode(ACode: Integer);
 
@@ -308,6 +312,8 @@ begin
     ResVal := ExprParserIsCurrentAction(Args)
   else if SameText(FuncName, 'IsCurrentAiSessionAction') then
     ResVal := ExprParserIsCurrentAiSessionAction(Args)
+  else if SameText(FuncName, 'IsCurrentBuildProjectFile') then
+    ResVal := ExprParserIsCurrentBuildProjectFile(Args)
   else if SameText(FuncName, 'GetCurrentLintTargetFile') then
     ResVal := ExprParserGetCurrentLintTargetFile
   else if SameText(FuncName, 'IsFileRegisteredInAiSession') then
@@ -316,6 +322,8 @@ begin
     ResVal := ExprParserGetCurrentProjectFiles
   else if SameText(FuncName, 'HasValidLintResult') then
     ResVal := ExprParserHasValidLintResult(Args)
+  else if SameText(FuncName, 'GetInvalidLintFiles') then
+    ResVal := ExprParserGetInvalidLintFiles(Args)
   else if SameText(FuncName, 'RequestDptExit') then
     ResVal := ExprParserRequestDptExit
   else if SameText(FuncName, 'RequestDptExitWithCode') then
@@ -364,6 +372,13 @@ begin
   Result := False;
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
     Result := SameText(VarToStr(Args[0]), FCurrentAiSessionAction);
+end;
+
+function TDptWorkflowEngine.ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
+begin
+  Result := False;
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    Result := SameText(ExtractFileName(VarToStr(Args[0])), ExtractFileName(FCurrentProjectFile));
 end;
 
 function TDptWorkflowEngine.ExprParserGetCurrentLintTargetFile: Variant;
@@ -428,7 +443,10 @@ begin
         FileName := ExpandFileName(FileName);
         
         // Only require lint results for files modified or created since session start
-        if TFile.GetLastWriteTime(FileName) < FSession.StartTime then
+        var FileTime := TFile.GetLastWriteTime(FileName);
+        
+        // Use a small tolerance (1 second) to account for file system precision and timing
+        if FileTime < (FSession.StartTime - EncodeTime(0, 0, 1, 0)) then
           Continue;
 
         Found := False;
@@ -451,6 +469,61 @@ begin
       end;
     end;
     Result := AllValid;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
+var
+  FileName: string;
+  FilesVar: Variant;
+  InvalidFiles: TStringList;
+  Found: Boolean;
+  Entry: TDptSessionFileEntry;
+  I: Integer;
+begin
+  Result := '';
+  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
+  begin
+    FilesVar := Args[0];
+    InvalidFiles := TStringList.Create;
+    try
+      if VarIsArray(FilesVar) then
+      begin
+        for I := 0 to VarArrayHighBound(FilesVar, 1) do
+        begin
+          FileName := VarToStr(FilesVar[I]);
+          if not TFile.Exists(FileName) then Continue;
+          FileName := ExpandFileName(FileName);
+          
+          // Only check files modified or created since session start
+          if TFile.GetLastWriteTime(FileName) < FSession.StartTime then
+            Continue;
+
+          Found := False;
+          for Entry in FSession.Files do
+          begin
+            if SameText(Entry.Path, FileName) then
+            begin
+              if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
+                Found := True;
+              Break;
+            end;
+          end;
+
+          if not Found then
+            InvalidFiles.Add(ExtractFileName(FileName));
+        end;
+      end;
+      
+      Result := '';
+      for I := 0 to InvalidFiles.Count - 1 do
+      begin
+        if I > 0 then Result := Result + sLineBreak;
+        Result := Result + InvalidFiles[I];
+      end;
+    finally
+      InvalidFiles.Free;
+    end;
   end;
 end;
 
@@ -495,7 +568,27 @@ begin
           begin
             Expr := Copy(Line, Start, I - Start);
             if AParser.Eval(Expr) then
-              ProcessedLine := ProcessedLine + VarToStr(AParser.Value)
+            begin
+              var Prefix := ProcessedLine;
+              var EvalResult := VarToStr(AParser.Value);
+              
+              var LResultLines := TStringList.Create;
+              try
+                LResultLines.Text := EvalResult;
+                // Remove trailing empty line if present
+                if (LResultLines.Count > 0) and (LResultLines[LResultLines.Count-1] = '') then
+                  LResultLines.Delete(LResultLines.Count-1);
+                  
+                for var LIdx := 0 to LResultLines.Count - 1 do
+                begin
+                  if LIdx > 0 then
+                    ProcessedLine := ProcessedLine + sLineBreak + Prefix;
+                  ProcessedLine := ProcessedLine + LResultLines[LIdx];
+                end;
+              finally
+                LResultLines.Free;
+              end;
+            end
             else
               ProcessedLine := ProcessedLine + '`' + Expr + '`'; // Fallback: Keep as text if not a valid expression
             Inc(I);
@@ -599,6 +692,14 @@ procedure TDptWorkflowEngine.StartSession;
 begin
   if FSessionFile = '' then
     raise Exception.Create('No workflow file found. Cannot start session.');
+
+  if TFile.Exists(FSessionFile) then
+  begin
+    Writeln('AI session is already active for PID ', FHostPID);
+    Writeln('To restart the session and reset the baseline time, use:');
+    Writeln('  DPT.exe LATEST AiSession Reset');
+    Exit;
+  end;
     
   if not Assigned(FSession) then
     FSession := TDptSessionData.Create;
@@ -626,9 +727,9 @@ begin
   if Assigned(FSession) then
   begin
     FSession.Files.Clear;
-    FSession.StartTime := Now;
+    // We explicitly keep the StartTime to prevent cheating the baseline
     FSession.SaveToFile(FSessionFile);
-    Writeln('AI session reset.');
+    Writeln('AI session reset. Success list cleared, but baseline time remains: ', DateTimeToStr(FSession.StartTime));
   end;
 end;
 
@@ -636,10 +737,36 @@ procedure TDptWorkflowEngine.AddFilesToSession(const AFiles: TArray<string>);
 var
   FileName: string;
   Entry: TDptSessionFileEntry;
+  FullFileName: string;
+  ExistingEntry: TDptSessionFileEntry;
+  AlreadyRegistered: Boolean;
 begin
   for FileName in AFiles do
   begin
-    Entry.Path := ExpandFileName(FileName);
+    FullFileName := ExpandFileName(FileName);
+    if not TFile.Exists(FullFileName) then
+    begin
+      Writeln('ERROR: File not found: ', FileName);
+      raise Exception.Create('Cannot register non-existent file: ' + FileName);
+    end;
+
+    AlreadyRegistered := False;
+    for ExistingEntry in FSession.Files do
+    begin
+      if SameText(ExistingEntry.Path, FullFileName) then
+      begin
+        AlreadyRegistered := True;
+        Break;
+      end;
+    end;
+
+    if AlreadyRegistered then
+    begin
+      Writeln('File already registered in AI session: ', FileName);
+      Continue;
+    end;
+
+    Entry.Path := FullFileName;
     Entry.Hash := ''; 
     Entry.LastLintTime := 0;
     Entry.LintSuccess := False;
@@ -693,6 +820,11 @@ end;
 procedure TDptWorkflowEngine.SetLintTarget(const AFile: string);
 begin
   FCurrentLintTargetFile := AFile;
+end;
+
+procedure TDptWorkflowEngine.SetCurrentProjectFile(const AFile: string);
+begin
+  FCurrentProjectFile := AFile;
 end;
 
 procedure TDptWorkflowEngine.SetProjectFiles(const AFiles: TArray<string>);
