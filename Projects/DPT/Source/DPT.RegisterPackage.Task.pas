@@ -21,12 +21,14 @@ type
   TDptRegisterPackageTask = class(TDptTaskBase)
   public
     PathToBPL: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
   TDptIsPackageRegisteredTask = class(TDptTaskBase)
   public
     PackageFileName: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -34,12 +36,26 @@ implementation
 
 { TDptRegisterPackageTask }
 
+procedure TDptRegisterPackageTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  PathToBPL := CmdLine.CheckParameter('PathToBPL');
+  CmdLine.ConsumeParameter;
+  Writeln(Format('Register design time package "%s"...', [PathToBPL]));
+end;
+
 procedure TDptRegisterPackageTask.Execute;
 begin
   Installation.RegisterPackage(PathToBPL, '');
 end;
 
 { TDptIsPackageRegisteredTask }
+
+procedure TDptIsPackageRegisteredTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  PackageFileName := CmdLine.CheckParameter('PackageFileName');
+  CmdLine.ConsumeParameter;
+  Writeln(Format('Checking if package "%s" is registered...', [PackageFileName]));
+end;
 
 procedure TDptIsPackageRegisteredTask.Execute;
 var

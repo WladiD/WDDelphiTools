@@ -12,6 +12,7 @@ uses
   System.Classes,
   System.IOUtils,
   System.SysUtils,
+  System.IniFiles,
   Slim.Server,
   DPT.Types,
   DPT.Lint.Context;
@@ -33,6 +34,7 @@ type
   public
     constructor Create; override;
     destructor Destroy; override;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
     property StyleFile: string read FStyleFile write FStyleFile;
     property TargetFiles: TStrings read FTargetFiles;
@@ -63,6 +65,86 @@ destructor TDptLintTask.Destroy;
 begin
   FTargetFiles.Free;
   inherited;
+end;
+
+procedure TDptLintTask.Parse(CmdLine: TCmdLineConsumer);
+var
+  FitNesseDir: string;
+  IniPath: string;
+  Ini: TIniFile;
+  Param: string;
+begin
+  FVerbose := False;
+  FitNesseDir := '';
+  FStyleFile := '';
+  FTargetFiles.Clear;
+
+  while CmdLine.HasParameter do
+  begin
+    Param := CmdLine.CheckParameter('Option/File');
+
+    if SameText(Param, '--verbose') then
+    begin
+      FVerbose := True;
+      CmdLine.ConsumeParameter;
+    end
+    else if Param.StartsWith('--fitnesse-dir=', True) then
+    begin
+      FitNesseDir := Param.Substring(15).DeQuotedString('"');
+      CmdLine.ConsumeParameter;
+    end
+    else if Param.StartsWith('--') then
+    begin
+      CmdLine.InvalidParameter('Unknown option: ' + Param);
+    end
+    else
+    begin
+      // Positional arguments
+      if FStyleFile = '' then
+      begin
+        FStyleFile := ExpandFileName(Param);
+        CmdLine.ConsumeParameter;
+      end
+      else
+      begin
+        // Any subsequent parameter is treated as a target file
+        FTargetFiles.Add(ExpandFileName(Param));
+        CmdLine.ConsumeParameter;
+      end;
+    end;
+  end;
+
+  if FStyleFile = '' then
+    CmdLine.InvalidParameter('Missing parameter: StyleFile');
+
+  if FTargetFiles.Count = 0 then
+    CmdLine.InvalidParameter('Missing parameter: TargetFile(s)');
+
+  if FitNesseDir = '' then
+  begin
+    IniPath := TPath.Combine(ExtractFilePath(ParamStr(0)), DptConfigFileName);
+    if not TFile.Exists(IniPath) then
+      IniPath := FileSearch(DptConfigFileName, GetEnvironmentVariable('PATH'));
+
+    if IniPath <> '' then
+    begin
+      Ini := TIniFile.Create(IniPath);
+      try
+        FitNesseDir := Ini.ReadString('FitNesse', 'Dir', '');
+      finally
+        Ini.Free;
+      end;
+    end;
+  end;
+
+  if FitNesseDir = '' then
+    raise Exception.Create('FitNesse directory not configured.' + sLineBreak +
+      'Please provide it via --fitnesse-dir="X:\Path" or create a ' + DptConfigFileName + ' in your PATH with:' + sLineBreak +
+      '[FitNesse]' + sLineBreak +
+      'Dir=C:\Path\To\FitNesse');
+
+  FFitNesseDir := FitNesseDir;
+  FFitNesseRoot := TPath.Combine(FitNesseDir, 'FitNesseRoot');
 end;
 
 procedure TDptLintTask.Execute;

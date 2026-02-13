@@ -22,6 +22,7 @@ type
   public
     PathToPrint: String;
     function GetPathResult: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -44,6 +45,15 @@ const
 implementation
 
 { TDptPrintPathTask }
+
+procedure TDptPrintPathTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  PathToPrint := CmdLine.CheckParameter('PathToPrint');
+  if Pos('|' + UpperCase(PathToPrint) + '|',  '|' + UpperCase(ValidPathToPrint) + '|') >= 1 then
+    CmdLine.ConsumeParameter
+  else
+    CmdLine.InvalidParameter('Unknown path literal');
+end;
 
 function TDptPrintPathTask.GetPathResult: String;
 var

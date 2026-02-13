@@ -29,6 +29,7 @@ type
     procedure ExportRegistry;
   public
     TargetPath: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -37,12 +38,19 @@ type
     procedure CopyDirectory(const SourceDir, DestDir: String);
     procedure ImportRegistry;
   public
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
 implementation
 
 { TDptExportBuildEnvironmentTask }
+
+procedure TDptExportBuildEnvironmentTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  TargetPath := ExpandFileName(CmdLine.CheckParameter('TargetPath'));
+  CmdLine.ConsumeParameter;
+end;
 
 procedure TDptExportBuildEnvironmentTask.CopyDirectory(const SourceDir, DestDir: String);
 var
@@ -267,6 +275,11 @@ begin
 end;
 
 { TDptImportBuildEnvironmentTask }
+
+procedure TDptImportBuildEnvironmentTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  // No extra parameters
+end;
 
 procedure TDptImportBuildEnvironmentTask.CopyDirectory(const SourceDir, DestDir: String);
 var

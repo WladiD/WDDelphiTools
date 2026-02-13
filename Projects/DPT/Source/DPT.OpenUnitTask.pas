@@ -34,6 +34,7 @@ type
     FullPathToUnit      : String;
     GoToLine            : Integer;
     MemberImplementation: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -64,6 +65,33 @@ type
 function GetExtendedTcpTable(pTcpTable: Pointer; var pdwSize: DWORD; bOrder: BOOL; ulAf: ULONG; TableClass: Integer; Reserved: ULONG): DWORD; stdcall; external 'iphlpapi.dll';
 
 { TDptOpenUnitTask }
+
+procedure TDptOpenUnitTask.Parse(CmdLine: TCmdLineConsumer);
+var
+  NextParam: String;
+begin
+  FullPathToUnit := CmdLine.CheckParameter('FullPathToUnit');
+  CmdLine.ConsumeParameter; // Consume file path
+  
+  while CmdLine.HasParameter do
+  begin
+     NextParam := CmdLine.CheckParameter('Optional: GoToLine / GoToMemberImplementation');
+     if SameText(NextParam, 'GoToLine') then
+     begin
+       CmdLine.ConsumeParameter; // Consume 'GoToLine' keyword
+       GoToLine := StrToIntDef(CmdLine.CheckParameter('LineNumber'), 0);
+       CmdLine.ConsumeParameter; // Consume line number
+     end
+     else if SameText(NextParam, 'GoToMemberImplementation') then
+     begin
+       CmdLine.ConsumeParameter; // Consume keyword
+       MemberImplementation := CmdLine.CheckParameter('MemberName');
+       CmdLine.ConsumeParameter; // Consume value
+     end
+     else
+       Break;
+  end;
+end;
 
 function TDptOpenUnitTask.GetListeningPorts(ProcessID: DWORD): TArray<Integer>;
 var

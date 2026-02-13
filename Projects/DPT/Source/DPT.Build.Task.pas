@@ -20,7 +20,8 @@ uses
 
   JclIDEUtils,
 
-  DPT.Types;
+  DPT.Types,
+  DPT.Utils;
 
 type
 
@@ -32,6 +33,7 @@ type
     ExtraArgs     : String;
     ProjectFile   : String;
     TargetPlatform: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -42,12 +44,48 @@ type
   public
     OnlyIfChanged: Boolean;
     RunArgs: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
 implementation
 
 { TDptBuildTask }
+
+procedure TDptBuildTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  // ProjectFile (Required)
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+
+  // Platform (Optional)
+  if CmdLine.HasParameter then
+  begin
+    TargetPlatform := CmdLine.CheckParameter('Platform');
+    CmdLine.ConsumeParameter;
+  end
+  else
+    TargetPlatform := 'Win32';
+
+  // Config (Optional)
+  if CmdLine.HasParameter then
+  begin
+    Config := CmdLine.CheckParameter('Config');
+    CmdLine.ConsumeParameter;
+  end
+  else
+    Config := 'Debug';
+
+  // ExtraArgs (Optional - consume all remaining)
+  ExtraArgs := '';
+  while CmdLine.HasParameter do
+  begin
+     ExtraArgs := ExtraArgs + ' ' + CmdLine.CheckParameter('ExtraArg');
+     CmdLine.ConsumeParameter;
+  end;
+  ExtraArgs := Trim(ExtraArgs);
+end;
 
 function TDptBuildTask.RunShellCommand(const CommandLine: String): Integer;
 var
@@ -110,6 +148,73 @@ begin
 end;
 
 { TDptBuildAndRunTask }
+
+procedure TDptBuildAndRunTask.Parse(CmdLine: TCmdLineConsumer);
+var
+  Arg         : String;
+  ArgsConsumed: Boolean;
+begin
+  // ProjectFile (Required)
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+
+  // Defaults
+  TargetPlatform := 'Win32';
+  Config := 'Debug';
+  OnlyIfChanged := False;
+  ExtraArgs := '';
+  RunArgs := '';
+
+  ArgsConsumed := False; // Flag to track if we hit "--"
+
+  while CmdLine.HasParameter do
+  begin
+    Arg := CmdLine.CheckParameter('Args');
+
+    if ArgsConsumed then
+    begin
+      // Append to RunArgs
+      RunArgs := RunArgs + ' ' + Arg;
+      CmdLine.ConsumeParameter;
+      Continue;
+    end;
+
+    if Arg = '--' then
+    begin
+      ArgsConsumed := True;
+      CmdLine.ConsumeParameter;
+      Continue;
+    end;
+
+    if SameText(Arg, '--OnlyIfChanged') then
+    begin
+      OnlyIfChanged := True;
+      CmdLine.ConsumeParameter;
+      Continue;
+    end;
+
+    if (TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
+    begin
+      TargetPlatform := Arg;
+      CmdLine.ConsumeParameter;
+    end
+    else if (Config = 'Debug') and ((SameText(Arg, 'Debug')) or (SameText(Arg, 'Release')) or (SameText(Arg, 'FitNesse'))) then
+    begin
+      Config := Arg;
+      CmdLine.ConsumeParameter;
+    end
+    else
+    begin
+      // Assume ExtraArg for MSBuild
+      ExtraArgs := ExtraArgs + ' ' + Arg;
+      CmdLine.ConsumeParameter;
+    end;
+  end;
+
+  ExtraArgs := Trim(ExtraArgs);
+  RunArgs := Trim(RunArgs);
+end;
 
 function TDptBuildAndRunTask.FindExeFile: String;
 var

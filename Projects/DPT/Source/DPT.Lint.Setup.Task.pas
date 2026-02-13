@@ -25,6 +25,7 @@ type
     procedure Join;
     procedure Split;
   public
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
     property SubAction: string read FSubAction write FSubAction;
     property StyleFile: string read FStyleFile write FStyleFile;
@@ -33,6 +34,15 @@ type
 implementation
 
 { TDptLintSetupTask }
+
+procedure TDptLintSetupTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  FSubAction := CmdLine.CheckParameter('SubAction (Split/Join)');
+  CmdLine.ConsumeParameter;
+
+  FStyleFile := ExpandFileName(CmdLine.CheckParameter('StyleFile'));
+  CmdLine.ConsumeParameter;
+end;
 
 procedure TDptLintSetupTask.Execute;
 begin

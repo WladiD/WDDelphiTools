@@ -31,6 +31,7 @@ type
     function IsPackageMatching(const PackageFileName: String): Boolean; override;
   public
     SourceDir: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -39,6 +40,7 @@ type
     function IsPackageMatching(const PackageFileName: String): Boolean; override;
   public
     PackageFileName: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -77,6 +79,13 @@ end;
 
 { TDptRemovePackagesBySourceDirTask }
 
+procedure TDptRemovePackagesBySourceDirTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  SourceDir := CmdLine.CheckParameter('SourceDir');
+  CmdLine.ConsumeParameter;
+  Writeln('Unregister design time packages contained in "' + SourceDir + '"...');
+end;
+
 function TDptRemovePackagesBySourceDirTask.IsPackageMatching(const PackageFileName: String): Boolean;
 begin
   Result := Pos(SourceDir, LowerCase(PackageFileName)) = 1;
@@ -89,6 +98,13 @@ begin
 end;
 
 { TDptRemovePackageTask }
+
+procedure TDptRemovePackageTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  PackageFileName := CmdLine.CheckParameter('PackageFileName');
+  CmdLine.ConsumeParameter;
+  Writeln('Unregister design time package "' + PackageFileName + '"...');
+end;
 
 function TDptRemovePackageTask.IsPackageMatching(const PackageFileName: String): Boolean;
 var

@@ -15,19 +15,22 @@ uses
   JclIDEUtils,
 
   DPT.DProjAnalyzer,
-  DPT.Types;
+  DPT.Types,
+  DPT.Utils;
 
 type
 
   TDptDProjPrintConfigsTask = class(TDptTaskBase)
   public
     ProjectFile: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
   TDptDProjPrintCurConfigTask = class(TDptTaskBase)
   public
     ProjectFile: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
@@ -36,12 +39,20 @@ type
     Config     : String;
     Platform   : String;
     ProjectFile: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
 implementation
 
 { TDptDProjPrintConfigsTask }
+
+procedure TDptDProjPrintConfigsTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+end;
 
 procedure TDptDProjPrintConfigsTask.Execute;
 var
@@ -61,6 +72,13 @@ end;
 
 { TDptDProjPrintCurConfigTask }
 
+procedure TDptDProjPrintCurConfigTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+end;
+
 procedure TDptDProjPrintCurConfigTask.Execute;
 var
   Analyzer: TDProjAnalyzer;
@@ -74,6 +92,25 @@ begin
 end;
 
 { TDptDProjPrintSearchPathsTask }
+
+procedure TDptDProjPrintSearchPathsTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+
+  if CmdLine.HasParameter then
+  begin
+    Config := CmdLine.CheckParameter('Config');
+    CmdLine.ConsumeParameter;
+  end;
+
+  if CmdLine.HasParameter then
+  begin
+    Platform := CmdLine.CheckParameter('Platform');
+    CmdLine.ConsumeParameter;
+  end;
+end;
 
 procedure TDptDProjPrintSearchPathsTask.Execute;
 var

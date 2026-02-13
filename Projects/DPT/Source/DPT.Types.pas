@@ -48,6 +48,7 @@ type
   public
     constructor Create; virtual;
     destructor Destroy; override;
+    procedure Parse(CmdLine: TCmdLineConsumer); virtual;
     procedure Execute; virtual; abstract;
   end;
 
@@ -123,6 +124,11 @@ destructor TDptTaskBase.Destroy;
 begin
   FInstallations.Free;
   inherited Destroy;
+end;
+
+procedure TDptTaskBase.Parse(CmdLine: TCmdLineConsumer);
+begin
+  // Default implementation does nothing
 end;
 
 function TDptTaskBase.Installation: TJclBorRADToolInstallation;
