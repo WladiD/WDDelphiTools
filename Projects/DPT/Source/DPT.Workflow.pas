@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -9,21 +9,25 @@ unit DPT.Workflow;
 interface
 
 uses
-  System.SysUtils,
+
+  mormot.core.collections,
+  Winapi.Windows,
+
   System.Classes,
   System.IOUtils,
-  System.Generics.Collections,
-  Winapi.Windows,
-  System.Variants,
-  System.StrUtils,
   System.Math,
-  
+  System.StrUtils,
+  System.SysUtils,
+  System.Variants,
+
   ExprParser,
   ExprParserTools,
+
   DPT.Detection,
   DPT.Workflow.Session;
 
 type
+
   TDptWorkflowAction = (waNone, waExit);
 
   TDptGuardType = (gtBefore, gtAfter);
@@ -33,16 +37,15 @@ type
     GuardType: TDptGuardType;
     Condition: string;
     Instructions: string;
-    NestedBlocks: TObjectList<TDptWorkflowBlock>;
+    NestedBlocks: IList<TDptWorkflowBlock>;
     constructor Create;
-    destructor Destroy; override;
   end;
 
   TDptWorkflowEngine = class
   private
     FWorkflowFile: string;
     FSessionFile: string;
-    FBlocks: TObjectList<TDptWorkflowBlock>;
+    FBlocks: IList<TDptWorkflowBlock>;
     FSession: TDptSessionData;
     FHostPID: DWORD;
     FAIMode: TAIMode;
@@ -58,8 +61,8 @@ type
     procedure LoadWorkflow;
     function FindWorkflowFile: string;
     
-    procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
-    procedure EvalBlocks(AParser: TExprParser; ABlocks: TObjectList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
+    procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+    procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
     function ProcessInstructions(AParser: TExprParser; const AStr: string): string;
 
     // Callback methods
@@ -111,20 +114,14 @@ const
 
 constructor TDptWorkflowBlock.Create;
 begin
-  NestedBlocks := TObjectList<TDptWorkflowBlock>.Create(True);
-end;
-
-destructor TDptWorkflowBlock.Destroy;
-begin
-  NestedBlocks.Free;
-  inherited;
+  NestedBlocks := Collections.NewList<TDptWorkflowBlock>;
 end;
 
 { TDptWorkflowEngine }
 
 constructor TDptWorkflowEngine.Create(const AAction, AAiSessionAction: string);
 begin
-  FBlocks := TObjectList<TDptWorkflowBlock>.Create(True);
+  FBlocks := Collections.NewList<TDptWorkflowBlock>;
   FCurrentAction := AAction;
   FCurrentAiSessionAction := AAiSessionAction;
   
@@ -147,7 +144,6 @@ end;
 destructor TDptWorkflowEngine.Destroy;
 begin
   FSession.Free;
-  FBlocks.Free;
   inherited;
 end;
 
@@ -171,7 +167,7 @@ begin
   end;
 end;
 
-procedure TDptWorkflowEngine.ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+procedure TDptWorkflowEngine.ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
 var
   Line: string;
   CurrentBlock: TDptWorkflowBlock;
@@ -481,7 +477,7 @@ begin
   end;
 end;
 
-procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; ABlocks: TObjectList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
+procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
 var
   Block: TDptWorkflowBlock;
   TrimmedInstructions: string;
