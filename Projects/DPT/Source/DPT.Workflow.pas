@@ -187,22 +187,31 @@ end;
 procedure TDptWorkflowEngine.ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
 var
   Line: string;
+  TrimmedLine: string;
   CurrentBlock: TDptWorkflowBlock;
   Remaining: string;
 begin
   CurrentBlock := nil;
   while ACurrentLine < ALines.Count do
   begin
-    Line := Trim(ALines[ACurrentLine]);
+    Line := ALines[ACurrentLine];
+    TrimmedLine := Trim(Line);
     Inc(ACurrentLine);
     
-    if (Line = '') or Line.StartsWith('#') then Continue;
+    if (TrimmedLine = '') then
+    begin
+      if Assigned(AParentBlock) then
+        AParentBlock.Instructions := AParentBlock.Instructions + sLineBreak;
+      Continue;
+    end;
 
-    if Line.StartsWith('BeforeDptGuard:') then
+    if TrimmedLine.StartsWith('#') then Continue;
+
+    if TrimmedLine.StartsWith('BeforeDptGuard:') then
     begin
       CurrentBlock := TDptWorkflowBlock.Create;
       CurrentBlock.GuardType := gtBefore;
-      CurrentBlock.Condition := Trim(Copy(Line, 16, MaxInt));
+      CurrentBlock.Condition := Trim(Copy(TrimmedLine, 16, MaxInt));
       
       if CurrentBlock.Condition.EndsWith('{') then
       begin
@@ -214,11 +223,11 @@ begin
       else
         ABlocks.Add(CurrentBlock);
     end
-    else if Line.StartsWith('AfterDptGuard:') then
+    else if TrimmedLine.StartsWith('AfterDptGuard:') then
     begin
       CurrentBlock := TDptWorkflowBlock.Create;
       CurrentBlock.GuardType := gtAfter;
-      CurrentBlock.Condition := Trim(Copy(Line, 15, MaxInt));
+      CurrentBlock.Condition := Trim(Copy(TrimmedLine, 15, MaxInt));
       
       if CurrentBlock.Condition.EndsWith('{') then
       begin
@@ -230,11 +239,11 @@ begin
       else
         ABlocks.Add(CurrentBlock);
     end
-    else if Line.StartsWith('{') then
+    else if TrimmedLine.StartsWith('{') then
     begin
       if Assigned(CurrentBlock) then
       begin
-        Remaining := Trim(Copy(Line, 2, MaxInt));
+        Remaining := Trim(Copy(TrimmedLine, 2, MaxInt));
         if Remaining.EndsWith('}') then
         begin
           CurrentBlock.Instructions := Trim(Copy(Remaining, 1, Length(Remaining) - 1));
@@ -249,16 +258,16 @@ begin
         end;
       end;
     end
-    else if Line.StartsWith('}') then
+    else if TrimmedLine.StartsWith('}') then
     begin
       Exit;
     end
     else
     begin
       if Assigned(CurrentBlock) then
-        CurrentBlock.Condition := CurrentBlock.Condition + ' ' + Line
+        CurrentBlock.Condition := CurrentBlock.Condition + ' ' + TrimmedLine
       else if Assigned(AParentBlock) then
-        AParentBlock.Instructions := AParentBlock.Instructions + ALines[ACurrentLine-1] + sLineBreak;
+        AParentBlock.Instructions := AParentBlock.Instructions + Line + sLineBreak;
     end;
   end;
 end;
@@ -272,7 +281,7 @@ begin
 
   Lines := TStringList.Create;
   try
-    Lines.LoadFromFile(FWorkflowFile);
+    Lines.LoadFromFile(FWorkflowFile, TEncoding.UTF8);
     CurrentLine := 0;
     ParseBlocks(Lines, CurrentLine, FBlocks, nil);
   finally
@@ -505,8 +514,7 @@ begin
         end;
       end;
       
-      if Trim(ProcessedLine) <> '' then
-        Result := Result + ProcessedLine + sLineBreak;
+      Result := Result + ProcessedLine + sLineBreak;
     end;
   finally
     InstrLines.Free;
@@ -516,7 +524,6 @@ end;
 procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
 var
   Block: TDptWorkflowBlock;
-  TrimmedInstructions: string;
   InstrLines: TStringList;
   Line: string;
 begin
@@ -528,23 +535,30 @@ begin
     begin
       if AParser.Value <> 0 then
       begin
-        TrimmedInstructions := Trim(Block.Instructions);
-        if TrimmedInstructions <> '' then
+        var RawInstructions := Block.Instructions;
+        // Remove only purely empty lines at the very beginning or end
+        while (RawInstructions <> '') and ((RawInstructions[1] = #13) or (RawInstructions[1] = #10)) do
+          Delete(RawInstructions, 1, 1);
+        while (RawInstructions <> '') and ((RawInstructions[Length(RawInstructions)] = #13) or (RawInstructions[Length(RawInstructions)] = #10)) do
+          Delete(RawInstructions, Length(RawInstructions), 1);
+
+        if RawInstructions <> '' then
         begin
           // Execute commands (lines without backticks)
           InstrLines := TStringList.Create;
           try
-            InstrLines.Text := TrimmedInstructions;
+            InstrLines.Text := RawInstructions;
             for Line in InstrLines do
             begin
-              if (Line <> '') and (Pos('`', Line) = 0) then
-                AParser.Eval(Line);
+              var TrimmedLine := Trim(Line);
+              if (TrimmedLine <> '') and (Pos('`', TrimmedLine) = 0) then
+                AParser.Eval(TrimmedLine);
             end;
           finally
             InstrLines.Free;
           end;
 
-          var Processed := ProcessInstructions(AParser, TrimmedInstructions);
+          var Processed := ProcessInstructions(AParser, RawInstructions);
           if Processed <> '' then
             AInstructions := AInstructions + Processed + sLineBreak;
         end;

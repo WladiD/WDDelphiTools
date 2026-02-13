@@ -631,6 +631,9 @@ type
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
 
 begin
+  SetConsoleOutputCP(CP_UTF8);
+  SetConsoleCP(CP_UTF8);
+
   var LHostPID: DWORD;
   case DetectAIMode(LHostPID) of
     amCursor: Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
