@@ -58,6 +58,7 @@ type
     procedure LoadWorkflow;
     function FindWorkflowFile: string;
     
+    procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
     procedure EvalBlocks(AParser: TExprParser; ABlocks: TObjectList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
     function ProcessInstructions(AParser: TExprParser; const AStr: string): string;
 
@@ -170,90 +171,89 @@ begin
   end;
 end;
 
+procedure TDptWorkflowEngine.ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+var
+  Line: string;
+  CurrentBlock: TDptWorkflowBlock;
+  Remaining: string;
+begin
+  CurrentBlock := nil;
+  while ACurrentLine < ALines.Count do
+  begin
+    Line := Trim(ALines[ACurrentLine]);
+    Inc(ACurrentLine);
+    
+    if (Line = '') or Line.StartsWith('#') then Continue;
+
+    if Line.StartsWith('BeforeDptGuard:') then
+    begin
+      CurrentBlock := TDptWorkflowBlock.Create;
+      CurrentBlock.GuardType := gtBefore;
+      CurrentBlock.Condition := Trim(Copy(Line, 16, MaxInt));
+      
+      if CurrentBlock.Condition.EndsWith('{') then
+      begin
+        CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
+        ABlocks.Add(CurrentBlock);
+        ParseBlocks(ALines, ACurrentLine, CurrentBlock.NestedBlocks, CurrentBlock);
+        CurrentBlock := nil;
+      end
+      else
+        ABlocks.Add(CurrentBlock);
+    end
+    else if Line.StartsWith('AfterDptGuard:') then
+    begin
+      CurrentBlock := TDptWorkflowBlock.Create;
+      CurrentBlock.GuardType := gtAfter;
+      CurrentBlock.Condition := Trim(Copy(Line, 15, MaxInt));
+      
+      if CurrentBlock.Condition.EndsWith('{') then
+      begin
+        CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
+        ABlocks.Add(CurrentBlock);
+        ParseBlocks(ALines, ACurrentLine, CurrentBlock.NestedBlocks, CurrentBlock);
+        CurrentBlock := nil;
+      end
+      else
+        ABlocks.Add(CurrentBlock);
+    end
+    else if Line.StartsWith('{') then
+    begin
+      if Assigned(CurrentBlock) then
+      begin
+        Remaining := Trim(Copy(Line, 2, MaxInt));
+        if Remaining.EndsWith('}') then
+        begin
+          CurrentBlock.Instructions := Trim(Copy(Remaining, 1, Length(Remaining) - 1));
+          CurrentBlock := nil;
+        end
+        else
+        begin
+          if Remaining <> '' then
+            CurrentBlock.Instructions := Remaining + sLineBreak;
+          ParseBlocks(ALines, ACurrentLine, CurrentBlock.NestedBlocks, CurrentBlock);
+          CurrentBlock := nil;
+        end;
+      end;
+    end
+    else if Line.StartsWith('}') then
+    begin
+      Exit;
+    end
+    else
+    begin
+      if Assigned(CurrentBlock) then
+        CurrentBlock.Condition := CurrentBlock.Condition + ' ' + Line
+      else if Assigned(AParentBlock) then
+        AParentBlock.Instructions := AParentBlock.Instructions + ALines[ACurrentLine-1] + sLineBreak;
+    end;
+  end;
+end;
+
 procedure TDptWorkflowEngine.LoadWorkflow;
 var
   Lines: TStringList;
   CurrentLine: Integer;
-
-  procedure ParseBlocks(ABlocks: TObjectList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
-  var
-    Line: string;
-    CurrentBlock: TDptWorkflowBlock;
-    Remaining: string;
-  begin
-    CurrentBlock := nil;
-    while CurrentLine < Lines.Count do
-    begin
-      Line := Trim(Lines[CurrentLine]);
-      Inc(CurrentLine);
-      
-      if (Line = '') or Line.StartsWith('#') then Continue;
-
-      if Line.StartsWith('BeforeDptGuard:') then
-      begin
-        CurrentBlock := TDptWorkflowBlock.Create;
-        CurrentBlock.GuardType := gtBefore;
-        CurrentBlock.Condition := Trim(Copy(Line, 16, MaxInt));
-        
-        if CurrentBlock.Condition.EndsWith('{') then
-        begin
-          CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
-          ABlocks.Add(CurrentBlock);
-          ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
-          CurrentBlock := nil;
-        end
-        else
-          ABlocks.Add(CurrentBlock);
-      end
-      else if Line.StartsWith('AfterDptGuard:') then
-      begin
-        CurrentBlock := TDptWorkflowBlock.Create;
-        CurrentBlock.GuardType := gtAfter;
-        CurrentBlock.Condition := Trim(Copy(Line, 15, MaxInt));
-        
-        if CurrentBlock.Condition.EndsWith('{') then
-        begin
-          CurrentBlock.Condition := Trim(Copy(CurrentBlock.Condition, 1, Length(CurrentBlock.Condition) - 1));
-          ABlocks.Add(CurrentBlock);
-          ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
-          CurrentBlock := nil;
-        end
-        else
-          ABlocks.Add(CurrentBlock);
-      end
-      else if Line.StartsWith('{') then
-      begin
-        if Assigned(CurrentBlock) then
-        begin
-          Remaining := Trim(Copy(Line, 2, MaxInt));
-          if Remaining.EndsWith('}') then
-          begin
-            CurrentBlock.Instructions := Trim(Copy(Remaining, 1, Length(Remaining) - 1));
-            CurrentBlock := nil;
-          end
-          else
-          begin
-            if Remaining <> '' then
-              CurrentBlock.Instructions := Remaining + sLineBreak;
-            ParseBlocks(CurrentBlock.NestedBlocks, CurrentBlock);
-            CurrentBlock := nil;
-          end;
-        end;
-      end
-      else if Line.StartsWith('}') then
-      begin
-        Exit;
-      end
-      else
-      begin
-        if Assigned(CurrentBlock) then
-          CurrentBlock.Condition := CurrentBlock.Condition + ' ' + Line
-        else if Assigned(AParentBlock) then
-          AParentBlock.Instructions := AParentBlock.Instructions + Lines[CurrentLine-1] + sLineBreak;
-      end;
-    end;
-  end;
-
 begin
   if not TFile.Exists(FWorkflowFile) then Exit;
 
@@ -261,7 +261,7 @@ begin
   try
     Lines.LoadFromFile(FWorkflowFile);
     CurrentLine := 0;
-    ParseBlocks(FBlocks, nil);
+    ParseBlocks(Lines, CurrentLine, FBlocks, nil);
   finally
     Lines.Free;
   end;
