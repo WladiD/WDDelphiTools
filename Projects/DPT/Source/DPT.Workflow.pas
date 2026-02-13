@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -58,6 +58,9 @@ type
     procedure LoadWorkflow;
     function FindWorkflowFile: string;
     
+    procedure EvalBlocks(AParser: TExprParser; ABlocks: TObjectList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
+    function ProcessInstructions(AParser: TExprParser; const AStr: string): string;
+
     // Callback methods
     function OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
     function OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
@@ -429,62 +432,84 @@ begin
   end;
 end;
 
+function TDptWorkflowEngine.ProcessInstructions(AParser: TExprParser; const AStr: string): string;
+var
+  I, Start: Integer;
+  Expr: string;
+begin
+  Result := '';
+  I := 1;
+  while I <= Length(AStr) do
+  begin
+    if AStr[I] = '`' then
+    begin
+      // Escaping: Double backtick becomes a single literal backtick
+      if (I < Length(AStr)) and (AStr[I + 1] = '`') then
+      begin
+        Result := Result + '`';
+        Inc(I, 2);
+        Continue;
+      end;
+
+      // Find expression
+      Start := I + 1;
+      I := Start;
+      while (I <= Length(AStr)) and (AStr[I] <> '`') do
+        Inc(I);
+
+      if I <= Length(AStr) then
+      begin
+        Expr := Copy(AStr, Start, I - Start);
+        if AParser.Eval(Expr) then
+          Result := Result + VarToStr(AParser.Value)
+        else
+          Result := Result + '`' + Expr + '`'; // Fallback: Keep as text if not a valid expression
+        Inc(I);
+      end
+      else
+      begin
+        // Unclosed backtick: treat as literal text
+        Result := Result + '`';
+        I := Start;
+      end;
+    end
+    else
+    begin
+      Result := Result + AStr[I];
+      Inc(I);
+    end;
+  end;
+end;
+
+procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; ABlocks: TObjectList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
+var
+  Block: TDptWorkflowBlock;
+  TrimmedInstructions: string;
+begin
+  for Block in ABlocks do
+  begin
+    if FExitRequested then Exit;
+
+    if (Block.GuardType = AGuardType) and AParser.Eval(Block.Condition) then
+    begin
+      if AParser.Value <> 0 then
+      begin
+        TrimmedInstructions := Trim(Block.Instructions);
+        if TrimmedInstructions <> '' then
+          AInstructions := AInstructions + ProcessInstructions(AParser, TrimmedInstructions) + sLineBreak + sLineBreak;
+        
+        if Block.NestedBlocks.Count > 0 then
+          EvalBlocks(AParser, Block.NestedBlocks, AGuardType, AInstructions);
+      end
+    end;
+    
+    if FExitRequested then Exit;
+  end;
+end;
+
 function TDptWorkflowEngine.CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
 var
   Parser: TExprParser;
-
-  procedure EvalBlocks(ABlocks: TObjectList<TDptWorkflowBlock>);
-    function ProcessInstructions(const AStr: string): string;
-    var
-      StartPos, EndPos: Integer;
-      Expr: string;
-    begin
-      Result := AStr;
-      StartPos := Pos('`', Result);
-      while StartPos > 0 do
-      begin
-        EndPos := Pos('`', Result, StartPos + 1);
-        if EndPos > 0 then
-        begin
-          Expr := Copy(Result, StartPos + 1, EndPos - StartPos - 1);
-          if Parser.Eval(Expr) then
-          begin
-            Result := Copy(Result, 1, StartPos - 1) + VarToStr(Parser.Value) + Copy(Result, EndPos + 1, MaxInt);
-            StartPos := Pos('`', Result, StartPos + Length(VarToStr(Parser.Value)));
-          end
-          else
-            StartPos := Pos('`', Result, EndPos + 1);
-        end
-        else
-          Break;
-      end;
-    end;
-
-  var
-    Block: TDptWorkflowBlock;
-    TrimmedInstructions: string;
-  begin
-    for Block in ABlocks do
-    begin
-      if FExitRequested then Exit;
-
-      if (Block.GuardType = AGuardType) and Parser.Eval(Block.Condition) then
-      begin
-        if Parser.Value <> 0 then
-        begin
-          TrimmedInstructions := Trim(Block.Instructions);
-          if TrimmedInstructions <> '' then
-            AInstructions := AInstructions + ProcessInstructions(TrimmedInstructions) + sLineBreak + sLineBreak;
-          
-          if Block.NestedBlocks.Count > 0 then
-            EvalBlocks(Block.NestedBlocks);
-        end;
-      end;
-      
-      if FExitRequested then Exit;
-    end;
-  end;
-
 begin
   Result := waNone;
   AInstructions := '';
@@ -496,7 +521,7 @@ begin
     Parser.OnGetVariable := OnGetVariableCallback;
     Parser.OnExecuteFunction := OnExecuteFunctionCallback;
     
-    EvalBlocks(FBlocks);
+    EvalBlocks(Parser, FBlocks, AGuardType, AInstructions);
     
     if FExitRequested then
       Result := waExit;
