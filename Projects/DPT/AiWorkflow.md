@@ -29,7 +29,7 @@ AfterDptGuard: GetExitCode() > 0
 
 - **Comments:** Lines starting with `#` are ignored.
 - **Backtick Evaluation:** Text inside `` ` `` is evaluated as an expression by the parser. If it's not a valid expression, it remains unchanged.
-- **Escaping Backticks:** Use double backticks (`` `` `` ``) to output a literal backtick (`` ` ``).
+- **Escaping Backticks:** Use double backticks (`` ` `` `` ` ``) to output a literal backtick (`` ` ``).
 - **Multiple Blocks:** Any number of blocks can be defined. Met conditions are processed sequentially.
 - **Nesting:** Guards can be nested within blocks to create complex logical flows.
 
@@ -77,3 +77,4 @@ To persist state (e.g., lint results) across multiple DPT calls, a session file 
 2. `DPT LATEST AiSession RegisterFiles <Files>`: Registers files for tracking.
 3. `DPT LATEST AiSession Status`: Displays the current status.
 4. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.
+
