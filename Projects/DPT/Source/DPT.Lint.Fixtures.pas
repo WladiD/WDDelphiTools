@@ -1445,92 +1445,62 @@ var
   LReportedClasses   : TStringList;
 begin
   Result := True;
+
+  // If no banner format is defined, we cannot validate banners.
+  if not Assigned(FContext) or (FContext.ClassBannerFormats.Count = 0) then
+    Exit(True);
+
   LLines := FContent.Split([sLineBreak]);
   LCurrentClassBanner := '';
   LReportedClasses := TStringList.Create;
   try
     LReportedClasses.Sorted := True;
     LReportedClasses.Duplicates := dupIgnore;
+
+    var LBannerTopLine := FContext.ClassBannerFormats[0];
+    // Heuristic: If top line has format specifiers, we might struggle to match it exactly without regex.
+    // But usually top line is static separator.
+    // We assume it contains the trimmed content of the format string.
+    var LBannerStartSearchToken := LBannerTopLine.Trim;
+    if LBannerStartSearchToken.Contains('%') then
+      LBannerStartSearchToken := '======='; // Fallback to common separator if format is dynamic
+
     for var I: Integer := 0 to High(LLines) do
     begin
       var LLine: String := LLines[I].Trim;
-      var LIsBannerStart: Boolean := False;
 
-      if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
+      // 1. Detect Banner
+      if LLine.Contains(LBannerStartSearchToken) then
       begin
-        // Check against the first line of the configured banner format
-        // We assume the first line is unique enough to identify a banner start
-        var LFirstFormat := FContext.ClassBannerFormats[0];
-        // If the format contains placeholders, we can't easily match without regex,
-        // but typically the first line is a separator.
-        if not LFirstFormat.Contains('%') then
-           LIsBannerStart := LLine.Contains(LFirstFormat.Trim)
-        else
-           // Fallback if first line has placeholders (unlikely for separators): stick to ======= for safety or try regex?
-           // For now, let's keep ======= as fallback if dynamic match is hard.
-           LIsBannerStart := LLine.Contains('=======');
-      end
-      else
-        LIsBannerStart := LLine.Contains('=======');
+         var LBannerHeight := FContext.ClassBannerFormats.Count;
+         if (I + LBannerHeight <= Length(LLines)) then
+         begin
+           // Extract Class Name from the line that expects the %s
+           var LNameLineIdx := -1;
+           for var K := 0 to FContext.ClassBannerFormats.Count - 1 do
+             if FContext.ClassBannerFormats[K].Contains('%') then
+             begin
+               LNameLineIdx := K;
+               Break;
+             end;
 
-      if LIsBannerStart then
-      begin
-        if (I < High(LLines) - 1) then // Check if we have enough lines for a full banner
-        begin
-          // We can't strictly validate the structure here without potentially duplicating logic
-          // or making complex assumptions about the banner height (which is dynamic now).
-          // However, we need to extract the class name if this IS a banner.
-          // The previous logic assumed a 3-line banner and extracted from the middle.
-          
-          // If we have dynamic formats, we should try to extract the class name based on the middle format.
-          // But wait, the goal of this loop is to FIND existing banners to avoid reporting them as missing.
-          
-          // Original logic:
-          // var LTopLine: String := LLines[I];
-          // var LMidLine: String := LLines[I + 1];
-          // var LBotLine: String := LLines[I + 2];
-          // ... validate alignment ...
-          // var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
-          
-          // New Logic with dynamic height:
-          if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
-          begin
-             var LBannerHeight := FContext.ClassBannerFormats.Count;
-             if (I + LBannerHeight <= Length(LLines)) then
-             begin
-               // Assuming the class name is in the line where the format has %s
-               var LNameLineIdx := -1;
-               for var K := 0 to FContext.ClassBannerFormats.Count - 1 do
-                 if FContext.ClassBannerFormats[K].Contains('%') then
-                 begin
-                   LNameLineIdx := K;
-                   Break;
-                 end;
-               
-               if (LNameLineIdx <> -1) then
-               begin
-                 // Try to extract class name from LLines[I + LNameLineIdx]
-                 // This is a bit heuristic. We assume it's surrounded by braces or spaces as per common Delphi style.
-                 var LPotentialClassName := LLines[I + LNameLineIdx].Trim(['{', '}', ' ']);
-                 if LPotentialClassName <> '' then
-                   LCurrentClassBanner := LPotentialClassName;
-               end;
-             end;
-          end
-          else
-          begin
-             // Legacy 3-line logic
-             if (I < High(LLines) - 1) and LLines[I + 2].Contains('=======') then
-             begin
-                // ... (Alignment check omitted for brevity in detection logic, keep existing if needed) ...
-                var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
-                if LPotentialClassName <> '' then
-                  LCurrentClassBanner := LPotentialClassName;
-             end;
-          end;
-        end;
+           if (LNameLineIdx <> -1) then
+           begin
+             // We found the line index relative to banner start (I)
+             // e.g. Middle line (index 1)
+             var LNameLine := LLines[I + LNameLineIdx];
+             // Extract: Trim braces and spaces.
+             // This assumes the banner format wraps the name in something that can be trimmed off.
+             // Or we could parse it more strictly?
+             // For now, existing logic `Trim(['{', '}', ' '])` is reasonable for Pascal style.
+             var LPotentialClassName := LNameLine.Trim(['{', '}', ' ']);
+             if LPotentialClassName <> '' then
+               LCurrentClassBanner := LPotentialClassName;
+           end;
+         end;
       end;
 
+      // 2. Validate Method
       var LMatch: TMatch := TRegEx.Match(LLine, '^(?:procedure|function|constructor|destructor)\s+([\w\.]+)\.(\w+)', [roIgnoreCase]);
       if LMatch.Success then
       begin
@@ -1538,37 +1508,19 @@ begin
         if not SameText(LClassName, LCurrentClassBanner) and
            (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
+          // ... generate expected banner ...
           var LExpectedBanner := '';
-          if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
+          for var LFormat in FContext.ClassBannerFormats do
           begin
-            for var LFormat in FContext.ClassBannerFormats do
-            begin
-              if LExpectedBanner <> '' then LExpectedBanner := LExpectedBanner + sLineBreak;
-              try
-                // Always attempt to format. 
-                // Format returns the string as-is if no placeholders are present.
-                if LFormat.Contains('*') then
-                  LExpectedBanner := LExpectedBanner + Format(LFormat, [71, LClassName])
-                else
-                  LExpectedBanner := LExpectedBanner + Format(LFormat, [LClassName]);
-              except
-                on E: Exception do
-                  // If Format fails (e.g. invalid format specifier), fallback to raw string
-                  LExpectedBanner := LExpectedBanner + LFormat;
-              end;
-            end;
-          end
-
-          else // TODO: Wir brauchen keinen Fallback, da das durch das Style gesteuert werden soll
-          begin
-            // Fallback default
-            const BannerInnerWidth = 71;
-            const BannerLineFormat = '{ %-*s }';
-            var LSeparator := StringOfChar('=', BannerInnerWidth);
-            LExpectedBanner :=
-              Format(BannerLineFormat, [BannerInnerWidth, LSeparator]) + sLineBreak +
-              Format(BannerLineFormat, [BannerInnerWidth, LClassName]) + sLineBreak +
-              Format(BannerLineFormat, [BannerInnerWidth, LSeparator]);
+             if LExpectedBanner <> '' then LExpectedBanner := LExpectedBanner + sLineBreak;
+             try
+               if LFormat.Contains('*') then
+                 LExpectedBanner := LExpectedBanner + Format(LFormat, [71, LClassName])
+               else
+                 LExpectedBanner := LExpectedBanner + Format(LFormat, [LClassName]);
+             except
+               LExpectedBanner := LExpectedBanner + LFormat;
+             end;
           end;
 
           ReportViolation(I + 1 + FLineOffset,
