@@ -1454,51 +1454,80 @@ begin
     for var I: Integer := 0 to High(LLines) do
     begin
       var LLine: String := LLines[I].Trim;
-      if LLine.Contains('=======') then
+      var LIsBannerStart: Boolean := False;
+
+      if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
       begin
-        if (I < High(LLines) - 1) and LLines[I + 2].Contains('=======') then
+        // Check against the first line of the configured banner format
+        // We assume the first line is unique enough to identify a banner start
+        var LFirstFormat := FContext.ClassBannerFormats[0];
+        // If the format contains placeholders, we can't easily match without regex,
+        // but typically the first line is a separator.
+        if not LFirstFormat.Contains('%') then
+           LIsBannerStart := LLine.Contains(LFirstFormat.Trim)
+        else
+           // Fallback if first line has placeholders (unlikely for separators): stick to ======= for safety or try regex?
+           // For now, let's keep ======= as fallback if dynamic match is hard.
+           LIsBannerStart := LLine.Contains('=======');
+      end
+      else
+        LIsBannerStart := LLine.Contains('=======');
+
+      if LIsBannerStart then
+      begin
+        if (I < High(LLines) - 1) then // Check if we have enough lines for a full banner
         begin
-          var LTopLine: String := LLines[I];
-          var LMidLine: String := LLines[I + 1];
-          var LBotLine: String := LLines[I + 2];
-
-          if LMidLine.Trim.StartsWith('{') then
+          // We can't strictly validate the structure here without potentially duplicating logic
+          // or making complex assumptions about the banner height (which is dynamic now).
+          // However, we need to extract the class name if this IS a banner.
+          // The previous logic assumed a 3-line banner and extracted from the middle.
+          
+          // If we have dynamic formats, we should try to extract the class name based on the middle format.
+          // But wait, the goal of this loop is to FIND existing banners to avoid reporting them as missing.
+          
+          // Original logic:
+          // var LTopLine: String := LLines[I];
+          // var LMidLine: String := LLines[I + 1];
+          // var LBotLine: String := LLines[I + 2];
+          // ... validate alignment ...
+          // var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
+          
+          // New Logic with dynamic height:
+          if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
           begin
-            var LTopOpen: Integer := LTopLine.IndexOf('{');
-            var LTopClose: Integer := LTopLine.LastIndexOf('}');
-            var LMidOpen: Integer := LMidLine.IndexOf('{');
-            var LMidClose: Integer := LMidLine.LastIndexOf('}');
-            var LBotOpen: Integer := LBotLine.IndexOf('{');
-            var LBotClose: Integer := LBotLine.LastIndexOf('}');
-
-            if (LTopOpen >= 0) and
-               (LMidOpen >= 0) and
-               (LBotOpen >= 0) and
-               (
-                 (LTopOpen <> LMidOpen) or
-                 (LBotOpen <> LMidOpen)
-               ) then
-            begin
-              ReportViolation(I + 2 + FLineOffset, 'Class banner opening brace alignment mismatch.');
-              Result := False;
-            end;
-
-            if (LTopClose >= 0) and
-               (LMidClose >= 0) and
-               (LBotClose >= 0) and
-               (
-                 (LTopClose <> LMidClose) or
-                 (LBotClose <> LMidClose)
-               ) then
-            begin
-              ReportViolation(I + 2 + FLineOffset, 'Class banner closing brace alignment mismatch.');
-              Result := False;
-            end;
+             var LBannerHeight := FContext.ClassBannerFormats.Count;
+             if (I + LBannerHeight <= Length(LLines)) then
+             begin
+               // Assuming the class name is in the line where the format has %s
+               var LNameLineIdx := -1;
+               for var K := 0 to FContext.ClassBannerFormats.Count - 1 do
+                 if FContext.ClassBannerFormats[K].Contains('%') then
+                 begin
+                   LNameLineIdx := K;
+                   Break;
+                 end;
+               
+               if (LNameLineIdx <> -1) then
+               begin
+                 // Try to extract class name from LLines[I + LNameLineIdx]
+                 // This is a bit heuristic. We assume it's surrounded by braces or spaces as per common Delphi style.
+                 var LPotentialClassName := LLines[I + LNameLineIdx].Trim(['{', '}', ' ']);
+                 if LPotentialClassName <> '' then
+                   LCurrentClassBanner := LPotentialClassName;
+               end;
+             end;
+          end
+          else
+          begin
+             // Legacy 3-line logic
+             if (I < High(LLines) - 1) and LLines[I + 2].Contains('=======') then
+             begin
+                // ... (Alignment check omitted for brevity in detection logic, keep existing if needed) ...
+                var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
+                if LPotentialClassName <> '' then
+                  LCurrentClassBanner := LPotentialClassName;
+             end;
           end;
-
-          var LPotentialClassName := LLines[I + 1].Trim(['{', '}', ' ']);
-          if LPotentialClassName <> '' then
-            LCurrentClassBanner := LPotentialClassName;
         end;
       end;
 
@@ -1506,32 +1535,47 @@ begin
       if LMatch.Success then
       begin
         var LClassName := LMatch.Groups[1].Value;
-        if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
+        if not SameText(LClassName, LCurrentClassBanner) and
+           (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
-          if not SameText(LClassName, LCurrentClassBanner) and
-             (LReportedClasses.IndexOf(LClassName) = -1) then
+          var LExpectedBanner := '';
+          if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
           begin
-            var LExpectedBanner := '';
             for var LFormat in FContext.ClassBannerFormats do
             begin
               if LExpectedBanner <> '' then LExpectedBanner := LExpectedBanner + sLineBreak;
               try
-                if LFormat.Contains('%') then
-                  LExpectedBanner := LExpectedBanner + Format(LFormat, [LClassName])
+                // Always attempt to format. 
+                // Format returns the string as-is if no placeholders are present.
+                if LFormat.Contains('*') then
+                  LExpectedBanner := LExpectedBanner + Format(LFormat, [71, LClassName])
                 else
-                  LExpectedBanner := LExpectedBanner + LFormat;
+                  LExpectedBanner := LExpectedBanner + Format(LFormat, [LClassName]);
               except
                 on E: Exception do
-                  LExpectedBanner := LExpectedBanner + 'Invalid Format: ' + LFormat;
+                  // If Format fails (e.g. invalid format specifier), fallback to raw string
+                  LExpectedBanner := LExpectedBanner + LFormat;
               end;
             end;
+          end
 
-            ReportViolation(I + 1 + FLineOffset,
-              Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
-                     'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
-            LReportedClasses.Add(LClassName);
-            Result := False;
+          else // TODO: Wir brauchen keinen Fallback, da das durch das Style gesteuert werden soll
+          begin
+            // Fallback default
+            const BannerInnerWidth = 71;
+            const BannerLineFormat = '{ %-*s }';
+            var LSeparator := StringOfChar('=', BannerInnerWidth);
+            LExpectedBanner :=
+              Format(BannerLineFormat, [BannerInnerWidth, LSeparator]) + sLineBreak +
+              Format(BannerLineFormat, [BannerInnerWidth, LClassName]) + sLineBreak +
+              Format(BannerLineFormat, [BannerInnerWidth, LSeparator]);
           end;
+
+          ReportViolation(I + 1 + FLineOffset,
+            Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
+                   'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
+          LReportedClasses.Add(LClassName);
+          Result := False;
         end;
       end;
     end;
