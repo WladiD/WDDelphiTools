@@ -31,10 +31,12 @@ type
     FLines              : TStringList;
     FSingleSeparatorLine: String;
     FTargetFile         : String;
+    FClassBannerFormats : TStringList;
   public
     constructor Create(const ATargetFile: String);
     destructor  Destroy; override;
 
+    procedure AddClassBannerLineFormat(const AFormat: String);
     procedure DefineDoubleSeparatorLine(const AValue: String);
     procedure DefineSingleSeparatorLine(const AValue: String);
     procedure EnsureCrlf;
@@ -46,6 +48,7 @@ type
     property Lines: TStringList read FLines;
     property SingleSeparatorLine: String read FSingleSeparatorLine;
     property DoubleSeparatorLine: String read FDoubleSeparatorLine;
+    property ClassBannerFormats: TStringList read FClassBannerFormats;
   end;
 
   TDptLintBaseFixture = class(TSlimFixture)
@@ -242,6 +245,7 @@ begin
   inherited Create;
   FTargetFile := ATargetFile;
   FLines := TStringList.Create;
+  FClassBannerFormats := TStringList.Create;
 
   if FileExists(FTargetFile) then
     FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
@@ -252,8 +256,14 @@ end;
 
 destructor TDptLintUnitContextFixture.Destroy;
 begin
+  FClassBannerFormats.Free;
   FLines.Free;
   inherited;
+end;
+
+procedure TDptLintUnitContextFixture.AddClassBannerLineFormat(const AFormat: String);
+begin
+  FClassBannerFormats.Add(AFormat);
 end;
 
 procedure TDptLintUnitContextFixture.DefineSingleSeparatorLine(const AValue: String);
@@ -1496,19 +1506,32 @@ begin
       if LMatch.Success then
       begin
         var LClassName := LMatch.Groups[1].Value;
-        if not SameText(LClassName, LCurrentClassBanner) and
-           (LReportedClasses.IndexOf(LClassName) = -1) then
+        if Assigned(FContext) and (FContext.ClassBannerFormats.Count > 0) then
         begin
-          var LExpectedBanner :=
-            '{ ' + StringOfChar('=', 71) + ' }' + sLineBreak +
-            '{ ' + LClassName.PadRight(71) + ' }' + sLineBreak +
-            '{ ' + StringOfChar('=', 71) + ' }';
+          if not SameText(LClassName, LCurrentClassBanner) and
+             (LReportedClasses.IndexOf(LClassName) = -1) then
+          begin
+            var LExpectedBanner := '';
+            for var LFormat in FContext.ClassBannerFormats do
+            begin
+              if LExpectedBanner <> '' then LExpectedBanner := LExpectedBanner + sLineBreak;
+              try
+                if LFormat.Contains('%') then
+                  LExpectedBanner := LExpectedBanner + Format(LFormat, [LClassName])
+                else
+                  LExpectedBanner := LExpectedBanner + LFormat;
+              except
+                on E: Exception do
+                  LExpectedBanner := LExpectedBanner + 'Invalid Format: ' + LFormat;
+              end;
+            end;
 
-          ReportViolation(I + 1 + FLineOffset,
-            Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
-                   'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
-          LReportedClasses.Add(LClassName);
-          Result := False;
+            ReportViolation(I + 1 + FLineOffset,
+              Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
+                     'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
+            LReportedClasses.Add(LClassName);
+            Result := False;
+          end;
         end;
       end;
     end;
