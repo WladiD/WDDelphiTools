@@ -1443,6 +1443,8 @@ var
   LCurrentClassBanner: String;
   LLines             : TArray<String>;
   LReportedClasses   : TStringList;
+  LLastBannerStart   : Integer;
+  LLastBannerEnd     : Integer;
 begin
   Result := True;
 
@@ -1452,6 +1454,8 @@ begin
 
   LLines := FContent.Split([sLineBreak]);
   LCurrentClassBanner := '';
+  LLastBannerStart := -1;
+  LLastBannerEnd := -1;
   LReportedClasses := TStringList.Create;
   try
     LReportedClasses.Sorted := True;
@@ -1467,12 +1471,21 @@ begin
 
     for var I: Integer := 0 to High(LLines) do
     begin
+      // Skip lines that are part of the last detected banner
+      if (LLastBannerEnd <> -1) and ((I + 1) <= LLastBannerEnd) then
+        Continue;
+
       var LLine: String := LLines[I].Trim;
 
       // 1. Detect Banner
       if LLine.Contains(LBannerStartSearchToken) then
       begin
+         LCurrentClassBanner := ''; // Reset current class banner as we are starting a new one (potentially)
+         LLastBannerStart := I + 1; // 1-based
          var LBannerHeight := FContext.ClassBannerFormats.Count;
+         LLastBannerEnd := I + LBannerHeight; // 1-based
+         if LLastBannerEnd > Length(LLines) then LLastBannerEnd := Length(LLines);
+         
          if (I + LBannerHeight <= Length(LLines)) then
          begin
            // Extract Class Name from the line that expects the %s
@@ -1490,9 +1503,6 @@ begin
              // e.g. Middle line (index 1)
              var LNameLine := LLines[I + LNameLineIdx];
              // Extract: Trim braces and spaces.
-             // This assumes the banner format wraps the name in something that can be trimmed off.
-             // Or we could parse it more strictly?
-             // For now, existing logic `Trim(['{', '}', ' '])` is reasonable for Pascal style.
              var LPotentialClassName := LNameLine.Trim(['{', '}', ' ']);
              if LPotentialClassName <> '' then
                LCurrentClassBanner := LPotentialClassName;
@@ -1508,7 +1518,7 @@ begin
         if not SameText(LClassName, LCurrentClassBanner) and
            (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
-          // ... generate expected banner ...
+          // Generate expected banner
           var LExpectedBanner := '';
           for var LFormat in FContext.ClassBannerFormats do
           begin
@@ -1522,10 +1532,21 @@ begin
                LExpectedBanner := LExpectedBanner + LFormat;
              end;
           end;
+          
+          var LMsg := Format('Missing or incorrect class implementation banner for "%s".', [LClassName]);
 
-          ReportViolation(I + 1 + FLineOffset,
-            Format('Missing or incorrect class implementation banner for "%s".' + sLineBreak +
-                   'Expected:' + sLineBreak + '%s', [LClassName, LExpectedBanner]));
+          // Check for nearby malformed banner
+          if (LLastBannerStart <> -1) and 
+             (LLastBannerEnd <> -1) and
+             ((I + 1) > LLastBannerStart) and
+             ((I + 1) - LLastBannerEnd <= 5) then // Heuristic: if banner end is within 5 lines above method
+          begin
+             LMsg := LMsg + sLineBreak + Format('Potential malformed banner found at lines %d-%d.', [LLastBannerStart, LLastBannerEnd]);
+          end;
+
+          LMsg := LMsg + sLineBreak + 'Expected:' + sLineBreak + LExpectedBanner;
+
+          ReportViolation(I + 1 + FLineOffset, LMsg);
           LReportedClasses.Add(LClassName);
           Result := False;
         end;
