@@ -225,6 +225,8 @@ class procedure TDptApplication.Run;
 begin
   SetConsoleOutputCP(CP_UTF8);
   SetConsoleCP(CP_UTF8);
+  SetTextCodePage(Output, CP_UTF8);
+  SetTextCodePage(Input, CP_UTF8);
 
   var LHostPID: DWORD;
   case DetectAIMode(LHostPID) of
