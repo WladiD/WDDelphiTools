@@ -26,7 +26,7 @@
             <Keywords name="Folders in comment, close"></Keywords>
             <Keywords name="Keywords1">BeforeDptGuard AfterDptGuard</Keywords>
             <Keywords name="Keywords2">and or not</Keywords>
-            <Keywords name="Keywords3">AiSessionStarted IsCurrentAction IsCurrentAiSessionAction GetCurrentLintTargetFile GetCurrentProjectFiles IsFileRegisteredInAiSession HasValidLintResult RequestDptExit RequestDptExitWithCode GetExitCode IsCurrentBuildProjectFile GetInvalidLintFiles</Keywords>
+            <Keywords name="Keywords3">AiSessionStarted IsCurrentAction IsCurrentAiSessionAction GetCurrentLintTargetFile GetCurrentProjectFiles IsFileRegisteredInAiSession HasValidLintResult RequestDptExit RequestDptExitWithCode GetExitCode IsCurrentBuildProjectFile GetInvalidLintFiles HasValidRunResult</Keywords>
             <Keywords name="Keywords4">True False</Keywords>
             <Keywords name="Keywords5"></Keywords>
             <Keywords name="Keywords6"></Keywords>

@@ -33,6 +33,11 @@ AfterDptGuard: GetExitCode() > 0
 - **Multiple Blocks:** Any number of blocks can be defined. Met conditions are processed sequentially.
 - **Nesting:** Guards can be nested within blocks to create complex logical flows.
 
+## Editor Support
+For easier editing of `.DptAiWorkflow` files, a User Defined Language (UDL) file for **Notepad++** is available:
+- File: `Projects/DPT/Extras/userDefineLang_DptAiWorkflow.xml`
+- Installation: In Notepad++, go to `Language` -> `User Defined Language` -> `Define your language...`, then click `Import...` and select the file.
+
 ## Available Functions (Expression Parser)
 
 The guards use an internal expression parser with access to the current DPT state:
@@ -40,28 +45,44 @@ The guards use an internal expression parser with access to the current DPT stat
 | Function | Description |
 | :--- | :--- |
 | `AiSessionStarted()` | Returns `True` if an active AI session exists. |
-| `IsCurrentAction("Name")` | Checks the current DPT action (e.g., "Build", "Lint"). |
-| `IsCurrentAiSessionAction("Sub")` | Checks the sub-action of `AiSession` (e.g., "Start", "Status"). |
+| `IsCurrentAction("Name")` | Checks the current DPT action (e.g., "Build", "Lint", "BuildAndRun"). |
+| `IsCurrentAiSessionAction("Sub")` | Checks the sub-action of `AiSession` (e.g., "Start", "Status", "Reset"). |
+| `IsCurrentBuildProjectFile("File.dproj")` | Checks if the current project file name matches the provided name (case-insensitive). |
 | `GetCurrentLintTargetFile()` | Returns the path of the file currently being processed by `Lint`. |
-| `GetCurrentProjectFiles()` | Returns an array of all source files for the project currently being processed by `Build`. |
+| `GetCurrentProjectFiles()` | Returns an array of all source files for the project currently being processed by `Build` or `BuildAndRun`. |
 | `IsFileRegisteredInAiSession(File)` | Checks if a file has already been registered in the session. |
-| `HasValidLintResult(Files)` | Checks if successful lint results exist for the provided files. |
+| `HasValidLintResult(Files)` | Checks if successful lint results exist for the provided files (considering file modification times relative to session start). |
+| `GetInvalidLintFiles(Files)` | Returns a newline-separated string of files that changed since session start but lack a valid lint result. |
+| `HasValidRunResult(Target, Files)` | Checks if a target (e.g., a test project) was executed successfully (ExitCode 0) and no provided files have changed since that run. |
 | `RequestDptExit()` | Signals the engine to exit the process after the guard phase. |
 | `RequestDptExitWithCode(Code)` | Signals an exit and sets the process exit code. |
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
 
-## Example Workflow: Mandatory Lint before Build
+## Example Workflow: Mandatory Lint and Tests before Build
 
-A typical scenario is ensuring that no unverified files are built:
+A complex scenario ensuring code quality before a main application build:
 
 ```text
+# Ensure Linting for changed files
 BeforeDptGuard: IsCurrentAction("Build") and 
                 not HasValidLintResult(GetCurrentProjectFiles())
 {
   - A valid lint result must exist for all changed files before building!
-  - Run first: `DPT LATEST Lint TaifunUnitStyle.pas <TargetFile>`
+  - Missing lint for:
+    `GetInvalidLintFiles(GetCurrentProjectFiles())`
     
   BeforeDptGuard: RequestDptExitWithCode(13)
+}
+
+# Ensure Unit Tests passed if code changed
+BeforeDptGuard: IsCurrentAction("Build") and 
+                IsCurrentBuildProjectFile("App.dproj") and
+                not HasValidRunResult("Test.dproj", GetCurrentProjectFiles())
+{
+  - Unit Tests required! The code changed since the last successful test run.
+  - Run: `DPT LATEST BuildAndRun Test.dproj`
+    
+  BeforeDptGuard: RequestDptExitWithCode(14)
 }
 
 AfterDptGuard: GetExitCode() > 0
@@ -73,8 +94,9 @@ AfterDptGuard: GetExitCode() > 0
 ## Session Management
 To persist state (e.g., lint results) across multiple DPT calls, a session file (`.DptAiWorkflow.Session<PID>.json`) is used. This is controlled via the `AiSession` action:
 
-1. `DPT LATEST AiSession Start`: Initializes the session.
+1. `DPT LATEST AiSession Start`: Initializes the session and sets the baseline time for change detection.
 2. `DPT LATEST AiSession RegisterFiles <Files>`: Registers files for tracking.
-3. `DPT LATEST AiSession Status`: Displays the current status.
-4. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.
+3. `DPT LATEST AiSession Status`: Displays the current status, including registration and lint results.
+4. `DPT LATEST AiSession Reset`: Clears all success results (Lint/Run) but keeps the session start time.
+5. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.
 
