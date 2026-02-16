@@ -50,6 +50,9 @@ type
 
 implementation
 
+uses
+  DPT.Workflow;
+
 { TDptBuildTask }
 
 procedure TDptBuildTask.Parse(CmdLine: TCmdLineConsumer);
@@ -394,6 +397,9 @@ begin
     Writeln('Application exited with code ' + IntToStr(ExitCode));
 
   System.ExitCode := ExitCode;
+
+  if Assigned(WorkflowEngine) then
+    TDptWorkflowEngine(WorkflowEngine).RegisterRunResult(ExtractFileName(ProjectFile), ExitCode);
 end;
 
 end.

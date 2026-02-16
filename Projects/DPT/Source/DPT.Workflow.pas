@@ -79,6 +79,7 @@ type
     function ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
     function ExprParserGetCurrentProjectFiles: Variant;
     function ExprParserHasValidLintResult(const Args: Variant): Variant;
+    function ExprParserHasValidRunResult(const Args: Variant): Variant;
     function ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
     function ExprParserRequestDptExit: Variant;
     function ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
@@ -102,6 +103,7 @@ type
     procedure AddFilesToSession(const AFiles: TArray<string>);
     procedure ShowStatus;
     procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
+    procedure RegisterRunResult(const ATarget: string; AExitCode: Integer);
     
     property Session: TDptSessionData read FSession;
     property WorkflowFile: string read FWorkflowFile;
@@ -322,6 +324,8 @@ begin
     ResVal := ExprParserGetCurrentProjectFiles
   else if SameText(FuncName, 'HasValidLintResult') then
     ResVal := ExprParserHasValidLintResult(Args)
+  else if SameText(FuncName, 'HasValidRunResult') then
+    ResVal := ExprParserHasValidRunResult(Args)
   else if SameText(FuncName, 'GetInvalidLintFiles') then
     ResVal := ExprParserGetInvalidLintFiles(Args)
   else if SameText(FuncName, 'RequestDptExit') then
@@ -470,6 +474,90 @@ begin
     end;
     Result := AllValid;
   end;
+end;
+
+function TDptWorkflowEngine.ExprParserHasValidRunResult(const Args: Variant): Variant;
+var
+  TargetName: string;
+  FilesVar: Variant;
+  I: Integer;
+  FileName: string;
+  RunEntry: TDptSessionRunResult;
+  Found: Boolean;
+begin
+  Result := True; // Default to valid if no session or bad args
+  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 1) then
+  begin
+    TargetName := VarToStr(Args[0]); // Project file or Target name
+    FilesVar := Args[1]; // Dependent files
+
+    // 1. Find Run Result
+    Found := False;
+    for RunEntry in FSession.RunResults do
+    begin
+      if SameText(RunEntry.Target, TargetName) then
+      begin
+        Found := True;
+        break;
+      end;
+    end;
+
+    if not Found or
+       (RunEntry.ExitCode <> 0) then
+      Exit(False);
+
+    // 3. Check Timestamps
+    if VarIsArray(FilesVar) then
+    begin
+      for I := 0 to VarArrayHighBound(FilesVar, 1) do
+      begin
+        FileName := VarToStr(FilesVar[I]);
+        if not TFile.Exists(FileName) then Continue;
+        FileName := ExpandFileName(FileName);
+        
+        // Use a small tolerance
+        var Limit := RunEntry.RunTime + EncodeTime(0, 0, 1, 0);
+        var FileTime := TFile.GetLastWriteTime(FileName);
+        
+        if FileTime > Limit then
+          Exit(False);
+      end;
+    end;
+  end;
+end;
+
+procedure TDptWorkflowEngine.RegisterRunResult(const ATarget: string; AExitCode: Integer);
+var
+  I: Integer;
+  Entry: TDptSessionRunResult;
+  Found: Boolean;
+begin
+  if not Assigned(FSession) then
+    Exit;
+
+  Found := False;
+  for I := 0 to FSession.RunResults.Count - 1 do
+  begin
+    if SameText(FSession.RunResults[I].Target, ATarget) then
+    begin
+      Entry := FSession.RunResults[I];
+      Entry.ExitCode := AExitCode;
+      Entry.RunTime := Now;
+      FSession.RunResults[I] := Entry;
+      Found := True;
+      Break;
+    end;
+  end;
+
+  if not Found then
+  begin
+    Entry.Target := ATarget;
+    Entry.ExitCode := AExitCode;
+    Entry.RunTime := Now;
+    FSession.RunResults.Add(Entry);
+  end;
+
+  FSession.SaveToFile(FSessionFile);
 end;
 
 function TDptWorkflowEngine.ExprParserGetInvalidLintFiles(const Args: Variant): Variant;

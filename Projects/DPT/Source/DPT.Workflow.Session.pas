@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -26,11 +26,18 @@ type
     LintSuccess: Boolean;
   end;
 
+  TDptSessionRunResult = record
+    Target: string;
+    ExitCode: Integer;
+    RunTime: TDateTime;
+  end;
+
   TDptSessionData = class
   public
     HostPID: DWORD;
     StartTime: TDateTime;
     Files: TList<TDptSessionFileEntry>;
+    RunResults: TList<TDptSessionRunResult>;
     constructor Create;
     destructor Destroy; override;
     procedure LoadFromFile(const AFileName: string);
@@ -44,10 +51,12 @@ implementation
 constructor TDptSessionData.Create;
 begin
   Files := TList<TDptSessionFileEntry>.Create;
+  RunResults := TList<TDptSessionRunResult>.Create;
 end;
 
 destructor TDptSessionData.Destroy;
 begin
+  RunResults.Free;
   Files.Free;
   inherited;
 end;
@@ -56,12 +65,15 @@ procedure TDptSessionData.LoadFromFile(const AFileName: string);
 var
   JSONObj: TJSONObject;
   JSONFiles: TJSONArray;
+  JSONRunResults: TJSONArray;
   I: Integer;
   Entry: TDptSessionFileEntry;
+  RunRes: TDptSessionRunResult;
   Item: TJSONObject;
   Content: string;
 begin
   Files.Clear;
+  RunResults.Clear;
   if not TFile.Exists(AFileName) then Exit;
   
   Content := TFile.ReadAllText(AFileName);
@@ -85,6 +97,19 @@ begin
         Files.Add(Entry);
       end;
     end;
+
+    JSONRunResults := JSONObj.GetValue('RunResults') as TJSONArray;
+    if Assigned(JSONRunResults) then
+    begin
+      for I := 0 to JSONRunResults.Count - 1 do
+      begin
+        Item := JSONRunResults.Items[I] as TJSONObject;
+        RunRes.Target := Item.GetValue<string>('Target', '');
+        RunRes.ExitCode := Item.GetValue<Integer>('ExitCode', 0);
+        RunRes.RunTime := ISO8601ToDate(Item.GetValue<string>('RunTime', ''));
+        RunResults.Add(RunRes);
+      end;
+    end;
   finally
     JSONObj.Free;
   end;
@@ -94,6 +119,7 @@ procedure TDptSessionData.SaveToFile(const AFileName: string);
 var
   JSONObj: TJSONObject;
   JSONFiles: TJSONArray;
+  JSONRunResults: TJSONArray;
   I: Integer;
   Item: TJSONObject;
 begin
@@ -113,6 +139,17 @@ begin
       JSONFiles.AddElement(Item);
     end;
     JSONObj.AddPair('Files', JSONFiles);
+
+    JSONRunResults := TJSONArray.Create;
+    for I := 0 to RunResults.Count - 1 do
+    begin
+      Item := TJSONObject.Create;
+      Item.AddPair('Target', RunResults[I].Target);
+      Item.AddPair('ExitCode', TJSONNumber.Create(RunResults[I].ExitCode));
+      Item.AddPair('RunTime', DateToISO8601(RunResults[I].RunTime));
+      JSONRunResults.AddElement(Item);
+    end;
+    JSONObj.AddPair('RunResults', JSONRunResults);
     
     TFile.WriteAllText(AFileName, JSONObj.ToJSON);
   finally

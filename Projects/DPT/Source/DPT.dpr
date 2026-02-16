@@ -19,7 +19,7 @@ begin
     on E: Exception do
     begin
       Writeln(E.Classname, ': ', E.Message);
-      ExitCode := Integer(E.ClassType);
+      System.ExitCode := 1;
     end;
   end;
 end.

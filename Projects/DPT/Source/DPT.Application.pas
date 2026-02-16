@@ -228,13 +228,13 @@ begin
   SetTextCodePage(Output, CP_UTF8);
   SetTextCodePage(Input, CP_UTF8);
 
-  var LHostPID: DWORD;
-  case DetectAIMode(LHostPID) of
-    amCursor: Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
-    amGemini: Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
-  end;
-
   try
+    var LHostPID: DWORD;
+    case DetectAIMode(LHostPID) of
+      amCursor: Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
+      amGemini: Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
+    end;
+
     var LPort: Integer;
     var LIsSlimStart: Boolean;
     LIsSlimStart := Slim.CmdUtils.HasSlimPortParam(LPort);
@@ -277,159 +277,157 @@ begin
     if (ParamCount >= 1) and (SameText(ParamStr(1), 'Help') or SameText(ParamStr(1), '-h') or SameText(ParamStr(1), '/?')) then
     begin
       TDptInstructionScreen.ShowHelp(ParamStr(2));
+      System.ExitCode := 0;
       Exit;
     end;
 
-    // Workflow Engine integration
+    // Command processing
     var WorkflowEngine: TDptWorkflowEngine := nil;
-    if ParamCount >= 1 then
-    begin
-      var LAction, LAiSessionAction: string;
-      var LCmdLine := TCmdLineConsumer.Create;
-      try
-        // Try to identify action (skip version if present)
-        var LArg := LCmdLine.CheckParameter('Version/Action');
-        var LDummyVersion: TDelphiVersion;
-        if IsLatestVersionAlias(LArg) or IsValidDelphiVersion(LArg, LDummyVersion) then
-        begin
-          LCmdLine.ConsumeParameter;
-          if LCmdLine.HasParameter then
-            LArg := LCmdLine.CheckParameter('Action')
-          else
-            LArg := '';
-        end;
-        LAction := LArg;
-        
-        LAiSessionAction := '';
-        if SameText(LAction, 'AiSession') and LCmdLine.HasParameter then
-        begin
-          LCmdLine.ConsumeParameter;
-          if LCmdLine.HasParameter then
-            LAiSessionAction := LCmdLine.CheckParameter('AiAction');
-        end;
-
-        WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
-      finally
-        LCmdLine.Free;
-      end;
-
-      // Configure context for engine
-      if SameText(LAction, 'Build') and (ParamCount >= 2) then
+    try
+      if ParamCount >= 1 then
       begin
-        var LProjFileArgIdx := 2;
-        if IsLatestVersionAlias(ParamStr(1)) then LProjFileArgIdx := 3;
-        
-        if ParamCount >= LProjFileArgIdx then
-        begin
-          var LProjFile := ExpandFileName(ParamStr(LProjFileArgIdx));
-          if TFile.Exists(LProjFile) and SameText(ExtractFileExt(LProjFile), '.dproj') then
-          begin
-            var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
-            try
-              WorkflowEngine.SetCurrentProjectFile(LProjFile);
-              WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
-            finally
-              LAnalyzer.Free;
-            end;
-          end;
-        end;
-      end
-      else if SameText(LAction, 'Lint') then
-      begin
-        var LLintTargetIdx := 3;
-        if not IsLatestVersionAlias(ParamStr(1)) then LLintTargetIdx := 2;
-        if ParamCount >= LLintTargetIdx + 1 then
-          WorkflowEngine.SetLintTarget(ParamStr(LLintTargetIdx + 1));
-      end;
-
-      try
-        var Instructions: string;
-        if WorkflowEngine.CheckConditions(Instructions, gtBefore) = waExit then
-        begin
-          Writeln('-------------------------------------------------------------------------------');
-          Writeln('DPT WORKFLOW VIOLATION:');
-          Writeln(Instructions);
-          Writeln('-------------------------------------------------------------------------------');
-          
-          var LFinalExitCode := WorkflowEngine.ExitCode;
-          if LFinalExitCode = 0 then LFinalExitCode := 1;
-
-          var AfterInstructions: string;
-          WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
-          if AfterInstructions <> '' then
-          begin
-            Writeln(AfterInstructions);
-            Writeln('-------------------------------------------------------------------------------');
-          end;
-
-          System.ExitCode := LFinalExitCode;
-          Exit;
-        end;
-
-        if SameText(LAction, 'AiSession') then
-        begin
-          if SameText(LAiSessionAction, 'Start') then WorkflowEngine.StartSession
-          else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
-          else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
-          else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
-          else if SameText(LAiSessionAction, 'RegisterFiles') then
-          begin
-            var LFiles: TArray<string>;
-            SetLength(LFiles, ParamCount - 3);
-            for var I := 4 to ParamCount do
-              LFiles[I-4] := ParamStr(I);
-            WorkflowEngine.AddFilesToSession(LFiles);
-          end
-          else
-            Writeln('Unknown AiSession action: ', LAiSessionAction);
-          Exit;
-        end;
-      except
-        WorkflowEngine.Free;
-        raise;
-      end;
-    end;
-
-    // Always process CLI commands if arguments are present
-    if ParamCount > 1 then
-    begin
-      var Dispatcher := TDptTaskDispatcher.Create;
-      var CmdLine := TCmdLineConsumer.Create;
-      try
+        var LCmdLine := TCmdLineConsumer.Create;
         try
-          Dispatcher.ExecuteDispatch(CmdLine, WorkflowEngine);
+          var LAction, LAiSessionAction: string;
           
-          if Assigned(WorkflowEngine) then
+          // Try to identify action (skip version if present)
+          var LArg := LCmdLine.CheckParameter('Version/Action');
+          var LDummyVersion: TDelphiVersion;
+          if IsLatestVersionAlias(LArg) or IsValidDelphiVersion(LArg, LDummyVersion) then
           begin
-            WorkflowEngine.ExitCode := ExitCode;
+            LCmdLine.ConsumeParameter;
+            if LCmdLine.HasParameter then
+              LArg := LCmdLine.CheckParameter('Action')
+            else
+              LArg := '';
+          end;
+          LAction := LArg;
+          
+          LAiSessionAction := '';
+          if SameText(LAction, 'AiSession') and LCmdLine.HasParameter then
+          begin
+            LCmdLine.ConsumeParameter;
+            if LCmdLine.HasParameter then
+              LAiSessionAction := LCmdLine.CheckParameter('AiAction');
+          end;
+
+          WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+          
+          // Reset LCmdLine for Dispatcher
+          LCmdLine.Free;
+          LCmdLine := TCmdLineConsumer.Create;
+
+          // Configure context for engine
+          if SameText(LAction, 'Build') and (ParamCount >= 2) then
+          begin
+            var LProjFileArgIdx := 2;
+            if IsLatestVersionAlias(ParamStr(1)) then LProjFileArgIdx := 3;
+            
+            if ParamCount >= LProjFileArgIdx then
+            begin
+              var LProjFile := ExpandFileName(ParamStr(LProjFileArgIdx));
+              if TFile.Exists(LProjFile) and SameText(ExtractFileExt(LProjFile), '.dproj') then
+              begin
+                var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
+                try
+                  WorkflowEngine.SetCurrentProjectFile(LProjFile);
+                  WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
+                finally
+                  LAnalyzer.Free;
+                end;
+              end;
+            end;
+          end
+          else if SameText(LAction, 'Lint') then
+          begin
+            var LLintTargetIdx := 3;
+            if not IsLatestVersionAlias(ParamStr(1)) then LLintTargetIdx := 2;
+            if ParamCount >= LLintTargetIdx + 1 then
+              WorkflowEngine.SetLintTarget(ParamStr(LLintTargetIdx + 1));
+          end;
+
+          var Instructions: string;
+          if Assigned(WorkflowEngine) and (WorkflowEngine.CheckConditions(Instructions, gtBefore) = waExit) then
+          begin
+            Writeln('-------------------------------------------------------------------------------');
+            Writeln('DPT WORKFLOW VIOLATION:');
+            Writeln(Instructions);
+            Writeln('-------------------------------------------------------------------------------');
+            
+            var LFinalExitCode := WorkflowEngine.ExitCode;
+            if LFinalExitCode = 0 then LFinalExitCode := 1;
+
             var AfterInstructions: string;
             WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
             if AfterInstructions <> '' then
             begin
-               Writeln('-------------------------------------------------------------------------------');
-               Writeln(AfterInstructions);
-               Writeln('-------------------------------------------------------------------------------');
+              Writeln(AfterInstructions);
+              Writeln('-------------------------------------------------------------------------------');
             end;
-            ExitCode := WorkflowEngine.ExitCode;
-          end;
-        finally
-          CmdLine.Free;
-          Dispatcher.Free;
-        end;
-      finally
-        WorkflowEngine.Free;
-      end;
-      Exit;
-    end;
 
-    {$IFNDEF FITNESSE}
-    TDptInstructionScreen.ShowCompact;
-    {$ENDIF}
+            System.ExitCode := LFinalExitCode;
+            Exit;
+          end;
+
+          if SameText(LAction, 'AiSession') then
+          begin
+            if SameText(LAiSessionAction, 'Start') then WorkflowEngine.StartSession
+            else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
+            else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
+            else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
+            else if SameText(LAiSessionAction, 'RegisterFiles') then
+            begin
+              var LFiles: TArray<string>;
+              SetLength(LFiles, ParamCount - 3);
+              for var I := 4 to ParamCount do
+                LFiles[I-4] := ParamStr(I);
+              WorkflowEngine.AddFilesToSession(LFiles);
+            end
+            else
+              Writeln('Unknown AiSession action: ', LAiSessionAction);
+            Exit;
+          end;
+
+          // Dispatch CLI command
+          var Dispatcher := TDptTaskDispatcher.Create;
+          try
+            Dispatcher.ExecuteDispatch(LCmdLine, WorkflowEngine);
+            
+            if Assigned(WorkflowEngine) then
+            begin
+              WorkflowEngine.ExitCode := System.ExitCode;
+              var AfterInstructions: string;
+              WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
+              if AfterInstructions <> '' then
+              begin
+                 Writeln('-------------------------------------------------------------------------------');
+                 Writeln(AfterInstructions);
+                 Writeln('-------------------------------------------------------------------------------');
+              end;
+              System.ExitCode := WorkflowEngine.ExitCode;
+            end;
+          finally
+            Dispatcher.Free;
+          end;
+          Exit;
+        finally
+          LCmdLine.Free;
+        end;
+      end;
+
+      {$IFNDEF FITNESSE}
+      TDptInstructionScreen.ShowCompact;
+      {$ENDIF}
+    finally
+      WorkflowEngine.Free;
+    end;
   except
     on E:Exception do
     begin
-      Writeln(E.Classname, ': ', E.Message);
-      ExitCode := Integer(E.ClassType);
+      if not (E is EInvalidParameter) then
+        Writeln(E.Classname, ': ', E.Message);
+      TDptInstructionScreen.ShowCompact;
+      System.ExitCode := 1;
     end;
   end;
 end;
