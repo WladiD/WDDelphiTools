@@ -1663,12 +1663,14 @@ var
   LHasInherited       : Boolean;
   LInDestructor       : Boolean;
   LLines              : TArray<string>;
+  LNestingLevel       : Integer;
 begin
   Result := True;
   LLines := FContent.Split([sLineBreak]);
   LInDestructor := False;
   LHasInherited := False;
   LDestructorStartLine := 0;
+  LNestingLevel := 0;
 
   for I := 0 to High(LLines) do
   begin
@@ -1680,20 +1682,31 @@ begin
         LInDestructor := True;
         LHasInherited := False;
         LDestructorStartLine := I + 1;
+        LNestingLevel := 0;
       end;
     end
     else
     begin
       if TRegEx.IsMatch(LLine, '\binherited\b') then
         LHasInherited := True;
-      if LLine.StartsWith('end;') then
+
+      // Track nesting
+      if LLine = 'begin' then
+        Inc(LNestingLevel)
+      else if LLine.StartsWith('end;') or LLine.StartsWith('end ') or (LLine = 'end') then
       begin
-        if not LHasInherited then
+        if LNestingLevel > 0 then
+          Dec(LNestingLevel);
+
+        if LNestingLevel = 0 then
         begin
-          ReportViolation(LDestructorStartLine + FLineOffset, 'Destructor must call "inherited;".');
-          Result := False;
+          if not LHasInherited then
+          begin
+            ReportViolation(LDestructorStartLine + FLineOffset, 'Destructor must call "inherited;".');
+            Result := False;
+          end;
+          LInDestructor := False;
         end;
-        LInDestructor := False;
       end;
     end;
   end;

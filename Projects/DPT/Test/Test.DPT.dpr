@@ -17,6 +17,7 @@ uses
   Test.DPT.Preprocessor,
   Test.DPT.BuildAndRunTask,
   Test.DPT.LintTask,
+  Test.DPT.LintFixtures,
   Test.DPT.Lint.Setup.Task,
   Test.DPT.DProjAnalyzer;
 
