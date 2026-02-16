@@ -1445,6 +1445,7 @@ var
   LReportedClasses   : TStringList;
   LLastBannerStart   : Integer;
   LLastBannerEnd     : Integer;
+  LFirstMethodOfClass: TDictionary<string, Integer>;
 begin
   Result := True;
 
@@ -1457,21 +1458,18 @@ begin
   LLastBannerStart := -1;
   LLastBannerEnd := -1;
   LReportedClasses := TStringList.Create;
+  LFirstMethodOfClass := TDictionary<string, Integer>.Create;
   try
     LReportedClasses.Sorted := True;
     LReportedClasses.Duplicates := dupIgnore;
 
     var LBannerTopLine := FContext.ClassBannerFormats[0];
-    // Heuristic: If top line has format specifiers, we might struggle to match it exactly without regex.
-    // But usually top line is static separator.
-    // We assume it contains the trimmed content of the format string.
     var LBannerStartSearchToken := LBannerTopLine.Trim;
     if LBannerStartSearchToken.Contains('%') then
-      LBannerStartSearchToken := '======='; // Fallback to common separator if format is dynamic
+      LBannerStartSearchToken := '=======';
 
     for var I: Integer := 0 to High(LLines) do
     begin
-      // Skip lines that are part of the last detected banner
       if (LLastBannerEnd <> -1) and ((I + 1) <= LLastBannerEnd) then
         Continue;
 
@@ -1480,15 +1478,11 @@ begin
       // 1. Detect Banner
       if LLine.Contains(LBannerStartSearchToken) then
       begin
-         LCurrentClassBanner := ''; // Reset current class banner as we are starting a new one (potentially)
-         LLastBannerStart := I + 1; // 1-based
-         var LBannerHeight := FContext.ClassBannerFormats.Count;
-         LLastBannerEnd := I + LBannerHeight; // 1-based
-         if LLastBannerEnd > Length(LLines) then LLastBannerEnd := Length(LLines);
-         
-         if (I + LBannerHeight <= Length(LLines)) then
+         var LFoundBannerName: String := '';
+         var LPotentialEnd := I + 1;
+
+         if (I + FContext.ClassBannerFormats.Count <= Length(LLines)) then
          begin
-           // Extract Class Name from the line that expects the %s
            var LNameLineIdx := -1;
            for var K := 0 to FContext.ClassBannerFormats.Count - 1 do
              if FContext.ClassBannerFormats[K].Contains('%') then
@@ -1499,15 +1493,22 @@ begin
 
            if (LNameLineIdx <> -1) then
            begin
-             // We found the line index relative to banner start (I)
-             // e.g. Middle line (index 1)
              var LNameLine := LLines[I + LNameLineIdx];
-             // Extract: Trim braces and spaces.
              var LPotentialClassName := LNameLine.Trim(['{', '}', ' ']);
              if LPotentialClassName <> '' then
-               LCurrentClassBanner := LPotentialClassName;
+             begin
+               LFoundBannerName := LPotentialClassName;
+               LPotentialEnd := I + FContext.ClassBannerFormats.Count;
+             end;
            end;
          end;
+
+         LCurrentClassBanner := LFoundBannerName;
+         LLastBannerStart := I + 1; // 1-based
+         LLastBannerEnd := LPotentialEnd; // 1-based (might be just the current line if no name found)
+
+         if LLastBannerEnd > I + 1 then
+           Continue; // Skip the rest of the banner
       end;
 
       // 2. Validate Method
@@ -1515,10 +1516,15 @@ begin
       if LMatch.Success then
       begin
         var LClassName := LMatch.Groups[1].Value;
+        
+        // Track first occurrence of any class method
+        if not LFirstMethodOfClass.ContainsKey(LClassName.ToLower) then
+          LFirstMethodOfClass.Add(LClassName.ToLower, I + 1);
+
         if not SameText(LClassName, LCurrentClassBanner) and
            (LReportedClasses.IndexOf(LClassName) = -1) then
         begin
-          // Generate expected banner
+          // Violation found!
           var LExpectedBanner := '';
           for var LFormat in FContext.ClassBannerFormats do
           begin
@@ -1535,24 +1541,25 @@ begin
           
           var LMsg := Format('Missing or incorrect class implementation banner for "%s".', [LClassName]);
 
-          // Check for nearby malformed banner
           if (LLastBannerStart <> -1) and 
              (LLastBannerEnd <> -1) and
              ((I + 1) > LLastBannerStart) and
-             ((I + 1) - LLastBannerEnd <= 5) then // Heuristic: if banner end is within 5 lines above method
+             ((I + 1) - LLastBannerEnd <= 5) then
           begin
-             LMsg := LMsg + sLineBreak + Format('Potential malformed banner found at lines %d-%d.', [LLastBannerStart, LLastBannerEnd]);
+             LMsg := LMsg + sLineBreak + Format('Potential malformed banner found at lines %d-%d.', [LLastBannerStart + FLineOffset, LLastBannerEnd + FLineOffset]);
           end;
 
           LMsg := LMsg + sLineBreak + 'Expected:' + sLineBreak + LExpectedBanner;
 
-          ReportViolation(I + 1 + FLineOffset, LMsg);
+          // Report at the FIRST method of this class that caused the violation
+          ReportViolation(LFirstMethodOfClass[LClassName.ToLower] + FLineOffset, LMsg);
           LReportedClasses.Add(LClassName);
           Result := False;
         end;
       end;
     end;
   finally
+    LFirstMethodOfClass.Free;
     LReportedClasses.Free;
   end;
 end;
