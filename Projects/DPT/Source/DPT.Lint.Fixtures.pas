@@ -10,6 +10,8 @@ interface
 
 uses
 
+  mormot.core.base,
+  mormot.core.collections,
   System.Classes,
   System.Generics.Collections,
   System.IOUtils,
@@ -920,20 +922,16 @@ function TDptLintUsesFixture.AllUnitsOnSeparateLines: Boolean;
 begin
   ParseUnits;
   Result := True;
-  var LLinesWithUnits := TDictionary<Integer, Integer>.Create;
-  try
-    for var U: TUnitInfo in FUnits do
+  var LLinesWithUnits: IKeyValue<Integer, Integer> := Collections.NewKeyValue<Integer, Integer>;
+  for var U: TUnitInfo in FUnits do
+  begin
+    if LLinesWithUnits.ContainsKey(U.Line) then
     begin
-      if LLinesWithUnits.ContainsKey(U.Line) then
-      begin
-        ReportViolation(U.Line + FLineOffset, 'Only one unit allowed per line in uses clause.');
-        Result := False;
-      end
-      else
-        LLinesWithUnits.Add(U.Line, 1);
-    end;
-  finally
-    LLinesWithUnits.Free;
+      ReportViolation(U.Line + FLineOffset, 'Only one unit allowed per line in uses clause.');
+      Result := False;
+    end
+    else
+      LLinesWithUnits.Add(U.Line, 1);
   end;
 end;
 
@@ -1445,7 +1443,7 @@ var
   LReportedClasses   : TStringList;
   LLastBannerStart   : Integer;
   LLastBannerEnd     : Integer;
-  LFirstMethodOfClass: TDictionary<string, Integer>;
+  LFirstMethodOfClass: IKeyValue<string, Integer>;
 begin
   Result := True;
 
@@ -1458,7 +1456,7 @@ begin
   LLastBannerStart := -1;
   LLastBannerEnd := -1;
   LReportedClasses := TStringList.Create;
-  LFirstMethodOfClass := TDictionary<string, Integer>.Create;
+  LFirstMethodOfClass := Collections.NewKeyValue<string, Integer>;
   try
     LReportedClasses.Sorted := True;
     LReportedClasses.Duplicates := dupIgnore;
@@ -1559,7 +1557,6 @@ begin
       end;
     end;
   finally
-    LFirstMethodOfClass.Free;
     LReportedClasses.Free;
   end;
 end;
