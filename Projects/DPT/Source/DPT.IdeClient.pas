@@ -84,40 +84,28 @@ begin
     Client.Port := APort;
     Client.ConnectTimeout := 1000; // Increased timeout
     Client.ReadTimeout := 5000;
+    Client.Connect;
+    // Read version
+    Response := Client.IOHandler.ReadLn;
+    if Pos('Slim --', Response) <> 1 then
+      Exit;
 
-    try
-      Client.Connect;
-      // Read version
-      Response := Client.IOHandler.ReadLn;
-      if Pos('Slim --', Response) <> 1 then
-      begin
-        Writeln('Debug: Invalid Slim header: ' + Response);
-        Exit;
-      end;
+    // Send Instructions
+    Client.IOHandler.Write(BuildSlimMessage(AInstructions));
 
-      // Send Instructions
-      Client.IOHandler.Write(BuildSlimMessage(AInstructions));
-      
-      // Read Response Length
-      LenHeader := Client.IOHandler.ReadString(6);
-      Client.IOHandler.ReadChar; // Skip ':' separator
+    // Read Response Length
+    LenHeader := Client.IOHandler.ReadString(6);
+    Client.IOHandler.ReadChar; // Skip ':' separator
 
-      Len := StrToIntDef(LenHeader, 0);
-      if Len > 0 then
-      begin
-        Response := Client.IOHandler.ReadString(Len);
-        if Pos('EXCEPTION', Response) = 0 then
-          Result := True
-        else
-          Writeln('Debug: Slim Exception: ' + Response);
-      end;
-      
-      Client.IOHandler.Write(BuildSlimMessage('bye')); 
-      
-    except
-      on E: Exception do
-        Writeln(Format('Debug: Connection to %d failed: %s', [APort, E.Message]));
+    Len := StrToIntDef(LenHeader, 0);
+    if Len > 0 then
+    begin
+      Response := Client.IOHandler.ReadString(Len);
+      if Pos('EXCEPTION', Response) = 0 then
+        Result := True;
     end;
+
+    Client.IOHandler.Write(BuildSlimMessage('bye'));
   finally
     Client.Free;
   end;
