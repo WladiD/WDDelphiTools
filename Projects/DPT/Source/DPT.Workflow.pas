@@ -434,9 +434,13 @@ var
   AllValid: Boolean;
 begin
   Result := True; // Default to valid if no session or no files
-  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
+  if Assigned(FSession) then
   begin
-    FilesVar := Args[0];
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+      FilesVar := Args[0]
+    else
+      FilesVar := ExprParserGetCurrentProjectFiles;
+
     AllValid := True;
     if VarIsArray(FilesVar) then
     begin
@@ -486,10 +490,14 @@ var
   Found: Boolean;
 begin
   Result := True; // Default to valid if no session or bad args
-  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 1) then
+  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
   begin
     TargetName := VarToStr(Args[0]); // Project file or Target name
-    FilesVar := Args[1]; // Dependent files
+
+    if VarArrayHighBound(Args, 1) >= 1 then
+      FilesVar := Args[1] // Dependent files
+    else
+      FilesVar := ExprParserGetCurrentProjectFiles;
 
     // 1. Find Run Result
     Found := False;
@@ -570,9 +578,13 @@ var
   I: Integer;
 begin
   Result := '';
-  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
+  if Assigned(FSession) then
   begin
-    FilesVar := Args[0];
+    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+      FilesVar := Args[0]
+    else
+      FilesVar := ExprParserGetCurrentProjectFiles;
+
     InvalidFiles := TStringList.Create;
     try
       if VarIsArray(FilesVar) then

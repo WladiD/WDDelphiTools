@@ -318,10 +318,10 @@ begin
           LCmdLine := TCmdLineConsumer.Create;
 
           // Configure context for engine
-          if SameText(LAction, 'Build') and (ParamCount >= 2) then
+          if (SameText(LAction, 'Build') or SameText(LAction, 'BuildAndRun')) and (ParamCount >= 2) then
           begin
             var LProjFileArgIdx := 2;
-            if IsLatestVersionAlias(ParamStr(1)) then LProjFileArgIdx := 3;
+            if IsLatestVersionAlias(ParamStr(1)) or IsValidDelphiVersion(ParamStr(1), LDummyVersion) then LProjFileArgIdx := 3;
             
             if ParamCount >= LProjFileArgIdx then
             begin
@@ -330,8 +330,9 @@ begin
               begin
                 var LAnalyzer := TDProjAnalyzer.Create(LProjFile);
                 try
+                  var LFiles := LAnalyzer.GetProjectFiles;
                   WorkflowEngine.SetCurrentProjectFile(LProjFile);
-                  WorkflowEngine.SetProjectFiles(LAnalyzer.GetProjectFiles);
+                  WorkflowEngine.SetProjectFiles(LFiles);
                 finally
                   LAnalyzer.Free;
                 end;

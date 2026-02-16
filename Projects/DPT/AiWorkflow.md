@@ -51,9 +51,9 @@ The guards use an internal expression parser with access to the current DPT stat
 | `GetCurrentLintTargetFile()` | Returns the path of the file currently being processed by `Lint`. |
 | `GetCurrentProjectFiles()` | Returns an array of all source files for the project currently being processed by `Build` or `BuildAndRun`. |
 | `IsFileRegisteredInAiSession(File)` | Checks if a file has already been registered in the session. |
-| `HasValidLintResult(Files)` | Checks if successful lint results exist for the provided files (considering file modification times relative to session start). |
-| `GetInvalidLintFiles(Files)` | Returns a newline-separated string of files that changed since session start but lack a valid lint result. |
-| `HasValidRunResult(Target, Files)` | Checks if a target (e.g., a test project) was executed successfully (ExitCode 0) and no provided files have changed since that run. |
+| `HasValidLintResult([Files])` | Checks if successful lint results exist for the provided files (defaults to `GetCurrentProjectFiles()`). |
+| `GetInvalidLintFiles([Files])` | Returns a newline-separated string of files that changed since session start but lack a valid lint result (defaults to `GetCurrentProjectFiles()`). |
+| `HasValidRunResult(Target, [Files])` | Checks if a target (e.g., a test project) was executed successfully (ExitCode 0) and no provided files (defaults to `GetCurrentProjectFiles()`) have changed since that run. |
 | `RequestDptExit()` | Signals the engine to exit the process after the guard phase. |
 | `RequestDptExitWithCode(Code)` | Signals an exit and sets the process exit code. |
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
@@ -64,12 +64,11 @@ A complex scenario ensuring code quality before a main application build:
 
 ```text
 # Ensure Linting for changed files
-BeforeDptGuard: IsCurrentAction("Build") and 
-                not HasValidLintResult(GetCurrentProjectFiles())
+BeforeDptGuard: IsCurrentAction("Build") and not HasValidLintResult()
 {
   - A valid lint result must exist for all changed files before building!
   - Missing lint for:
-    `GetInvalidLintFiles(GetCurrentProjectFiles())`
+    `GetInvalidLintFiles()`
     
   BeforeDptGuard: RequestDptExitWithCode(13)
 }
@@ -77,7 +76,7 @@ BeforeDptGuard: IsCurrentAction("Build") and
 # Ensure Unit Tests passed if code changed
 BeforeDptGuard: IsCurrentAction("Build") and 
                 IsCurrentBuildProjectFile("App.dproj") and
-                not HasValidRunResult("Test.dproj", GetCurrentProjectFiles())
+                not HasValidRunResult("Test.dproj")
 {
   - Unit Tests required! The code changed since the last successful test run.
   - Run: `DPT LATEST BuildAndRun Test.dproj`
