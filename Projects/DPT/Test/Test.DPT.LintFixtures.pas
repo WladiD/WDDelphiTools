@@ -21,6 +21,8 @@ type
     [Test]
     procedure DestructorsMustCallInherited_SucceedsOnSimpleDestructor;
     [Test]
+    procedure DestructorsMustCallInherited_FailsOnCommentedInherited;
+    [Test]
     procedure ValidateClassBanners_ReportsCorrectLine;
     [Test]
     procedure ValidateClassBanners_HandlesMisleadingSeparators;
@@ -330,6 +332,28 @@ begin
     Fixture.SetContent(Code);
     Assert.IsTrue(Fixture.DestructorsMustCallInherited);
     Assert.AreEqual(0, TDptLintContext.Violations.Count);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.DestructorsMustCallInherited_FailsOnCommentedInherited;
+var
+  Fixture: TDptLintImplementationFixture;
+  Code: string;
+begin
+  Fixture := TDptLintImplementationFixture.Create;
+  try
+    Code := '''
+      destructor TMyClass.Destroy;
+      begin
+        // inherited;
+      end;
+      ''';
+    
+    Fixture.SetContent(Code);
+    Assert.IsFalse(Fixture.DestructorsMustCallInherited, 'Should fail because inherited is commented out');
+    Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report a violation');
   finally
     Fixture.Free;
   end;

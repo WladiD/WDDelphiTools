@@ -1691,7 +1691,7 @@ begin
 
   for I := 0 to High(LLines) do
   begin
-    var LLine: String := LLines[I].Trim.ToLower;
+    var LLine: String := StripComment(LLines[I]).ToLower;
     if not LInDestructor then
     begin
       if LLine.StartsWith('destructor') then
