@@ -1,0 +1,185 @@
+﻿// START: AI-Descriptions===========================================================================
+// - Jede Unit muss mit diesem Banner beginnen
+// - Jede Unit muss in UTF8 mit BOM und Windows-LineEndings (CRLF) encoded sein!
+// - Hier steht der Name der Unit, der gleich dem Unit-Namen sein muss.
+//   Es sollte eine Kurzbeschreibung existieren.
+// - Es muss mindestens ein Hauptverantwortlicher vorhanden sein.
+//   Mehrere Autoren werden mit "/" getrennt.
+// - Hier endet der Banner
+// - Obligatorische Leerzeile
+// - Es muss entweder eine "Base.Define.pas" oder "Tfw.Define.pas" included werden
+// - Obligatorische Leerzeile
+//
+// - Obligatorische Leerzeile
+// - Vor dem Interface-Keyword muss die doppelte Trennlinie stehen
+//
+// - Nach dem Interface-Keyword muss die doppelte Trennlinie stehen
+// - Obligatorische Leerzeile vor "uses"
+// - "uses" muss alleine in einer Zeile stehen
+// - Obligatorische Leerzeile nach "uses"
+// - Je Zeile darf nur eine Unit stehen
+// - Alphabetische Auflistung von Delphi-Units in Gruppen:
+//   - Delphi-Gruppe:      System.*, Winapi.*, VCL.*, Rest.*
+//
+//
+//
+//   - Nach jeder Gruppe kommt eine Leerzeile
+//   - Third-Party:        *
+//
+//
+//   - Base-Gruppe:        Base.*
+//
+//
+//
+//   - Base-UI-Gruppe:     Base.UI.*
+//
+//   - Business-Gruppe:    Business.*
+//
+//   - Business-UI-Gruppe: Business.UI.*
+//
+//   - Shared-Gruppe:      *.Shared.*
+//
+//
+//   - TFW-Gruppe:         Tfw.*
+//
+// - Obligatorische Leerzeile nach der letzten Unit
+// - Obligatorische einfache Trennlinie, die den Uses-Bereich optisch trennt
+// - Obligatorische Leerzeile vor "type"
+// - "type" muss alleine stehen
+// - Obligatorische Leerzeile nach "type"
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+// - Namen von Records fangen immer mit "T" an
+// - Doppelpunkte sind vertikal untereinander ausgerichtet
+//
+//
+//
+//
+//
+//
+//
+//
+//
+// - Klassennamen sollten mit "C" anfangen, können aber auch klassisch mit "T" anfangen
+// - Die Keywords für die Sichtbarkeit sind mit einem zusätzlichen Leerzeichen eingerückt
+// - Feldnamen fangen mit einem "F" an
+// - Felder in einem zusammenhängenden Block sind alphabetisch sortiert
+// - Hier müssen die Doppelpunkte NICHT untereinander stehen
+// - Die Namen von Funktionen und Prozeduren im gleichen zusammenhängenden Block
+//   stehen untereinandner
+// - Die Keywords für die Sichtbarkeit leiten einen neuen Block ein
+//
+//
+// - Die Funktionen und Prozeduren in einem zusammenhängenden Block sind alphabetisch
+//   nach Name sortiert
+//
+// - Konstruktoren und Destruktoren bilden eine eigene Gruppe (Ausrichtung gilt nur hier)
+// - Der Destruktor muss immer ein override haben (Gilt nicht für Klassendestruktoren)
+// - Die Namen von Prozeduren, Funktionen und Properties stehen im gleichen
+//   zusammenhängenden Block untereinander
+// - Properties stehen am Ende eines Sichtbarkeits-Blocks und sind
+//   alphabetisch nach Name sortiert
+// - Im Published-Abschnitt können Variablen ohne "F"-Präfix stehen (z.B. für Komponenten)
+// - Diese müssen nicht zwingend mit "F" anfangen
+//
+//
+// - Klassen-Methoden/Konstruktoren stehen in einem eigenen Sichtbarkeitsblock
+//
+// - Obligatorische Leerzeile
+// - Vor dem "implementation"-Keyword muss die doppelte Trennlinie stehen
+//
+// - Nach dem "implementation"-Keyword muss die doppelte Trennlinie stehen
+// - Obligatorische Leerzeile vor "uses"
+// - Es gelten die gleichen Regeln wie im Interface-Teil
+//
+//
+//
+//
+//
+//
+//
+// - Vor jeder neuen Klassenimplementierunng steht ein Banner in diesem Format
+// - Der Name der Klasse muss mit dieser folgenden Klasse übereinstimmen
+// - Banner wird abgeschlossen
+// - Obligatorische Leerzeile nach dem  Banner
+// - Implementierung des Konstruktors steht im Implementierungsblock der Klasse als
+//   Erstes, wenn vorhanden.
+//
+//
+// - Nach jeder Methodenimplementation kommt eine Leerzeile...
+// - ...dann eine einfache Trennlinie...
+// - ..und eine Leerzeile
+// - Wenn ein Destruktor vorhanden ist, folgt er gleich nach dem Konstruktor
+//
+//
+//
+// - Der Destruktor muss irgendwo einen "inherited"-Aufruf beinhalten
+//
+//
+//
+//
+//
+//
+// - Es werden keine Leerzeichen vor oder hinter dem Zuweisungsoperator eingefügt.
+// - Auch bei einfachen arithmetischen Operatoren (+-*/) werden keine Leerzeichen
+//   davor oder danach eingefügt.
+//
+//
+//
+//
+// - Variablendeklarationsblock in einer Methode, Funktion oder Prozedur:
+//   - Ist Alphabetisch nach Variablennamen sortiert
+//   - Jede Zeile listet nur eine Variable
+//   - Doppelpunkte stehen untereinander
+//   - Nach dem Doppelpunkt kommt ein Leerzeichen gefolgt vom Variablentyp
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+// - Mehrere Leerzeilen (auch mit \s+) werden zu einer Leerzeile kollabiert
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+// - Vor dem Unit-"end." steht eine doppelte Trennlinie
+//
+//

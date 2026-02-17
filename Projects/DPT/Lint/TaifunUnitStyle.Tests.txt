@@ -1,0 +1,185 @@
+﻿// START: AI-Generated FitNesse-Test================================================================
+// |script|Dpt Lint Unit Context Fixture|${TargetFile}|
+// |Ensure Utf8 Bom|
+// |Ensure Crlf|
+// |Ensure No Multiple Blanklines|
+// |Define Single Separator Line|!-{ ----------------------------------------------------------------------- }-!|
+// |Define Double Separator Line|!-{ ======================================================================= }-!|
+// |Add Class Banner Line Format|{ ======================================================================= }|
+// |Add Class Banner Line Format|{ %-71s }|
+// |Add Class Banner Line Format|{ ======================================================================= }|
+// |$Context=|get fixture|
+// |push fixture|
+// |script|Dpt Lint Fixture|
+// |Set Context|$Context|
+// |check|Unit Name Matches File Name|true|
+// |check|File Contains Include|Base.Define.pas;Tfw.Define.pas|true|
+// |check|Keyword|interface|Is Surrounded By|=======|true|
+// |$InterfacePart=|Get Interface Part|
+// |$InterfaceOffset=|Get Interface Part Offset|
+// |$Header=|Get Before Unit Keyword Part|
+//
+// |script|Dpt Lint Regex Fixture|$Header|
+// |Set Context|$Context|
+// |Set Violation Subject|Unit-Banner erwartet|
+// |check|Match|(?s)// =+.*?// .*?Autor: .+?// =+|true|
+// |script|Dpt Lint Uses Fixture|
+// |Set Context|$Context|
+// |Set Content|$InterfacePart|
+// |Set Line Offset|$InterfaceOffset|
+// |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
+// |Add Group|Third-Party|With Namespaces|*|
+// |Add Group|Base|With Namespaces|Base.*|
+// |Add Group|Base-UI|With Namespaces|Base.UI.*|
+// |Add Group|Business|With Namespaces|Business.*|
+// |Add Group|Business-UI|With Namespaces|Business.UI.*|
+// |Add Group|Shared|With Namespaces|*.Shared.*|
+// |Add Group|TFW|With Namespaces|Tfw.*|
+// |check|Blank Line After Uses Exists|true|
+// |check|All Units On Separate Lines|true|
+// |check|Groups Follow Order|true|
+// |check|Groups Are Sorted Alphabetically|true|
+// |check|Groups Are Separated By Blank Lines|true|
+// |$LinesAfterUses=|Get Lines After Last Uses Line|3|
+// |$AfterUsesOffset=|Get Lines After Last Uses Line Offset|3|
+//
+// |script|Dpt Lint Regex Fixture|$LinesAfterUses|
+// |Set Context|$Context|
+// |Set Violation Subject|Trennlinie nach uses erwartet|
+// |Set Line Offset|$AfterUsesOffset|
+// |check|Match|(?s)^\s*\r?\n\{ -+ \}\s*\r?\n\s*$|true|
+//
+// |script|Dpt Lint Class Declaration Fixture|
+// |Set Context|$Context|
+// |Set Content|$InterfacePart|
+// |Set Line Offset|$InterfaceOffset|
+// |Set Class Name Prefixes|C,T|
+// |Set Visibility Extra Indent|1|
+// |Set Field Name Prefix|F|
+// |Set Fields Must Be Sorted|true|
+// |Set Methods Must Be Sorted|true|
+// |Set Properties Must Be Sorted|true|
+// |Set Align Member Names|true|
+// |check|Lint Class Declarations|true|
+//
+// |script|Dpt Lint Fixture|
+// |Set Context|$Context|
+// |check|Colons In Records Are Aligned|true|
+// |$ImplementationPart=|Get Implementation Part|
+// |$ImplementationOffset=|Get Implementation Part Offset|
+//
+// |script|Dpt Lint Implementation Fixture|
+// |Set Context|$Context|
+// |Set Content|$ImplementationPart|
+// |Set Line Offset|$ImplementationOffset|
+// |check|Validate Class Banners|true|
+// |check|Validate Method Order And Separators|true|
+// |check|Destructors Must Call Inherited|true|
+//
+// |script|Dpt Lint Method Body Fixture|
+// |Set Context|$Context|
+// |Set Content|$ImplementationPart|
+// |Set Line Offset|$ImplementationOffset|
+// |Set Assignment Space Before|Forbidden|
+// |Set Assignment Space After|Forbidden|
+// |Set Arithmetic Space Before|Forbidden|
+// |Set Arithmetic Space After|Forbidden|
+// |Set Arithmetic Operators|+,-,*,/|
+// |check|Validate Operator Spacing|true|
+//
+// |script|Dpt Lint Local Var Fixture|
+// |Set Context|$Context|
+// |Set Content|$ImplementationPart|
+// |Set Line Offset|$ImplementationOffset|
+// |Set Variables Must Be Sorted|true|
+// |Set Align Colons|true|
+// |Set Exact Spaces After Colon|1|
+// |check|Lint Local Vars|true|
+//
+// |script|Dpt Lint Fixture|
+// |Set Context|$Context|
+// |check|Keyword|implementation|Is Surrounded By|=======|true|
+// |check|Last Line Before End Is Double Separator|true|
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+// |script|Dpt Lint Uses Fixture|
+// |Set Context|$Context|
+// |Set Content|$ImplementationPart|
+// |Set Line Offset|$ImplementationOffset|
+// |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
+// |Add Group|Third-Party|With Namespaces|*|
+// |Add Group|Base|With Namespaces|Base.*|
+// |Add Group|Base-UI|With Namespaces|Base.UI.*|
+// |Add Group|Business|With Namespaces|Business.*|
+// |Add Group|Business-UI|With Namespaces|Business.UI.*|
+// |Add Group|Shared|With Namespaces|*.Shared.*|
+// |Add Group|TFW|With Namespaces|Tfw.*|
+// |check|Blank Line After Uses Exists|true|
+// |check|All Units On Separate Lines|true|
+// |check|Groups Follow Order|true|
+// |check|Groups Are Sorted Alphabetically|true|
+// |check|Groups Are Separated By Blank Lines|true|
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
