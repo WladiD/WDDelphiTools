@@ -283,26 +283,26 @@ end;
 
 function TDptLintTask.GetFreePort: Integer;
 var
-  LClient: TIdTCPClient;
+  Client: TIdTCPClient;
 begin
   Result := 9001;
-  LClient := TIdTCPClient.Create(nil);
+  Client := TIdTCPClient.Create(nil);
   try
     while Result < 9100 do
     begin
       try
-        LClient.Port := Result;
-        LClient.Host := '127.0.0.1';
-        LClient.ConnectTimeout := 100;
-        LClient.Connect;
-        LClient.Disconnect;
+        Client.Port := Result;
+        Client.Host := '127.0.0.1';
+        Client.ConnectTimeout := 100;
+        Client.Connect;
+        Client.Disconnect;
         Inc(Result);
       except
         Exit; // Port is free
       end;
     end;
   finally
-    LClient.Free;
+    Client.Free;
   end;
 end;
 
