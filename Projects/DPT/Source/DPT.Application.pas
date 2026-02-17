@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -9,21 +9,31 @@ unit DPT.Application;
 interface
 
 uses
-  System.SysUtils,
+
+  Winapi.Windows,
+
   System.Classes,
-  System.Generics.Collections,
-  System.Generics.Defaults,
   System.Contnrs,
+  System.Hash,
+  System.IOUtils,
+  System.NetEncoding,
+  System.SysUtils,
+
+  mormot.core.collections,
+
+  Slim.CmdUtils,
+  Slim.Fixture,
+  Slim.Server,
+
   DPT.Types,
   DPT.Workflow;
 
 type
   TDptTaskDispatcher = class
   private
-    FTasks: TDictionary<string, TDptTaskClass>;
+    FTasks: IKeyValue<String, TDptTaskClass>;
   public
     constructor Create;
-    destructor Destroy; override;
     procedure RegisterTask(const ActionName: string; TaskClass: TDptTaskClass);
     function ExecuteDispatch(CmdLine: TCmdLineConsumer; WorkflowEngine: TDptWorkflowEngine): Integer;
   end;
@@ -36,49 +46,33 @@ type
 implementation
 
 uses
-  Winapi.Windows,
-  System.IOUtils,
-  System.NetEncoding,
-  System.Hash,
-  DPT.Detection,
-  DPT.InstructionScreen,
+
   DPT.Build.Task,
   DPT.BuildEnvironment.Task,
+  DPT.Detection,
   DPT.DProj.Task,
+  DPT.DProjAnalyzer,
+  DPT.Fixtures,
   DPT.IdeControl.Task,
-  DPT.Lint.Task,
-  DPT.Lint.Setup.Task,
+  DPT.InstructionScreen,
   DPT.Lint.Fixtures,
+  DPT.Lint.Setup.Task,
+  DPT.Lint.Task,
   DPT.OpenUnitTask,
   DPT.PrintPath.Task,
-  DPT.RemovePackage.Task,
   DPT.RegisterPackage.Task,
-  DPT.DProjAnalyzer,
-  Slim.Server,
-  Slim.Fixture,
-  Slim.CmdUtils,
-  DPT.Fixtures;
+  DPT.RemovePackage.Task;
 
 type
+
   TSlimFixtureResolverHelper = class(TSlimFixtureResolver);
 
 { TDptTaskDispatcher }
 
 constructor TDptTaskDispatcher.Create;
 begin
-  FTasks := TDictionary<string, TDptTaskClass>.Create(
-    TEqualityComparer<string>.Construct(
-      function(const L, R: string): Boolean
-      begin
-        Result := SameText(L, R);
-      end,
-      function(const V: string): Integer
-      begin
-        Result := THashBobJenkins.GetHashValue(LowerCase(V));
-      end
-    )
-  );
-  
+  FTasks := Collections.NewKeyValue<String, TDptTaskClass>;
+
   RegisterTask('RemovePackagesBySourceDir', TDptRemovePackagesBySourceDirTask);
   RegisterTask('Build', TDptBuildTask);
   RegisterTask('BuildAndRun', TDptBuildAndRunTask);
@@ -96,12 +90,6 @@ begin
   RegisterTask('ImportBuildEnvironment', TDptImportBuildEnvironmentTask);
   RegisterTask('Start', TDptStartTask);
   RegisterTask('Stop', TDptStopTask);
-end;
-
-destructor TDptTaskDispatcher.Destroy;
-begin
-  FTasks.Free;
-  inherited;
 end;
 
 procedure TDptTaskDispatcher.RegisterTask(const ActionName: string; TaskClass: TDptTaskClass);
