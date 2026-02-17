@@ -3,12 +3,16 @@
 interface
 
 uses
+
   System.Classes,
   System.SysUtils,
   System.IOUtils,
+
   DUnitX.TestFramework,
+
   DPT.Lint.Setup.Task,
-  DPT.Types;
+  DPT.Types,
+  DPT.Logger;
 
 type
   [TestFixture]

@@ -13,7 +13,9 @@ uses
   System.SysUtils,
   System.Classes,
 
-  JclIDEUtils;
+  JclIDEUtils,
+
+  DPT.Logger;
 
 type
 
@@ -29,24 +31,6 @@ type
     procedure ConsumeParameter;
     function  HasParameter: Boolean;
     procedure InvalidParameter(ErrorMessage: String);
-  end;
-
-  ILogger = interface
-    ['{B8A68666-1234-4567-89AB-CDEF01234567}']
-    procedure Log(const Text: String);
-    procedure LogFmt(const FormatStr: String; const Args: array of const);
-  end;
-
-  TConsoleLogger = class(TInterfacedObject, ILogger)
-  public
-    procedure Log(const Text: String);
-    procedure LogFmt(const FormatStr: String; const Args: array of const);
-  end;
-
-  TNullLogger = class(TInterfacedObject, ILogger)
-  public
-    procedure Log(const Text: String);
-    procedure LogFmt(const FormatStr: String; const Args: array of const);
   end;
 
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
@@ -133,32 +117,6 @@ begin
   else
     raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
 end;
-
-{ TConsoleLogger }
-
-procedure TConsoleLogger.Log(const Text: String);
-begin
-  Writeln(Text);
-end;
-
-procedure TConsoleLogger.LogFmt(const FormatStr: String; const Args: array of const);
-begin
-  Writeln(Format(FormatStr, Args));
-end;
-
-{ TNullLogger }
-
-procedure TNullLogger.Log(const Text: String);
-begin
-  // Do nothing
-end;
-
-procedure TNullLogger.LogFmt(const FormatStr: String; const Args: array of const);
-begin
-  // Do nothing
-end;
-
-{ TDptTaskBase }
 
 constructor TDptTaskBase.Create;
 begin
