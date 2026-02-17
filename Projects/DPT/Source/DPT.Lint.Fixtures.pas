@@ -12,8 +12,8 @@ uses
 
   mormot.core.base,
   mormot.core.collections,
+
   System.Classes,
-  System.Generics.Collections,
   System.IOUtils,
   System.RegularExpressions,
   System.SysUtils,
@@ -115,9 +115,9 @@ type
     end;
   private
     FContent   : String;
-    FGroups    : TList<TUsesGroup>;
+    FGroups    : IList<TUsesGroup>;
     FLineOffset: Integer;
-    FUnits     : TList<TUnitInfo>;
+    FUnits     : IList<TUnitInfo>;
     function  MatchNamespace(const AUnitName, APattern: String): Boolean;
     procedure ParseUnits;
   public
@@ -148,7 +148,7 @@ type
         NameStartPos: Integer;
       end;
       TMemberBlock = class
-        Members   : TList<TMemberInfo>;
+        Members   : IList<TMemberInfo>;
         Visibility: String;
         constructor Create;
         destructor Destroy; override;
@@ -228,7 +228,7 @@ type
     FExactSpacesAfterColon: Integer;
     FLineOffset           : Integer;
     FVariablesMustBeSorted: Boolean;
-    function ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
+    function ValidateVarBlock(AVarLines: IList<String>; AStartLineIdx: Integer): Boolean;
   public
     constructor Create;
     function  LintLocalVars: Boolean;
@@ -768,15 +768,13 @@ end;
 constructor TDptLintUsesFixture.Create;
 begin
   inherited Create;
-  FGroups := TList<TUsesGroup>.Create;
-  FUnits := TList<TUnitInfo>.Create;
+  FGroups := Collections.NewPlainList<TUsesGroup>;
+  FUnits := Collections.NewPlainList<TUnitInfo>;
   FLineOffset := 0;
 end;
 
 destructor TDptLintUsesFixture.Destroy;
 begin
-  FUnits.Free;
-  FGroups.Free;
   inherited;
 end;
 
@@ -794,19 +792,17 @@ procedure TDptLintUsesFixture.AddGroupWithNamespaces(const AGroupName, ANamespac
 var
   G        : TUsesGroup;
   LParts   : TArray<String>;
-  LPatterns: TList<String>;
+  LPatterns: IList<String>;
 begin
   G.Name := AGroupName;
   LParts := ANamespaces.Replace(',', ' ').Replace(';', ' ').Split([' ']);
-  LPatterns := TList<String>.Create;
-  try
-    for var S in LParts do
-      if S.Trim <> '' then
-        LPatterns.Add(S.Trim);
-    G.Patterns := LPatterns.ToArray;
-  finally
-    LPatterns.Free;
-  end;
+  LPatterns := Collections.NewList<String>;
+  for var S in LParts do
+    if S.Trim <> '' then
+      LPatterns.Add(S.Trim);
+  SetLength(G.Patterns, LPatterns.Count);
+  for var I := 0 to LPatterns.Count - 1 do
+    G.Patterns[I] := LPatterns[I];
   FGroups.Add(G);
 end;
 
@@ -1102,12 +1098,11 @@ end;
 
 constructor TDptLintClassDeclarationFixture.TMemberBlock.Create;
 begin
-  Members := TList<TMemberInfo>.Create;
+  Members := Collections.NewPlainList<TMemberInfo>;
 end;
 
 destructor TDptLintClassDeclarationFixture.TMemberBlock.Destroy;
 begin
-  Members.Free;
   inherited;
 end;
 
@@ -1244,7 +1239,7 @@ function TDptLintClassDeclarationFixture.LintClassDeclarations: Boolean;
 var
   I                         : Integer;
   LClassIndent              : Integer;
-  LClassIndents             : TList<Integer>;
+  LClassIndents             : IList<Integer>;
   LClassName                : String;
   LCurrentBlock             : TMemberBlock;
   LCurrentVisibility        : String;
@@ -1268,7 +1263,7 @@ begin
     Exit(False);
 
   LLines := FContent.Split([sLineBreak]);
-  LClassIndents := TList<Integer>.Create;
+  LClassIndents := Collections.NewList<Integer>;
   LClassIndent := 0;
   LNestedDepth := 0;
   LCurrentBlock := nil;
@@ -1415,7 +1410,6 @@ begin
     end;
   finally
     FlushBlock;
-    LClassIndents.Free;
   end;
 end;
 
@@ -1945,7 +1939,7 @@ begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
-function TDptLintLocalVarFixture.ValidateVarBlock(AVarLines: TList<string>; AStartLineIdx: Integer): Boolean;
+function TDptLintLocalVarFixture.ValidateVarBlock(AVarLines: IList<String>; AStartLineIdx: Integer): Boolean;
 var
   LColonPos    : Integer;
   LMatch       : TMatch;
@@ -2019,64 +2013,61 @@ end;
 
 function TDptLintLocalVarFixture.LintLocalVars: Boolean;
 var
-  LCurrentVarLines : TList<string>;
-  LInVarBlock      : Boolean;
-  LLines           : TArray<string>;
-  LVarBlockStartIdx: Integer;
+  CurrentVarLines : IList<String>;
+  InVarBlock      : Boolean;
+  Lines           : TArray<string>;
+  VarBlockStartIdx: Integer;
 begin
   Result := True;
-  LLines := FContent.Split([sLineBreak]);
-  LInVarBlock := False;
-  LVarBlockStartIdx := 0;
-  LCurrentVarLines := TList<string>.Create;
-  try
-    for var I: Integer := 0 to High(LLines) do
-    begin
-      var LLine: String := LLines[I].Trim;
-      var LLower: String := LLine.ToLower;
+  Lines := FContent.Split([sLineBreak]);
+  InVarBlock := False;
+  VarBlockStartIdx := 0;
+  CurrentVarLines := Collections.NewList<String>;
 
-      if not LInVarBlock then
+  for var I: Integer := 0 to High(Lines) do
+  begin
+    var LLine: String := Lines[I].Trim;
+    var LLower: String := LLine.ToLower;
+
+    if not InVarBlock then
+    begin
+      if LLower = 'var' then
       begin
+        InVarBlock := True;
+        VarBlockStartIdx := I + 1;
+        CurrentVarLines.Clear;
+      end;
+    end
+    else
+    begin
+      if (LLower = 'begin') or
+         (LLower = 'const') or
+         (LLower = 'type') or
+         (LLower = 'var') or
+         LLower.StartsWith('procedure') or
+         LLower.StartsWith('function') or
+         LLower.StartsWith('constructor') or
+         LLower.StartsWith('destructor') then
+      begin
+        if not ValidateVarBlock(CurrentVarLines, VarBlockStartIdx) then
+          Result := False;
+
         if LLower = 'var' then
         begin
-          LInVarBlock := True;
-          LVarBlockStartIdx := I + 1;
-          LCurrentVarLines.Clear;
-        end;
-      end
-      else
-      begin
-        if (LLower = 'begin') or
-           (LLower = 'const') or
-           (LLower = 'type') or
-           (LLower = 'var') or
-           LLower.StartsWith('procedure') or
-           LLower.StartsWith('function') or
-           LLower.StartsWith('constructor') or
-           LLower.StartsWith('destructor') then
-        begin
-          if not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
-            Result := False;
-
-          if LLower = 'var' then
-          begin
-            LVarBlockStartIdx := I + 1;
-            LCurrentVarLines.Clear;
-          end
-          else
-            LInVarBlock := False;
+          VarBlockStartIdx := I + 1;
+          CurrentVarLines.Clear;
         end
-        else if LLine <> '' then
-          LCurrentVarLines.Add(LLines[I]);
-      end;
+        else
+          InVarBlock := False;
+      end
+      else if LLine <> '' then
+        CurrentVarLines.Add(Lines[I]);
     end;
-    
-    if LInVarBlock and
-       not ValidateVarBlock(LCurrentVarLines, LVarBlockStartIdx) then
-      Result := False;
-  finally
-    LCurrentVarLines.Free;
   end;
+    
+  if InVarBlock and
+     not ValidateVarBlock(CurrentVarLines, VarBlockStartIdx) then
+    Result := False;
 end;
 
 initialization

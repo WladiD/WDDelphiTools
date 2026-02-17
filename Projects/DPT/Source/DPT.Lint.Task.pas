@@ -9,13 +9,23 @@ unit DPT.Lint.Task;
 interface
 
 uses
+
   System.Classes,
+  System.Generics.Collections,
+  System.Generics.Defaults,
+  System.IniFiles,
   System.IOUtils,
   System.SysUtils,
-  System.IniFiles,
+
+  IdTCPClient,
+  JclSysUtils,
+
   Slim.Server,
+
+  DPT.Lint.Context,
+  DPT.Lint.StyleValidator,
   DPT.Types,
-  DPT.Lint.Context;
+  DPT.Workflow;
 
 type
 
@@ -44,14 +54,6 @@ type
   end;
 
 implementation
-
-uses
-  IdTCPClient,
-  System.Generics.Collections,
-  System.Generics.Defaults,
-  JclSysUtils,
-  DPT.Lint.StyleValidator,
-  DPT.Workflow;
 
 { TDptLintTask }
 

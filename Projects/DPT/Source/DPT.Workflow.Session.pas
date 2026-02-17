@@ -54,8 +54,8 @@ implementation
 
 constructor TDptSessionData.Create;
 begin
-  Files := Collections.NewList<TDptSessionFileEntry>;
-  RunResults := Collections.NewList<TDptSessionRunResult>;
+  Files := Collections.NewPlainList<TDptSessionFileEntry>;
+  RunResults := Collections.NewPlainList<TDptSessionRunResult>;
 end;
 
 procedure TDptSessionData.LoadFromFile(const AFileName: String);
