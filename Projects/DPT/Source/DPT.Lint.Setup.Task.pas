@@ -161,10 +161,10 @@ begin
     LDescs.SaveToFile(LBaseName + '.Descriptions.txt', TEncoding.UTF8);
     LTests.SaveToFile(LBaseName + '.Tests.txt', TEncoding.UTF8);
 
-    Writeln('Style file split into:');
-    Writeln('  ' + ExtractFileName(LBaseName) + '.Template.pas');
-    Writeln('  ' + ExtractFileName(LBaseName) + '.Descriptions.txt');
-    Writeln('  ' + ExtractFileName(LBaseName) + '.Tests.txt');
+    Output('Style file split into:');
+    Output('  ' + ExtractFileName(LBaseName) + '.Template.pas');
+    Output('  ' + ExtractFileName(LBaseName) + '.Descriptions.txt');
+    Output('  ' + ExtractFileName(LBaseName) + '.Tests.txt');
   finally
     LTemplate.Free;
     LDescs.Free;
@@ -251,7 +251,7 @@ begin
     end;
 
     LOutput.SaveToFile(FStyleFile, TEncoding.UTF8);
-    Writeln('Successfully joined files into ' + FStyleFile);
+    Output('Successfully joined files into ' + FStyleFile);
   finally
     LTemplate.Free;
     LDescs.Free;

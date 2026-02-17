@@ -40,7 +40,7 @@ type
     FWorkflowEngine: TObject;
   protected
     function  Installation: TJclBorRADToolInstallation;
-    procedure Output(const Text: String);
+    procedure Output(const Text: String); virtual;
   public
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;

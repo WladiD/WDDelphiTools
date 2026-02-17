@@ -38,6 +38,19 @@ type
 
 implementation
 
+type
+  TTestableDptLintSetupTask = class(TDptLintSetupTask)
+  protected
+    procedure Output(const Text: String); override;
+  end;
+
+{ TTestableDptLintSetupTask }
+
+procedure TTestableDptLintSetupTask.Output(const Text: String);
+begin
+  // Suppress output during tests
+end;
+
 { TDptLintSetupTaskTests }
 
 procedure TDptLintSetupTaskTests.Setup;
@@ -46,7 +59,7 @@ begin
   TDirectory.CreateDirectory(FTempDir);
   FStyleFile := TPath.Combine(FTempDir, 'Style.pas');
   
-  FTask := TDptLintSetupTask.Create;
+  FTask := TTestableDptLintSetupTask.Create;
   FTask.StyleFile := FStyleFile;
 end;
 
