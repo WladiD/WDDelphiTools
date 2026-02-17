@@ -65,7 +65,7 @@ type
   TDptLintFixture = class(TDptLintBaseFixture)
   private
     function GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: String; AIncludeStart: Boolean): String;
-    function GetPartOffset(const AStartKey: String; AIncludeStart: Boolean): Integer;
+    function GetPartOffset(const AStartKey: String): Integer;
   public
     class procedure ReportError(const AFile: String; ALine: Integer; const AMsg: String);
   public
@@ -154,7 +154,6 @@ type
         Members   : IList<TMemberInfo>;
         Visibility: String;
         constructor Create;
-        destructor Destroy; override;
       end;
   private
     FAlignMemberNames      : Boolean;
@@ -505,63 +504,63 @@ end;
 
 function TDptLintFixture.GetPart(const AStartKey, AEndKey1, AEndKey2, AEndKey3: String; AIncludeStart: Boolean): String;
 var
-  I: Integer;
-  LBuilder : TStringBuilder;
-  LEndIdx  : Integer;
-  LStartIdx: Integer;
+  Builder : TStringBuilder;
+  EndIdx  : Integer;
+  I       : Integer;
+  StartIdx: Integer;
 begin
   Result := '';
   if not Assigned(FContext) then
     Exit;
 
-  LStartIdx := -1;
-  LEndIdx := FContext.Lines.Count;
+  StartIdx := -1;
+  EndIdx := FContext.Lines.Count;
 
   for I := 0 to FContext.Lines.Count - 1 do
   begin
-    var LLine := FContext.Lines[I].Trim.ToLower;
-    if (LStartIdx = -1) and (AStartKey = '') then
-      LStartIdx := 0;
+    var LLine: String := FContext.Lines[I].Trim.ToLower;
+    if (StartIdx = -1) and (AStartKey = '') then
+      StartIdx := 0;
 
-    if (LStartIdx = -1) and (LLine.StartsWith(AStartKey.ToLower)) then
+    if (StartIdx = -1) and (LLine.StartsWith(AStartKey, True)) then
     begin
       if AIncludeStart then
-        LStartIdx := I
+        StartIdx := I
       else
-        LStartIdx := I + 1;
+        StartIdx := I + 1;
       Continue;
     end;
 
-    if (LStartIdx <> -1) then
+    if (StartIdx <> -1) then
     begin
-      if (AEndKey1 <> '') and (LLine.StartsWith(AEndKey1.ToLower)) then
+      if (AEndKey1 <> '') and (LLine.StartsWith(AEndKey1, True)) then
       begin
-        LEndIdx := I;
+        EndIdx := I;
         Break;
-      end;
-      if (AEndKey2 <> '') and (LLine.StartsWith(AEndKey2.ToLower)) then
+      end
+      else if (AEndKey2 <> '') and (LLine.StartsWith(AEndKey2, True)) then
       begin
-        LEndIdx := I;
+        EndIdx := I;
         Break;
-      end;
-      if (AEndKey3 <> '') and (LLine.StartsWith(AEndKey3.ToLower)) then
+      end
+      else if (AEndKey3 <> '') and (LLine.StartsWith(AEndKey3, True)) then
       begin
-        LEndIdx := I;
+        EndIdx := I;
         Break;
       end;
     end;
   end;
 
-  if LStartIdx = -1 then
+  if StartIdx = -1 then
     Exit;
 
-  LBuilder := TStringBuilder.Create;
+  Builder := TStringBuilder.Create;
   try
-    for I := LStartIdx to LEndIdx - 1 do
-      LBuilder.AppendLine(FContext.Lines[I]);
-    Result := LBuilder.ToString;
+    for I := StartIdx to EndIdx - 1 do
+      Builder.AppendLine(FContext.Lines[I]);
+    Result := Builder.ToString;
   finally
-    LBuilder.Free;
+    Builder.Free;
   end;
 end;
 
@@ -590,7 +589,7 @@ begin
   Result := GetPart('finalization', 'end.', '', '', False);
 end;
 
-function TDptLintFixture.GetPartOffset(const AStartKey: String; AIncludeStart: Boolean): Integer;
+function TDptLintFixture.GetPartOffset(const AStartKey: String): Integer;
 begin
   Result := 0;
   if not Assigned(FContext) or (AStartKey = '') then
@@ -599,12 +598,7 @@ begin
   for var I: Integer := 0 to FContext.Lines.Count - 1 do
   begin
     if FContext.Lines[I].Trim.StartsWith(AStartKey, True) then
-    begin
-      if AIncludeStart then
-        Exit(I)
-      else
-        Exit(I + 1);
-    end;
+      Exit(I + 1);
   end;
 end;
 
@@ -615,22 +609,22 @@ end;
 
 function TDptLintFixture.GetInterfacePartOffset: String;
 begin
-  Result := IntToStr(GetPartOffset('interface', False));
+  Result := IntToStr(GetPartOffset('interface'));
 end;
 
 function TDptLintFixture.GetImplementationPartOffset: String;
 begin
-  Result := IntToStr(GetPartOffset('implementation', False));
+  Result := IntToStr(GetPartOffset('implementation'));
 end;
 
 function TDptLintFixture.GetInitializationPartOffset: String;
 begin
-  Result := IntToStr(GetPartOffset('initialization', False));
+  Result := IntToStr(GetPartOffset('initialization'));
 end;
 
 function TDptLintFixture.GetFinalizationPartOffset: String;
 begin
-  Result := IntToStr(GetPartOffset('finalization', False));
+  Result := IntToStr(GetPartOffset('finalization'));
 end;
 
 function TDptLintFixture.ColonsAreVerticallyAlignedInRange(const AStartLine, AEndLine: String): Boolean;
@@ -1121,11 +1115,6 @@ end;
 constructor TDptLintClassDeclarationFixture.TMemberBlock.Create;
 begin
   Members := Collections.NewPlainList<TMemberInfo>;
-end;
-
-destructor TDptLintClassDeclarationFixture.TMemberBlock.Destroy;
-begin
-  inherited;
 end;
 
 { TDptLintClassDeclarationFixture }
