@@ -184,6 +184,7 @@ type
   private
     FContent   : String;
     FLineOffset: Integer;
+    function  StripComment(const ALine: string): string;
   public
     constructor Create;
     function  DestructorsMustCallInherited: Boolean;
@@ -270,14 +271,14 @@ end;
 
 procedure TDptLintUnitContextFixture.DefineSingleSeparatorLine(const AValue: String);
 begin
-  var LVal: String := AValue.Trim(['{', '}', ' ', '!', '-']);
+  var LVal: String := AValue.Trim;
   if LVal <> '' then
     FSingleSeparatorLine := LVal;
 end;
 
 procedure TDptLintUnitContextFixture.DefineDoubleSeparatorLine(const AValue: String);
 begin
-  var LVal: String := AValue.Trim(['{', '}', ' ', '!', '=', '-']);
+  var LVal: String := AValue.Trim;
   if LVal <> '' then
     FDoubleSeparatorLine := LVal;
 end;
@@ -1561,6 +1562,20 @@ begin
   end;
 end;
 
+function TDptLintImplementationFixture.StripComment(const ALine: string): string;
+var
+  LPos: Integer;
+begin
+  Result := ALine;
+  LPos := Result.IndexOf('//');
+  if LPos >= 0 then
+    Result := Result.Substring(0, LPos);
+  LPos := Result.IndexOf('{');
+  if LPos >= 0 then
+    Result := Result.Substring(0, LPos);
+  Result := Result.Trim;
+end;
+
 function TDptLintImplementationFixture.ValidateMethodOrderAndSeparators: Boolean;
 var
   J            : Integer;
@@ -1575,33 +1590,30 @@ begin
   LSeparator := FContext.SingleSeparatorLine;
   LContentLines := FContent.Split([sLineBreak]);
 
-  for var I: Integer := 1 to FContext.Lines.Count - 1 do
+  for var I: Integer := 1 to High(LContentLines) do
   begin
-    var LLine: String := FContext.Lines[I];
-    var LTrimmed: String := LLine.Trim;
+    var LLine: String := LContentLines[I];
+    var LTrimmed: String := StripComment(LLine);
 
     if (LLine <> '') and
        (LLine[1] > ' ') and
        (
-         LTrimmed.StartsWith('procedure') or
-         LTrimmed.StartsWith('function') or
+         (LTrimmed.StartsWith('procedure') and LTrimmed.Contains('.')) or
+         (LTrimmed.StartsWith('function') and LTrimmed.Contains('.')) or
          LTrimmed.StartsWith('constructor') or
          LTrimmed.StartsWith('destructor')
        ) then
     begin
-      if (I < FLineOffset) or (I >= FLineOffset + Length(LContentLines)) then
-        Continue;
-
       var LHasPrevMethod: Boolean := False;
       for J := I - 1 downto 0 do
       begin
-        var LPrevLine: String := FContext.Lines[J];
-        var LPrevTrimmed: String := LPrevLine.Trim;
+        var LPrevLine: String := LContentLines[J];
+        var LPrevTrimmed: String := StripComment(LPrevLine);
         if (LPrevLine <> '') and
            (LPrevLine[1] > ' ') and
            (
-             LPrevTrimmed.StartsWith('procedure') or
-             LPrevTrimmed.StartsWith('function') or
+             (LPrevTrimmed.StartsWith('procedure') and LPrevTrimmed.Contains('.')) or
+             (LPrevTrimmed.StartsWith('function') and LPrevTrimmed.Contains('.')) or
              LPrevTrimmed.StartsWith('constructor') or
              LPrevTrimmed.StartsWith('destructor')
            ) then
@@ -1616,13 +1628,14 @@ begin
         var LBeforeCommentIdx: Integer := I - 1;
         while (LBeforeCommentIdx >= 0) and
               (
-                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('//') or
-                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('{') or
-                FContext.Lines[LBeforeCommentIdx].Trim.StartsWith('(*')
+                LContentLines[LBeforeCommentIdx].Trim.StartsWith('//') or
+                LContentLines[LBeforeCommentIdx].Trim.StartsWith('{') or
+                LContentLines[LBeforeCommentIdx].Trim.StartsWith('(*')
               ) do
         begin
-          if FContext.Lines[LBeforeCommentIdx].Contains(LSeparator) or
-             FContext.Lines[LBeforeCommentIdx].Contains(FContext.DoubleSeparatorLine) then
+          if LContentLines[LBeforeCommentIdx].Trim = LSeparator then
+            Break;
+          if LContentLines[LBeforeCommentIdx].Trim = FContext.DoubleSeparatorLine then
             Break;
           Dec(LBeforeCommentIdx);
         end;
@@ -1630,18 +1643,18 @@ begin
         if not
            (
              (LBeforeCommentIdx >= 2) and
-             (FContext.Lines[LBeforeCommentIdx].Trim = '') and
-             FContext.Lines[LBeforeCommentIdx - 1].Contains(LSeparator) and
-             (FContext.Lines[LBeforeCommentIdx - 2].Trim = '')
+             (LContentLines[LBeforeCommentIdx].Trim = '') and
+             (LContentLines[LBeforeCommentIdx - 1].Trim = LSeparator) and
+             (LContentLines[LBeforeCommentIdx - 2].Trim = '')
            ) then
         begin
           var LIsAfterBanner: Boolean := False;
           for K := I - 1 downto 0 do
           begin
-            var LPrevK: String := FContext.Lines[K].Trim;
+            var LPrevK: String := LContentLines[K].Trim;
             if LPrevK = '' then
               Continue;
-            if LPrevK.Contains(FContext.DoubleSeparatorLine) then
+            if LPrevK = FContext.DoubleSeparatorLine then
             begin
               LIsAfterBanner := True;
               Break;
@@ -1651,7 +1664,7 @@ begin
 
           if not LIsAfterBanner then
           begin
-            ReportViolation(I + 1, 'Methods must be separated by: blank line, separator line (---), and another blank line.');
+            ReportViolation(I + 1 + FLineOffset, 'Methods must be separated by: blank line, separator line (---), and another blank line.');
             Result := False;
           end;
         end;

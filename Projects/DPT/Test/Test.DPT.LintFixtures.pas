@@ -28,15 +28,161 @@ type
     procedure ValidateClassBanners_DebugRegex;
     [Test]
     procedure ValidateClassBanners_SeparatorFollowedByMethod;
+    [Test]
+    procedure ValidateMethodOrderAndSeparators_FailsOnTooShortSeparator;
+    [Test]
+    procedure ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator;
+    [Test]
+    procedure ValidateMethodOrderAndSeparators_IgnoresNestedProcedures;
   end;
 
 implementation
 
 { TTestDptLintFixtures }
 
+procedure TTestDptLintFixtures.ValidateMethodOrderAndSeparators_IgnoresNestedProcedures;
+var
+  Fixture: TDptLintImplementationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Context.DefineSingleSeparatorLine('{ ----------------------------------------------------------------------- }');
+    Context.DefineDoubleSeparatorLine('{ ======================================================================= }');
+
+    Fixture := TDptLintImplementationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+
+      // Code with a nested procedure (no class qualification) inside a method.
+      // The nested procedure is separated by a short separator (or any separator that is NOT the single separator).
+      // This should be IGNORED by the linter because it's not a class method.
+      // Also tests that a trailing comment with a dot does not trigger a false positive.
+      Code := '''
+        implementation
+
+        procedure TMyClass.MyMethod;
+
+        { -------------------------- }
+
+        procedure NestedProc;
+        begin
+        end;
+
+        { -------------------------- }
+
+        procedure NestedProcWithComment; // This comment has a dot.
+        begin
+        end;
+
+        begin
+        end;
+        ''';
+
+      Fixture.SetContent(Code);
+      Fixture.ValidateMethodOrderAndSeparators;
+
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore nested procedures (no class qualification), even with comments containing dots');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
 procedure TTestDptLintFixtures.Setup;
 begin
   TDptLintContext.Clear;
+end;
+
+procedure TTestDptLintFixtures.ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator;
+var
+  Fixture: TDptLintImplementationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Context.DefineSingleSeparatorLine('{ ----------------------------------------------------------------------- }');
+    Context.DefineDoubleSeparatorLine('{ ======================================================================= }');
+
+    Fixture := TDptLintImplementationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      
+      // Code with two methods, separated by a DOUBLE separator (valid for standalone procedures or transitions)
+      Code := '''
+        implementation
+        
+        procedure First;
+        begin
+        end;
+
+        { ======================================================================= }
+
+        procedure Second;
+        begin
+        end;
+        ''';
+      
+      Fixture.SetContent(Code);
+      Fixture.ValidateMethodOrderAndSeparators;
+      
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Double separator should be accepted between methods');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateMethodOrderAndSeparators_FailsOnTooShortSeparator;
+var
+  Fixture: TDptLintImplementationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    // Define separator with 71 dashes
+    Context.DefineSingleSeparatorLine('{ ----------------------------------------------------------------------- }');
+    Context.DefineDoubleSeparatorLine('{ ======================================================================= }');
+
+    Fixture := TDptLintImplementationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      
+      // Code with two methods, separated by a TOO SHORT separator (e.g. 70 dashes)
+      Code := '''
+        implementation
+        
+        procedure TMyClass.First;
+        begin
+        end;
+
+        { ---------------------------------------------------------------------- }
+
+        procedure TMyClass.Second;
+        begin
+        end;
+        ''';
+      
+      Fixture.SetContent(Code);
+      Fixture.SetLineOffset('100'); 
+      
+      Fixture.ValidateMethodOrderAndSeparators;
+      
+      // We expect a violation because the separator is not EXACTLY what was defined
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report violation for incorrect separator length');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
 end;
 
 procedure TTestDptLintFixtures.ValidateClassBanners_SeparatorFollowedByMethod;
