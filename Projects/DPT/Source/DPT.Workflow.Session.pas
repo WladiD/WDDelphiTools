@@ -9,16 +9,21 @@ unit DPT.Workflow.Session;
 interface
 
 uses
+
   Winapi.Windows,
-  System.Variants,
-  System.SysUtils,
+
   System.Classes,
+  System.DateUtils,
+  System.Generics.Collections,
   System.IOUtils,
   System.JSON,
-  System.DateUtils,
-  System.Generics.Collections;
+  System.SysUtils,
+  System.Variants,
+
+  mormot.core.collections;
 
 type
+
   TDptSessionFileEntry = record
     Path: string;
     Hash: string;
@@ -36,10 +41,9 @@ type
   public
     HostPID: DWORD;
     StartTime: TDateTime;
-    Files: TList<TDptSessionFileEntry>;
-    RunResults: TList<TDptSessionRunResult>;
+    Files: IList<TDptSessionFileEntry>;
+    RunResults: IList<TDptSessionRunResult>;
     constructor Create;
-    destructor Destroy; override;
     procedure LoadFromFile(const AFileName: string);
     procedure SaveToFile(const AFileName: string);
   end;
@@ -50,27 +54,20 @@ implementation
 
 constructor TDptSessionData.Create;
 begin
-  Files := TList<TDptSessionFileEntry>.Create;
-  RunResults := TList<TDptSessionRunResult>.Create;
+  Files := Collections.NewList<TDptSessionFileEntry>;
+  RunResults := Collections.NewList<TDptSessionRunResult>;
 end;
 
-destructor TDptSessionData.Destroy;
-begin
-  RunResults.Free;
-  Files.Free;
-  inherited;
-end;
-
-procedure TDptSessionData.LoadFromFile(const AFileName: string);
+procedure TDptSessionData.LoadFromFile(const AFileName: String);
 var
-  JSONObj: TJSONObject;
-  JSONFiles: TJSONArray;
+  Content       : String;
+  Entry         : TDptSessionFileEntry;
+  I             : Integer;
+  Item          : TJSONObject;
+  JSONFiles     : TJSONArray;
+  JSONObj       : TJSONObject;
   JSONRunResults: TJSONArray;
-  I: Integer;
-  Entry: TDptSessionFileEntry;
-  RunRes: TDptSessionRunResult;
-  Item: TJSONObject;
-  Content: string;
+  RunRes        : TDptSessionRunResult;
 begin
   Files.Clear;
   RunResults.Clear;
@@ -117,11 +114,11 @@ end;
 
 procedure TDptSessionData.SaveToFile(const AFileName: string);
 var
-  JSONObj: TJSONObject;
-  JSONFiles: TJSONArray;
+  I             : Integer;
+  Item          : TJSONObject;
+  JSONFiles     : TJSONArray;
+  JSONObj       : TJSONObject;
   JSONRunResults: TJSONArray;
-  I: Integer;
-  Item: TJSONObject;
 begin
   JSONObj := TJSONObject.Create;
   try
