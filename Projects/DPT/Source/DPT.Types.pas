@@ -53,9 +53,9 @@ type
 
   TDptTaskBase = class
   private
-    FInstallation : TJclBorRADToolInstallation;
-    FInstallations: TJclBorRADToolInstallations;
-    FLogger       : ILogger;
+    FInstallation  : TJclBorRADToolInstallation;
+    FInstallations : TJclBorRADToolInstallations;
+    FLogger        : ILogger;
     FWorkflowEngine: TObject;
   protected
     function  Installation: TJclBorRADToolInstallation;
