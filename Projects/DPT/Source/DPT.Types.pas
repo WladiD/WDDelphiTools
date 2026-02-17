@@ -31,12 +31,31 @@ type
     procedure InvalidParameter(ErrorMessage: String);
   end;
 
+  ILogger = interface
+    ['{B8A68666-1234-4567-89AB-CDEF01234567}']
+    procedure Log(const Text: String);
+    procedure LogFmt(const FormatStr: String; const Args: array of const);
+  end;
+
+  TConsoleLogger = class(TInterfacedObject, ILogger)
+  public
+    procedure Log(const Text: String);
+    procedure LogFmt(const FormatStr: String; const Args: array of const);
+  end;
+
+  TNullLogger = class(TInterfacedObject, ILogger)
+  public
+    procedure Log(const Text: String);
+    procedure LogFmt(const FormatStr: String; const Args: array of const);
+  end;
+
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
 
   TDptTaskBase = class
   private
     FInstallation : TJclBorRADToolInstallation;
     FInstallations: TJclBorRADToolInstallations;
+    FLogger       : ILogger;
     FWorkflowEngine: TObject;
   protected
     function  Installation: TJclBorRADToolInstallation;
@@ -44,6 +63,7 @@ type
   public
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;
+    property Logger: ILogger read FLogger write FLogger;
     property WorkflowEngine: TObject read FWorkflowEngine write FWorkflowEngine;
   public
     constructor Create; virtual;
@@ -114,10 +134,35 @@ begin
     raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
 end;
 
+{ TConsoleLogger }
+
+procedure TConsoleLogger.Log(const Text: String);
+begin
+  Writeln(Text);
+end;
+
+procedure TConsoleLogger.LogFmt(const FormatStr: String; const Args: array of const);
+begin
+  Writeln(Format(FormatStr, Args));
+end;
+
+{ TNullLogger }
+
+procedure TNullLogger.Log(const Text: String);
+begin
+  // Do nothing
+end;
+
+procedure TNullLogger.LogFmt(const FormatStr: String; const Args: array of const);
+begin
+  // Do nothing
+end;
+
 { TDptTaskBase }
 
 constructor TDptTaskBase.Create;
 begin
+  FLogger := TConsoleLogger.Create;
 end;
 
 destructor TDptTaskBase.Destroy;
@@ -157,7 +202,8 @@ end;
 
 procedure TDptTaskBase.Output(const Text: String);
 begin
-  Writeln(Text);
+  if Assigned(FLogger) then
+    FLogger.Log(Text);
 end;
 
 function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
