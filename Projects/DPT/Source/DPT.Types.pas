@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -10,8 +10,8 @@ interface
 
 uses
 
-  System.SysUtils,
   System.Classes,
+  System.SysUtils,
 
   JclIDEUtils,
 
@@ -20,6 +20,10 @@ uses
 type
 
   EInvalidParameter = class(Exception);
+
+  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
+
+  TAIMode = (amNone, amCursor, amGemini);
 
   TCmdLineConsumer = class
   private
@@ -32,12 +36,6 @@ type
     function  HasParameter: Boolean;
     procedure InvalidParameter(ErrorMessage: String);
   end;
-
-  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
-
-function FindMostRecentDelphiVersion: TDelphiVersion;
-function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
-function IsLatestVersionAlias(const AValue: String): Boolean;
 
 const
 
@@ -93,44 +91,6 @@ begin
       ParamStr(FCurrentParameter), ErrorMessage])
   else
     raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
-end;
-
-function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
-begin
-  Result := True;
-  for var Loop: Integer := 1 to Integer(High(TDelphiVersion)) do
-  begin
-    DelphiVersion := TDelphiVersion(Loop);
-    if VersionString = DelphiVersionStringArray[DelphiVersion] then
-      Exit;
-  end;
-  DelphiVersion := dvUnknown;
-  Result := False;
-end;
-
-function FindMostRecentDelphiVersion: TDelphiVersion;
-var
-  Installations: TJclBorRADToolInstallations;
-begin
-  Result := dvUnknown;
-  Installations := TJclBorRADToolInstallations.Create;
-  try
-    for var Loop: Integer := Integer(High(TDelphiVersion)) downto 1 do
-    begin
-      if Installations.DelphiVersionInstalled[DelphiVersionIntegerArray[TDelphiVersion(Loop)]] then
-      begin
-        Result := TDelphiVersion(Loop);
-        Break;
-      end;
-    end;
-  finally
-    Installations.Free;
-  end;
-end;
-
-function IsLatestVersionAlias(const AValue: String): Boolean;
-begin
-  Result := SameText(AValue, 'LATEST') or SameText(AValue, 'RECENT');
 end;
 
 end.

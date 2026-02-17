@@ -24,6 +24,7 @@ uses
   ExprParserTools,
 
   DPT.Detection,
+  DPT.Types,
   DPT.Workflow.Session;
 
 type

@@ -17,6 +17,7 @@ uses
 
   Slim.List,
 
+  DPT.Detection,
   DPT.Types;
 
 type

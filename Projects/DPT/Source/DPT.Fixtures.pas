@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -15,9 +15,10 @@ uses
 
   Slim.Fixture,
 
+  DPT.Detection,
+  DPT.IdeControl.Task,
   DPT.OpenUnitTask,
   DPT.PrintPath.Task,
-  DPT.IdeControl.Task,
   DPT.Types;
 
 type

@@ -12,6 +12,7 @@ uses
 
   System.SysUtils,
 
+  DPT.Detection,
   DPT.PrintPath.Task,
   DPT.Types;
 

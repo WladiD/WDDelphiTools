@@ -18,6 +18,7 @@ uses
 
   JclIDEUtils,
 
+  DPT.Detection,
   DPT.Task,
   DPT.Types;
 

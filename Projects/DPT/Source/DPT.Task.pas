@@ -15,8 +15,9 @@ uses
 
   JclIDEUtils,
 
-  DPT.Types,
-  DPT.Logger;
+  DPT.Detection,
+  DPT.Logger,
+  DPT.Types;
 
 type
 

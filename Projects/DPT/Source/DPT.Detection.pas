@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -10,14 +10,21 @@ interface
 
 uses
 
-  Winapi.Windows,
   Winapi.TlHelp32,
+  Winapi.Windows,
+
+  System.StrUtils,
   System.SysUtils,
-  System.StrUtils;
+
+  JclIDEUtils,
+
+  DPT.Types;
+
+function FindMostRecentDelphiVersion: TDelphiVersion;
+function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
+function IsLatestVersionAlias(const AValue: String): Boolean;
 
 type
-
-  TAIMode = (amNone, amCursor, amGemini);
 
   TProcessTreeScanner = class
   private
@@ -59,6 +66,44 @@ var
   DummyPID: DWORD;
 begin
   Result := DetectAIMode(DummyPID);
+end;
+
+function IsValidDelphiVersion(VersionString: String; out DelphiVersion: TDelphiVersion): Boolean;
+begin
+  Result := True;
+  for var Loop: Integer := 1 to Integer(High(TDelphiVersion)) do
+  begin
+    DelphiVersion := TDelphiVersion(Loop);
+    if VersionString = DelphiVersionStringArray[DelphiVersion] then
+      Exit;
+  end;
+  DelphiVersion := dvUnknown;
+  Result := False;
+end;
+
+function FindMostRecentDelphiVersion: TDelphiVersion;
+var
+  Installations: TJclBorRADToolInstallations;
+begin
+  Result := dvUnknown;
+  Installations := TJclBorRADToolInstallations.Create;
+  try
+    for var Loop: Integer := Integer(High(TDelphiVersion)) downto 1 do
+    begin
+      if Installations.DelphiVersionInstalled[DelphiVersionIntegerArray[TDelphiVersion(Loop)]] then
+      begin
+        Result := TDelphiVersion(Loop);
+        Break;
+      end;
+    end;
+  finally
+    Installations.Free;
+  end;
+end;
+
+function IsLatestVersionAlias(const AValue: String): Boolean;
+begin
+  Result := SameText(AValue, 'LATEST') or SameText(AValue, 'RECENT');
 end;
 
 { TProcessTreeScanner }
