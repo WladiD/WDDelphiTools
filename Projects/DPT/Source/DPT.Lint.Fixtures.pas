@@ -90,15 +90,18 @@ type
   end;
 
   [SlimFixture('DptLintRegexFixture')]
-  TDptLintRegexFixture = class(TSlimFixture)
+  TDptLintRegexFixture = class(TDptLintBaseFixture)
   private
     FContent: String;
     FLineOffset: Integer;
+    FViolationSubject: String;
   public
     constructor Create(const AContent: String);
     function  Fetch(const APattern: String; const AGroupName: String): String;
     function  Match(const APattern: String): Boolean;
+    procedure SetContent(const AValue: String);
     procedure SetLineOffset(const AValue: String);
+    procedure SetViolationSubject(const AValue: String);
   end;
 
   [SlimFixture('DptLintUsesFixture')]
@@ -738,16 +741,35 @@ begin
   FLineOffset := 0;
 end;
 
+procedure TDptLintRegexFixture.SetContent(const AValue: String);
+begin
+  FContent := AValue;
+end;
+
 procedure TDptLintRegexFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
 end;
 
+procedure TDptLintRegexFixture.SetViolationSubject(const AValue: String);
+begin
+  FViolationSubject := AValue;
+end;
+
 function TDptLintRegexFixture.Match(const APattern: String): Boolean;
+var
+  LMsg: string;
 begin
   if FContent = '' then
     Exit(True);
   Result := TRegEx.IsMatch(FContent, APattern, [roSingleLine, roIgnoreCase]);
+  if not Result then
+  begin
+    LMsg := Format('Regex `%s` did not match at line offset %d', [APattern, FLineOffset]);
+    if FViolationSubject <> '' then
+      LMsg := FViolationSubject + ': ' + LMsg;
+    ReportViolation(FLineOffset + 1, LMsg);
+  end;
 end;
 
 function TDptLintRegexFixture.Fetch(const APattern: String; const AGroupName: String): String;
