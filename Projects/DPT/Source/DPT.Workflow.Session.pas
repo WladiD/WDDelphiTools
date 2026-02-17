@@ -25,16 +25,16 @@ uses
 type
 
   TDptSessionFileEntry = record
-    Path: string;
-    Hash: string;
+    Hash        : String;
     LastLintTime: TDateTime;
-    LintSuccess: Boolean;
+    LintSuccess : Boolean;
+    Path        : String;
   end;
 
   TDptSessionRunResult = record
-    Target: string;
     ExitCode: Integer;
-    RunTime: TDateTime;
+    RunTime : TDateTime;
+    Target  : String;
   end;
 
   TDptSessionData = class

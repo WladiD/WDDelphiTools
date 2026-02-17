@@ -35,77 +35,63 @@ type
 
   TDptWorkflowBlock = class
   public
-    GuardType: TDptGuardType;
-    Condition: string;
-    Instructions: string;
+    Condition   : String;
+    GuardType   : TDptGuardType;
+    Instructions: String;
     NestedBlocks: IList<TDptWorkflowBlock>;
     constructor Create;
   end;
 
   TDptWorkflowEngine = class
   private
-    FWorkflowFile: string;
-    FSessionFile: string;
-    FBlocks: IList<TDptWorkflowBlock>;
-    FSession: TDptSessionData;
-    FHostPID: DWORD;
-    FAIMode: TAIMode;
-    
-    // Context information for conditions
-    FCurrentAction: string;
-    FCurrentAiSessionAction: string;
-    FCurrentLintTargetFile: string;
-    FCurrentProjectFile: string;
-    FCurrentProjectFiles: TArray<string>;
-    FExitRequested: Boolean;
-    FExitCode: Integer;
-
-    procedure LoadWorkflow;
-    function FindWorkflowFile: string;
-    
-    procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+    FAIMode                : TAIMode;
+    FBlocks                : IList<TDptWorkflowBlock>;
+    FCurrentAction         : String;
+    FCurrentAiSessionAction: String;
+    FCurrentLintTargetFile : String;
+    FCurrentProjectFile    : String;
+    FCurrentProjectFiles   : TArray<String>;
+    FExitCode              : Integer;
+    FExitRequested         : Boolean;
+    FHostPID               : DWORD;
+    FSession               : TDptSessionData;
+    FSessionFile           : String;
+    FWorkflowFile          : String;
     procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
-    function ProcessInstructions(AParser: TExprParser; const AStr: string): string;
-
-    // Callback methods
-    function OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
-    function OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
-
-    // Script functions logic
-    function ExprParserAiSessionStarted: Variant;
-    function ExprParserIsCurrentAction(const Args: Variant): Variant;
-    function ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
-    function ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
-    function ExprParserGetCurrentLintTargetFile: Variant;
-    function ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
-    function ExprParserGetCurrentProjectFiles: Variant;
-    function ExprParserHasValidLintResult(const Args: Variant): Variant;
-    function ExprParserHasValidRunResult(const Args: Variant): Variant;
-    function ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
-    function ExprParserRequestDptExit: Variant;
-    function ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
-    function ExprParserGetExitCode: Variant;
-
+    function  ExprParserAiSessionStarted: Variant;
+    function  ExprParserGetCurrentLintTargetFile: Variant;
+    function  ExprParserGetCurrentProjectFiles: Variant;
+    function  ExprParserGetExitCode: Variant;
+    function  ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
+    function  ExprParserHasValidLintResult(const Args: Variant): Variant;
+    function  ExprParserHasValidRunResult(const Args: Variant): Variant;
+    function  ExprParserIsCurrentAction(const Args: Variant): Variant;
+    function  ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
+    function  ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
+    function  ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
+    function  ExprParserRequestDptExit: Variant;
+    function  ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
+    function  FindWorkflowFile: String;
+    procedure LoadWorkflow;
+    function  OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
+    function  OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
+    procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
+    function  ProcessInstructions(AParser: TExprParser; const AStr: string): string;
   public
     constructor Create(const AAction, AAiSessionAction: string);
-    destructor Destroy; override;
-    
-    procedure SetLintTarget(const AFile: string);
+    destructor  Destroy; override;
+    procedure AddFilesToSession(const AFiles: TArray<string>);
+    function  CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
+    procedure RegisterRunResult(const ATarget: string; AExitCode: Integer);
+    procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
+    procedure ResetSession;
     procedure SetCurrentProjectFile(const AFile: string);
-    procedure SetProjectFiles(const AFiles: TArray<string>);
     procedure SetExitCode(ACode: Integer);
-
-    function CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
-    
-    // Session management
+    procedure SetLintTarget(const AFile: string);
+    procedure SetProjectFiles(const AFiles: TArray<string>);
+    procedure ShowStatus;
     procedure StartSession;
     procedure StopSession;
-    procedure ResetSession;
-    procedure AddFilesToSession(const AFiles: TArray<string>);
-    procedure ShowStatus;
-    procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
-    procedure RegisterRunResult(const ATarget: string; AExitCode: Integer);
-    
     property Session: TDptSessionData read FSession;
     property WorkflowFile: string read FWorkflowFile;
     property HostPID: DWORD read FHostPID;
