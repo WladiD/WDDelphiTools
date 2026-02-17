@@ -21,8 +21,9 @@ uses
   System.SysUtils,
   System.RegularExpressions,
 
-  DPT.IdeManager,
   DPT.IdeClient,
+  DPT.IdeManager,
+  DPT.Task,
   DPT.Types;
 
 type

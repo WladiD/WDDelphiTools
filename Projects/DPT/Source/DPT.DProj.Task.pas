@@ -15,6 +15,7 @@ uses
   JclIDEUtils,
 
   DPT.DProjAnalyzer,
+  DPT.Task,
   DPT.Types,
   DPT.Utils;
 

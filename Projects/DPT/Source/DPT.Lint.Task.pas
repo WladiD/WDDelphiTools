@@ -23,6 +23,7 @@ uses
 
   DPT.Lint.Context,
   DPT.Lint.StyleValidator,
+  DPT.Task,
   DPT.Types,
   DPT.Workflow;
 

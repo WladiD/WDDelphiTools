@@ -14,6 +14,7 @@ uses
   System.SysUtils,
   System.IOUtils,
 
+  DPT.Task,
   DPT.Types;
 
 type

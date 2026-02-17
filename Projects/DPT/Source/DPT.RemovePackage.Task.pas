@@ -15,6 +15,7 @@ uses
 
   JclIDEUtils,
 
+  DPT.Task,
   DPT.Types;
 
 type

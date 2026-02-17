@@ -25,10 +25,12 @@ uses
   Slim.Fixture,
   Slim.Server,
 
+  DPT.Task,
   DPT.Types,
   DPT.Workflow;
 
 type
+
   TDptTaskDispatcher = class
   private
     FTasks: IKeyValue<String, TDptTaskClass>;
