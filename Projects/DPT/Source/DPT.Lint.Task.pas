@@ -12,7 +12,6 @@ uses
 
   System.Classes,
   System.Generics.Collections,
-  System.Generics.Defaults,
   System.IniFiles,
   System.IOUtils,
   System.SysUtils,
@@ -33,23 +32,24 @@ type
   public
     const SUITE_PAGE_NAME = 'DPT_LintSuite';
   private
-    FStyleFile: string;
-    FTargetFiles: TStrings;
-    FFitNesseDir: string;
-    FFitNesseRoot: string;
-    FVerbose: Boolean;
-    function  ExtractTestFromStyle(const AStylePath: string): string;
+    FFitNesseDir : String;
+    FFitNesseRoot: String;
+    FStyleFile   : String;
+    FTargetFiles : TStrings;
+    FVerbose     : Boolean;
+    function  ExtractTestFromStyle(const AStylePath: String): String;
     function  GetFreePort: Integer;
-    procedure RunFitNesse(APort: Integer; const ASuiteName: string);
+    procedure RunFitNesse(APort: Integer; const ASuiteName: String);
+    function  StyleViolationCompare(const A, B): Integer;
   public
     constructor Create; override;
-    destructor Destroy; override;
-    procedure Parse(CmdLine: TCmdLineConsumer); override;
+    destructor  Destroy; override;
     procedure Execute; override;
-    property StyleFile: string read FStyleFile write FStyleFile;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
+    property FitNesseDir: String read FFitNesseDir write FFitNesseDir;
+    property FitNesseRoot: String read FFitNesseRoot write FFitNesseRoot;
+    property StyleFile: String read FStyleFile write FStyleFile;
     property TargetFiles: TStrings read FTargetFiles;
-    property FitNesseDir: string read FFitNesseDir write FFitNesseDir;
-    property FitNesseRoot: string read FFitNesseRoot write FFitNesseRoot;
     property Verbose: Boolean read FVerbose write FVerbose;
   end;
 
@@ -71,10 +71,10 @@ end;
 
 procedure TDptLintTask.Parse(CmdLine: TCmdLineConsumer);
 var
-  FitNesseDir: string;
-  IniPath: string;
-  Ini: TIniFile;
-  Param: string;
+  FitNesseDir: String;
+  Ini        : TIniFile;
+  IniPath    : String;
+  Param      : String;
 begin
   FVerbose := False;
   FitNesseDir := '';
@@ -151,17 +151,17 @@ end;
 
 procedure TDptLintTask.Execute;
 var
-  LTestContentTemplate: string;
-  LPort: Integer;
-  LSlimServer: TSlimServer;
-  LFallbackStyleFile: string;
-  LSuiteDir: string;
-  LTestPageDir: string;
-  LTargetFile: string;
-  LSanitizedName: string;
-  LPageContent: string;
-  I: Integer;
-  LEncodingNoBOM: TEncoding;
+  LTestContentTemplate: String;
+  LPort               : Integer;
+  LSlimServer         : TSlimServer;
+  LFallbackStyleFile  : String;
+  LSuiteDir           : String;
+  LTestPageDir        : String;
+  LTargetFile         : String;
+  LSanitizedName      : String;
+  LPageContent        : String;
+  I                   : Integer;
+  LEncodingNoBOM      : TEncoding;
 begin
   // Fallback Logic for StyleFile
   if not TFile.Exists(FStyleFile) then
@@ -237,47 +237,47 @@ begin
   end;
 end;
 
-function TDptLintTask.ExtractTestFromStyle(const AStylePath: string): string;
+function TDptLintTask.ExtractTestFromStyle(const AStylePath: String): String;
 var
-  LLines: TArray<string>;
-  LBuilder: TStringBuilder;
-  LAnchor: string;
-  LAnchorPos: Integer;
-  LPipePos: Integer;
-  I: Integer;
+  Anchor   : String;
+  AnchorPos: Integer;
+  Builder  : TStringBuilder;
+  I        : Integer;
+  Lines    : TArray<String>;
+  PipePos  : Integer;
 begin
-  LLines := TFile.ReadAllLines(AStylePath, TEncoding.UTF8);
-  LBuilder := TStringBuilder.Create;
-  LAnchor := '// START: AI-GENERATED FITNESSE-TEST';
-  LAnchorPos := -1;
+  Lines := TFile.ReadAllLines(AStylePath, TEncoding.UTF8);
+  Builder := TStringBuilder.Create;
+  Anchor := '// START: AI-GENERATED FITNESSE-TEST';
+  AnchorPos := -1;
   try
-    for I := 0 to High(LLines) do
+    for I := 0 to High(Lines) do
     begin
-      var Line := LLines[I];
-      if LAnchorPos = -1 then
+      var Line := Lines[I];
+      if AnchorPos = -1 then
       begin
-        LAnchorPos := Line.ToUpper.IndexOf(LAnchor);
+        AnchorPos := Line.ToUpper.IndexOf(Anchor);
         Continue;
       end;
 
-      if (LAnchorPos >= 0) and (Line.Length > LAnchorPos) then
+      if (AnchorPos >= 0) and (Line.Length > AnchorPos) then
       begin
-        var LSegment := Line.Substring(LAnchorPos);
-        LPipePos := LSegment.IndexOf('|');
-        if LPipePos >= 0 then
+        var LSegment := Line.Substring(AnchorPos);
+        PipePos := LSegment.IndexOf('|');
+        if PipePos >= 0 then
         begin
-          var LTestLine := LSegment.Substring(LPipePos).Trim;
+          var LTestLine := LSegment.Substring(PipePos).Trim;
           // Prepend newline before new script tables (except if it's the very first line)
-          if LTestLine.StartsWith('|script|', True) and (LBuilder.Length > 0) then
-            LBuilder.AppendLine;
+          if LTestLine.StartsWith('|script|', True) and (Builder.Length > 0) then
+            Builder.AppendLine;
 
-          LBuilder.AppendLine(LTestLine);
+          Builder.AppendLine(LTestLine);
         end;
       end;
     end;
-    Result := LBuilder.ToString;
+    Result := Builder.ToString;
   finally
-    LBuilder.Free;
+    Builder.Free;
   end;
 end;
 
@@ -306,19 +306,19 @@ begin
   end;
 end;
 
-procedure TDptLintTask.RunFitNesse(APort: Integer; const ASuiteName: string);
+procedure TDptLintTask.RunFitNesse(APort: Integer; const ASuiteName: String);
 var
-  LFitNesseJar: string;
-  LOutput: string;
-  LLines: TArray<string>;
-  LFilteredOutput: TStringBuilder;
-  I: Integer;
+  FilteredOutput: TStringBuilder;
+  FitNesseJar   : String;
+  I             : Integer;
+  Lines         : TArray<String>;
+  Output        : String;
 begin
   // Path to FitNesse JAR
-  LFitNesseJar := TPath.Combine(FFitNesseDir, 'fitnesse-standalone.jar');
+  FitNesseJar := TPath.Combine(FFitNesseDir, 'fitnesse-standalone.jar');
 
-  if not TFile.Exists(LFitNesseJar) then
-    raise Exception.Create('FitNesse JAR not found: ' + LFitNesseJar);
+  if not TFile.Exists(FitNesseJar) then
+    raise Exception.Create('FitNesse JAR not found: ' + FitNesseJar);
 
   if FVerbose then
     Writeln('Executing FitNesse suite "' + ASuiteName + '" against Slim server on port ' + APort.ToString + '...');
@@ -326,20 +326,20 @@ begin
   // Reset error collector before run
   TDptLintContext.Clear;
 
-  var LJavaCmd: string := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, LFitNesseJar, FFitNesseDir, ASuiteName]);
-  var LRunResult := JclSysUtils.Execute(LJavaCmd, LOutput);
+  var LJavaCmd: String := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, FitNesseJar, FFitNesseDir, ASuiteName]);
+  var LRunResult := JclSysUtils.Execute(LJavaCmd, Output);
 
   if FVerbose then
-    Writeln(LOutput)
+    Writeln(Output)
   else
   begin
     // Filter output: only show relevant test result lines
-    LLines := LOutput.Split([sLineBreak]);
-    LFilteredOutput := TStringBuilder.Create;
+    Lines := Output.Split([sLineBreak]);
+    FilteredOutput := TStringBuilder.Create;
     try
-      for I := 0 to High(LLines) do
+      for I := 0 to High(Lines) do
       begin
-        var LLine := LLines[I];
+        var LLine := Lines[I];
         var LTrimmed := LLine.Trim;
         if LTrimmed.StartsWith('Executing command:') or
            LTrimmed.StartsWith('Starting Test System:') or
@@ -348,12 +348,12 @@ begin
            LTrimmed.Contains('Tests,') or
            LTrimmed.Contains('Failures') then
         begin
-          LFilteredOutput.AppendLine(LLine);
+          FilteredOutput.AppendLine(LLine);
         end;
       end;
-      Writeln(LFilteredOutput.ToString.Trim);
+      Writeln(FilteredOutput.ToString.Trim);
     finally
-      LFilteredOutput.Free;
+      FilteredOutput.Free;
     end;
   end;
 
@@ -366,7 +366,7 @@ begin
       var LFiles := TDirectory.GetFiles(LResultsDir, '*.xml');
       if Length(LFiles) > 0 then
       begin
-        TArray.Sort<string>(LFiles);
+        TArray.Sort<String>(LFiles);
         LLatestFile := LFiles[High(LFiles)];
       end;
     end;
@@ -391,13 +391,7 @@ begin
   // Print collected style violations at the very end, sorted
   if TDptLintContext.Violations.Count > 0 then
   begin
-    TDptLintContext.Violations.Sort(TComparer<TStyleViolation>.Construct(
-      function(const Left, Right: TStyleViolation): Integer
-      begin
-        Result := CompareText(Left.FileSpec, Right.FileSpec);
-        if Result = 0 then
-          Result := Left.Line - Right.Line;
-      end));
+    TDptLintContext.Violations.Sort(StyleViolationCompare);
 
     Writeln;
     Writeln('Style Violations Summary:');
@@ -425,6 +419,16 @@ begin
   begin
     raise Exception.Create('Failed to execute FitNesse batch (ExitCode: ' + LRunResult.ToString + ').');
   end;
+end;
+
+function TDptLintTask.StyleViolationCompare(const A, B): Integer;
+var
+  AStyle: TStyleViolation absolute A;
+  BStyle: TStyleViolation absolute B;
+begin
+  Result := CompareText(AStyle.FileSpec, BStyle.FileSpec);
+  if Result = 0 then
+    Result := AStyle.Line - BStyle.Line;
 end;
 
 end.

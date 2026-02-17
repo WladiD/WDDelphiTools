@@ -10,8 +10,9 @@ interface
 
 uses
 
-  System.Generics.Collections,
-  System.SyncObjs;
+  System.SyncObjs,
+
+  mormot.core.collections;
 
 type
 
@@ -23,22 +24,27 @@ type
 
   TDptLintContext = class
   private
-    class var FViolations: TList<TStyleViolation>;
-    class var FWarnings: TList<string>;
-    class var FLock: TObject;
+    class var FLock      : TObject;
+    class var FViolations: IList<TStyleViolation>;
+    class var FWarnings  : IList<String>;
     class procedure CheckInit;
   public
     class destructor Destroy;
     class procedure Clear;
-    class procedure Add(ALine: Integer; const AFile, AMsg: string);
-    class procedure AddWarning(const AMsg: string);
-    class function Violations: TList<TStyleViolation>;
-    class function Warnings: TList<string>;
+    class procedure Add(ALine: Integer; const AFile, AMsg: String);
+    class procedure AddWarning(const AMsg: String);
+    class function Violations: IList<TStyleViolation>;
+    class function Warnings: IList<String>;
   end;
 
 implementation
 
 { TDptLintContext }
+
+class destructor TDptLintContext.Destroy;
+begin
+  FLock.Free;
+end;
 
 class procedure TDptLintContext.CheckInit;
 begin
@@ -50,13 +56,13 @@ begin
       LLock.Free
     else
     begin
-      FViolations := TList<TStyleViolation>.Create;
-      FWarnings := TList<string>.Create;
+      FViolations := Collections.NewPlainList<TStyleViolation>;
+      FWarnings := Collections.NewList<string>;
     end;
   end;
 end;
 
-class procedure TDptLintContext.Add(ALine: Integer; const AFile, AMsg: string);
+class procedure TDptLintContext.Add(ALine: Integer; const AFile, AMsg: String);
 var
   V: TStyleViolation;
 begin
@@ -72,7 +78,7 @@ begin
   end;
 end;
 
-class procedure TDptLintContext.AddWarning(const AMsg: string);
+class procedure TDptLintContext.AddWarning(const AMsg: String);
 begin
   CheckInit;
   TMonitor.Enter(FLock);
@@ -95,20 +101,13 @@ begin
   end;
 end;
 
-class destructor TDptLintContext.Destroy;
-begin
-  FViolations.Free;
-  FWarnings.Free;
-  FLock.Free;
-end;
-
-class function TDptLintContext.Violations: TList<TStyleViolation>;
+class function TDptLintContext.Violations: IList<TStyleViolation>;
 begin
   CheckInit;
   Result := FViolations;
 end;
 
-class function TDptLintContext.Warnings: TList<string>;
+class function TDptLintContext.Warnings: IList<String>;
 begin
   CheckInit;
   Result := FWarnings;
