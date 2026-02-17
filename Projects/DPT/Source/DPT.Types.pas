@@ -59,7 +59,7 @@ type
     FWorkflowEngine: TObject;
   protected
     function  Installation: TJclBorRADToolInstallation;
-    procedure Output(const Text: String); virtual;
+    procedure Writeln(const Text: String = ''); virtual;
   public
     DelphiVersion: TDelphiVersion;
     IsX64: Boolean;
@@ -196,11 +196,11 @@ begin
       [DelphiVersionStringArray[DelphiVersion], DelphiVersionAsInt]);
 
   FInstallation := FInstallations.DelphiInstallationFromVersion[DelphiVersionAsInt];
-  FInstallation.OutputCallback := Output;
+  FInstallation.OutputCallback := Writeln;
   Result := FInstallation;
 end;
 
-procedure TDptTaskBase.Output(const Text: String);
+procedure TDptTaskBase.Writeln(const Text: String);
 begin
   if Assigned(FLogger) then
     FLogger.Log(Text);
