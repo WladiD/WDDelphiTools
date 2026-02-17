@@ -39,10 +39,10 @@ type
 
   TDptSessionData = class
   public
-    HostPID: DWORD;
-    StartTime: TDateTime;
-    Files: IList<TDptSessionFileEntry>;
+    Files     : IList<TDptSessionFileEntry>;
+    HostPID   : DWORD;
     RunResults: IList<TDptSessionRunResult>;
+    StartTime : TDateTime;
     constructor Create;
     procedure LoadFromFile(const AFileName: string);
     procedure SaveToFile(const AFileName: string);
