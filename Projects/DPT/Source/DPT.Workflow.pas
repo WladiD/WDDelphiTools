@@ -727,7 +727,11 @@ begin
     begin
       // Skip lines that are likely commands (no backticks, but contain function calls)
       if (Line <> '') and (Pos('`', Line) = 0) and (Pos('(', Line) > 0) and (Pos(')', Line) > 0) then
-        Continue;
+      begin
+        // Exception: If it looks like a list item, treat as text
+        if not Trim(Line).StartsWith('-') then
+          Continue;
+      end;
 
       var ProcessedLine := '';
       I := 1;
