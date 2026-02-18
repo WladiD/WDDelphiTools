@@ -57,6 +57,9 @@ The guards use an internal expression parser with access to the current DPT stat
 | `RequestDptExit()` | Signals the engine to exit the process after the guard phase. |
 | `RequestDptExitWithCode(Code)` | Signals an exit and sets the process exit code. |
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
+| `FixLineEndingsWindowsInAiSessionFiles()` | Converts line endings of all registered session files to CRLF (Windows). Returns `True` if any file was changed. |
+| `FixUtf8BomInAiSessionFiles()` | Ensures all registered session files are encoded in UTF-8 with BOM. Returns `True` if any file was changed. |
+| `GetLastFixedFiles()` | Returns a newline-separated list of files that were modified by the last executed Fix function. |
 
 ## Example Workflow: Mandatory Lint and Tests before Build
 
@@ -87,6 +90,23 @@ BeforeDptGuard: IsCurrentAction("Build") and
 AfterDptGuard: GetExitCode() > 0
 {
   Process stopped with ExitCode `GetExitCode()`.
+}
+
+# Auto-Fix Line Endings and BOM after successful Lint
+AfterDptGuard: IsCurrentAction("Lint") and
+               (GetExitCode()=0)
+{
+  AfterDptGuard: FixLineEndingsWindowsInAiSessionFiles()
+  {
+    - Fixed CRLF line endings in:
+      - `GetLastFixedFiles()`
+  }
+  
+  AfterDptGuard: FixUtf8BomInAiSessionFiles()
+  {
+    - Fixed missing UTF-8 BOM in:
+      - `GetLastFixedFiles()`
+  }
 }
 ```
 
