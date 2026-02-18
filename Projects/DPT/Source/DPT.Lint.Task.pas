@@ -402,7 +402,7 @@ begin
   end;
 
   Writeln;
-  if LRunResult = 0 then
+  if (LRunResult = 0) and (TDptLintContext.Violations.Count = 0) then
   begin
     Writeln('Linting passed.');
     if Assigned(WorkflowEngine) then
@@ -411,14 +411,10 @@ begin
         TDptWorkflowEngine(WorkflowEngine).ReportLintResult(LFile, True);
     end;
   end
-  else if LRunResult = 1 then
+  else
   begin
     Writeln('Linting failed.');
     System.ExitCode := 1;
-  end
-  else
-  begin
-    raise Exception.Create('Failed to execute FitNesse batch (ExitCode: ' + LRunResult.ToString + ').');
   end;
 end;
 

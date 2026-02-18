@@ -41,9 +41,7 @@ type
     procedure AddClassBannerLineFormat(const AFormat: String);
     procedure DefineDoubleSeparatorLine(const AValue: String);
     procedure DefineSingleSeparatorLine(const AValue: String);
-    procedure EnsureCrlf;
     procedure EnsureNoMultipleBlanklines;
-    procedure EnsureUtf8Bom;
     function  GetFixture: TSlimFixture;
 
     property TargetFile: String read FTargetFile;
@@ -290,88 +288,26 @@ begin
   Result := Self;
 end;
 
-procedure TDptLintUnitContextFixture.EnsureUtf8Bom;
-var
-  LHasBom  : Boolean;
-  LPreamble: TBytes;
-  LStream  : TFileStream;
-begin
-  LHasBom := False;
-  LStream := TFileStream.Create(FTargetFile, fmOpenRead or fmShareDenyNone);
-  try
-    LPreamble := TEncoding.UTF8.GetPreamble;
-    if LStream.Size >= Length(LPreamble) then
-    begin
-      SetLength(LPreamble, Length(LPreamble));
-      LStream.ReadBuffer(LPreamble[0], Length(LPreamble));
-      LHasBom := (LPreamble[0] = $EF) and (LPreamble[1] = $BB) and (LPreamble[2] = $BF);
-    end;
-  finally
-    LStream.Free;
-  end;
-
-  if not LHasBom then
-  begin
-    var LContent := TFile.ReadAllText(FTargetFile);
-    TFile.WriteAllText(FTargetFile, LContent, TEncoding.UTF8);
-    // Reload lines to reflect changes (though encoding doesn't change text content)
-    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
-    TDptLintContext.AddWarning(Format('Warning: File "%s" was converted to UTF-8 with BOM.', [ExtractFileName(FTargetFile)]));
-  end;
-end;
-
-procedure TDptLintUnitContextFixture.EnsureCrlf;
-var
-  LFoundLFOnly: Boolean;
-  LText       : String;
-begin
-  LText := TFile.ReadAllText(FTargetFile);
-
-  LFoundLFOnly := False;
-  for var I: Integer := 1 to LText.Length do
-  begin
-    if LText[I] = #10 then
-    begin
-      if (I = 1) or (LText[I-1] <> #13) then
-      begin
-        LFoundLFOnly := True;
-        Break;
-      end;
-    end;
-  end;
-
-  if LFoundLFOnly then
-  begin
-    // Normalize to CRLF
-    var LFixed: String := LText.Replace(#13#10, #10).Replace(#13, #10).Replace(#10, #13#10);
-    TFile.WriteAllText(FTargetFile, LFixed, TEncoding.UTF8);
-    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8); // Reload lines
-    TDptLintContext.AddWarning(Format('Warning: Line endings in file "%s" were converted to CRLF.', [ExtractFileName(FTargetFile)]));
-  end;
-end;
-
 procedure TDptLintUnitContextFixture.EnsureNoMultipleBlanklines;
 var
-  LNewText: String;
-  LRegex  : TRegEx;
-  LText   : String;
+  LMatch : TMatch;
+  LRegex : TRegEx;
+  LText  : String;
+  LLine  : Integer;
 begin
   LText := TFile.ReadAllText(FTargetFile, TEncoding.UTF8);
   
   // Pattern matches 3 or more consecutive LineBreaks (interspersed with optional whitespace)
-  // This corresponds to 2 or more blank lines.
-  // We want to reduce this to 2 LineBreaks (1 blank line).
-  // Note: We assume CRLF because EnsureCrlf should have run before. 
-  // However, to be robust, we match \r\n explicitly as we are on Windows/Delphi usually handling this.
-  
   LRegex := TRegEx.Create('(\r\n[ \t]*){3,}');
   
-  if LRegex.IsMatch(LText) then
+  LMatch := LRegex.Match(LText);
+  if LMatch.Success then
   begin
-    LNewText := LRegex.Replace(LText, #13#10#13#10);
-    TFile.WriteAllText(FTargetFile, LNewText, TEncoding.UTF8);
-    FLines.LoadFromFile(FTargetFile, TEncoding.UTF8);
-    TDptLintContext.AddWarning(Format('Warning: Multiple blank lines in file "%s" were collapsed.', [ExtractFileName(FTargetFile)]));
+    LLine := 1;
+    for var I := 1 to LMatch.Index - 1 do
+      if LText[I] = #10 then Inc(LLine);
+
+    TDptLintContext.Add(LLine, FTargetFile, 'Multiple blank lines found. Only one blank line is allowed.');
   end;
 end;
 

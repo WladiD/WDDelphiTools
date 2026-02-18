@@ -1,7 +1,5 @@
 ﻿// START: AI-Generated FitNesse-Test================================================================
 // |script|Dpt Lint Unit Context Fixture|${TargetFile}|
-// |Ensure Utf8 Bom|
-// |Ensure Crlf|
 // |Ensure No Multiple Blanklines|
 // |Define Single Separator Line|!-{ ----------------------------------------------------------------------- }-!|
 // |Define Double Separator Line|!-{ ======================================================================= }-!|
@@ -140,6 +138,8 @@
 // |check|Groups Follow Order|true|
 // |check|Groups Are Sorted Alphabetically|true|
 // |check|Groups Are Separated By Blank Lines|true|
+//
+//
 //
 //
 //
