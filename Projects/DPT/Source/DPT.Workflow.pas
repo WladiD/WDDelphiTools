@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -54,15 +54,19 @@ type
     FExitCode              : Integer;
     FExitRequested         : Boolean;
     FHostPID               : DWORD;
+    FLastFixedFiles        : TStringList;
     FSession               : TDptSessionData;
     FSessionFile           : String;
     FWorkflowFile          : String;
     procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
     function  ExprParserAiSessionStarted: Variant;
+    function  ExprParserFixLineEndingsWindowsInAiSessionFiles: Variant;
+    function  ExprParserFixUtf8BomInAiSessionFiles: Variant;
     function  ExprParserGetCurrentLintTargetFile: Variant;
     function  ExprParserGetCurrentProjectFiles: Variant;
     function  ExprParserGetExitCode: Variant;
     function  ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
+    function  ExprParserGetLastFixedFiles: Variant;
     function  ExprParserHasValidLintResult(const Args: Variant): Variant;
     function  ExprParserHasValidRunResult(const Args: Variant): Variant;
     function  ExprParserIsCurrentAction(const Args: Variant): Variant;
@@ -115,6 +119,7 @@ end;
 constructor TDptWorkflowEngine.Create(const AAction, AAiSessionAction: string);
 begin
   FBlocks := Collections.NewList<TDptWorkflowBlock>;
+  FLastFixedFiles := TStringList.Create;
   FCurrentAction := AAction;
   FCurrentAiSessionAction := AAiSessionAction;
   
@@ -139,6 +144,7 @@ end;
 
 destructor TDptWorkflowEngine.Destroy;
 begin
+  FLastFixedFiles.Free;
   FSession.Free;
   inherited;
 end;
@@ -321,6 +327,12 @@ begin
     ResVal := ExprParserRequestDptExitWithCode(Args)
   else if SameText(FuncName, 'GetExitCode') then
     ResVal := ExprParserGetExitCode
+  else if SameText(FuncName, 'FixLineEndingsWindowsInAiSessionFiles') then
+    ResVal := ExprParserFixLineEndingsWindowsInAiSessionFiles
+  else if SameText(FuncName, 'FixUtf8BomInAiSessionFiles') then
+    ResVal := ExprParserFixUtf8BomInAiSessionFiles
+  else if SameText(FuncName, 'GetLastFixedFiles') then
+    ResVal := ExprParserGetLastFixedFiles
   else
     Exit(False);
 
@@ -611,6 +623,92 @@ begin
     finally
       InvalidFiles.Free;
     end;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserFixLineEndingsWindowsInAiSessionFiles: Variant;
+var
+  Entry: TDptSessionFileEntry;
+  Content: string;
+  NewContent: string;
+  FileName: string;
+begin
+  FLastFixedFiles.Clear;
+  Result := False;
+  if Assigned(FSession) then
+  begin
+    for Entry in FSession.Files do
+    begin
+      FileName := Entry.Path;
+      if TFile.Exists(FileName) then
+      begin
+        try
+          Content := TFile.ReadAllText(FileName);
+          // Standardize to CRLF
+          NewContent := AdjustLineBreaks(Content, tlbsCRLF);
+          if Content <> NewContent then
+          begin
+            TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
+            FLastFixedFiles.Add(ExtractFileName(FileName));
+            Result := True;
+          end;
+        except
+          // Ignore errors during fix
+        end;
+      end;
+    end;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserFixUtf8BomInAiSessionFiles: Variant;
+var
+  Entry: TDptSessionFileEntry;
+  FileName: string;
+  Bytes: TBytes;
+  BOM: TBytes;
+begin
+  FLastFixedFiles.Clear;
+  Result := False;
+  if Assigned(FSession) then
+  begin
+    BOM := TEncoding.UTF8.GetPreamble;
+    for Entry in FSession.Files do
+    begin
+      FileName := Entry.Path;
+      if TFile.Exists(FileName) then
+      begin
+        try
+          Bytes := TFile.ReadAllBytes(FileName);
+          if (Length(Bytes) < Length(BOM)) or
+             (Bytes[0] <> BOM[0]) or
+             (Bytes[1] <> BOM[1]) or
+             (Bytes[2] <> BOM[2]) then
+          begin
+            // Write back with UTF8 encoding which adds BOM
+            // We use WriteAllText to ensure BOM is written, but we read as bytes to check
+            // Alternatively, insert BOM to bytes and write bytes.
+            // Using WriteAllText(..., TEncoding.UTF8) adds BOM.
+            TFile.WriteAllText(FileName, TFile.ReadAllText(FileName), TEncoding.UTF8);
+            FLastFixedFiles.Add(ExtractFileName(FileName));
+            Result := True;
+          end;
+        except
+          // Ignore
+        end;
+      end;
+    end;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserGetLastFixedFiles: Variant;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 0 to FLastFixedFiles.Count - 1 do
+  begin
+    if I > 0 then Result := Result + sLineBreak;
+    Result := Result + FLastFixedFiles[I];
   end;
 end;
 
