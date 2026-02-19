@@ -1278,13 +1278,16 @@ begin
         Continue;
       end;
 
-      var LClassMatch := TRegEx.Match(LLine, '^(\s*)(\w+)\s*=\s*(?:packed\s+)?class', [roIgnoreCase]);
+      var LClassMatch := TRegEx.Match(LLine, '^(\s*)(\w+)\s*=\s*(?:packed\s+)?class(?:\(([\w\.]+)\))?', [roIgnoreCase]);
       if LClassMatch.Success then
       begin
         FlushBlock;
         LClassIndent := LClassMatch.Groups[1].Length;
         LClassIndents.Add(LClassIndent);
         LClassName := LClassMatch.Groups[2].Value;
+        var LBaseClassName := '';
+        if LClassMatch.Groups.Count >= 4 then
+          LBaseClassName := LClassMatch.Groups[3].Value;
         LPrevMemberType := mtUnknown;
         LVisibilitySinceLastMember := True;
         LCurrentVisibility := 'published';
@@ -1299,6 +1302,10 @@ begin
             Break;
           end;
         end;
+
+        // Exception for Exceptions: Allow prefix 'E' if inheriting from another 'E' class
+        if not LPrefixOk and LClassName.StartsWith('E') and LBaseClassName.StartsWith('E') then
+          LPrefixOk := True;
 
         if not LPrefixOk then
         begin

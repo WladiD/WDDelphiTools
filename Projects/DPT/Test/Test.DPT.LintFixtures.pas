@@ -42,6 +42,8 @@ type
     procedure ValidateClassDeclaration_EventPropertiesAtEnd;
     [Test]
     procedure ColonsInRecordsAreAligned_IgnoresMethods;
+    [Test]
+    procedure ValidateClassDeclaration_AllowsExceptionPrefix;
   end;
 
 implementation
@@ -630,6 +632,57 @@ begin
       Fixture.ColonsInRecordsAreAligned;
 
       Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore colons in method declarations within records');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateClassDeclaration_AllowsExceptionPrefix;
+var
+  Fixture: TDptLintClassDeclarationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintClassDeclarationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      Fixture.ClassNamePrefixes := 'C,T';
+
+      // 1. Valid: Exception class inheriting from another E-prefixed class
+      Code := '''
+        type
+          EMyException = class(Exception);
+          EOtherException = class(EMyException);
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow E prefix for exceptions inheriting from E-prefix classes');
+
+      // 2. Invalid: E prefix but not inheriting from E class
+      TDptLintContext.Clear;
+      Code := '''
+        type
+          ENotAnException = class(TObject);
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report E prefix violation when not inheriting from an E-prefix class');
+
+      // 3. Valid: Standard prefixes
+      TDptLintContext.Clear;
+      Code := '''
+        type
+          CMyClass = class(TObject);
+          TMyOtherClass = class;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow standard C and T prefixes');
     finally
       Fixture.Free;
     end;
