@@ -542,15 +542,19 @@ begin
         type
           TMyClass = class
            public
+            /// <summary>Alpha Doc</summary>
             property Alpha: string read FAlpha;
+            /// <summary>Gamma Doc</summary>
             property Gamma: string read FGamma;
+            /// <summary>OnBeta Doc</summary>
             property OnBeta: TNotifyEvent read FOnBeta;
+            /// <summary>OnDelta Doc</summary>
             property OnDelta: TNotifyEvent read FOnDelta;
           end;
         ''';
       Fixture.SetContent(Code);
       Fixture.LintClassDeclarations;
-      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should accept sorted normal properties followed by sorted event properties');
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should accept sorted normal properties followed by sorted event properties with XML docs');
 
       // 2. Invalid: normal property AFTER event property
       TDptLintContext.Clear;
@@ -558,14 +562,17 @@ begin
         type
           TMyClass = class
            public
+            /// <summary>Alpha Doc</summary>
             property Alpha: string read FAlpha;
+            /// <summary>OnBeta Doc</summary>
             property OnBeta: TNotifyEvent read FOnBeta;
+            /// <summary>Gamma Doc</summary>
             property Gamma: string read FGamma; // Violation: normal property after event
           end;
         ''';
       Fixture.SetContent(Code);
       Fixture.LintClassDeclarations;
-      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report normal property after event property');
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report normal property after event property with XML docs');
       if TDptLintContext.Violations.Count > 0 then
         Assert.Contains(TDptLintContext.Violations[0].Message, 'after event property');
 
@@ -575,8 +582,11 @@ begin
         type
           TMyClass = class
            public
+            /// <summary>Alpha Doc</summary>
             property Alpha: string read FAlpha;
+            /// <summary>OnDelta Doc</summary>
             property OnDelta: TNotifyEvent read FOnDelta;
+            /// <summary>OnBeta Doc</summary>
             property OnBeta: TNotifyEvent read FOnBeta; // Violation: unsorted events
           end;
         ''';
