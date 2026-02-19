@@ -38,6 +38,8 @@ type
     procedure ValidateMethodOrderAndSeparators_IgnoresNestedProcedures;
     [Test]
     procedure ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner;
+    [Test]
+    procedure ValidateClassDeclaration_EventPropertiesAtEnd;
   end;
 
 implementation
@@ -514,6 +516,73 @@ begin
       Fixture.ValidateMethodOrderAndSeparators;
 
       Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow XML comments between banner and first method');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateClassDeclaration_EventPropertiesAtEnd;
+var
+  Fixture: TDptLintClassDeclarationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintClassDeclarationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      Fixture.PropertiesMustBeSorted := True;
+
+      // 1. Valid: normal properties, then event properties (both groups sorted)
+      Code := '''
+        type
+          TMyClass = class
+           public
+            property Alpha: string read FAlpha;
+            property Gamma: string read FGamma;
+            property OnBeta: TNotifyEvent read FOnBeta;
+            property OnDelta: TNotifyEvent read FOnDelta;
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should accept sorted normal properties followed by sorted event properties');
+
+      // 2. Invalid: normal property AFTER event property
+      TDptLintContext.Clear;
+      Code := '''
+        type
+          TMyClass = class
+           public
+            property Alpha: string read FAlpha;
+            property OnBeta: TNotifyEvent read FOnBeta;
+            property Gamma: string read FGamma; // Violation: normal property after event
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report normal property after event property');
+      if TDptLintContext.Violations.Count > 0 then
+        Assert.Contains(TDptLintContext.Violations[0].Message, 'after event property');
+
+      // 3. Invalid: unsorted event properties
+      TDptLintContext.Clear;
+      Code := '''
+        type
+          TMyClass = class
+           public
+            property Alpha: string read FAlpha;
+            property OnDelta: TNotifyEvent read FOnDelta;
+            property OnBeta: TNotifyEvent read FOnBeta; // Violation: unsorted events
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report unsorted event properties');
     finally
       Fixture.Free;
     end;

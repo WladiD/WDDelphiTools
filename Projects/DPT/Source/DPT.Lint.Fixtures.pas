@@ -20,6 +20,7 @@ uses
   System.Types,
 
   Slim.Fixture,
+  Slim.CmdUtils,
   WDDT.StringTools,
 
   DPT.Lint.Context;
@@ -157,6 +158,7 @@ type
     FAlignMemberNames      : Boolean;
     FClassNamePrefixes     : String;
     FContent               : String;
+    FEventPropertiesAtEnd  : Boolean;
     FFieldNamePrefix       : String;
     FFieldsMustBeSorted    : Boolean;
     FLineOffset            : Integer;
@@ -172,6 +174,7 @@ type
     procedure SetLineOffset(const AValue: String);
     property AlignMemberNames: Boolean read FAlignMemberNames write FAlignMemberNames;
     property ClassNamePrefixes: String read FClassNamePrefixes write FClassNamePrefixes;
+    property EventPropertiesAtEnd: Boolean read FEventPropertiesAtEnd write FEventPropertiesAtEnd;
     property FieldNamePrefix: String read FFieldNamePrefix write FFieldNamePrefix;
     property FieldsMustBeSorted: Boolean read FFieldsMustBeSorted write FFieldsMustBeSorted;
     property MethodsMustBeSorted: Boolean read FMethodsMustBeSorted write FMethodsMustBeSorted;
@@ -1067,6 +1070,7 @@ begin
   FLineOffset := 0;
   FClassNamePrefixes := 'C,T';
   FVisibilityExtraIndent := 1;
+  FEventPropertiesAtEnd := True;
   FFieldNamePrefix := 'F';
   FFieldsMustBeSorted := True;
   FMethodsMustBeSorted := True;
@@ -1140,26 +1144,23 @@ end;
 
 procedure TDptLintClassDeclarationFixture.ValidateBlock(ABlock: TMemberBlock; var AResult: Boolean);
 var
-  LFirst       : TMemberInfo;
+  I            : Integer;
   LMustBeSorted: Boolean;
 begin
   if ABlock.Members.Count < 1 then
     Exit;
 
-  LFirst := ABlock.Members[0];
-  LMustBeSorted := False;
-  case LFirst.MemberType of
-    mtField:
-      LMustBeSorted := FFieldsMustBeSorted;
-    mtMethod:
-      LMustBeSorted := FMethodsMustBeSorted;
-    mtProperty:
-      LMustBeSorted := FPropertiesMustBeSorted;
-  end;
-
-  for var I: Integer := 0 to ABlock.Members.Count - 1 do
+  for I := 0 to ABlock.Members.Count - 1 do
   begin
     var Curr: TMemberInfo := ABlock.Members[I];
+    
+    LMustBeSorted := False;
+    case Curr.MemberType of
+      mtField: LMustBeSorted := FFieldsMustBeSorted;
+      mtMethod: LMustBeSorted := FMethodsMustBeSorted;
+      mtProperty: LMustBeSorted := FPropertiesMustBeSorted;
+    end;
+
     if (Curr.MemberType = mtField) and (FFieldNamePrefix <> '') then
     begin
       // Rule: Published fields are allowed without 'F' prefix
@@ -1174,11 +1175,40 @@ begin
     if I > 0 then
     begin
       var Prev: TMemberInfo := ABlock.Members[I - 1];
-      if LMustBeSorted and (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
+      
+      var LPrevIsEvent: Boolean := (Prev.MemberType = mtProperty) and Prev.Name.StartsWith('On', True);
+      var LCurrIsEvent: Boolean := (Curr.MemberType = mtProperty) and Curr.Name.StartsWith('On', True);
+
+      if FEventPropertiesAtEnd and (Prev.MemberType = mtProperty) and (Curr.MemberType = mtProperty) then
       begin
-        ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
-        AResult := False;
+        // Case: Both are properties.
+        // 1. Check if order is correct (Normal before Event)
+        if LPrevIsEvent and not LCurrIsEvent then
+        begin
+          ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Normal property "%s" should not appear after event property "%s".', [Curr.Name, Prev.Name]));
+          AResult := False;
+        end;
+
+        // 2. Check alphabetical sorting (only within the same sub-group)
+        if LMustBeSorted and (LPrevIsEvent = LCurrIsEvent) then
+        begin
+          if (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
+          begin
+            ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
+            AResult := False;
+          end;
+        end;
+      end
+      else if LMustBeSorted and (Curr.MemberType = Prev.MemberType) then
+      begin
+        // Standard sorting for other cases (same member types or EventPropertiesAtEnd disabled)
+        if (CompareStringNatural(Curr.Name, Prev.Name) < 0) then
+        begin
+          ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be sorted alphabetically (before "%s").', [Curr.Name, Prev.Name]));
+          AResult := False;
+        end;
       end;
+
       if FAlignMemberNames and (Curr.NameStartPos <> Prev.NameStartPos) then
       begin
         ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" should be vertically aligned with "%s" (Pos %d vs %d).', [Curr.Name, Prev.Name, Curr.NameStartPos, Prev.NameStartPos]));
@@ -1229,9 +1259,12 @@ begin
     begin
       var LLine := LLines[I];
       var LTrimmed := LLine.Trim;
-      if LTrimmed = '' then
+      if (LTrimmed = '') or LTrimmed.StartsWith('//') or LTrimmed.StartsWith('{') or LTrimmed.StartsWith('(*') then
       begin
-        FlushBlock;
+        // Only flush the current block on an ACTUAL empty line, not on a comment line.
+        // This allows documentation comments between sorted members.
+        if LTrimmed = '' then
+          FlushBlock;
         Continue;
       end;
 
