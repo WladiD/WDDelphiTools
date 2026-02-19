@@ -272,6 +272,9 @@ end;
 procedure TDptLintUnitContextFixture.DefineSingleSeparatorLine(const AValue: String);
 begin
   var LVal: String := AValue.Trim;
+  if LVal.StartsWith('!-{') and LVal.EndsWith('}-!') then
+    LVal := LVal.Substring(3, LVal.Length - 6).Trim;
+
   if LVal <> '' then
     FSingleSeparatorLine := LVal;
 end;
@@ -279,6 +282,9 @@ end;
 procedure TDptLintUnitContextFixture.DefineDoubleSeparatorLine(const AValue: String);
 begin
   var LVal: String := AValue.Trim;
+  if LVal.StartsWith('!-{') and LVal.EndsWith('}-!') then
+    LVal := LVal.Substring(3, LVal.Length - 6).Trim;
+
   if LVal <> '' then
     FDoubleSeparatorLine := LVal;
 end;
@@ -1566,48 +1572,55 @@ begin
 
       if LHasPrevMethod then
       begin
-        var LBeforeCommentIdx: Integer := I - 1;
-        while (LBeforeCommentIdx >= 0) and
-              (
-                LContentLines[LBeforeCommentIdx].Trim.StartsWith('//') or
-                LContentLines[LBeforeCommentIdx].Trim.StartsWith('{') or
-                LContentLines[LBeforeCommentIdx].Trim.StartsWith('(*')
-              ) do
+        var LIsSeparatorValid: Boolean := False;
+        var LSignificantLineIdx: Integer := -1;
+
+        // Search backwards for the first line that is NOT a comment or blank
+        for J := I - 1 downto 0 do
         begin
-          if LContentLines[LBeforeCommentIdx].Trim = LSeparator then
-            Break;
-          if LContentLines[LBeforeCommentIdx].Trim = FContext.DoubleSeparatorLine then
-            Break;
-          Dec(LBeforeCommentIdx);
+          var LTrimmedJ: String := LContentLines[J].Trim;
+          if (LTrimmedJ = '') or
+             LTrimmedJ.StartsWith('//') or
+             LTrimmedJ.StartsWith('{') or
+             LTrimmedJ.StartsWith('(*') then
+          begin
+            // If we encounter a separator while skipping comments, it MIGHT be valid, 
+            // but we need to check its surrounding blank lines.
+            if (LTrimmedJ = LSeparator) or (LTrimmedJ = FContext.DoubleSeparatorLine) then
+            begin
+               LSignificantLineIdx := J;
+               Break;
+            end;
+            Continue;
+          end;
+          
+          LSignificantLineIdx := J;
+          Break;
         end;
 
-        if not
-           (
-             (LBeforeCommentIdx >= 2) and
-             (LContentLines[LBeforeCommentIdx].Trim = '') and
-             (LContentLines[LBeforeCommentIdx - 1].Trim = LSeparator) and
-             (LContentLines[LBeforeCommentIdx - 2].Trim = '')
-           ) then
+        if LSignificantLineIdx <> -1 then
         begin
-          var LIsAfterBanner: Boolean := False;
-          for K := I - 1 downto 0 do
+          var LSignLine: String := LContentLines[LSignificantLineIdx].Trim;
+          
+          // Case 1: Standard Single Separator { --- }
+          if LSignLine = LSeparator then
           begin
-            var LPrevK: String := LContentLines[K].Trim;
-            if LPrevK = '' then
-              Continue;
-            if LPrevK = FContext.DoubleSeparatorLine then
-            begin
-              LIsAfterBanner := True;
-              Break;
-            end;
-            Break;
+            LIsSeparatorValid := (LSignificantLineIdx >= 1) and (LSignificantLineIdx < High(LContentLines)) and
+                                 (LContentLines[LSignificantLineIdx - 1].Trim = '') and
+                                 (LContentLines[LSignificantLineIdx + 1].Trim = '');
+          end
+          // Case 2: Class Banner / Double Separator { === }
+          // We recognize a class banner if the significant line is the double separator.
+          else if LSignLine = FContext.DoubleSeparatorLine then
+          begin
+            LIsSeparatorValid := True;
           end;
+        end;
 
-          if not LIsAfterBanner then
-          begin
-            ReportViolation(I + 1 + FLineOffset, 'Methods must be separated by: blank line, separator line (---), and another blank line.');
-            Result := False;
-          end;
+        if not LIsSeparatorValid then
+        begin
+          ReportViolation(I + 1 + FLineOffset, 'Methods must be separated by: blank line, separator line (---), and another blank line.');
+          Result := False;
         end;
       end;
     end;

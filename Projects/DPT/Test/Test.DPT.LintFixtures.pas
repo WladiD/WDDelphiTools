@@ -36,6 +36,8 @@ type
     procedure ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator;
     [Test]
     procedure ValidateMethodOrderAndSeparators_IgnoresNestedProcedures;
+    [Test]
+    procedure ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner;
   end;
 
 implementation
@@ -465,6 +467,53 @@ begin
         // Line 106 is FirstMethod
         Assert.AreEqual(106, TDptLintContext.Violations[0].Line, 'Violation should be reported at the FIRST method line of the class');
       end;
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner;
+var
+  Fixture: TDptLintImplementationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Context.DefineSingleSeparatorLine('{ ----------------------------------------------------------------------- }');
+    Context.DefineDoubleSeparatorLine('{ ======================================================================= }');
+
+    Fixture := TDptLintImplementationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+
+      // Simulating Tfw.Gs.Base.Form.pas:
+      // A class banner, then XML comments, then the first method.
+      // There was a previous method to trigger the "separator needed" logic.
+      Code := '''
+        implementation
+
+        procedure TOtherClass.SomeMethod;
+        begin
+        end;
+
+        { ======================================================================= }
+        { TMyClass                                                                }
+        { ======================================================================= }
+
+        /// <summary>Documentation</summary>
+        procedure TMyClass.FirstMethod;
+        begin
+        end;
+        ''';
+
+      Fixture.SetContent(Code);
+      Fixture.ValidateMethodOrderAndSeparators;
+
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow XML comments between banner and first method');
     finally
       Fixture.Free;
     end;
