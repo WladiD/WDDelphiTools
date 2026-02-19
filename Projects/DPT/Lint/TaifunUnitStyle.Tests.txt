@@ -58,6 +58,7 @@
 // |Set Methods Must Be Sorted|true|
 // |Set Properties Must Be Sorted|true|
 // |Set Align Member Names|true|
+// |Set Event Properties At End|true|
 // |check|Lint Class Declarations|true|
 //
 // |script|Dpt Lint Fixture|
@@ -138,7 +139,6 @@
 // |check|Groups Follow Order|true|
 // |check|Groups Are Sorted Alphabetically|true|
 // |check|Groups Are Separated By Blank Lines|true|
-//
 //
 //
 //
