@@ -19,6 +19,8 @@ uses
   IdTCPClient,
   JclSysUtils,
 
+  mormot.core.collections,
+
   Slim.Server,
 
   DPT.Lint.Context,
@@ -42,6 +44,8 @@ type
     function  GetFreePort: Integer;
     procedure RunFitNesse(APort: Integer; const ASuiteName: String);
     function  StyleViolationCompare(const A, B): Integer;
+    procedure TryAddFailedTestFromLine(const ATrimmedLine: string; const AFailedTests: IList<String>);
+    function  GetLatestTestResultFile(const APageName: string): string;
   public
     constructor Create; override;
     destructor  Destroy; override;
@@ -314,6 +318,7 @@ var
   I             : Integer;
   Lines         : TArray<String>;
   Output        : String;
+  LFailedTests  : IList<String>;
 begin
   // Path to FitNesse JAR
   FitNesseJar := TPath.Combine(FFitNesseDir, 'fitnesse-standalone.jar');
@@ -327,9 +332,10 @@ begin
   // Reset error collector before run
   TDptLintContext.Clear;
 
-  var LJavaCmd: String := Format('java -Dtest.system=slim -Dfitnesse.plugins=fitnesse.slim.SlimService -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, FitNesseJar, FFitNesseDir, ASuiteName]);
-  var LRunResult := JclSysUtils.Execute(LJavaCmd, Output);
+  var LJavaCmd: String := Format('java -Dtest.system=slim -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, FitNesseJar, FFitNesseDir, ASuiteName]);
+  var LRunResult: Cardinal := JclSysUtils.Execute(LJavaCmd, Output);
 
+  LFailedTests := Collections.NewList<String>;
   if FVerbose then
     Writeln(Output)
   else
@@ -340,17 +346,35 @@ begin
     try
       for I := 0 to High(Lines) do
       begin
-        var LLine := Lines[I];
-        var LTrimmed := LLine.Trim;
+        var LLine: String := Lines[I];
+        var LTrimmed: String := LLine.Trim;
+
+        var LIsTestResultFailLine: Boolean :=
+            LTrimmed.StartsWith('F ') or
+            LTrimmed.StartsWith('E ');
+
+        var LIsTestResultLine: Boolean :=
+          (
+            LIsTestResultFailLine or
+            LTrimmed.StartsWith('. ')
+          ) and
+          LTrimmed.Contains(' R:') and
+          LTrimmed.Contains('W:') and
+          LTrimmed.Contains('I:') and
+          LTrimmed.Contains('E:');
+
         if LTrimmed.StartsWith('Executing command:') or
            LTrimmed.StartsWith('Starting Test System:') or
-           LTrimmed.Contains(' R:') or
+           LIsTestResultLine or
+           LTrimmed.Contains('[Fail]') or
+           LTrimmed.Contains('[Error]') or
            LTrimmed.StartsWith('--------') or
            LTrimmed.Contains('Tests,') or
            LTrimmed.Contains('Failures') then
-        begin
           FilteredOutput.AppendLine(LLine);
-        end;
+
+        if LIsTestResultFailLine then
+          TryAddFailedTestFromLine(LTrimmed, LFailedTests);
       end;
       Writeln(FilteredOutput.ToString.Trim);
     finally
@@ -360,22 +384,25 @@ begin
 
   if LRunResult <> 0 then
   begin
-    var LResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + ASuiteName);
-    var LLatestFile := '';
-    if TDirectory.Exists(LResultsDir) then
+    Writeln;
+    if LFailedTests.Count > 0 then
     begin
-      var LFiles := TDirectory.GetFiles(LResultsDir, '*.xml');
-      if Length(LFiles) > 0 then
+      Writeln('Error details:');
+      for var LTestName in LFailedTests do
       begin
-        TArray.Sort<String>(LFiles);
-        LLatestFile := LFiles[High(LFiles)];
+        var LLatestFile := GetLatestTestResultFile(LTestName);
+        if LLatestFile <> '' then
+          Writeln('  ' + LLatestFile)
+        else
+          Writeln('  [No XML found for ' + LTestName + ']');
       end;
-    end;
-
-    if LLatestFile <> '' then
+    end
+    else
     begin
-      Writeln;
-      Writeln('Error details: ' + LLatestFile);
+      // Fallback: show suite result if no individual failed tests identified
+      var LLatestFile := GetLatestTestResultFile(ASuiteName);
+      if LLatestFile <> '' then
+        Writeln('Error details (Suite): ' + LLatestFile);
     end;
   end;
 
@@ -426,6 +453,55 @@ begin
   Result := CompareText(AStyle.FileSpec, BStyle.FileSpec);
   if Result = 0 then
     Result := AStyle.Line - BStyle.Line;
+end;
+
+procedure TDptLintTask.TryAddFailedTestFromLine(const ATrimmedLine: string; const AFailedTests: IList<String>);
+begin
+  // Identify failed tests for detail reporting
+  // Format is typically: "F 07:55:05 R:21 W:3 I:0 E:0 TestName (Full.Path.To.Test) 0,325 seconds"
+  var LOpenParen := ATrimmedLine.IndexOf('(');
+  var LCloseParen := ATrimmedLine.IndexOf(')', LOpenParen);
+
+  if (LOpenParen > 0) and (LCloseParen > LOpenParen) then
+  begin
+    var LTestPath := ATrimmedLine.Substring(LOpenParen + 1, LCloseParen - LOpenParen - 1).Trim;
+    if (LTestPath <> '') and (AFailedTests.IndexOf(LTestPath) < 0) then
+      AFailedTests.Add(LTestPath);
+  end
+  else
+  begin
+    var LParts := ATrimmedLine.Split([' ', #9]);
+    if Length(LParts) > 0 then
+    begin
+      // Try to find the first part that looks like a name (not a status or time)
+      for var LPart in LParts do
+      begin
+         var LP := LPart.Trim(['.']);
+         if (LP = '') or (LP = 'F') or (LP = 'E') or (Pos(':', LP) > 0) or (LP.StartsWith('R:')) then Continue;
+         if (AFailedTests.IndexOf(LP) < 0) then
+           AFailedTests.Add(LP);
+         Break;
+      end;
+    end;
+  end;
+end;
+
+function TDptLintTask.GetLatestTestResultFile(const APageName: string): string;
+var
+  LResultsDir: string;
+  LFiles: TArray<string>;
+begin
+  Result := '';
+  LResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + APageName);
+  if TDirectory.Exists(LResultsDir) then
+  begin
+    LFiles := TDirectory.GetFiles(LResultsDir, '*.xml');
+    if Length(LFiles) > 0 then
+    begin
+      TArray.Sort<String>(LFiles);
+      Result := LFiles[High(LFiles)];
+    end;
+  end;
 end;
 
 end.
