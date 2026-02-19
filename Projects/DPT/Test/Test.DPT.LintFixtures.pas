@@ -40,6 +40,8 @@ type
     procedure ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner;
     [Test]
     procedure ValidateClassDeclaration_EventPropertiesAtEnd;
+    [Test]
+    procedure ColonsInRecordsAreAligned_IgnoresMethods;
   end;
 
 implementation
@@ -593,6 +595,41 @@ begin
       Fixture.SetContent(Code);
       Fixture.LintClassDeclarations;
       Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report unsorted event properties');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ColonsInRecordsAreAligned_IgnoresMethods;
+var
+  Fixture: TDptLintFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintFixture.Create;
+    try
+      Fixture.SetContext(Context);
+
+      // Record with aligned fields, class function and class operator
+      Code := '''
+        type
+          TMyRecord = record
+            Field1: Integer;
+            Field2: string;
+            class function Create(A: Integer): TMyRecord; static;
+            class operator Add(A, B: TMyRecord): TMyRecord;
+          end;
+        ''';
+
+      Context.Lines.Text := Code;
+      Fixture.ColonsInRecordsAreAligned;
+
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore colons in method declarations within records');
     finally
       Fixture.Free;
     end;

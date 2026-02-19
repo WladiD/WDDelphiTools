@@ -595,6 +595,16 @@ begin
 
   for var I: Integer := LStart - 1 to LEnd - 1 do
   begin
+    var LLineTrimmed := FContext.Lines[I].Trim.ToLower;
+    if LLineTrimmed.StartsWith('procedure ') or
+       LLineTrimmed.StartsWith('function ') or
+       LLineTrimmed.StartsWith('constructor ') or
+       LLineTrimmed.StartsWith('destructor ') or
+       LLineTrimmed.StartsWith('class function ') or
+       LLineTrimmed.StartsWith('class procedure ') or
+       LLineTrimmed.StartsWith('class operator ') then
+      Continue;
+
     LPos := FContext.Lines[I].IndexOf(':');
     if LPos >= 0 then
     begin
