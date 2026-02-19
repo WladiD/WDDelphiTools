@@ -18,7 +18,6 @@ uses
 
   IdTCPClient,
   JclSysUtils,
-
   mormot.core.collections,
 
   Slim.Server,
@@ -38,23 +37,22 @@ type
     FFitNesseDir : String;
     FFitNesseRoot: String;
     FStyleFile   : String;
-    FTargetFiles : TStrings;
+    FTargetFiles : IList<String>;
     FVerbose     : Boolean;
     function  ExtractTestFromStyle(const AStylePath: String): String;
     function  GetFreePort: Integer;
+    function  GetLatestTestResultFile(const APageName: String): String;
     procedure RunFitNesse(APort: Integer; const ASuiteName: String);
     function  StyleViolationCompare(const A, B): Integer;
     procedure TryAddFailedTestFromLine(const ATrimmedLine: String; const AFailedTests: IList<String>);
-    function  GetLatestTestResultFile(const APageName: String): String;
   public
     constructor Create; override;
-    destructor  Destroy; override;
     procedure Execute; override;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
     property FitNesseDir: String read FFitNesseDir write FFitNesseDir;
     property FitNesseRoot: String read FFitNesseRoot write FFitNesseRoot;
     property StyleFile: String read FStyleFile write FStyleFile;
-    property TargetFiles: TStrings read FTargetFiles;
+    property TargetFiles: IList<String> read FTargetFiles;
     property Verbose: Boolean read FVerbose write FVerbose;
   end;
 
@@ -65,13 +63,7 @@ implementation
 constructor TDptLintTask.Create;
 begin
   inherited;
-  FTargetFiles := TStringList.Create;
-end;
-
-destructor TDptLintTask.Destroy;
-begin
-  FTargetFiles.Free;
-  inherited;
+  FTargetFiles := Collections.NewList<String>;
 end;
 
 procedure TDptLintTask.Parse(CmdLine: TCmdLineConsumer);
