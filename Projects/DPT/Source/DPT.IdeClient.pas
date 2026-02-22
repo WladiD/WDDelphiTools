@@ -83,9 +83,19 @@ begin
   try
     Client.Host := '127.0.0.1';
     Client.Port := APort;
-    Client.ConnectTimeout := 1000; // Increased timeout
+    Client.ConnectTimeout := 2000;
     Client.ReadTimeout := 5000;
-    Client.Connect;
+
+    try
+      Client.Connect;
+    except
+      on E: Exception do
+      begin
+        // Connection failed (e.g. IDE not running or plugin not ready)
+        Exit(False);
+      end;
+    end;
+
     // Read version
     Response := Client.IOHandler.ReadLn;
     if Pos('Slim --', Response) <> 1 then

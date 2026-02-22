@@ -187,7 +187,18 @@ begin
       raise Exception.Create('Unknown protocol command: ' + Command);
   end;
 
-  if FTasks.TryGetValue(Action, TaskClass) then
+  TaskClass := nil;
+  if not FTasks.TryGetValue(Action, TaskClass) then
+  begin
+    for var Item in FTasks do
+      if SameText(Item.Key, Action) then
+      begin
+        TaskClass := Item.Value;
+        Break;
+      end;
+  end;
+
+  if Assigned(TaskClass) then
   begin
     CmdLine.ConsumeParameter;
     Task := TaskClass.Create;
