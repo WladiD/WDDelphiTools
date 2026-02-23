@@ -426,9 +426,20 @@ begin
   except
     on E:Exception do
     begin
-      if not (E is EInvalidParameter) then
-        Writeln(E.Classname, ': ', E.Message);
-      TDptInstructionScreen.ShowCompact;
+      if E is EDptRuntimeError then
+      begin
+        Writeln('Runtime Error: ', E.Message);
+      end
+      else if E is EAbort then
+      begin
+        // Silent exit
+      end
+      else
+      begin
+        if not (E is EInvalidParameter) then
+          Writeln(E.Classname, ': ', E.Message);
+        TDptInstructionScreen.ShowCompact;
+      end;
       System.ExitCode := 1;
     end;
   end;

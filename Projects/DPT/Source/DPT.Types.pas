@@ -20,6 +20,7 @@ uses
 type
 
   EInvalidParameter = class(Exception);
+  EDptRuntimeError = class(Exception);
 
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
 

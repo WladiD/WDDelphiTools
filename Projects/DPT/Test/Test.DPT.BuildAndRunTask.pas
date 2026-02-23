@@ -42,6 +42,8 @@ type
     procedure FindExeFile_Variables;
     [Test]
     procedure FindExeFile_MultipleGroups;
+    [Test]
+    procedure FindExeFile_ComplexConditions;
   end;
 
 implementation
@@ -172,6 +174,61 @@ begin
   FTask.Config := 'Release';
   // Release doesn't match second group, so it should keep "Base" from first group
   Assert.AreEqual(ExpandFileName(TPath.Combine(FTempDir, 'Base\TestProject.exe')), FTask.FindExeFile);
+end;
+
+procedure TDptBuildAndRunTaskTests.FindExeFile_ComplexConditions;
+begin
+  CreateProjectFile('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+        <PropertyGroup>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
+            <Cfg_1>true</Cfg_1>
+            <CfgParent>Base</CfgParent>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
+            <Cfg_2>true</Cfg_2>
+            <CfgParent>Base</CfgParent>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Base)'!=''">
+            <DCC_ExeOutput>.\BaseOutput</DCC_ExeOutput>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Cfg_1)'!=''">
+            <DCC_ExeOutput>.\DebugOutput</DCC_ExeOutput>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Cfg_2)'!=''">
+            <DCC_ExeOutput>.\ReleaseOutput</DCC_ExeOutput>
+        </PropertyGroup>
+    </Project>
+    ''');
+
+  // Case 1: Debug
+  FTask.Config := 'Debug';
+  FTask.TargetPlatform := 'Win32';
+  // Logic:
+  // 1. Base=true
+  // 2. Config=Debug -> Cfg_1=true
+  // 3. Config=Release -> False (skipped)
+  // 4. Base!='' -> ExeOutput=BaseOutput
+  // 5. Cfg_1!='' -> ExeOutput=DebugOutput
+  // 6. Cfg_2!='' -> False (skipped)
+  // Result: DebugOutput
+  Assert.AreEqual(ExpandFileName(TPath.Combine(FTempDir, 'DebugOutput\TestProject.exe')), FTask.FindExeFile);
+
+  // Case 2: Release
+  FTask.Config := 'Release';
+  // Logic:
+  // 1. Base=true
+  // 2. Config=Debug -> False
+  // 3. Config=Release -> Cfg_2=true
+  // 4. Base!='' -> ExeOutput=BaseOutput
+  // 5. Cfg_1!='' -> False
+  // 6. Cfg_2!='' -> ExeOutput=ReleaseOutput
+  // Result: ReleaseOutput
+  Assert.AreEqual(ExpandFileName(TPath.Combine(FTempDir, 'ReleaseOutput\TestProject.exe')), FTask.FindExeFile);
 end;
 
 end.
