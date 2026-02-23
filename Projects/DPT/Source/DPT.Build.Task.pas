@@ -31,9 +31,11 @@ type
 
   TDptBuildTask = class(TDptTaskBase)
   protected
-    function  RunShellCommand(const CommandLine: String): Integer;
-    function  FindExeFile: String;
     procedure CheckExeNotLocked(const ExePath: String);
+    function  EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
+    function  FindExeFile: String;
+    procedure ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
+    function  RunShellCommand(const CommandLine: String): Integer;
   public
     Config        : String;
     ExtraArgs     : String;
@@ -122,6 +124,100 @@ begin
   end;
 end;
 
+function TDptBuildTask.EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
+var
+  EqPos     : Integer;
+  Left      : String;
+  NeqPos    : Integer;
+  Part      : String;
+  Parts     : TArray<String>;
+  Resolved  : String;
+  ResultBool: Boolean;
+  Right     : String;
+  VarMatch  : TMatch;
+  VarMatches: TMatchCollection;
+  VarName   : String;
+  VarValue  : String;
+begin
+  if Trim(ACondition) = '' then
+    Exit(True);
+
+  Resolved := ACondition;
+
+  // 1. Resolve variables $(Var) by finding them and looking up in Definitions
+  VarMatches := TRegEx.Matches(Resolved, '\$\((\w+)\)');
+  for VarMatch in VarMatches do
+  begin
+    VarName := VarMatch.Groups[1].Value; // e.g. 'Config'
+    if ADefinitions.TryGetValue(LowerCase(VarName), VarValue) then
+      Resolved := StringReplace(Resolved, VarMatch.Value, VarValue, [rfReplaceAll, rfIgnoreCase])
+    else
+      Resolved := StringReplace(Resolved, VarMatch.Value, '', [rfReplaceAll, rfIgnoreCase]);
+  end;
+
+  // 2. Split by ' or ' (simple OR support)
+  Parts := Resolved.Split([' or ', ' OR '], TStringSplitOptions.ExcludeEmpty);
+  if Length(Parts) = 0 then
+     Parts := [Resolved];
+
+  Result := False;
+  for Part in Parts do
+  begin
+    // Evaluate single expression
+    // Handle 'A'=='B'
+    EqPos := Pos('==', Part);
+    NeqPos := Pos('!=', Part);
+
+    ResultBool := False;
+    if EqPos > 0 then
+    begin
+      Left := Trim(Copy(Part, 1, EqPos - 1));
+      Right := Trim(Copy(Part, EqPos + 2, Length(Part)));
+      // Remove quotes
+      Left := StringReplace(Left, '''', '', [rfReplaceAll]);
+      Right := StringReplace(Right, '''', '', [rfReplaceAll]);
+      if SameText(Left, Right) then ResultBool := True;
+    end
+    else if NeqPos > 0 then
+    begin
+      Left := Trim(Copy(Part, 1, NeqPos - 1));
+      Right := Trim(Copy(Part, NeqPos + 2, Length(Part)));
+      // Remove quotes
+      Left := StringReplace(Left, '''', '', [rfReplaceAll]);
+      Right := StringReplace(Right, '''', '', [rfReplaceAll]);
+      if not SameText(Left, Right) then ResultBool := True;
+    end
+    else
+    begin
+      // Fallback: If part is just "true" or "false" (after var replacement)
+      if SameText(Trim(Part), 'true') then ResultBool := True;
+    end;
+
+    if ResultBool then
+    begin
+      Result := True;
+      Break; // Short-circuit OR
+    end;
+  end;
+end;
+
+procedure TDptBuildTask.ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
+var
+  Key        : String;
+  PropMatch  : TMatch;
+  PropMatches: TMatchCollection;
+  Value      : String;
+begin
+  // Regex to find <Key>Value</Key>
+  PropMatches := TRegEx.Matches(ABody, '<(\w+)>([^<]+)</\1>');
+  for PropMatch in PropMatches do
+  begin
+    Key := PropMatch.Groups[1].Value;
+    Value := PropMatch.Groups[2].Value;
+    ADefinitions[LowerCase(Key)] := Value;
+  end;
+end;
+
 function TDptBuildTask.FindExeFile: String;
 var
   BaseName      : String;
@@ -135,99 +231,6 @@ var
   ValMatch      : TMatch;
   Definitions   : IDictionary_String_String;
   RootPath      : String;
-
-  function EvaluateCondition(const ACondition: String): Boolean;
-  var
-    Resolved: String;
-    Parts: TArray<String>;
-    Part: String;
-    EqPos, NeqPos: Integer;
-    Left, Right: String;
-    ResultBool: Boolean;
-    VarMatches: TMatchCollection;
-    VarMatch: TMatch;
-    VarName: String;
-    VarValue: String;
-  begin
-    // Empty condition is always true
-    if Trim(ACondition) = '' then
-      Exit(True);
-
-    Resolved := ACondition;
-
-    // 1. Resolve variables $(Var) by finding them and looking up in Definitions
-    VarMatches := TRegEx.Matches(Resolved, '\$\((\w+)\)');
-    for VarMatch in VarMatches do
-    begin
-      VarName := VarMatch.Groups[1].Value; // e.g. 'Config'
-      if Definitions.TryGetValue(LowerCase(VarName), VarValue) then
-        Resolved := StringReplace(Resolved, VarMatch.Value, VarValue, [rfReplaceAll, rfIgnoreCase])
-      else
-        Resolved := StringReplace(Resolved, VarMatch.Value, '', [rfReplaceAll, rfIgnoreCase]);
-    end;
-
-    // 2. Split by ' or ' (simple OR support)
-    Parts := Resolved.Split([' or ', ' OR '], TStringSplitOptions.ExcludeEmpty);
-    if Length(Parts) = 0 then
-       Parts := [Resolved];
-
-    Result := False;
-    for Part in Parts do
-    begin
-      // Evaluate single expression
-      // Handle 'A'=='B'
-      EqPos := Pos('==', Part);
-      NeqPos := Pos('!=', Part);
-      
-      ResultBool := False;
-      if EqPos > 0 then
-      begin
-        Left := Trim(Copy(Part, 1, EqPos - 1));
-        Right := Trim(Copy(Part, EqPos + 2, Length(Part)));
-        // Remove quotes
-        Left := StringReplace(Left, '''', '', [rfReplaceAll]);
-        Right := StringReplace(Right, '''', '', [rfReplaceAll]);
-        if SameText(Left, Right) then ResultBool := True;
-      end
-      else if NeqPos > 0 then
-      begin
-        Left := Trim(Copy(Part, 1, NeqPos - 1));
-        Right := Trim(Copy(Part, NeqPos + 2, Length(Part)));
-        // Remove quotes
-        Left := StringReplace(Left, '''', '', [rfReplaceAll]);
-        Right := StringReplace(Right, '''', '', [rfReplaceAll]);
-        if not SameText(Left, Right) then ResultBool := True;
-      end
-      else
-      begin
-        // Fallback: If part is just "true" or "false" (after var replacement)
-        if SameText(Trim(Part), 'true') then ResultBool := True;
-      end;
-
-      if ResultBool then
-      begin
-        Result := True;
-        Break; // Short-circuit OR
-      end;
-    end;
-  end;
-
-  procedure ParseProperties(const ABody: String);
-  var
-    PropMatches: TMatchCollection;
-    PropMatch: TMatch;
-    Key, Value: String;
-  begin
-    // Regex to find <Key>Value</Key>
-    PropMatches := TRegEx.Matches(ABody, '<(\w+)>([^<]+)</\1>');
-    for PropMatch in PropMatches do
-    begin
-      Key := PropMatch.Groups[1].Value;
-      Value := PropMatch.Groups[2].Value;
-      Definitions[LowerCase(Key)] := Value;
-    end;
-  end;
-
 begin
   BaseName := ChangeFileExt(ExtractFileName(ProjectFile), '.exe');
   ExeOutput := '';
@@ -254,10 +257,10 @@ begin
 
       Body := GroupMatch.Groups[2].Value;
 
-      if EvaluateCondition(RawCondition) then
+      if EvaluateCondition(RawCondition, Definitions) then
       begin
         // Parse properties to update Definitions (like Cfg_1, Base, etc.)
-        ParseProperties(Body);
+        ParseProperties(Body, Definitions);
 
         // Check for DCC_ExeOutput in this active block
         ValMatch := TRegEx.Match(Body, '<DCC_ExeOutput>(.*?)</DCC_ExeOutput>', [roIgnoreCase]);
