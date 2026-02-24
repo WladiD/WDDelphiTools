@@ -128,6 +128,7 @@ begin
       ]),
       TActionInfo.Create('Lint', '[--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFiles...>', [
         'Analyzes one or more Delphi units for style violations based on the specified StyleFile.',
+        'Requires a corresponding "<StyleFile>.Linting.wiki" containing the FitNesse test definitions.',
         'Uses an internal Slim/FitNesse engine to verify the code structure.',
         'All target files are processed in a single FitNesse session (Suite execution).',
         'Options:',
@@ -139,8 +140,10 @@ begin
         'Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas'
       ]),
       TActionInfo.Create('LintSetup', '<Split|Join> <StyleFile>', [
-        'Splits a 3-column style file into 3 separate files for easier editing,',
-        'or joins them back into a single aligned style file.',
+        'Splits a 2-column style file (Code and Description) into 2 separate files for easier editing:',
+        '  - <StyleFile>.Template.pas',
+        '  - <StyleFile>.Descriptions.txt',
+        'Or joins them back into a single aligned style file.',
         'Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
