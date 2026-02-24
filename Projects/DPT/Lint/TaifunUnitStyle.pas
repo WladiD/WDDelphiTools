@@ -1,185 +1,185 @@
-﻿// START: STYLE-TEMPLATE===========================================================================// START: AI-Descriptions===========================================================================// START: AI-Generated FitNesse-Test================================================================
-// ======================================================================                          // - Jede Unit muss mit diesem Banner beginnen                                                      // |script|Dpt Lint Unit Context Fixture|${TargetFile}|
-//                                                                                                 // - Jede Unit muss in UTF8 mit BOM und Windows-LineEndings (CRLF) encoded sein!                    // |Ensure No Multiple Blanklines|
-// TaifunUnitStyle - Kurzbeschreibung der Unit                                                     // - Hier steht der Name der Unit, der gleich dem Unit-Namen sein muss.                             // |Define Single Separator Line|!-{ ----------------------------------------------------------------------- }-!|
-//                                                                                                 //   Es sollte eine Kurzbeschreibung existieren.                                                    // |Define Double Separator Line|!-{ ======================================================================= }-!|
-// Autor: Auflistung von Hauptverantwortlichen                                                     // - Es muss mindestens ein Hauptverantwortlicher vorhanden sein.                                   // |Add Class Banner Line Format|{ ======================================================================= }|
-//                                                                                                 //   Mehrere Autoren werden mit "/" getrennt.                                                       // |Add Class Banner Line Format|{ %-71s }|
-// ======================================================================                          // - Hier endet der Banner                                                                          // |Add Class Banner Line Format|{ ======================================================================= }|
-                                                                                                   // - Obligatorische Leerzeile                                                                       // |$Context=|get fixture|
-{$I Tfw.Define.pas}                                                                                // - Es muss entweder eine "Base.Define.pas" oder "Tfw.Define.pas" included werden                  // |push fixture|
-                                                                                                   // - Obligatorische Leerzeile                                                                       // |script|Dpt Lint Fixture|
-unit TaifunUnitStyle;                                                                              //                                                                                                  // |Set Context|$Context|
-                                                                                                   // - Obligatorische Leerzeile                                                                       // |check|Unit Name Matches File Name|true|
-{ ======================================================================= }                        // - Vor dem Interface-Keyword muss die doppelte Trennlinie stehen                                  // |check|File Contains Include|Base.Define.pas;Tfw.Define.pas|true|
-interface                                                                                          //                                                                                                  // |check|Keyword|interface|Is Surrounded By|=======|true|
-{ ======================================================================= }                        // - Nach dem Interface-Keyword muss die doppelte Trennlinie stehen                                 // |$InterfacePart=|Get Interface Part|
-                                                                                                   // - Obligatorische Leerzeile vor "uses"                                                            // |$InterfaceOffset=|Get Interface Part Offset|
-uses                                                                                               // - "uses" muss alleine in einer Zeile stehen                                                      // |$Header=|Get Before Unit Keyword Part|
-                                                                                                   // - Obligatorische Leerzeile nach "uses"                                                           //
-  System.Classes,                                                                                  // - Je Zeile darf nur eine Unit stehen                                                             // |script|Dpt Lint Regex Fixture|$Header|
-  System.SysUtils,                                                                                 // - Alphabetische Auflistung von Delphi-Units in Gruppen:                                          // |Set Context|$Context|
-  Vcl.Controls,                                                                                    //   - Delphi-Gruppe:      System.*, Winapi.*, VCL.*, Rest.*                                        // |Set Violation Subject|Unit-Banner erwartet|
-  Vcl.Forms,                                                                                       //                                                                                                  // |check|Match|(?s)// =+.*?// .*?Autor: .+?// =+|true|
-  Vcl.Graphics,                                                                                    //                                                                                                  // |script|Dpt Lint Uses Fixture|
-  Winapi.Messages,                                                                                 //                                                                                                  // |Set Context|$Context|
-                                                                                                   //   - Nach jeder Gruppe kommt eine Leerzeile                                                       // |Set Content|$InterfacePart|
-  Spring.Collections,                                                                              //   - Third-Party:        *                                                                        // |Set Line Offset|$InterfaceOffset|
-  VirtualTrees,                                                                                    //                                                                                                  // |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
-                                                                                                   //                                                                                                  // |Add Group|Third-Party|With Namespaces|*|
-  Base.Cmd,                                                                                        //   - Base-Gruppe:        Base.*                                                                   // |Add Group|Base|With Namespaces|Base.*|
-  Base.Types,                                                                                      //                                                                                                  // |Add Group|Base-UI|With Namespaces|Base.UI.*|
-  Base.Utils.Msg,                                                                                  //                                                                                                  // |Add Group|Business|With Namespaces|Business.*|
-                                                                                                   //                                                                                                  // |Add Group|Business-UI|With Namespaces|Business.UI.*|
-  Base.UI.Icons,                                                                                   //   - Base-UI-Gruppe:     Base.UI.*                                                                // |Add Group|Shared|With Namespaces|*.Shared.*|
-                                                                                                   //                                                                                                  // |Add Group|TFW|With Namespaces|Tfw.*|
-  Business.Cty.Typ,                                                                                //   - Business-Gruppe:    Business.*                                                               // |check|Blank Line After Uses Exists|true|
-                                                                                                   //                                                                                                  // |check|All Units On Separate Lines|true|
-  Business.UI.Bank.Utils,                                                                          //   - Business-UI-Gruppe: Business.UI.*                                                            // |check|Groups Follow Order|true|
-                                                                                                   //                                                                                                  // |check|Groups Are Sorted Alphabetically|true|
-  Dms.Shared.App.Utils,                                                                            //   - Shared-Gruppe:      *.Shared.*                                                               // |check|Groups Are Separated By Blank Lines|true|
-  Dms.Shared.Kw.Tree,                                                                              //                                                                                                  // |$LinesAfterUses=|Get Lines After Last Uses Line|3|
-                                                                                                   //                                                                                                  // |$AfterUsesOffset=|Get Lines After Last Uses Line Offset|3|
-  Tfw.Ad.Typ,                                                                                      //   - TFW-Gruppe:         Tfw.*                                                                    //
-  Tfw.VBh.Typ;                                                                                     //                                                                                                  // |script|Dpt Lint Regex Fixture|$LinesAfterUses|
-                                                                                                   // - Obligatorische Leerzeile nach der letzten Unit                                                 // |Set Context|$Context|
-{ ----------------------------------------------------------------------- }                        // - Obligatorische einfache Trennlinie, die den Uses-Bereich optisch trennt                        // |Set Violation Subject|Trennlinie nach uses erwartet|
-                                                                                                   // - Obligatorische Leerzeile vor "type"                                                            // |Set Line Offset|$AfterUsesOffset|
-type                                                                                               // - "type" muss alleine stehen                                                                     // |check|Match|(?s)^\s*\r?\n\{ -+ \}\s*\r?\n\s*$|true|
-                                                                                                   // - Obligatorische Leerzeile nach "type"                                                           //
-  TMyVariant1 = packed record                                                                      //                                                                                                  // |script|Dpt Lint Class Declaration Fixture|
-    SpecName : S_50;                                                                               //                                                                                                  // |Set Context|$Context|
-    SpecValue: Integer;                                                                            //                                                                                                  // |Set Content|$InterfacePart|
-  end;                                                                                             //                                                                                                  // |Set Line Offset|$InterfaceOffset|
-                                                                                                   //                                                                                                  // |Set Class Name Prefixes|C,T|
-  TMyVariant2 = packed record                                                                      //                                                                                                  // |Set Visibility Extra Indent|1|
-    SpecName : S_50;                                                                               //                                                                                                  // |Set Field Name Prefix|F|
-    SpecValue: S_255;                                                                              //                                                                                                  // |Set Fields Must Be Sorted|true|
-  end;                                                                                             //                                                                                                  // |Set Methods Must Be Sorted|true|
-                                                                                                   //                                                                                                  // |Set Properties Must Be Sorted|true|
-  TMyRecord = packed record                                                                        // - Namen von Records fangen immer mit "T" an                                                      // |Set Align Member Names|true|
-    GUID          : TGUID;                                                                         // - Doppelpunkte sind vertikal untereinander ausgerichtet                                          // |Set Event Properties At End|true|
-    Var1          : Integer;                                                                       //                                                                                                  // |check|Lint Class Declarations|true|
-    Var2          : TDate;                                                                         //                                                                                                  //
-    Filler1       : Array[1..300] of Byte;                                                         //                                                                                                  // |script|Dpt Lint Fixture|
-    case Byte of                                                                                   //                                                                                                  // |Set Context|$Context|
-      0: (Filler2 : Array[1..4096] of Byte);                                                       //                                                                                                  // |check|Colons In Records Are Aligned|true|
-      1: (Variant1: TMyVariant1);                                                                  //                                                                                                  // |$ImplementationPart=|Get Implementation Part|
-      2: (Variant2: TMyVariant2);                                                                  //                                                                                                  // |$ImplementationOffset=|Get Implementation Part Offset|
-  end;                                                                                             //                                                                                                  //
-                                                                                                   //                                                                                                  // |script|Dpt Lint Implementation Fixture|
-  CSomeClass = class                                                                               // - Klassennamen sollten mit "C" anfangen, können aber auch klassisch mit "T" anfangen             // |Set Context|$Context|
-   strict private                                                                                  // - Die Keywords für die Sichtbarkeit sind mit einem zusätzlichen Leerzeichen eingerückt           // |Set Content|$ImplementationPart|
-    FText: String;                                                                                 // - Feldnamen fangen mit einem "F" an                                                              // |Set Line Offset|$ImplementationOffset|
-    FValue: Word;                                                                                  // - Felder in einem zusammenhängenden Block sind alphabetisch sortiert                             // |check|Validate Class Banners|true|
-    FVarA: Integer;                                                                                // - Hier müssen die Doppelpunkte NICHT untereinander stehen                                        // |check|Validate Method Order And Separators|true|
-    function  GetVarA: Integer;                                                                    // - Die Namen von Funktionen und Prozeduren im gleichen zusammenhängenden Block                    // |check|Destructors Must Call Inherited|true|
-    procedure SetVarA(AValue: Integer);                                                            //   stehen untereinandner                                                                          //
-   strict private class var                                                                        // - Die Keywords für die Sichtbarkeit leiten einen neuen Block ein                                 // |script|Dpt Lint Method Body Fixture|
-    FClassVar: String;                                                                             //                                                                                                  // |Set Context|$Context|
-   strict protected                                                                                //                                                                                                  // |Set Content|$ImplementationPart|
-    procedure DoSomething;                                                                         // - Die Funktionen und Prozeduren in einem zusammenhängenden Block sind alphabetisch               // |Set Line Offset|$ImplementationOffset|
-    function  IsSomething: Boolean;                                                                //   nach Name sortiert                                                                             // |Set Assignment Space Before|Forbidden|
-   public                                                                                          //                                                                                                  // |Set Assignment Space After|Forbidden|
-    constructor Create;                                                                            // - Konstruktoren und Destruktoren bilden eine eigene Gruppe (Ausrichtung gilt nur hier)           // |Set Arithmetic Space Before|Forbidden|
-    destructor  Destroy; override;                                                                 // - Der Destruktor muss immer ein override haben (Gilt nicht für Klassendestruktoren)              // |Set Arithmetic Space After|Forbidden|
-    function  CalcValue: Word;                                                                     // - Die Namen von Prozeduren, Funktionen und Properties stehen im gleichen                         // |Set Arithmetic Operators|+,-,*,/|
-    procedure CalcVar1;                                                                            //   zusammenhängenden Block untereinander                                                          // |check|Validate Operator Spacing|true|
-    property  Value: Word read FValue;                                                             // - Properties stehen am Ende eines Sichtbarkeits-Blocks und sind                                  //
-    property  VarA: Integer read GetVarA write SetVarA;                                            //   alphabetisch nach Name sortiert                                                                // |script|Dpt Lint Local Var Fixture|
-   published                                                                                       // - Im Published-Abschnitt können Variablen ohne "F"-Präfix stehen (z.B. für Komponenten)          // |Set Context|$Context|
-    AnotherComponent: TComponent;                                                                  // - Diese müssen nicht zwingend mit "F" anfangen                                                   // |Set Content|$ImplementationPart|
-    SomeComponent: TComponent;                                                                     //                                                                                                  // |Set Line Offset|$ImplementationOffset|
-   public                                                                                          //                                                                                                  // |Set Variables Must Be Sorted|true|
-    class procedure Init;                                                                          // - Klassen-Methoden/Konstruktoren stehen in einem eigenen Sichtbarkeitsblock                      // |Set Align Colons|true|
-  end;                                                                                             //                                                                                                  // |Set Exact Spaces After Colon|1|
-                                                                                                   // - Obligatorische Leerzeile                                                                       // |check|Lint Local Vars|true|
-{ ======================================================================= }                        // - Vor dem "implementation"-Keyword muss die doppelte Trennlinie stehen                           //
-implementation                                                                                     //                                                                                                  // |script|Dpt Lint Fixture|
-{ ======================================================================= }                        // - Nach dem "implementation"-Keyword muss die doppelte Trennlinie stehen                          // |Set Context|$Context|
-                                                                                                   // - Obligatorische Leerzeile vor "uses"                                                            // |check|Keyword|implementation|Is Surrounded By|=======|true|
-uses                                                                                               // - Es gelten die gleichen Regeln wie im Interface-Teil                                            // |check|Last Line Before End Is Double Separator|true|
-                                                                                                   //                                                                                                  //
-  System.Math,                                                                                     //                                                                                                  //
-                                                                                                   //                                                                                                  //
-  Base.Utils.Str;                                                                                  //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ======================================================================= }                        // - Vor jeder neuen Klassenimplementierunng steht ein Banner in diesem Format                      //
-{ CSomeClass                                                              }                        // - Der Name der Klasse muss mit dieser folgenden Klasse übereinstimmen                            //
-{ ======================================================================= }                        // - Banner wird abgeschlossen                                                                      //
-                                                                                                   // - Obligatorische Leerzeile nach dem  Banner                                                      //
-constructor CSomeClass.Create;                                                                     // - Implementierung des Konstruktors steht im Implementierungsblock der Klasse als                 //
-begin                                                                                              //   Erstes, wenn vorhanden.                                                                        //
-  FText:='Initial value';                                                                          //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   // - Nach jeder Methodenimplementation kommt eine Leerzeile...                                      //
-{ ----------------------------------------------------------------------- }                        // - ...dann eine einfache Trennlinie...                                                            //
-                                                                                                   // - ..und eine Leerzeile                                                                           //
-destructor CSomeClass.Destroy;                                                                     // - Wenn ein Destruktor vorhanden ist, folgt er gleich nach dem Konstruktor                        //
-begin                                                                                              //                                                                                                  //
-  if IsSomething                                                                                   //                                                                                                  //
-    then DoSomething;                                                                              //                                                                                                  //
-  inherited;                                                                                       // - Der Destruktor muss irgendwo einen "inherited"-Aufruf beinhalten                               //
-end;                                                                                               //                                                                                                  // |script|Dpt Lint Uses Fixture|
-                                                                                                   //                                                                                                  // |Set Context|$Context|
-{ ----------------------------------------------------------------------- }                        //                                                                                                  // |Set Content|$ImplementationPart|
-                                                                                                   //                                                                                                  // |Set Line Offset|$ImplementationOffset|
-function CSomeClass.CalcValue: Word;                                                               //                                                                                                  // |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
-begin                                                                                              //                                                                                                  // |Add Group|Third-Party|With Namespaces|*|
-  Result:=FValue;                                                                                  // - Es werden keine Leerzeichen vor oder hinter dem Zuweisungsoperator eingefügt.                  // |Add Group|Base|With Namespaces|Base.*|
-  Result:=Result*2+150-10;                                                                         // - Auch bei einfachen arithmetischen Operatoren (+-*/) werden keine Leerzeichen                   // |Add Group|Base-UI|With Namespaces|Base.UI.*|
-end;                                                                                               //   davor oder danach eingefügt.                                                                   // |Add Group|Business|With Namespaces|Business.*|
-                                                                                                   //                                                                                                  // |Add Group|Business-UI|With Namespaces|Business.UI.*|
-{ ----------------------------------------------------------------------- }                        //                                                                                                  // |Add Group|Shared|With Namespaces|*.Shared.*|
-                                                                                                   //                                                                                                  // |Add Group|TFW|With Namespaces|Tfw.*|
-procedure CSomeClass.CalcVar1;                                                                     //                                                                                                  // |check|Blank Line After Uses Exists|true|
-var                                                                                                // - Variablendeklarationsblock in einer Methode, Funktion oder Prozedur:                           // |check|All Units On Separate Lines|true|
-  Age         : Byte;                                                                              //   - Ist Alphabetisch nach Variablennamen sortiert                                                // |check|Groups Follow Order|true|
-  Name        : String;                                                                            //   - Jede Zeile listet nur eine Variable                                                          // |check|Groups Are Sorted Alphabetically|true|
-  PlaceOfBirth: String;                                                                            //   - Doppelpunkte stehen untereinander                                                            // |check|Groups Are Separated By Blank Lines|true|
-  XyChromosome: Boolean;                                                                           //   - Nach dem Doppelpunkt kommt ein Leerzeichen gefolgt vom Variablentyp                          //
-begin                                                                                              //                                                                                                  //
-                                                                                                   //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-procedure CSomeClass.DoSomething;                                                                  //                                                                                                  //
-begin                                                                                              //                                                                                                  //
-                                                                                                   //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-                                                                                                   // - Mehrere Leerzeilen (auch mit \s+) werden zu einer Leerzeile kollabiert                         //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-function CSomeClass.GetVarA: Integer;                                                              //                                                                                                  //
-begin                                                                                              //                                                                                                  //
-  Result:=FVarA;                                                                                   //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-class procedure CSomeClass.Init;                                                                   //                                                                                                  //
-begin                                                                                              //                                                                                                  //
-                                                                                                   //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-function CSomeClass.IsSomething: Boolean;                                                          //                                                                                                  //
-begin                                                                                              //                                                                                                  //
-  Result:=true;                                                                                    //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ----------------------------------------------------------------------- }                        //                                                                                                  //
-                                                                                                   //                                                                                                  //
-procedure CSomeClass.SetVarA(AValue: Integer);                                                     //                                                                                                  //
-begin                                                                                              //                                                                                                  //
-  FVarA:=AValue;                                                                                   //                                                                                                  //
-end;                                                                                               //                                                                                                  //
-                                                                                                   //                                                                                                  //
-{ ======================================================================= }                        // - Vor dem Unit-"end." steht eine doppelte Trennlinie                                             //
-                                                                                                   //                                                                                                  //
-end.                                                                                               //                                                                                                  //
+﻿// START: STYLE-TEMPLATE===========================================================================// START: AI-Descriptions===========================================================================
+// ======================================================================                          // - Jede Unit muss mit diesem Banner beginnen
+//                                                                                                 // - Jede Unit muss in UTF8 mit BOM und Windows-LineEndings (CRLF) encoded sein!
+// TaifunUnitStyle - Kurzbeschreibung der Unit                                                     // - Hier steht der Name der Unit, der gleich dem Unit-Namen sein muss.
+//                                                                                                 //   Es sollte eine Kurzbeschreibung existieren.
+// Autor: Auflistung von Hauptverantwortlichen                                                     // - Es muss mindestens ein Hauptverantwortlicher vorhanden sein.
+//                                                                                                 //   Mehrere Autoren werden mit "/" getrennt.
+// ======================================================================                          // - Hier endet der Banner
+                                                                                                   // - Obligatorische Leerzeile
+{$I Tfw.Define.pas}                                                                                // - Es muss entweder eine "Base.Define.pas" oder "Tfw.Define.pas" included werden
+                                                                                                   // - Obligatorische Leerzeile
+unit TaifunUnitStyle;                                                                              //
+                                                                                                   // - Obligatorische Leerzeile
+{ ======================================================================= }                        // - Vor dem Interface-Keyword muss die doppelte Trennlinie stehen
+interface                                                                                          //
+{ ======================================================================= }                        // - Nach dem Interface-Keyword muss die doppelte Trennlinie stehen
+                                                                                                   // - Obligatorische Leerzeile vor "uses"
+uses                                                                                               // - "uses" muss alleine in einer Zeile stehen
+                                                                                                   // - Obligatorische Leerzeile nach "uses"
+  System.Classes,                                                                                  // - Je Zeile darf nur eine Unit stehen
+  System.SysUtils,                                                                                 // - Alphabetische Auflistung von Delphi-Units in Gruppen:
+  Vcl.Controls,                                                                                    //   - Delphi-Gruppe:      System.*, Winapi.*, VCL.*, Rest.*
+  Vcl.Forms,                                                                                       //
+  Vcl.Graphics,                                                                                    //
+  Winapi.Messages,                                                                                 //
+                                                                                                   //   - Nach jeder Gruppe kommt eine Leerzeile
+  Spring.Collections,                                                                              //   - Third-Party:        *
+  VirtualTrees,                                                                                    //
+                                                                                                   //
+  Base.Cmd,                                                                                        //   - Base-Gruppe:        Base.*
+  Base.Types,                                                                                      //
+  Base.Utils.Msg,                                                                                  //
+                                                                                                   //
+  Base.UI.Icons,                                                                                   //   - Base-UI-Gruppe:     Base.UI.*
+                                                                                                   //
+  Business.Cty.Typ,                                                                                //   - Business-Gruppe:    Business.*
+                                                                                                   //
+  Business.UI.Bank.Utils,                                                                          //   - Business-UI-Gruppe: Business.UI.*
+                                                                                                   //
+  Dms.Shared.App.Utils,                                                                            //   - Shared-Gruppe:      *.Shared.*
+  Dms.Shared.Kw.Tree,                                                                              //
+                                                                                                   //
+  Tfw.Ad.Typ,                                                                                      //   - TFW-Gruppe:         Tfw.*
+  Tfw.VBh.Typ;                                                                                     //
+                                                                                                   // - Obligatorische Leerzeile nach der letzten Unit
+{ ----------------------------------------------------------------------- }                        // - Obligatorische einfache Trennlinie, die den Uses-Bereich optisch trennt
+                                                                                                   // - Obligatorische Leerzeile vor "type"
+type                                                                                               // - "type" muss alleine stehen
+                                                                                                   // - Obligatorische Leerzeile nach "type"
+  TMyVariant1 = packed record                                                                      //
+    SpecName : S_50;                                                                               //
+    SpecValue: Integer;                                                                            //
+  end;                                                                                             //
+                                                                                                   //
+  TMyVariant2 = packed record                                                                      //
+    SpecName : S_50;                                                                               //
+    SpecValue: S_255;                                                                              //
+  end;                                                                                             //
+                                                                                                   //
+  TMyRecord = packed record                                                                        // - Namen von Records fangen immer mit "T" an
+    GUID          : TGUID;                                                                         // - Doppelpunkte sind vertikal untereinander ausgerichtet
+    Var1          : Integer;                                                                       //
+    Var2          : TDate;                                                                         //
+    Filler1       : Array[1..300] of Byte;                                                         //
+    case Byte of                                                                                   //
+      0: (Filler2 : Array[1..4096] of Byte);                                                       //
+      1: (Variant1: TMyVariant1);                                                                  //
+      2: (Variant2: TMyVariant2);                                                                  //
+  end;                                                                                             //
+                                                                                                   //
+  CSomeClass = class                                                                               // - Klassennamen sollten mit "C" anfangen, können aber auch klassisch mit "T" anfangen
+   strict private                                                                                  // - Die Keywords für die Sichtbarkeit sind mit einem zusätzlichen Leerzeichen eingerückt
+    FText: String;                                                                                 // - Feldnamen fangen mit einem "F" an
+    FValue: Word;                                                                                  // - Felder in einem zusammenhängenden Block sind alphabetisch sortiert
+    FVarA: Integer;                                                                                // - Hier müssen die Doppelpunkte NICHT untereinander stehen
+    function  GetVarA: Integer;                                                                    // - Die Namen von Funktionen und Prozeduren im gleichen zusammenhängenden Block
+    procedure SetVarA(AValue: Integer);                                                            //   stehen untereinandner
+   strict private class var                                                                        // - Die Keywords für die Sichtbarkeit leiten einen neuen Block ein
+    FClassVar: String;                                                                             //
+   strict protected                                                                                //
+    procedure DoSomething;                                                                         // - Die Funktionen und Prozeduren in einem zusammenhängenden Block sind alphabetisch
+    function  IsSomething: Boolean;                                                                //   nach Name sortiert
+   public                                                                                          //
+    constructor Create;                                                                            // - Konstruktoren und Destruktoren bilden eine eigene Gruppe (Ausrichtung gilt nur hier)
+    destructor  Destroy; override;                                                                 // - Der Destruktor muss immer ein override haben (Gilt nicht für Klassendestruktoren)
+    function  CalcValue: Word;                                                                     // - Die Namen von Prozeduren, Funktionen und Properties stehen im gleichen
+    procedure CalcVar1;                                                                            //   zusammenhängenden Block untereinander
+    property  Value: Word read FValue;                                                             // - Properties stehen am Ende eines Sichtbarkeits-Blocks und sind
+    property  VarA: Integer read GetVarA write SetVarA;                                            //   alphabetisch nach Name sortiert
+   published                                                                                       // - Im Published-Abschnitt können Variablen ohne "F"-Präfix stehen (z.B. für Komponenten)
+    AnotherComponent: TComponent;                                                                  // - Diese müssen nicht zwingend mit "F" anfangen
+    SomeComponent: TComponent;                                                                     //
+   public                                                                                          //
+    class procedure Init;                                                                          // - Klassen-Methoden/Konstruktoren stehen in einem eigenen Sichtbarkeitsblock
+  end;                                                                                             //
+                                                                                                   // - Obligatorische Leerzeile
+{ ======================================================================= }                        // - Vor dem "implementation"-Keyword muss die doppelte Trennlinie stehen
+implementation                                                                                     //
+{ ======================================================================= }                        // - Nach dem "implementation"-Keyword muss die doppelte Trennlinie stehen
+                                                                                                   // - Obligatorische Leerzeile vor "uses"
+uses                                                                                               // - Es gelten die gleichen Regeln wie im Interface-Teil
+                                                                                                   //
+  System.Math,                                                                                     //
+                                                                                                   //
+  Base.Utils.Str;                                                                                  //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+{ ======================================================================= }                        // - Vor jeder neuen Klassenimplementierunng steht ein Banner in diesem Format
+{ CSomeClass                                                              }                        // - Der Name der Klasse muss mit dieser folgenden Klasse übereinstimmen
+{ ======================================================================= }                        // - Banner wird abgeschlossen
+                                                                                                   // - Obligatorische Leerzeile nach dem  Banner
+constructor CSomeClass.Create;                                                                     // - Implementierung des Konstruktors steht im Implementierungsblock der Klasse als
+begin                                                                                              //   Erstes, wenn vorhanden.
+  FText:='Initial value';                                                                          //
+end;                                                                                               //
+                                                                                                   // - Nach jeder Methodenimplementation kommt eine Leerzeile...
+{ ----------------------------------------------------------------------- }                        // - ...dann eine einfache Trennlinie...
+                                                                                                   // - ..und eine Leerzeile
+destructor CSomeClass.Destroy;                                                                     // - Wenn ein Destruktor vorhanden ist, folgt er gleich nach dem Konstruktor
+begin                                                                                              //
+  if IsSomething                                                                                   //
+    then DoSomething;                                                                              //
+  inherited;                                                                                       // - Der Destruktor muss irgendwo einen "inherited"-Aufruf beinhalten
+end;                                                                                               //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+function CSomeClass.CalcValue: Word;                                                               //
+begin                                                                                              //
+  Result:=FValue;                                                                                  // - Es werden keine Leerzeichen vor oder hinter dem Zuweisungsoperator eingefügt.
+  Result:=Result*2+150-10;                                                                         // - Auch bei einfachen arithmetischen Operatoren (+-*/) werden keine Leerzeichen
+end;                                                                                               //   davor oder danach eingefügt.
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+procedure CSomeClass.CalcVar1;                                                                     //
+var                                                                                                // - Variablendeklarationsblock in einer Methode, Funktion oder Prozedur:
+  Age         : Byte;                                                                              //   - Ist Alphabetisch nach Variablennamen sortiert
+  Name        : String;                                                                            //   - Jede Zeile listet nur eine Variable
+  PlaceOfBirth: String;                                                                            //   - Doppelpunkte stehen untereinander
+  XyChromosome: Boolean;                                                                           //   - Nach dem Doppelpunkt kommt ein Leerzeichen gefolgt vom Variablentyp
+begin                                                                                              //
+                                                                                                   //
+end;                                                                                               //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+procedure CSomeClass.DoSomething;                                                                  //
+begin                                                                                              //
+                                                                                                   //
+end;                                                                                               //
+                                                                                                   //
+                                                                                                   // - Mehrere Leerzeilen (auch mit \s+) werden zu einer Leerzeile kollabiert
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+function CSomeClass.GetVarA: Integer;                                                              //
+begin                                                                                              //
+  Result:=FVarA;                                                                                   //
+end;                                                                                               //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+class procedure CSomeClass.Init;                                                                   //
+begin                                                                                              //
+                                                                                                   //
+end;                                                                                               //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+function CSomeClass.IsSomething: Boolean;                                                          //
+begin                                                                                              //
+  Result:=true;                                                                                    //
+end;                                                                                               //
+                                                                                                   //
+{ ----------------------------------------------------------------------- }                        //
+                                                                                                   //
+procedure CSomeClass.SetVarA(AValue: Integer);                                                     //
+begin                                                                                              //
+  FVarA:=AValue;                                                                                   //
+end;                                                                                               //
+                                                                                                   //
+{ ======================================================================= }                        // - Vor dem Unit-"end." steht eine doppelte Trennlinie
+                                                                                                   //
+end.                                                                                               //
