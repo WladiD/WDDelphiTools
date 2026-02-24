@@ -44,6 +44,8 @@ type
     procedure ColonsInRecordsAreAligned_IgnoresMethods;
     [Test]
     procedure ValidateClassDeclaration_AllowsExceptionPrefix;
+    [Test]
+    procedure UsesFixture_HandlesConditionalDirectives;
   end;
 
 implementation
@@ -683,6 +685,51 @@ begin
       Fixture.SetContent(Code);
       Fixture.LintClassDeclarations;
       Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow standard C and T prefixes');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.UsesFixture_HandlesConditionalDirectives;
+var
+  Fixture: TDptLintUsesFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintUsesFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      Fixture.AddGroupWithNamespaces('Delphi', 'System.*, Vcl.*');
+      Fixture.AddGroupWithNamespaces('TFW', 'Tfw.*');
+
+      // Uses section with conditional directives
+      Code := '''
+        implementation
+
+        uses
+
+          System.Classes,
+
+          {$IFDEF MHW}
+          Tfw.Special,
+          {$ELSE}
+          Tfw.Default,
+          {$ENDIF}
+          Tfw.Base;
+        ''';
+
+      Fixture.SetContent(Code);
+      Fixture.SetIgnoreConditionalBlocks('true');
+      Fixture.GroupsAreSortedAlphabetically;
+      Fixture.BlankLineAfterUsesExists;
+      Fixture.AllUnitsOnSeparateLines;
+
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore content within conditional blocks when IgnoreConditionalBlocks is true');
     finally
       Fixture.Free;
     end;

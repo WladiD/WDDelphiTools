@@ -26,6 +26,7 @@
 |Set Context|$Context|
 |Set Content|$InterfacePart|
 |Set Line Offset|$InterfaceOffset|
+|Set Ignore Conditional Blocks|true|
 |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
 |Add Group|Third-Party|With Namespaces|*|
 |Add Group|Base|With Namespaces|Base.*|
@@ -105,6 +106,7 @@
 |Set Context|$Context|
 |Set Content|$ImplementationPart|
 |Set Line Offset|$ImplementationOffset|
+|Set Ignore Conditional Blocks|true|
 |Add Group|Delphi|With Namespaces|System.*, Vcl.*, Winapi.*, Data.*, Xml.*, Web.*, Soap.*, Rest.*|
 |Add Group|Third-Party|With Namespaces|*|
 |Add Group|Base|With Namespaces|Base.*|

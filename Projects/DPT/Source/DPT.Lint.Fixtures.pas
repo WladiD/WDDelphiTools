@@ -120,6 +120,7 @@ type
     FGroups    : IList<TUsesGroup>;
     FLineOffset: Integer;
     FUnits     : IList<TUnitInfo>;
+    FIgnoreConditionalBlocks: Boolean;
     function  MatchNamespace(const AUnitName, APattern: String): Boolean;
     procedure ParseUnits;
   public
@@ -135,6 +136,7 @@ type
     function  GroupsFollowOrder: Boolean;
     procedure SetContent(const AValue: String);
     procedure SetLineOffset(const AValue: String);
+    procedure SetIgnoreConditionalBlocks(const AValue: String);
   end;
 
   [SlimFixture('DptLintClassDeclarationFixture')]
@@ -742,6 +744,7 @@ begin
   FGroups := Collections.NewPlainList<TUsesGroup>;
   FUnits := Collections.NewPlainList<TUnitInfo>;
   FLineOffset := 0;
+  FIgnoreConditionalBlocks := False;
 end;
 
 destructor TDptLintUsesFixture.Destroy;
@@ -757,6 +760,11 @@ end;
 procedure TDptLintUsesFixture.SetLineOffset(const AValue: String);
 begin
   FLineOffset := StrToIntDef(AValue, 0);
+end;
+
+procedure TDptLintUsesFixture.SetIgnoreConditionalBlocks(const AValue: String);
+begin
+  FIgnoreConditionalBlocks := StrToBoolDef(AValue, False);
 end;
 
 procedure TDptLintUsesFixture.AddGroupWithNamespaces(const AGroupName, ANamespaces: String);
@@ -810,10 +818,12 @@ var
   I      : Integer;
   LInUses: Boolean;
   LLines : TArray<String>;
+  LConditionalDepth: Integer;
 begin
   FUnits.Clear;
   LLines := FContent.Split([sLineBreak]);
   LInUses := False;
+  LConditionalDepth := 0;
 
   for I := 0 to High(LLines) do
   begin
@@ -828,9 +838,33 @@ begin
     if LLine = '' then
       Continue;
 
-    // Ignore compiler directives and full-line comments
-    if LLine.StartsWith('{$') or LLine.StartsWith('//') or LLine.StartsWith('{') then
+    // Handle conditional directives
+    if LLine.StartsWith('{$IF', True) or LLine.StartsWith('(*$IF', True) then
+    begin
+      Inc(LConditionalDepth);
       Continue;
+    end;
+    if LLine.StartsWith('{$ENDIF', True) or LLine.StartsWith('(*$ENDIF', True) then
+    begin
+      if LConditionalDepth > 0 then
+        Dec(LConditionalDepth);
+      Continue;
+    end;
+    if LLine.StartsWith('{$ELSE', True) or LLine.StartsWith('(*$ELSE', True) then
+      Continue;
+
+    // Ignore other compiler directives and full-line comments
+    if LLine.StartsWith('{$') or LLine.StartsWith('(*$') or LLine.StartsWith('//') or LLine.StartsWith('{') or LLine.StartsWith('(*') then
+      Continue;
+
+    // Skip units inside conditional blocks if requested
+    if (LConditionalDepth > 0) and FIgnoreConditionalBlocks then
+    begin
+      // If the uses clause ends inside a conditional block, we should still stop
+      if LLine.Contains(';') then
+        Break;
+      Continue;
+    end;
 
     var LStrippedLine := LLine;
     var LIsEnd := LStrippedLine.Contains(';');
@@ -935,11 +969,15 @@ begin
       var LFoundBlank: Boolean := False;
       for var LIdx: Integer := Prev.Line to Curr.Line - 2 do
       begin
-        if LLines[LIdx].Trim = '' then
+        var LTrimmed := LLines[LIdx].Trim;
+        if LTrimmed = '' then
         begin
           LFoundBlank := True;
           Break;
         end;
+        // If the line is a compiler directive or a full-line comment, 
+        // we don't treat it as "content" that would require a blank line around it,
+        // but it doesn't count as a blank line itself.
       end;
 
       if not LFoundBlank then
