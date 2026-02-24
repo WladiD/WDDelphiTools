@@ -22,7 +22,7 @@ type
     FStyleFile: string;
     FTask: TDptLintSetupTask;
     procedure CreateStyleFile(const Content: string);
-    procedure CreateSplitFiles(const TemplateContent, DescContent, TestContent: string);
+    procedure CreateSplitFiles(const TemplateContent, DescContent: string);
   public
     [Setup]
     procedure Setup;
@@ -35,8 +35,6 @@ type
     procedure Join_PadsShortLines;
     [Test]
     procedure Join_ThrowsOnTemplateLineTooLong;
-    [Test]
-    procedure Join_ThrowsOnDescriptionLineTooLong;
     [Test]
     procedure SplitAndJoin_PreservesColumnWidthWithSpaces;
   end;
@@ -68,14 +66,13 @@ begin
   TFile.WriteAllText(FStyleFile, Content, TEncoding.UTF8);
 end;
 
-procedure TDptLintSetupTaskTests.CreateSplitFiles(const TemplateContent, DescContent, TestContent: string);
+procedure TDptLintSetupTaskTests.CreateSplitFiles(const TemplateContent, DescContent: string);
 var
   BaseName: string;
 begin
   BaseName := TPath.Combine(FTempDir, 'Style');
   TFile.WriteAllText(BaseName + '.Template.pas', TemplateContent, TEncoding.UTF8);
   TFile.WriteAllText(BaseName + '.Descriptions.txt', DescContent, TEncoding.UTF8);
-  TFile.WriteAllText(BaseName + '.Tests.txt', TestContent, TEncoding.UTF8);
 end;
 
 procedure TDptLintSetupTaskTests.SplitAndJoin_RoundTrip;
@@ -85,9 +82,9 @@ var
 begin
   // Arrange
   LContent := 
-    '// START: STYLE-TEMPLATE===========================================================================// START: AI-DESCRIPTIONS===========================================================================// START: AI-GENERATED FITNESSE-TEST================================================================' + sLineBreak +
-    'unit MyUnit;                                                                                       // Description                                                                                      // Test' + sLineBreak +
-    '                                                                                                   // Another Desc                                                                                     ';
+    '// START: STYLE-TEMPLATE===========================================================================// START: AI-DESCRIPTIONS===========================================================================' + sLineBreak +
+    'unit MyUnit;                                                                                       // Description' + sLineBreak +
+    '                                                                                                   // Another Desc';
   
   CreateStyleFile(LContent);
 
@@ -98,7 +95,6 @@ begin
   // Assert - Split
   Assert.IsTrue(TFile.Exists(TPath.Combine(FTempDir, 'Style.Template.pas')), 'Template file should exist');
   Assert.IsTrue(TFile.Exists(TPath.Combine(FTempDir, 'Style.Descriptions.txt')), 'Descriptions file should exist');
-  Assert.IsTrue(TFile.Exists(TPath.Combine(FTempDir, 'Style.Tests.txt')), 'Tests file should exist');
 
   // Act - Join
   // Delete original file to ensure it's recreated
@@ -116,7 +112,7 @@ end;
 
 procedure TDptLintSetupTaskTests.Join_PadsShortLines;
 var
-  LTemplate, LDesc, LTest: string;
+  LTemplate, LDesc: string;
   LJoinedLines: TArray<string>;
 begin
   // Arrange
@@ -126,11 +122,8 @@ begin
   LDesc := 
     '// START: AI-DESCRIPTIONS===========================================================================' + sLineBreak +
     'Desc';
-  LTest := 
-    '// START: AI-GENERATED FITNESSE-TEST================================================================' + sLineBreak +
-    'Test';
     
-  CreateSplitFiles(LTemplate, LDesc, LTest);
+  CreateSplitFiles(LTemplate, LDesc);
 
   // Act
   FTask.SubAction := 'Join';
@@ -154,7 +147,7 @@ end;
 
 procedure TDptLintSetupTaskTests.Join_ThrowsOnTemplateLineTooLong;
 var
-  LTemplate, LDesc, LTest: string;
+  LTemplate, LDesc: string;
 begin
   // Arrange
   LTemplate := 
@@ -163,40 +156,8 @@ begin
   LDesc := 
     '// START: AI-DESCRIPTIONS' + sLineBreak +
     'Desc';
-  LTest := 
-    '// START: AI-GENERATED FITNESSE-TEST' + sLineBreak +
-    'Test';
     
-  CreateSplitFiles(LTemplate, LDesc, LTest);
-
-  // Act & Assert
-  FTask.SubAction := 'Join';
-  
-  Assert.WillRaise(
-    procedure
-    begin
-      FTask.Execute;
-    end,
-    Exception
-  );
-end;
-
-procedure TDptLintSetupTaskTests.Join_ThrowsOnDescriptionLineTooLong;
-var
-  LTemplate, LDesc, LTest: string;
-begin
-  // Arrange
-  LTemplate := 
-    '// START: STYLE-TEMPLATE=========' + sLineBreak + // Length 33
-    'Short'; 
-  LDesc := 
-    '// START: AI-DESCRIPTIONS' + sLineBreak + // Length 25
-    'This description is too long for the column';
-  LTest := 
-    '// START: AI-GENERATED FITNESSE-TEST' + sLineBreak +
-    'Test';
-    
-  CreateSplitFiles(LTemplate, LDesc, LTest);
+  CreateSplitFiles(LTemplate, LDesc);
 
   // Act & Assert
   FTask.SubAction := 'Join';
@@ -220,8 +181,8 @@ begin
   // Desc Header length: 30 chars
   // Use Mixed Case to test case-insensitive matching
   LContent := 
-    '// START: Style-Template                // START: AI-Descriptions     // START: AI-Generated FitNesse-Test' + sLineBreak +
-    'Short                                   // Desc                       // Test';
+    '// START: Style-Template                // START: AI-Descriptions' + sLineBreak +
+    'Short                                   // Desc';
   
   CreateStyleFile(LContent);
 

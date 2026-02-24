@@ -7,6 +7,7 @@
 |Add Class Banner Line Format|{ ======================================================================= }|
 |$Context=|get fixture|
 |push fixture|
+
 |script|Dpt Lint Fixture|
 |Set Context|$Context|
 |check|Unit Name Matches File Name|true|
@@ -20,6 +21,7 @@
 |Set Context|$Context|
 |Set Violation Subject|Unit-Banner erwartet|
 |check|Match|(?s)// =+.*?// .*?Autor: .+?// =+|true|
+
 |script|Dpt Lint Uses Fixture|
 |Set Context|$Context|
 |Set Content|$InterfacePart|

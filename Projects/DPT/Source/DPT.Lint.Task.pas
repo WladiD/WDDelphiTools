@@ -39,7 +39,6 @@ type
     FStyleFile   : String;
     FTargetFiles : IList<String>;
     FVerbose     : Boolean;
-    function  ExtractTestFromStyle(const AStylePath: String): String;
     function  GetFreePort: Integer;
     function  GetLatestTestResultFile(const APageName: String): String;
     procedure RunFitNesse(APort: Integer; const ASuiteName: String);
@@ -181,7 +180,10 @@ begin
 
   TDptLintStyleValidator.ValidateStyleFile(FStyleFile);
 
-  LTestContentTemplate := ExtractTestFromStyle(FStyleFile);
+  var LLintingWikiPath: String := TPath.ChangeExtension(FStyleFile, '.Linting.wiki');
+  if not TFile.Exists(LLintingWikiPath) then
+    raise Exception.Create('Linting wiki not found: ' + LLintingWikiPath);
+  LTestContentTemplate := TFile.ReadAllText(LLintingWikiPath, TEncoding.UTF8);
 
   // Setup Suite Directory
   LSuiteDir := TPath.Combine(FFitNesseRoot, SUITE_PAGE_NAME);
@@ -231,50 +233,6 @@ begin
     end;
   finally
     LEncodingNoBOM.Free;
-  end;
-end;
-
-function TDptLintTask.ExtractTestFromStyle(const AStylePath: String): String;
-var
-  Anchor   : String;
-  AnchorPos: Integer;
-  Builder  : TStringBuilder;
-  I        : Integer;
-  Lines    : TArray<String>;
-  PipePos  : Integer;
-begin
-  Lines := TFile.ReadAllLines(AStylePath, TEncoding.UTF8);
-  Builder := TStringBuilder.Create;
-  Anchor := '// START: AI-GENERATED FITNESSE-TEST';
-  AnchorPos := -1;
-  try
-    for I := 0 to High(Lines) do
-    begin
-      var Line := Lines[I];
-      if AnchorPos = -1 then
-      begin
-        AnchorPos := Line.ToUpper.IndexOf(Anchor);
-        Continue;
-      end;
-
-      if (AnchorPos >= 0) and (Line.Length > AnchorPos) then
-      begin
-        var LSegment := Line.Substring(AnchorPos);
-        PipePos := LSegment.IndexOf('|');
-        if PipePos >= 0 then
-        begin
-          var LTestLine := LSegment.Substring(PipePos).Trim;
-          // Prepend newline before new script tables (except if it's the very first line)
-          if LTestLine.StartsWith('|script|', True) and (Builder.Length > 0) then
-            Builder.AppendLine;
-
-          Builder.AppendLine(LTestLine);
-        end;
-      end;
-    end;
-    Result := Builder.ToString;
-  finally
-    Builder.Free;
   end;
 end;
 

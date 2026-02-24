@@ -29,7 +29,6 @@ class procedure TDptLintStyleValidator.ValidateStyleFile(const AStylePath: Strin
 var
   AnchorFound: Boolean;
   Col2Idx    : Integer;
-  Col3Idx    : Integer;
   I          : Integer;
   J          : Integer;
   Line       : String;
@@ -44,18 +43,15 @@ begin
 
   AnchorFound := False;
   Col2Idx := -1;
-  Col3Idx := -1;
 
   // 1. Find Anchor Line
   for I := 0 to High(Lines) do
   begin
     var LLineUpper := Lines[I].ToUpper;
     if LLineUpper.Contains('// START: STYLE-TEMPLATE') and
-       LLineUpper.Contains('// START: AI-DESCRIPTIONS') and
-       LLineUpper.Contains('// START: AI-GENERATED FITNESSE-TEST') then
+       LLineUpper.Contains('// START: AI-DESCRIPTIONS') then
     begin
       Col2Idx := LLineUpper.IndexOf('// START: AI-DESCRIPTIONS');
-      Col3Idx := LLineUpper.IndexOf('// START: AI-GENERATED FITNESSE-TEST');
 
       AnchorFound := True;
       Break;
@@ -78,11 +74,6 @@ begin
     if (Line.Length < Col2Idx + 2) or (Line.Chars[Col2Idx] <> '/') or (Line.Chars[Col2Idx+1] <> '/') then
       raise Exception.CreateFmt('Style alignment error in file "%s" at line %d. Missing or misaligned "//" at column %d (Column 2).',
         [ExtractFileName(AStylePath), J + 1, Col2Idx + 1]);
-
-    // Check Column 3
-    if (Line.Length < Col3Idx + 2) or (Line.Chars[Col3Idx] <> '/') or (Line.Chars[Col3Idx+1] <> '/') then
-      raise Exception.CreateFmt('Style alignment error in file "%s" at line %d. Missing or misaligned "//" at column %d (Column 3).',
-        [ExtractFileName(AStylePath), J + 1, Col3Idx + 1]);
   end;
 end;
 
