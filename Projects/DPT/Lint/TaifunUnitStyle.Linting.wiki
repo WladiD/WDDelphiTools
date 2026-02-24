@@ -99,28 +99,6 @@
 |check|Keyword|implementation|Is Surrounded By|=======|true|
 |check|Last Line Before End Is Double Separator|true|
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 |script|Dpt Lint Uses Fixture|
 |Set Context|$Context|
 |Set Content|$ImplementationPart|
@@ -138,47 +116,3 @@
 |check|Groups Follow Order|true|
 |check|Groups Are Sorted Alphabetically|true|
 |check|Groups Are Separated By Blank Lines|true|
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
