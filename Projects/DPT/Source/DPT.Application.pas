@@ -54,6 +54,7 @@ uses
   DPT.Detection,
   DPT.DProj.Task,
   DPT.DProjAnalyzer,
+  DPT.Debugger.PoC.Task,
   DPT.Fixtures,
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
@@ -93,6 +94,7 @@ begin
   RegisterTask('ImportBuildEnvironment', TDptImportBuildEnvironmentTask);
   RegisterTask('Start', TDptStartTask);
   RegisterTask('Stop', TDptStopTask);
+  RegisterTask('DebugPoC', TDptDebugPoCTask);
 end;
 
 procedure TDptTaskDispatcher.RegisterTask(const ActionName: string; TaskClass: TDptTaskClass);
