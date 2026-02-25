@@ -165,7 +165,8 @@ begin
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}';
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}';
 
   Debugger := TDebugger.Create;
   try
@@ -197,16 +198,18 @@ begin
       // Process get_stack_memory
       Server.RunOnce;
       Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
-      // LocalInt value $12345678 (78 56 34 12)
       Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump');
 
       // Process read_global_variable
       Server.RunOnce;
       Assert.AreEqual(6, OutputWriter.Output.Count, 'ReadGlobalVariable failed');
-      // GGlobalInt initial value is $87654321 (21 43 65 87)
-      // Wait, main procedure sets it to $11223344 before calling TargetProcedure.
-      // So at Line 13, it should be $11223344 (44 33 22 11).
       Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing in response: ' + OutputWriter.Output[5]);
+
+      // Process get_stack_slots
+      Server.RunOnce;
+      Assert.AreEqual(7, OutputWriter.Output.Count, 'GetStackSlots failed');
+      // LocalInt value $12345678
+      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'), 'LocalInt missing in stack slots: ' + OutputWriter.Output[6]);
 
     finally
       Server.Free;

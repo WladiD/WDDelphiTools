@@ -1,4 +1,4 @@
-unit Test.DPT.Debugger;
+﻿unit Test.DPT.Debugger;
 
 interface
 
@@ -60,15 +60,15 @@ begin
   try
     Debugger.OnBreakpoint := OnBreakpoint;
     Debugger.LoadMapFile(MapFile);
-    
+
     // Line 17 is Writeln('Target') in TargetProcedure
     Debugger.SetBreakpoint('DebugTarget.dpr', 17);
-    
+
     Thread := TDebuggerThread.Create(Debugger, ExePath);
-    
+
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
-      
+
     Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 17 not hit');
   finally
     Debugger.Free;
@@ -93,15 +93,15 @@ begin
   try
     Debugger.OnBreakpoint := OnBreakpointForStack;
     Debugger.LoadMapFile(MapFile);
-    
+
     // Line 13 is Writeln('Deep') in DeepProcedure
     Debugger.SetBreakpoint('DebugTarget.dpr', 13);
-    
+
     Thread := TDebuggerThread.Create(Debugger, ExePath);
-    
+
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
-      
+
     Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 13 not hit');
     Assert.IsTrue(Length(FStackTrace) > 0, 'Stack trace empty');
 

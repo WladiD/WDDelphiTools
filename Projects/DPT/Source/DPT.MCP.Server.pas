@@ -25,6 +25,8 @@ type
     function HandleReadMemory(AParams: TJSONObject): TJSONObject;
     function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
+    function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
     destructor Destroy; override;
@@ -200,6 +202,18 @@ begin
         ToolReadGlobal.AddPair('inputSchema', SchemaReadGlobal);
         ToolsArr.Add(ToolReadGlobal);
 
+        var ToolRegs := TJSONObject.Create;
+        ToolRegs.AddPair('name', 'get_registers');
+        ToolRegs.AddPair('description', 'Returns the current CPU registers');
+        ToolRegs.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolRegs);
+
+        var ToolSlots := TJSONObject.Create;
+        ToolSlots.AddPair('name', 'get_stack_slots');
+        ToolSlots.AddPair('description', 'Returns a list of stack slots with interpretation');
+        ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolSlots);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -232,6 +246,10 @@ begin
           SendResponse(ID, HandleGetStackMemory(ToolParams))
         else if ToolName = 'read_global_variable' then
           SendResponse(ID, HandleReadGlobalVariable(ToolParams))
+        else if ToolName = 'get_registers' then
+          SendResponse(ID, HandleGetRegisters(ToolParams))
+        else if ToolName = 'get_stack_slots' then
+          SendResponse(ID, HandleGetStackSlots(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -396,11 +414,58 @@ begin
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Symbol not found: ' + LName));
     
-  Result.AddPair('content', ContentArr);
-end;
-
-procedure TMcpServer.RunOnce;
-var
+      Result.AddPair('content', ContentArr);
+  end;
+  
+  function TMcpServer.HandleGetRegisters(AParams: TJSONObject): TJSONObject;
+  var
+    Regs: TRegisters;
+    RegObj: TJSONObject;
+  begin
+    Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
+    
+    RegObj := TJSONObject.Create;
+    RegObj.AddPair('eip', Format('%p', [Pointer(Regs.Eip)]));
+    RegObj.AddPair('esp', Format('%p', [Pointer(Regs.Esp)]));
+    RegObj.AddPair('ebp', Format('%p', [Pointer(Regs.Ebp)]));
+    RegObj.AddPair('eax', Format('%p', [Pointer(Regs.Eax)]));
+    RegObj.AddPair('edx', Format('%p', [Pointer(Regs.Edx)]));
+    RegObj.AddPair('ecx', Format('%p', [Pointer(Regs.Ecx)]));
+    
+    Result := TJSONObject.Create;
+    var ContentArr := TJSONArray.Create;
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', RegObj.ToJSON));
+    Result.AddPair('content', ContentArr);
+    RegObj.Free;
+  end;
+  
+  function TMcpServer.HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
+  var
+    Slots: TArray<TStackSlot>;
+    Slot: TStackSlot;
+    SlotsArr: TJSONArray;
+  begin
+    Slots := FDebugger.GetStackSlots(FDebugger.LastThreadHit);
+    
+    Result := TJSONObject.Create;
+    SlotsArr := TJSONArray.Create;
+    
+    for Slot in Slots do
+    begin
+      var SlotObj := TJSONObject.Create;
+      SlotObj.AddPair('offset', TJSONNumber.Create(Slot.Offset));
+      SlotObj.AddPair('address', Format('%p', [Slot.Address]));
+      SlotObj.AddPair('value', Format('%p', [Pointer(Slot.Value)]));
+      SlotObj.AddPair('interpretation', Slot.Interpretation);
+      SlotsArr.Add(SlotObj);
+    end;
+    
+    var ContentArr := TJSONArray.Create;
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', SlotsArr.ToJSON));
+    Result.AddPair('content', ContentArr);
+  end;
+  
+  procedure TMcpServer.RunOnce;var
   Line: string;
 begin
   if Assigned(FInputReader) then
