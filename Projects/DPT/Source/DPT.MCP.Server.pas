@@ -12,6 +12,8 @@ type
   private
     FDebugger: TDebugger;
     FExitRequest: Boolean;
+    FInputReader: TTextReader;
+    FOutputWriter: TTextWriter;
     procedure ProcessMessage(const AMessage: string);
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
@@ -21,19 +23,28 @@ type
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
   public
-    constructor Create(ADebugger: TDebugger);
-    procedure Run; // Main loop reading from Stdin
+    constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
+    destructor Destroy; override;
+    procedure Run; // Main loop
+    procedure RunOnce; // Processes one message
   end;
 
 implementation
 
 { TMcpServer }
 
-constructor TMcpServer.Create(ADebugger: TDebugger);
+constructor TMcpServer.Create(ADebugger: TDebugger; AInput: TTextReader; AOutput: TTextWriter);
 begin
   inherited Create;
   FDebugger := ADebugger;
   FExitRequest := False;
+  FInputReader := AInput;
+  FOutputWriter := AOutput;
+end;
+
+destructor TMcpServer.Destroy;
+begin
+  inherited Destroy;
 end;
 
 procedure TMcpServer.SendResponse(const AID: TJSONValue; AResult: TJSONObject);
@@ -46,8 +57,16 @@ begin
     Resp.AddPair('id', AID.Clone as TJSONValue);
   Resp.AddPair('result', AResult);
   
-  Writeln(Resp.ToJSON);
-  Flush(Output);
+  if Assigned(FOutputWriter) then
+  begin
+    FOutputWriter.WriteLine(Resp.ToJSON);
+    FOutputWriter.Flush;
+  end
+  else
+  begin
+    System.Writeln(Resp.ToJSON);
+    System.Flush(System.Output);
+  end;
 end;
 
 procedure TMcpServer.SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
@@ -64,14 +83,23 @@ begin
   Err.AddPair('message', AMessage);
   Resp.AddPair('error', Err);
   
-  Writeln(Resp.ToJSON);
-  Flush(Output);
+  if Assigned(FOutputWriter) then
+  begin
+    FOutputWriter.WriteLine(Resp.ToJSON);
+    FOutputWriter.Flush;
+  end
+  else
+  begin
+    System.Writeln(Resp.ToJSON);
+    System.Flush(System.Output);
+  end;
 end;
 
 procedure TMcpServer.ProcessMessage(const AMessage: string);
 var
   JSON: TJSONObject;
   ID: TJSONValue;
+  MethodVal: TJSONValue;
   Method: string;
   Params: TJSONObject;
   ResultObj: TJSONObject;
@@ -81,7 +109,9 @@ begin
     if JSON = nil then Exit;
     try
       ID := JSON.GetValue('id');
-      Method := JSON.GetValue('method').Value;
+      MethodVal := JSON.GetValue('method');
+      if MethodVal = nil then Exit;
+      Method := MethodVal.Value;
       Params := JSON.GetValue('params') as TJSONObject;
 
       if Method = 'initialize' then
@@ -135,7 +165,18 @@ begin
       end
       else if Method = 'tools/call' then
       begin
-        var ToolName := Params.GetValue('name').Value;
+        if Params = nil then
+        begin
+          SendError(ID, -32602, 'Missing params');
+          Exit;
+        end;
+        var NameVal := Params.GetValue('name');
+        if NameVal = nil then
+        begin
+          SendError(ID, -32602, 'Missing tool name');
+          Exit;
+        end;
+        var ToolName := NameVal.Value;
         var ToolParams := Params.GetValue('arguments') as TJSONObject;
         
         if ToolName = 'set_breakpoint' then
@@ -214,16 +255,30 @@ begin
   Result.AddPair('content', ContentArr);
 end;
 
-procedure TMcpServer.Run;
+procedure TMcpServer.RunOnce;
 var
   Line: string;
 begin
+  if Assigned(FInputReader) then
+    Line := FInputReader.ReadLine
+  else
+    System.Readln(System.Input, Line);
+    
+  if Line <> '' then
+    ProcessMessage(Line);
+end;
+
+procedure TMcpServer.Run;
+begin
   while not FExitRequest do
   begin
-    if EOF(Input) then Break;
-    Readln(Input, Line);
-    if Line = '' then Continue;
-    ProcessMessage(Line);
+    if Assigned(FInputReader) then
+    begin
+      if FInputReader.Peek = -1 then Break;
+    end
+    else if System.EOF(System.Input) then Break;
+    
+    RunOnce;
   end;
 end;
 

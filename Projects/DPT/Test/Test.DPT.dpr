@@ -21,7 +21,8 @@ uses
   Test.DPT.Lint.Setup.Task,
   Test.DPT.DProjAnalyzer,
   Test.DPT.Workflow,
-  Test.DPT.Debugger;
+  Test.DPT.Debugger,
+  Test.DPT.MCP.Server;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}
