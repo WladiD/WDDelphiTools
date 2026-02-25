@@ -24,8 +24,8 @@ type
   private
     FContent    : String;
     FProjectFile: String;
-    procedure LoadContent;
     function  EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
+    procedure LoadContent;
     procedure ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
   public
     class function ResolvePath(const APath, ABaseDir: String): String;
@@ -33,9 +33,9 @@ type
     constructor Create(const AProjectFile: String);
     function GetConfigs: TArray<String>;
     function GetDefaultConfig: String;
+    function GetProjectFiles: TArray<String>;
     function GetProjectOutputFile(const AConfig, APlatform: String): String;
     function GetProjectSearchPath(const AConfig, APlatform: String): String;
-    function GetProjectFiles: TArray<String>;
   end;
 
 implementation
@@ -152,16 +152,16 @@ end;
 
 function TDProjAnalyzer.GetProjectOutputFile(const AConfig, APlatform: String): String;
 var
-  BaseName      : String;
-  ExeOutput     : String;
-  PossiblePath  : String;
-  GroupMatches  : TMatchCollection;
-  GroupMatch    : TMatch;
-  RawCondition  : String;
-  Body          : String;
-  ValMatch      : TMatch;
-  Definitions   : IDictionary_String_String;
-  RootPath      : String;
+  BaseName    : String;
+  Body        : String;
+  Definitions : IDictionary_String_String;
+  ExeOutput   : String;
+  GroupMatch  : TMatch;
+  GroupMatches: TMatchCollection;
+  PossiblePath: String;
+  RawCondition: String;
+  RootPath    : String;
+  ValMatch    : TMatch;
 begin
   BaseName := ChangeFileExt(ExtractFileName(FProjectFile), '.exe');
   ExeOutput := '';
