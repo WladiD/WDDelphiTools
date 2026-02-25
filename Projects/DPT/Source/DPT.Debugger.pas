@@ -6,6 +6,7 @@ uses
   Winapi.Windows,
   System.SysUtils,
   System.Classes,
+  System.SyncObjs,
   System.Generics.Collections,
   JclDebug,
   DPT.Logger;
@@ -41,6 +42,10 @@ type
     FActiveThreads: TList<THandle>;
     FOnBreakpoint: TOnBreakpointEvent;
     
+    FContinueEvent: TEvent;
+    FBreakpointHitEvent: TEvent;
+    FLastBreakpointHit: TBreakpoint;
+    
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
@@ -57,10 +62,43 @@ type
     procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure StartDebugging(const AExecutablePath: string);
     
+    procedure ResumeExecution;
+    function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
+    
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
   end;
 
+  TDebuggerThread = class(TThread)
+  private
+    FDebugger: TDebugger;
+    FExecutablePath: string;
+  protected
+    procedure Execute; override;
+  public
+    constructor Create(ADebugger: TDebugger; const AExecutablePath: string);
+  end;
+
 implementation
+
+{ TDebuggerThread }
+
+constructor TDebuggerThread.Create(ADebugger: TDebugger; const AExecutablePath: string);
+begin
+  inherited Create(False);
+  FDebugger := ADebugger;
+  FExecutablePath := AExecutablePath;
+  FreeOnTerminate := True;
+end;
+
+procedure TDebuggerThread.Execute;
+begin
+  try
+    FDebugger.StartDebugging(FExecutablePath);
+  except
+    on E: Exception do
+      Writeln('Debugger Thread Error: ' + E.Message);
+  end;
+end;
 
 { TBreakpoint }
 
@@ -81,16 +119,34 @@ begin
   inherited Create;
   FBreakpoints := TObjectList<TBreakpoint>.Create(True);
   FActiveThreads := TList<THandle>.Create;
+  FContinueEvent := TEvent.Create(nil, False, False, '');
+  FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
 end;
 
 destructor TDebugger.Destroy;
 begin
+  FBreakpointHitEvent.Free;
+  FContinueEvent.Free;
   FActiveThreads.Free;
   FBreakpoints.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then CloseHandle(FProcessHandle);
   if FThreadHandle <> 0 then CloseHandle(FThreadHandle);
   inherited Destroy;
+end;
+
+procedure TDebugger.ResumeExecution;
+begin
+  FContinueEvent.SetEvent;
+end;
+
+function TDebugger.WaitForBreakpoint(Timeout: DWORD): TBreakpoint;
+begin
+  FBreakpointHitEvent.ResetEvent;
+  if FBreakpointHitEvent.WaitFor(Timeout) = wrSignaled then
+    Result := FLastBreakpointHit
+  else
+    Result := nil;
 end;
 
 procedure TDebugger.LoadMapFile(const AMapFileName: string);
@@ -106,33 +162,21 @@ var
   LineInfo: TJclMapLineNumber;
   UnitMatch: string;
   SearchUnit: string;
-  Scanner: TJclMapScanner;
-  TestVA: DWORD;
 begin
   Result := nil;
   if not Assigned(FMapScanner) then Exit;
-  Scanner := FMapScanner;
 
   SearchUnit := ChangeFileExt(AUnitName, ''); // Strip .pas or .dpr
 
-  // Test VA mapping for a known function to see JCL's base assumption
-  TestVA := Scanner.VAFromUnitAndProcName('FileVersion', 'ShowUsage');
-  if TestVA <> 0 then
-    Writeln(Format('  JCL VA for FileVersion.ShowUsage: %08x', [TestVA]));
-
-  for I := 0 to Scanner.LineNumbersCnt - 1 do
+  for I := 0 to FMapScanner.LineNumbersCnt - 1 do
   begin
-    LineInfo := Scanner.LineNumberByIndex[I];
+    LineInfo := FMapScanner.LineNumberByIndex[I];
     if LineInfo.LineNumber = ALineNumber then
     begin
       UnitMatch := TJclMapScanner.MapStringToStr(LineInfo.UnitName);
       if SameText(UnitMatch, SearchUnit) or SameText(ExtractFileName(UnitMatch), SearchUnit) then
       begin
-        Writeln(Format('  Found %s:%d -> Seg=%d, JCL_VA=%08x', [UnitMatch, ALineNumber, LineInfo.Segment, LineInfo.VA]));
-        
-        // Let's try adding $1000 instead of $10000.
-        // If the MAP file says 0001:000D7768 and preferred base is 00400000, 
-        // and .text starts at 00401000, then relative offset is $1000.
+        // VA is relative to module base address + $1000 for Delphi 2005+ (Win32)
         Result := Pointer(FBaseAddress + $1000 + LineInfo.VA);
         Exit;
       end;
@@ -160,8 +204,6 @@ begin
   
   // DR7: Bits 8 (LE) and 9 (GE) for exact match
   AContext.Dr7 := AContext.Dr7 or $300;
-
-  Writeln(Format('  SetHardwareBreakpointInContext: Slot %d, Addr %p, DR7 %08x', [ASlot, AAddress, AContext.Dr7]));
 end;
 
 procedure TDebugger.ApplyBreakpointsToThread(AThreadHandle: THandle);
@@ -170,13 +212,8 @@ var
   I: Integer;
   BPCount: Integer;
 begin
-  Writeln(Format('  ApplyBreakpointsToThread: Handle=%d', [AThreadHandle]));
   Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-  if not GetThreadContext(AThreadHandle, Context) then
-  begin
-    Writeln('  Error: GetThreadContext failed. Error: ' + IntToStr(GetLastError));
-    Exit;
-  end;
+  if not GetThreadContext(AThreadHandle, Context) then Exit;
 
   BPCount := 0;
   for I := 0 to FBreakpoints.Count - 1 do
@@ -189,10 +226,7 @@ begin
     end;
   end;
 
-  if not SetThreadContext(AThreadHandle, Context) then
-    Writeln('  Error: SetThreadContext failed. Error: ' + IntToStr(GetLastError))
-  else
-    Writeln('  SetThreadContext success.');
+  SetThreadContext(AThreadHandle, Context);
 end;
 
 procedure TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
@@ -216,12 +250,9 @@ begin
 
   if Addr <> nil then
   begin
-    Writeln(Format('Hardware breakpoint defined at %p (%s:%d)', [Addr, AUnitName, ALineNumber]));
     for Thread in FActiveThreads do
       ApplyBreakpointsToThread(Thread);
-  end
-  else
-    Writeln(Format('Breakpoint queued for %s:%d (waiting for process start)', [AUnitName, ALineNumber]));
+  end;
 end;
 
 procedure TDebugger.HandleCreateProcess(const ADebugEvent: TDebugEvent);
@@ -230,7 +261,6 @@ var
 begin
   FBaseAddress := UIntPtr(ADebugEvent.CreateProcessInfo.lpBaseOfImage);
   FProcessHandle := ADebugEvent.CreateProcessInfo.hProcess;
-  Writeln(Format('Target Base Address: %p', [Pointer(FBaseAddress)]));
 
   if ADebugEvent.CreateProcessInfo.hFile <> 0 then
     CloseHandle(ADebugEvent.CreateProcessInfo.hFile);
@@ -241,15 +271,7 @@ begin
   for I := 0 to FBreakpoints.Count - 1 do
   begin
     if FBreakpoints[I].Address = nil then
-    begin
       FBreakpoints[I].Address := GetAddressFromUnitLine(FBreakpoints[I].UnitName, FBreakpoints[I].LineNumber);
-      if FBreakpoints[I].Address <> nil then
-        Writeln(Format('Mapped queued breakpoint to %p (%s:%d)', 
-          [FBreakpoints[I].Address, FBreakpoints[I].UnitName, FBreakpoints[I].LineNumber]))
-      else
-        Writeln(Format('Warning: Could not map %s:%d to an address.', 
-          [FBreakpoints[I].UnitName, FBreakpoints[I].LineNumber]));
-    end;
   end;
 
   ApplyBreakpointsToThread(ADebugEvent.CreateProcessInfo.hThread);
@@ -263,25 +285,18 @@ end;
 
 procedure TDebugger.HandleExitThread(const ADebugEvent: TDebugEvent);
 begin
-  // In a real debugger we would need to find the handle by ThreadId.
+  // Handle removal
 end;
 
 procedure TDebugger.HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
 var
-  ExceptionAddr: Pointer;
   I: Integer;
   BP: TBreakpoint;
   Context: TContext;
   CurrentThread: THandle;
 begin
-  ExceptionAddr := ADebugEvent.Exception.ExceptionRecord.ExceptionAddress;
   AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
 
-  // Log all exceptions for debugging
-  Writeln(Format('  Exception: Code=%08x, Addr=%p, TID=%d', 
-    [ADebugEvent.Exception.ExceptionRecord.ExceptionCode, ExceptionAddr, ADebugEvent.dwThreadId]));
-
-  // Single step or Hardware Breakpoint trigger EXCEPTION_SINGLE_STEP
   if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_SINGLE_STEP then
   begin
     CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);
@@ -291,7 +306,6 @@ begin
       GetThreadContext(CurrentThread, Context);
 
       BP := nil;
-      // Check DR6 to see which breakpoint hit (bits 0-3)
       for I := 0 to FBreakpoints.Count - 1 do
       begin
         if (FBreakpoints[I].Slot >= 0) and ((Context.Dr6 and (1 shl FBreakpoints[I].Slot)) <> 0) then
@@ -303,25 +317,24 @@ begin
 
       if BP <> nil then
       begin
-        Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
-        
+        FLastBreakpointHit := BP;
+        FBreakpointHitEvent.SetEvent;
+
         if Assigned(FOnBreakpoint) then
           FOnBreakpoint(Self, BP);
 
-        // To continue over a hardware breakpoint, we set the Resume Flag (RF) in EFlags.
-        // Bit 16 is RF.
-        Context.EFlags := Context.EFlags or $10000; 
-        
-        // Clear DR6 status bits
+        // Wait for resume signal from MCP server
+        FContinueEvent.ResetEvent;
+        FContinueEvent.WaitFor(INFINITE);
+
+        Context.EFlags := Context.EFlags or $10000; // RF
         Context.Dr6 := Context.Dr6 and not $F;
         
         SetThreadContext(CurrentThread, Context);
         AContinueStatus := DBG_CONTINUE;
       end
       else
-      begin
         AContinueStatus := DBG_CONTINUE;
-      end;
     finally
       CloseHandle(CurrentThread);
     end;
@@ -367,6 +380,8 @@ begin
 
     if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then Break;
   end;
+  
+  FBreakpointHitEvent.SetEvent; // Signal exit
 end;
 
 end.
