@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -21,179 +21,136 @@ uses
 
 type
 
-  TDptDProjPrintConfigsTask = class(TDptTaskBase)
+  TDptDProjTaskBase = class(TDptTaskBase)
+  protected
+    FAnalyzer: TDProjAnalyzer;
   public
     ProjectFile: String;
+    destructor Destroy; override;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
-    procedure Execute; override;
   end;
 
-  TDptDProjPrintCurConfigTask = class(TDptTaskBase)
-  public
-    ProjectFile: String;
-    procedure Parse(CmdLine: TCmdLineConsumer); override;
-    procedure Execute; override;
-  end;
-
-  TDptDProjPrintOutputFileTask = class(TDptTaskBase)
+  TDptDProjConfigPlatformTaskBase = class(TDptDProjTaskBase)
   public
     Config     : String;
     Platform   : String;
-    ProjectFile: String;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
+  end;
+
+  TDptDProjPrintConfigsTask = class(TDptDProjTaskBase)
+  public
     procedure Execute; override;
   end;
 
-  TDptDProjPrintSearchPathsTask = class(TDptTaskBase)
+  TDptDProjPrintCurConfigTask = class(TDptDProjTaskBase)
   public
-    Config     : String;
-    Platform   : String;
-    ProjectFile: String;
-    procedure Parse(CmdLine: TCmdLineConsumer); override;
+    procedure Execute; override;
+  end;
+
+  TDptDProjPrintOutputFileTask = class(TDptDProjConfigPlatformTaskBase)
+  public
+    procedure Execute; override;
+  end;
+
+  TDptDProjPrintSearchPathsTask = class(TDptDProjConfigPlatformTaskBase)
+  public
     procedure Execute; override;
   end;
 
 implementation
 
-{ TDptDProjPrintConfigsTask }
+{ TDptDProjTaskBase }
 
-procedure TDptDProjPrintConfigsTask.Parse(CmdLine: TCmdLineConsumer);
+destructor TDptDProjTaskBase.Destroy;
+begin
+  FAnalyzer.Free;
+  inherited;
+end;
+
+procedure TDptDProjTaskBase.Parse(CmdLine: TCmdLineConsumer);
 begin
   ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
   CheckAndExecutePreProcessor(ProjectFile);
+  FAnalyzer := TDProjAnalyzer.Create(ProjectFile);
   CmdLine.ConsumeParameter;
 end;
 
-procedure TDptDProjPrintConfigsTask.Execute;
-var
-  Analyzer: TDProjAnalyzer;
-  Configs : TArray<String>;
-  C       : String;
+{ TDptDProjConfigPlatformTaskBase }
+
+procedure TDptDProjConfigPlatformTaskBase.Parse(CmdLine: TCmdLineConsumer);
 begin
-  Analyzer := TDProjAnalyzer.Create(ProjectFile);
-  try
-    Configs := Analyzer.GetConfigs;
-    for C in Configs do
-      Writeln(C);
-  finally
-    Analyzer.Free;
+  inherited Parse(CmdLine);
+
+  if CmdLine.HasParameter then
+  begin
+    Config := CmdLine.CheckParameter('Config');
+    CmdLine.ConsumeParameter;
   end;
+
+  if CmdLine.HasParameter then
+  begin
+    Platform := CmdLine.CheckParameter('Platform');
+    CmdLine.ConsumeParameter;
+  end;
+end;
+
+{ TDptDProjPrintConfigsTask }
+
+procedure TDptDProjPrintConfigsTask.Execute;
+begin
+  for var Config: String in FAnalyzer.GetConfigs do
+    Writeln(Config);
 end;
 
 { TDptDProjPrintCurConfigTask }
 
-procedure TDptDProjPrintCurConfigTask.Parse(CmdLine: TCmdLineConsumer);
-begin
-  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
-  CheckAndExecutePreProcessor(ProjectFile);
-  CmdLine.ConsumeParameter;
-end;
-
 procedure TDptDProjPrintCurConfigTask.Execute;
-var
-  Analyzer: TDProjAnalyzer;
 begin
-  Analyzer := TDProjAnalyzer.Create(ProjectFile);
-  try
-    Writeln(Analyzer.GetDefaultConfig);
-  finally
-    Analyzer.Free;
-  end;
+  Writeln(FAnalyzer.GetDefaultConfig);
 end;
 
 { TDptDProjPrintOutputFileTask }
 
-procedure TDptDProjPrintOutputFileTask.Parse(CmdLine: TCmdLineConsumer);
-begin
-  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
-  CheckAndExecutePreProcessor(ProjectFile);
-  CmdLine.ConsumeParameter;
-
-  if CmdLine.HasParameter then
-  begin
-    Config := CmdLine.CheckParameter('Config');
-    CmdLine.ConsumeParameter;
-  end;
-
-  if CmdLine.HasParameter then
-  begin
-    Platform := CmdLine.CheckParameter('Platform');
-    CmdLine.ConsumeParameter;
-  end;
-end;
-
 procedure TDptDProjPrintOutputFileTask.Execute;
-var
-  Analyzer: TDProjAnalyzer;
 begin
-  Analyzer := TDProjAnalyzer.Create(ProjectFile);
-  try
-    if Config = '' then
-      Config := Analyzer.GetDefaultConfig;
-    if Platform = '' then
-      Platform := 'Win32';
+  if Config = '' then
+    Config := FAnalyzer.GetDefaultConfig;
+  if Platform = '' then
+    Platform := 'Win32';
 
-    Writeln(Analyzer.GetProjectOutputFile(Config, Platform));
-  finally
-    Analyzer.Free;
-  end;
+  Writeln(FAnalyzer.GetProjectOutputFile(Config, Platform));
 end;
 
 { TDptDProjPrintSearchPathsTask }
 
-procedure TDptDProjPrintSearchPathsTask.Parse(CmdLine: TCmdLineConsumer);
-begin
-  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
-  CheckAndExecutePreProcessor(ProjectFile);
-  CmdLine.ConsumeParameter;
-
-  if CmdLine.HasParameter then
-  begin
-    Config := CmdLine.CheckParameter('Config');
-    CmdLine.ConsumeParameter;
-  end;
-
-  if CmdLine.HasParameter then
-  begin
-    Platform := CmdLine.CheckParameter('Platform');
-    CmdLine.ConsumeParameter;
-  end;
-end;
-
 procedure TDptDProjPrintSearchPathsTask.Execute;
 var
-  Analyzer: TDProjAnalyzer;
   BDSPath : String;
   Full    : String;
   IdePath : String;
   ProjPath: String;
 begin
-  Analyzer := TDProjAnalyzer.Create(ProjectFile);
-  try
-    if Config = '' then
-      Config := Analyzer.GetDefaultConfig;
-    if Platform = '' then
-      Platform := 'Win32';
+  if Config = '' then
+    Config := FAnalyzer.GetDefaultConfig;
+  if Platform = '' then
+    Platform := 'Win32';
 
-    ProjPath := Analyzer.GetProjectSearchPath(Config, Platform);
-    BDSPath := ExcludeTrailingPathDelimiter(Installation.RootDir);
-    ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
-    
-    if SameText(Platform, 'Win64') then
-      IdePath := Installation.LibrarySearchPath[bpWin64]
-    else
-      IdePath := Installation.LibrarySearchPath[bpWin32];
+  ProjPath := FAnalyzer.GetProjectSearchPath(Config, Platform);
+  BDSPath := ExcludeTrailingPathDelimiter(Installation.RootDir);
+  ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
+  
+  if SameText(Platform, 'Win64') then
+    IdePath := Installation.LibrarySearchPath[bpWin64]
+  else
+    IdePath := Installation.LibrarySearchPath[bpWin32];
 
-    if (ProjPath <> '') and (IdePath <> '') then
-      Full := IdePath + ';' + ProjPath
-    else
-      Full := IdePath + ProjPath;
+  if (ProjPath <> '') and (IdePath <> '') then
+    Full := IdePath + ';' + ProjPath
+  else
+    Full := IdePath + ProjPath;
 
-    for var PathEntry in Full.Split([';'], TStringSplitOptions.ExcludeEmpty) do
-      Writeln(PathEntry);
-  finally
-    Analyzer.Free;
-  end;
+  for var PathEntry: String in Full.Split([';'], TStringSplitOptions.ExcludeEmpty) do
+    Writeln(PathEntry);
 end;
 
 end.
