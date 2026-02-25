@@ -20,7 +20,8 @@ uses
   Test.DPT.LintFixtures,
   Test.DPT.Lint.Setup.Task,
   Test.DPT.DProjAnalyzer,
-  Test.DPT.Workflow;
+  Test.DPT.Workflow,
+  Test.DPT.Debugger;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

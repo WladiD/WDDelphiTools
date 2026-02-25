@@ -28,6 +28,13 @@ type
     constructor Create(const AUnitName: string; ALineNumber: Integer; AAddress: Pointer);
   end;
 
+  TStackFrame = record
+    Address: Pointer;
+    UnitName: string;
+    ProcedureName: string;
+    LineNumber: Integer;
+  end;
+
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
 
   TDebugger = class
@@ -45,6 +52,7 @@ type
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
     FLastBreakpointHit: TBreakpoint;
+    FLastThreadHit: THandle;
     
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
@@ -52,6 +60,7 @@ type
     procedure HandleExitThread(const ADebugEvent: TDebugEvent);
     procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
     procedure SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
+    function ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
   public
     constructor Create;
     destructor Destroy; override;
@@ -65,7 +74,10 @@ type
     procedure ResumeExecution;
     function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     
+    function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+    
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
+    property LastThreadHit: THandle read FLastThreadHit;
   end;
 
   TDebuggerThread = class(TThread)
@@ -147,6 +159,73 @@ begin
     Result := FLastBreakpointHit
   else
     Result := nil;
+end;
+
+function TDebugger.ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
+var
+  BytesRead: NativeUInt;
+begin
+  Result := nil;
+  ReadProcessMemory(FProcessHandle, AAddress, @Result, SizeOf(Pointer), BytesRead);
+end;
+
+function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+var
+  Context: TContext;
+  FramePtr, ReturnAddr: Pointer;
+  Frame: TStackFrame;
+  Frames: TList<TStackFrame>;
+  RelativeVA: DWORD;
+begin
+  Frames := TList<TStackFrame>.Create;
+  try
+    Context.ContextFlags := CONTEXT_CONTROL or CONTEXT_INTEGER;
+    if not GetThreadContext(AThreadHandle, Context) then
+      Exit(nil);
+
+    {$IFDEF CPUX64}
+    FramePtr := Pointer(Context.Rbp);
+    ReturnAddr := Pointer(Context.Rip);
+    {$ELSE}
+    FramePtr := Pointer(Context.Ebp);
+    ReturnAddr := Pointer(Context.Eip);
+    {$ENDIF}
+
+    while (Frames.Count < 50) and (UIntPtr(ReturnAddr) > FBaseAddress) do
+    begin
+      Frame.Address := ReturnAddr;
+      Frame.UnitName := 'unknown';
+      Frame.ProcedureName := 'unknown';
+      Frame.LineNumber := 0;
+
+      if Assigned(FMapScanner) then
+      begin
+        // VA in JclMapScanner is usually relative to ModuleBase + $1000
+        RelativeVA := UIntPtr(ReturnAddr) - FBaseAddress - $1000;
+        
+        Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
+        Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
+        Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
+        
+        Writeln(Format('  Stack Walking: Addr=%p, VA=%08x, Unit=%s, Proc=%s, Line=%d', 
+          [Frame.Address, RelativeVA, Frame.UnitName, Frame.ProcedureName, Frame.LineNumber]));
+      end;
+
+      Frames.Add(Frame);
+
+      // Walk to next frame (Win32 specific logic)
+      if FramePtr = nil then Break;
+      
+      ReturnAddr := ReadProcessMemoryPtr(Pointer(UIntPtr(FramePtr) + SizeOf(Pointer)));
+      FramePtr := ReadProcessMemoryPtr(FramePtr);
+      
+      if ReturnAddr = nil then Break;
+    end;
+
+    Result := Frames.ToArray;
+  finally
+    Frames.Free;
+  end;
 end;
 
 procedure TDebugger.LoadMapFile(const AMapFileName: string);
@@ -261,6 +340,7 @@ var
 begin
   FBaseAddress := UIntPtr(ADebugEvent.CreateProcessInfo.lpBaseOfImage);
   FProcessHandle := ADebugEvent.CreateProcessInfo.hProcess;
+  FThreadHandle := ADebugEvent.CreateProcessInfo.hThread;
 
   if ADebugEvent.CreateProcessInfo.hFile <> 0 then
     CloseHandle(ADebugEvent.CreateProcessInfo.hFile);
@@ -317,7 +397,10 @@ begin
 
       if BP <> nil then
       begin
+        Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
+        
         FLastBreakpointHit := BP;
+        FLastThreadHit := CurrentThread;
         FBreakpointHitEvent.SetEvent;
 
         if Assigned(FOnBreakpoint) then

@@ -19,6 +19,7 @@ type
     // Tool handlers
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleContinue(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
   public
     constructor Create(ADebugger: TDebugger);
     procedure Run; // Main loop reading from Stdin
@@ -122,6 +123,12 @@ begin
         ToolContinue.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolContinue);
 
+        var ToolStack := TJSONObject.Create;
+        ToolStack.AddPair('name', 'get_stack_trace');
+        ToolStack.AddPair('description', 'Returns the current call stack of the debugged process');
+        ToolStack.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolStack);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -135,6 +142,8 @@ begin
           SendResponse(ID, HandleSetBreakpoint(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
+        else if ToolName = 'get_stack_trace' then
+          SendResponse(ID, HandleGetStackTrace(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -176,6 +185,32 @@ begin
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Paused at %s:%d', [BP.UnitName, BP.LineNumber])))
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Execution finished or timed out'));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
+var
+  Stack: TArray<TStackFrame>;
+  FramesArr: TJSONArray;
+  Frame: TStackFrame;
+begin
+  Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
+  
+  Result := TJSONObject.Create;
+  FramesArr := TJSONArray.Create;
+  
+  for Frame in Stack do
+  begin
+    var FrameObj := TJSONObject.Create;
+    FrameObj.AddPair('address', Format('%p', [Frame.Address]));
+    FrameObj.AddPair('unit', Frame.UnitName);
+    FrameObj.AddPair('procedure', Frame.ProcedureName);
+    FrameObj.AddPair('line', TJSONNumber.Create(Frame.LineNumber));
+    FramesArr.Add(FrameObj);
+  end;
+  
+  var ContentArr := TJSONArray.Create;
+  ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', FramesArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
 
