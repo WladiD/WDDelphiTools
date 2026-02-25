@@ -1,4 +1,4 @@
-unit DPT.Debugger;
+﻿unit DPT.Debugger;
 
 interface
 
@@ -57,12 +57,12 @@ type
     FBreakpoints: TObjectList<TBreakpoint>;
     FActiveThreads: TList<THandle>;
     FOnBreakpoint: TOnBreakpointEvent;
-    
+
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
     FLastBreakpointHit: TBreakpoint;
     FLastThreadHit: THandle;
-    
+
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
@@ -73,21 +73,21 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    
+
     procedure LoadMapFile(const AMapFileName: string);
     function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
-    
+
     procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure StartDebugging(const AExecutablePath: string);
-    
+
     procedure ResumeExecution;
     function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
-    
+
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function GetRegisters(AThreadHandle: THandle): TRegisters;
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
-    
+
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property LastThreadHit: THandle read FLastThreadHit;
   end;
@@ -276,12 +276,12 @@ begin
       begin
         // VA in JclMapScanner is usually relative to ModuleBase + $1000
         RelativeVA := UIntPtr(ReturnAddr) - FBaseAddress - $1000;
-        
+
         Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
         Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
         Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
-        
-        Writeln(Format('  Stack Walking: Addr=%p, VA=%08x, Unit=%s, Proc=%s, Line=%d', 
+
+        Writeln(Format('  Stack Walking: Addr=%p, VA=%08x, Unit=%s, Proc=%s, Line=%d',
           [Frame.Address, RelativeVA, Frame.UnitName, Frame.ProcedureName, Frame.LineNumber]));
       end;
 
@@ -289,10 +289,10 @@ begin
 
       // Walk to next frame (Win32 specific logic)
       if FramePtr = nil then Break;
-      
+
       ReturnAddr := ReadProcessMemoryPtr(Pointer(UIntPtr(FramePtr) + SizeOf(Pointer)));
       FramePtr := ReadProcessMemoryPtr(FramePtr);
-      
+
       if ReturnAddr = nil then Break;
     end;
 
@@ -340,7 +340,7 @@ end;
 procedure TDebugger.SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
 begin
   AContext.ContextFlags := AContext.ContextFlags or CONTEXT_DEBUG_REGISTERS;
-  
+
   case ASlot of
     0: AContext.Dr0 := UIntPtr(AAddress);
     1: AContext.Dr1 := UIntPtr(AAddress);
@@ -350,11 +350,11 @@ begin
 
   // DR7: Bit 0, 2, 4, 6 are Local Enable for DR0, DR1, DR2, DR3
   AContext.Dr7 := AContext.Dr7 or (1 shl (ASlot * 2));
-  
-  // DR7: Bits 16-31 control Condition and Size. 
+
+  // DR7: Bits 16-31 control Condition and Size.
   // For execution breakpoint: Condition = 00, Size = 00.
   AContext.Dr7 := AContext.Dr7 and not ($F shl (16 + ASlot * 4));
-  
+
   // DR7: Bits 8 (LE) and 9 (GE) for exact match
   AContext.Dr7 := AContext.Dr7 or $300;
 end;
@@ -472,7 +472,7 @@ begin
         if BP <> nil then
         begin
           Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
-          
+
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
@@ -486,7 +486,7 @@ begin
 
           Context.EFlags := Context.EFlags or $10000; // RF
           Context.Dr6 := Context.Dr6 and not $F;
-          
+
           SetThreadContext(CurrentThread, Context);
           AContinueStatus := DBG_CONTINUE;
         end
@@ -511,7 +511,7 @@ begin
   StartupInfo.cb := SizeOf(StartupInfo);
   FillChar(ProcessInfo, SizeOf(ProcessInfo), 0);
 
-  if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, False, 
+  if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, False,
     DEBUG_ONLY_THIS_PROCESS or NORMAL_PRIORITY_CLASS, nil, nil, StartupInfo, ProcessInfo) then
     raise Exception.Create('Failed to create process: ' + IntToStr(GetLastError));
 
@@ -538,7 +538,7 @@ begin
 
     if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then Break;
   end;
-  
+
   FBreakpointHitEvent.SetEvent; // Signal exit
 end;
 
