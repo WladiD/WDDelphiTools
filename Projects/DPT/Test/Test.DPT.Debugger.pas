@@ -66,8 +66,8 @@ begin
     Debugger.OnBreakpoint := OnBreakpoint;
     Debugger.LoadMapFile(MapFile);
     
-    // Set breakpoint at TargetProcedure (line 19 in DebugTarget.dpr)
-    Debugger.SetBreakpoint('DebugTarget.dpr', 19);
+    // Set breakpoint at TargetProcedure (line 22 in DebugTarget.dpr)
+    Debugger.SetBreakpoint('DebugTarget.dpr', 22);
     
     Thread := TDebuggerThread.Create(Debugger, ExePath);
     
@@ -105,8 +105,8 @@ begin
     Debugger.OnBreakpoint := OnBreakpointForStack;
     Debugger.LoadMapFile(MapFile);
     
-    // Set breakpoint in DeepProcedure (line 14 in DebugTarget.dpr)
-    Debugger.SetBreakpoint('DebugTarget.dpr', 14);
+    // Set breakpoint in DeepProcedure (line 17 in DebugTarget.dpr)
+    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
     
     Thread := TDebuggerThread.Create(Debugger, ExePath);
     

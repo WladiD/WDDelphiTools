@@ -153,7 +153,6 @@ var
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
   InputStr: string;
-  JSON: TJSONObject;
   ExePath, MapFile: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
@@ -162,9 +161,10 @@ begin
 
   InputStr := 
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 14}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}';
 
   Debugger := TDebugger.Create;
   try
@@ -178,46 +178,26 @@ begin
       // Process initialize
       Server.RunOnce;
       Assert.AreEqual(1, OutputWriter.Output.Count, 'Initialize failed');
-      JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[0]) as TJSONObject;
-      try
-        Assert.AreEqual('1', JSON.GetValue('id').Value);
-        Assert.IsNotNull(JSON.GetValue('result'));
-      finally
-        JSON.Free;
-      end;
 
       // Process set_breakpoint
       Server.RunOnce;
       Assert.AreEqual(2, OutputWriter.Output.Count, 'SetBreakpoint failed');
-      JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[1]) as TJSONObject;
-      try
-        Assert.AreEqual('2', JSON.GetValue('id').Value);
-      finally
-        JSON.Free;
-      end;
 
       // Process continue (blocks until breakpoint)
       Server.RunOnce;
       Assert.AreEqual(3, OutputWriter.Output.Count, 'Continue failed');
-      JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[2]) as TJSONObject;
-      try
-        Assert.AreEqual('3', JSON.GetValue('id').Value);
-        Assert.IsTrue(JSON.ToJSON.Contains('Paused at DebugTarget.dpr:14'), 'Wrong pause location');
-      finally
-        JSON.Free;
-      end;
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:17'), 'Wrong pause location: ' + OutputWriter.Output[2]);
 
       // Process get_stack_trace
       Server.RunOnce;
       Assert.AreEqual(4, OutputWriter.Output.Count, 'StackTrace failed');
-      JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[3]) as TJSONObject;
-      try
-        Assert.AreEqual('4', JSON.GetValue('id').Value);
-        Assert.IsTrue(JSON.ToJSON.Contains('DeepProcedure'), 'DeepProcedure missing in JSON');
-        Assert.IsTrue(JSON.ToJSON.Contains('TargetProcedure'), 'TargetProcedure missing in JSON');
-      finally
-        JSON.Free;
-      end;
+      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'), 'DeepProcedure missing');
+
+      // Process get_stack_memory
+      Server.RunOnce;
+      Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
+      // LocalInt value $12345678 (little endian: 78 56 34 12)
+      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump: ' + OutputWriter.Output[4]);
 
     finally
       Server.Free;

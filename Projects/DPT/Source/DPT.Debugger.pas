@@ -35,6 +35,15 @@ type
     LineNumber: Integer;
   end;
 
+  TRegisters = record
+    Eip: UIntPtr;
+    Esp: UIntPtr;
+    Ebp: UIntPtr;
+    Eax, Ebx, Ecx, Edx: UIntPtr;
+    Esi, Edi: UIntPtr;
+    EFlags: DWORD;
+  end;
+
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
 
   TDebugger = class
@@ -75,6 +84,8 @@ type
     function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+    function GetRegisters(AThreadHandle: THandle): TRegisters;
+    function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
     
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property LastThreadHit: THandle read FLastThreadHit;
@@ -166,7 +177,49 @@ var
   BytesRead: NativeUInt;
 begin
   Result := nil;
-  ReadProcessMemory(FProcessHandle, AAddress, @Result, SizeOf(Pointer), BytesRead);
+  Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result, SizeOf(Pointer), BytesRead);
+end;
+
+function TDebugger.ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
+var
+  BytesRead: NativeUInt;
+begin
+  SetLength(Result, ASize);
+  if (ASize > 0) and (not Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result[0], ASize, BytesRead)) then
+    SetLength(Result, 0);
+end;
+
+function TDebugger.GetRegisters(AThreadHandle: THandle): TRegisters;
+var
+  Context: TContext;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  Context.ContextFlags := CONTEXT_FULL;
+  if GetThreadContext(AThreadHandle, Context) then
+  begin
+    {$IFDEF CPUX64}
+    Result.Eip := Context.Rip;
+    Result.Esp := Context.Rsp;
+    Result.Ebp := Context.Rbp;
+    Result.Eax := Context.Rax;
+    Result.Ebx := Context.Rbx;
+    Result.Ecx := Context.Rcx;
+    Result.Edx := Context.Rdx;
+    Result.Esi := Context.Rsi;
+    Result.Edi := Context.Rdi;
+    {$ELSE}
+    Result.Eip := Context.Eip;
+    Result.Esp := Context.Esp;
+    Result.Ebp := Context.Ebp;
+    Result.Eax := Context.Eax;
+    Result.Ebx := Context.Ebx;
+    Result.Ecx := Context.Ecx;
+    Result.Edx := Context.Edx;
+    Result.Esi := Context.Esi;
+    Result.Edi := Context.Edi;
+    {$ENDIF}
+    Result.EFlags := Context.EFlags;
+  end;
 end;
 
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
@@ -383,41 +436,42 @@ begin
     if CurrentThread = 0 then Exit;
     try
       Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-      GetThreadContext(CurrentThread, Context);
-
-      BP := nil;
-      for I := 0 to FBreakpoints.Count - 1 do
+      if GetThreadContext(CurrentThread, Context) then
       begin
-        if (FBreakpoints[I].Slot >= 0) and ((Context.Dr6 and (1 shl FBreakpoints[I].Slot)) <> 0) then
+        BP := nil;
+        for I := 0 to FBreakpoints.Count - 1 do
         begin
-          BP := FBreakpoints[I];
-          Break;
+          if (FBreakpoints[I].Slot >= 0) and ((Context.Dr6 and (1 shl FBreakpoints[I].Slot)) <> 0) then
+          begin
+            BP := FBreakpoints[I];
+            Break;
+          end;
         end;
+
+        if BP <> nil then
+        begin
+          Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
+          
+          FLastBreakpointHit := BP;
+          FLastThreadHit := CurrentThread;
+          FBreakpointHitEvent.SetEvent;
+
+          if Assigned(FOnBreakpoint) then
+            FOnBreakpoint(Self, BP);
+
+          // Wait for resume signal from MCP server
+          FContinueEvent.ResetEvent;
+          FContinueEvent.WaitFor(INFINITE);
+
+          Context.EFlags := Context.EFlags or $10000; // RF
+          Context.Dr6 := Context.Dr6 and not $F;
+          
+          SetThreadContext(CurrentThread, Context);
+          AContinueStatus := DBG_CONTINUE;
+        end
+        else
+          AContinueStatus := DBG_CONTINUE;
       end;
-
-      if BP <> nil then
-      begin
-        Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
-        
-        FLastBreakpointHit := BP;
-        FLastThreadHit := CurrentThread;
-        FBreakpointHitEvent.SetEvent;
-
-        if Assigned(FOnBreakpoint) then
-          FOnBreakpoint(Self, BP);
-
-        // Wait for resume signal from MCP server
-        FContinueEvent.ResetEvent;
-        FContinueEvent.WaitFor(INFINITE);
-
-        Context.EFlags := Context.EFlags or $10000; // RF
-        Context.Dr6 := Context.Dr6 and not $F;
-        
-        SetThreadContext(CurrentThread, Context);
-        AContinueStatus := DBG_CONTINUE;
-      end
-      else
-        AContinueStatus := DBG_CONTINUE;
     finally
       CloseHandle(CurrentThread);
     end;

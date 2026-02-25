@@ -22,6 +22,8 @@ type
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
+    function HandleReadMemory(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
     destructor Destroy; override;
@@ -159,6 +161,28 @@ begin
         ToolStack.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolStack);
 
+        var ToolReadMem := TJSONObject.Create;
+        ToolReadMem.AddPair('name', 'read_memory');
+        ToolReadMem.AddPair('description', 'Reads a range of memory from the debugged process');
+        var SchemaReadMem := TJSONObject.Create;
+        SchemaReadMem.AddPair('type', 'object');
+        var PropReadMem := TJSONObject.Create;
+        PropReadMem.AddPair('address', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex address string, e.g. "00401000"'));
+        PropReadMem.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
+        SchemaReadMem.AddPair('properties', PropReadMem);
+        var ReqReadMem := TJSONArray.Create;
+        ReqReadMem.Add('address');
+        ReqReadMem.Add('size');
+        SchemaReadMem.AddPair('required', ReqReadMem);
+        ToolReadMem.AddPair('inputSchema', SchemaReadMem);
+        ToolsArr.Add(ToolReadMem);
+
+        var ToolStackMem := TJSONObject.Create;
+        ToolStackMem.AddPair('name', 'get_stack_memory');
+        ToolStackMem.AddPair('description', 'Reads the memory of the current stack frame (between ESP and EBP)');
+        ToolStackMem.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolStackMem);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -185,6 +209,10 @@ begin
           SendResponse(ID, HandleContinue(ToolParams))
         else if ToolName = 'get_stack_trace' then
           SendResponse(ID, HandleGetStackTrace(ToolParams))
+        else if ToolName = 'read_memory' then
+          SendResponse(ID, HandleReadMemory(ToolParams))
+        else if ToolName = 'get_stack_memory' then
+          SendResponse(ID, HandleGetStackMemory(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -252,6 +280,68 @@ begin
   
   var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', FramesArr.ToJSON));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleReadMemory(AParams: TJSONObject): TJSONObject;
+var
+  LAddrStr: string;
+  LAddr: UIntPtr;
+  LSize: Integer;
+  Data: TBytes;
+  Hex: string;
+begin
+  LAddrStr := AParams.GetValue('address').Value;
+  LAddr := UIntPtr(StrToInt64Def('$' + LAddrStr, 0));
+  LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
+  
+  Data := FDebugger.ReadProcessMemory(Pointer(LAddr), LSize);
+  
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+  
+  if Length(Data) > 0 then
+  begin
+    Hex := '';
+    for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Hex.Trim));
+  end
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Failed to read memory'));
+    
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
+var
+  Regs: TRegisters;
+  Data: TBytes;
+  Hex: string;
+  LSize: NativeUInt;
+begin
+  Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
+  
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+  
+  if (Regs.Esp <> 0) and (Regs.Ebp >= Regs.Esp) then
+  begin
+    LSize := Regs.Ebp - Regs.Esp + 16; // Add some context after EBP
+    if LSize > 4096 then LSize := 4096; // Limit to 4KB
+    Data := FDebugger.ReadProcessMemory(Pointer(Regs.Esp), LSize);
+    
+    Hex := Format('ESP: %p, EBP: %p' + sLineBreak, [Pointer(Regs.Esp), Pointer(Regs.Ebp)]);
+    for var I := 0 to Length(Data) - 1 do
+    begin
+      if I mod 16 = 0 then Hex := Hex + sLineBreak + IntToHex(Regs.Esp + UIntPtr(I), 8) + ': ';
+      Hex := Hex + IntToHex(Data[I], 2) + ' ';
+    end;
+    
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Hex.Trim));
+  end
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Invalid stack registers or process not paused'));
+    
   Result.AddPair('content', ContentArr);
 end;
 
