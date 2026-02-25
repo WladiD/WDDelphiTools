@@ -40,6 +40,20 @@ type
     procedure GetProjectSearchPath_Overwrite;
     [Test]
     procedure GetProjectFiles;
+    [Test]
+    procedure GetProjectOutputFile_Default;
+    [Test]
+    procedure GetProjectOutputFile_SimpleOutput;
+    [Test]
+    procedure GetProjectOutputFile_ConfigCondition;
+    [Test]
+    procedure GetProjectOutputFile_PlatformCondition;
+    [Test]
+    procedure GetProjectOutputFile_Variables;
+    [Test]
+    procedure GetProjectOutputFile_MultipleGroups;
+    [Test]
+    procedure GetProjectOutputFile_ComplexConditions;
   end;
 
 implementation
@@ -179,6 +193,170 @@ begin
     Assert.IsTrue(Files[0].EndsWith('Unit1.pas'));
     Assert.IsTrue(Files[1].EndsWith('Unit2.pas'));
     Assert.IsTrue(TPath.IsPathRooted(Files[0]));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_Default;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003"></Project>');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_SimpleOutput;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_ExeOutput>.\Bin</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Bin\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_ConfigCondition;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup Condition="'$(Config)'=='Debug'">
+        <DCC_ExeOutput>.\DebugBin</DCC_ExeOutput>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Release'">
+        <DCC_ExeOutput>.\ReleaseBin</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'DebugBin\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'ReleaseBin\TestProject.exe')), Analyzer.GetProjectOutputFile('Release', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_PlatformCondition;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup Condition="'$(Platform)'=='Win32'">
+        <DCC_ExeOutput>.\Win32Bin</DCC_ExeOutput>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Platform)'=='Win64'">
+        <DCC_ExeOutput>.\Win64Bin</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Win32Bin\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Win64Bin\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win64'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_Variables;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_ExeOutput>.\$(Platform)\$(Config)</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+  ''');
+
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Win32\Debug\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_MultipleGroups;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_ExeOutput>.\Base</DCC_ExeOutput>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Debug'">
+        <DCC_ExeOutput>.\Debug</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Debug\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Base\TestProject.exe')), Analyzer.GetProjectOutputFile('Release', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_ComplexConditions;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+        <PropertyGroup>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_1)'!=''">
+            <Cfg_1>true</Cfg_1>
+            <CfgParent>Base</CfgParent>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
+            <Cfg_2>true</Cfg_2>
+            <CfgParent>Base</CfgParent>
+            <Base>true</Base>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Base)'!=''">
+            <DCC_ExeOutput>.\BaseOutput</DCC_ExeOutput>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Cfg_1)'!=''">
+            <DCC_ExeOutput>.\DebugOutput</DCC_ExeOutput>
+        </PropertyGroup>
+        <PropertyGroup Condition="'$(Cfg_2)'!=''">
+            <DCC_ExeOutput>.\ReleaseOutput</DCC_ExeOutput>
+        </PropertyGroup>
+    </Project>
+    ''');
+
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'DebugOutput\TestProject.exe')), Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'ReleaseOutput\TestProject.exe')), Analyzer.GetProjectOutputFile('Release', 'Win32'));
   finally
     Analyzer.Free;
   end;

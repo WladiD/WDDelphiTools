@@ -35,6 +35,15 @@ type
     procedure Execute; override;
   end;
 
+  TDptDProjPrintOutputFileTask = class(TDptTaskBase)
+  public
+    Config     : String;
+    Platform   : String;
+    ProjectFile: String;
+    procedure Parse(CmdLine: TCmdLineConsumer); override;
+    procedure Execute; override;
+  end;
+
   TDptDProjPrintSearchPathsTask = class(TDptTaskBase)
   public
     Config     : String;
@@ -87,6 +96,44 @@ begin
   Analyzer := TDProjAnalyzer.Create(ProjectFile);
   try
     Writeln(Analyzer.GetDefaultConfig);
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+{ TDptDProjPrintOutputFileTask }
+
+procedure TDptDProjPrintOutputFileTask.Parse(CmdLine: TCmdLineConsumer);
+begin
+  ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
+  CheckAndExecutePreProcessor(ProjectFile);
+  CmdLine.ConsumeParameter;
+
+  if CmdLine.HasParameter then
+  begin
+    Config := CmdLine.CheckParameter('Config');
+    CmdLine.ConsumeParameter;
+  end;
+
+  if CmdLine.HasParameter then
+  begin
+    Platform := CmdLine.CheckParameter('Platform');
+    CmdLine.ConsumeParameter;
+  end;
+end;
+
+procedure TDptDProjPrintOutputFileTask.Execute;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    if Config = '' then
+      Config := Analyzer.GetDefaultConfig;
+    if Platform = '' then
+      Platform := 'Win32';
+
+    Writeln(Analyzer.GetProjectOutputFile(Config, Platform));
   finally
     Analyzer.Free;
   end;

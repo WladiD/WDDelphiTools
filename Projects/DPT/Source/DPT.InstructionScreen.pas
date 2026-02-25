@@ -96,6 +96,10 @@ begin
         'Displays the default/active build configuration of the specified .dproj file.',
         'Example: DPT D12 DProjPrintCurConfig MyProject.dproj'
       ]),
+      TActionInfo.Create('DProjPrintOutputFile', '<ProjectFile> [Config] [Platform]', [
+        'Displays the output executable file path for the project based on current configuration and platform.',
+        'Example: DPT D12 DProjPrintOutputFile MyProject.dproj Release Win64'
+      ]),
       TActionInfo.Create('DProjPrintSearchPaths', '<ProjectFile> [Config] [Platform]', [
         'Displays the effective unit search path for the project.',
         'Combines the project''s specific search path (resolving variables) with the IDE''s global library path.',

@@ -20,6 +20,7 @@ Actions:
   BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
   DProjPrintConfigs <ProjectFile>
   DProjPrintCurConfig <ProjectFile>
+  DProjPrintOutputFile <ProjectFile> [Config] [Platform]
   DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
   ExportBuildEnvironment <TargetPath>
   HandleProtocol <dpt://URL>
@@ -92,6 +93,10 @@ Available Actions:
   DProjPrintCurConfig <ProjectFile>
     Displays the default/active build configuration of the specified .dproj file.
     Example: DPT D12 DProjPrintCurConfig MyProject.dproj
+
+  DProjPrintOutputFile <ProjectFile> [Config] [Platform]
+    Displays the output executable file path for the project based on current configuration and platform.
+    Example: DPT D12 DProjPrintOutputFile MyProject.dproj Release Win64
 
   DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
     Displays the effective unit search path for the project.
@@ -302,6 +307,15 @@ Release
 Output
 ```
 Debug
+```
+
+**Show Output Executable File:**
+
+    DPT.exe D12 DProjPrintOutputFile MyProject.dproj Release Win64
+
+Output
+```
+C:\MyProject\Win64\Release\MyProject.exe
 ```
 
 **Show Effective Search Paths:**

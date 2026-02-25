@@ -29,7 +29,6 @@ type
   private
     FTestDir: String;
     FWorkflowFile: String;
-    FSessionFile: String;
     FEngine: TDptWorkflowEngine;
     FOldGeminiVar: String;
     function CreateTestFile(const AName, AContent: String; AEncoding: TEncoding = nil): String;

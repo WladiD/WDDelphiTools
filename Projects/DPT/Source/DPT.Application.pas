@@ -87,6 +87,7 @@ begin
   RegisterTask('OpenUnit', TDptOpenUnitTask);
   RegisterTask('DProjPrintConfigs', TDptDProjPrintConfigsTask);
   RegisterTask('DProjPrintCurConfig', TDptDProjPrintCurConfigTask);
+  RegisterTask('DProjPrintOutputFile', TDptDProjPrintOutputFileTask);
   RegisterTask('DProjPrintSearchPaths', TDptDProjPrintSearchPathsTask);
   RegisterTask('ExportBuildEnvironment', TDptExportBuildEnvironmentTask);
   RegisterTask('ImportBuildEnvironment', TDptImportBuildEnvironmentTask);
