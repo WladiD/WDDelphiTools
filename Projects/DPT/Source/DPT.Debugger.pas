@@ -85,6 +85,7 @@ type
     
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function GetRegisters(AThreadHandle: THandle): TRegisters;
+    function GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
     
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
@@ -187,6 +188,26 @@ begin
   SetLength(Result, ASize);
   if (ASize > 0) and (not Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result[0], ASize, BytesRead)) then
     SetLength(Result, 0);
+end;
+
+function TDebugger.GetAddressFromSymbol(const ASymbolName: string): Pointer;
+var
+  DotPos: Integer;
+  UnitName, SymbolName: string;
+  VA: DWORD;
+begin
+  Result := nil;
+  if not Assigned(FMapScanner) then Exit;
+
+  DotPos := Pos('.', ASymbolName);
+  if DotPos > 0 then
+  begin
+    UnitName := Copy(ASymbolName, 1, DotPos - 1);
+    SymbolName := Copy(ASymbolName, DotPos + 1, MaxInt);
+    VA := FMapScanner.VAFromUnitAndProcName(UnitName, SymbolName);
+    if VA <> 0 then
+      Result := Pointer(FBaseAddress + $1000 + VA);
+  end;
 end;
 
 function TDebugger.GetRegisters(AThreadHandle: THandle): TRegisters;

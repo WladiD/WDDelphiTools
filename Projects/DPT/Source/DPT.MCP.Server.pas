@@ -24,6 +24,7 @@ type
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
     function HandleReadMemory(AParams: TJSONObject): TJSONObject;
     function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
+    function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
     destructor Destroy; override;
@@ -183,6 +184,22 @@ begin
         ToolStackMem.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolStackMem);
 
+        var ToolReadGlobal := TJSONObject.Create;
+        ToolReadGlobal.AddPair('name', 'read_global_variable');
+        ToolReadGlobal.AddPair('description', 'Reads the value of a global variable by name (e.g. "UnitName.VarName")');
+        var SchemaReadGlobal := TJSONObject.Create;
+        SchemaReadGlobal.AddPair('type', 'object');
+        var PropReadGlobal := TJSONObject.Create;
+        PropReadGlobal.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
+        PropReadGlobal.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
+        SchemaReadGlobal.AddPair('properties', PropReadGlobal);
+        var ReqReadGlobal := TJSONArray.Create;
+        ReqReadGlobal.Add('name');
+        ReqReadGlobal.Add('size');
+        SchemaReadGlobal.AddPair('required', ReqReadGlobal);
+        ToolReadGlobal.AddPair('inputSchema', SchemaReadGlobal);
+        ToolsArr.Add(ToolReadGlobal);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -213,6 +230,8 @@ begin
           SendResponse(ID, HandleReadMemory(ToolParams))
         else if ToolName = 'get_stack_memory' then
           SendResponse(ID, HandleGetStackMemory(ToolParams))
+        else if ToolName = 'read_global_variable' then
+          SendResponse(ID, HandleReadGlobalVariable(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -341,6 +360,41 @@ begin
   end
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Invalid stack registers or process not paused'));
+    
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
+var
+  LName: string;
+  LSize: Integer;
+  Addr: Pointer;
+  Data: TBytes;
+  Hex: string;
+begin
+  LName := AParams.GetValue('name').Value;
+  LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
+  
+  Addr := FDebugger.GetAddressFromSymbol(LName);
+  
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+  
+  if Addr <> nil then
+  begin
+    Data := FDebugger.ReadProcessMemory(Addr, LSize);
+    if Length(Data) > 0 then
+    begin
+      Hex := '';
+      for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
+      ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 
+        Format('Address: %p, Value: %s', [Addr, Hex.Trim])));
+    end
+    else
+      ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Failed to read memory at ' + Format('%p', [Addr])));
+  end
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Symbol not found: ' + LName));
     
   Result.AddPair('content', ContentArr);
 end;

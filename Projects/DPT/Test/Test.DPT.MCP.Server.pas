@@ -161,10 +161,11 @@ begin
 
   InputStr := 
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}';
 
   Debugger := TDebugger.Create;
   try
@@ -186,7 +187,7 @@ begin
       // Process continue (blocks until breakpoint)
       Server.RunOnce;
       Assert.AreEqual(3, OutputWriter.Output.Count, 'Continue failed');
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:17'), 'Wrong pause location: ' + OutputWriter.Output[2]);
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'), 'Wrong pause location: ' + OutputWriter.Output[2]);
 
       // Process get_stack_trace
       Server.RunOnce;
@@ -196,8 +197,16 @@ begin
       // Process get_stack_memory
       Server.RunOnce;
       Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
-      // LocalInt value $12345678 (little endian: 78 56 34 12)
-      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump: ' + OutputWriter.Output[4]);
+      // LocalInt value $12345678 (78 56 34 12)
+      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+
+      // Process read_global_variable
+      Server.RunOnce;
+      Assert.AreEqual(6, OutputWriter.Output.Count, 'ReadGlobalVariable failed');
+      // GGlobalInt initial value is $87654321 (21 43 65 87)
+      // Wait, main procedure sets it to $11223344 before calling TargetProcedure.
+      // So at Line 13, it should be $11223344 (44 33 22 11).
+      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing in response: ' + OutputWriter.Output[5]);
 
     finally
       Server.Free;

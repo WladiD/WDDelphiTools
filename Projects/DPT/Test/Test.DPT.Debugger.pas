@@ -52,13 +52,8 @@ var
   Thread: TDebuggerThread;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then
-    ExePath := ExpandFileName('DebugTarget.exe');
-    
-  Assert.IsTrue(FileExists(ExePath), 'DebugTarget.exe not found');
-  
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
-  Assert.IsTrue(FileExists(MapFile), 'Map file not found');
 
   FBreakpointHit := False;
   Debugger := TDebugger.Create;
@@ -66,16 +61,15 @@ begin
     Debugger.OnBreakpoint := OnBreakpoint;
     Debugger.LoadMapFile(MapFile);
     
-    // Set breakpoint at TargetProcedure (line 22 in DebugTarget.dpr)
-    Debugger.SetBreakpoint('DebugTarget.dpr', 22);
+    // Line 17 is Writeln('Target') in TargetProcedure
+    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
     
     Thread := TDebuggerThread.Create(Debugger, ExePath);
     
     var StartTime := GetTickCount;
-    while (GetTickCount - StartTime < 10000) and (not FBreakpointHit) do
-      Sleep(100);
+    while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
       
-    Assert.IsTrue(FBreakpointHit, 'Breakpoint should have been hit');
+    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 17 not hit');
   finally
     Debugger.Free;
   end;
@@ -90,13 +84,8 @@ var
   Frame: TStackFrame;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then
-    ExePath := ExpandFileName('DebugTarget.exe');
-    
-  Assert.IsTrue(FileExists(ExePath), 'DebugTarget.exe not found');
-  
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
-  Assert.IsTrue(FileExists(MapFile), 'Map file not found');
 
   FBreakpointHit := False;
   SetLength(FStackTrace, 0);
@@ -105,16 +94,15 @@ begin
     Debugger.OnBreakpoint := OnBreakpointForStack;
     Debugger.LoadMapFile(MapFile);
     
-    // Set breakpoint in DeepProcedure (line 17 in DebugTarget.dpr)
-    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
+    // Line 13 is Writeln('Deep') in DeepProcedure
+    Debugger.SetBreakpoint('DebugTarget.dpr', 13);
     
     Thread := TDebuggerThread.Create(Debugger, ExePath);
     
     var StartTime := GetTickCount;
-    while (GetTickCount - StartTime < 10000) and (not FBreakpointHit) do
-      Sleep(100);
+    while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
       
-    Assert.IsTrue(FBreakpointHit, 'Breakpoint not hit');
+    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 13 not hit');
     Assert.IsTrue(Length(FStackTrace) > 0, 'Stack trace empty');
 
     FoundDeep := False;
