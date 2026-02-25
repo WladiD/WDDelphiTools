@@ -1,4 +1,4 @@
-unit Test.DPT.MCP.Server;
+﻿unit Test.DPT.MCP.Server;
 
 interface
 
@@ -159,7 +159,7 @@ begin
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr := 
+  InputStr :=
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
