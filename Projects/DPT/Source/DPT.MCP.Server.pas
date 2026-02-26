@@ -27,6 +27,7 @@ type
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
     function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
     function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
+    function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 
     procedure OnDebuggerException(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean);
   public
@@ -258,6 +259,21 @@ begin
         ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolSlots);
 
+        var ToolStart := TJSONObject.Create;
+        ToolStart.AddPair('name', 'start_debug_session');
+        ToolStart.AddPair('description', 'Starts a new debug session for the specified executable');
+        var SchemaStart := TJSONObject.Create;
+        SchemaStart.AddPair('type', 'object');
+        var PropStart := TJSONObject.Create;
+        PropStart.AddPair('executable_path', TJSONObject.Create.AddPair('type', 'string'));
+        PropStart.AddPair('arguments', TJSONObject.Create.AddPair('type', 'string'));
+        SchemaStart.AddPair('properties', PropStart);
+        var ReqStart := TJSONArray.Create;
+        ReqStart.Add('executable_path');
+        SchemaStart.AddPair('required', ReqStart);
+        ToolStart.AddPair('inputSchema', SchemaStart);
+        ToolsArr.Add(ToolStart);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -294,6 +310,8 @@ begin
           SendResponse(ID, HandleGetRegisters(ToolParams))
         else if ToolName = 'get_stack_slots' then
           SendResponse(ID, HandleGetStackSlots(ToolParams))
+        else if ToolName = 'start_debug_session' then
+          SendResponse(ID, HandleStartDebugSession(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -319,6 +337,47 @@ begin
   Result := TJSONObject.Create;
   var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint set at %s:%d', [LUnit, LLine])));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
+var
+  LExePath, LArgs, MapFile: string;
+begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: A debug session is already active.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  LExePath := AParams.GetValue('executable_path').Value;
+  if not FileExists(LExePath) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: Executable not found: ' + LExePath));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  var ArgsVal := AParams.GetValue('arguments');
+  if ArgsVal <> nil then
+    LArgs := ArgsVal.Value
+  else
+    LArgs := '';
+
+  FDebugger := TDebugger.Create;
+  FDebugger.OnException := OnDebuggerException;
+
+  MapFile := ChangeFileExt(LExePath, '.map');
+  if FileExists(MapFile) then
+    FDebugger.LoadMapFile(MapFile);
+
+  TDebuggerThread.Create(FDebugger, Trim(LExePath + ' ' + LArgs));
+
+  ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Debug session started for ' + LExePath));
   Result.AddPair('content', ContentArr);
 end;
 

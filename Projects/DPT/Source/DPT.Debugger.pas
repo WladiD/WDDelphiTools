@@ -587,9 +587,15 @@ begin
         
       if Handled then
       begin
-        // The MCP server inspected and wants to continue
+        // Signal so that any pending WaitForBreakpoint can unblock
+        FLastBreakpointHit := nil;
+        FBreakpointHitEvent.SetEvent;
+        
+        // Wait for resume signal from MCP server
         FContinueEvent.ResetEvent;
         FContinueEvent.WaitFor(INFINITE);
+        
+        // Pass the exception to the application's handlers
         AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
       end
       else
