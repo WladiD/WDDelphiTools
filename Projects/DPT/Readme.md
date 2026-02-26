@@ -72,7 +72,7 @@ Available Actions:
 
   Build <ProjectFile> [Platform] [Config] [ExtraArgs]
     Builds the specified project using MSBuild.
-    Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.   
+    Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.
     If <ProjectFile> is not a .dproj file, it is processed by the internal TmplCodeGen preprocessor first.
       - Supports embedded configs: (* Name-conf.json ... *)
       - Supports generation instructions: // TmplCodeGen Prefix
@@ -108,7 +108,7 @@ Available Actions:
   ExportBuildEnvironment <TargetPath>
     Exports a minimal Delphi build environment to the specified directory.
     The environment can be used on a clean Windows machine for CI/CD builds.
-    Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.       
+    Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.
     Generates a smart Init...bat script that handles Admin rights and Unattended mode.
     WARNING: The target machine still requires a valid license/activation.
     Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build
@@ -160,8 +160,8 @@ Available Actions:
 
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
     Opens a source file in the Delphi IDE via the Slim Server plugin.
-    Supports navigating to a specific line number or finding a member implementation (Class.Method).      
-    Automatically starts the IDE if it is not running and waits for the plugin to become available.       
+    Supports navigating to a specific line number or finding a member implementation (Class.Method).
+    Automatically starts the IDE if it is not running and waits for the plugin to become available.
 
   PrintPath <PathLiteral>
     Outputs various IDE configuration paths to the console.
@@ -172,7 +172,7 @@ Available Actions:
     DCPOutputPath-Win32, DCPOutputPath-Win64
 
   RegisterPackage <PathToBPL>
-    Registers a specific BPL file as a design-time package in the currently selected Delphi version.      
+    Registers a specific BPL file as a design-time package in the currently selected Delphi version.
 
   RemovePackage <PackageFileName>
     Unregisters a design-time package by its file name (without path or extension).
