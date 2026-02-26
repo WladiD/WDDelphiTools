@@ -17,6 +17,8 @@ type
   public
     [Test]
     procedure TestMcpProtocolFlow;
+    [Test]
+    procedure TestMcpExceptionFlow;
   end;
 
 implementation
@@ -210,6 +212,79 @@ begin
       Assert.AreEqual(7, OutputWriter.Output.Count, 'GetStackSlots failed');
       // LocalInt value $12345678
       Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'), 'LocalInt missing in stack slots: ' + OutputWriter.Output[6]);
+
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpExceptionFlow;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  InputStr: string;
+  JSON: TJSONObject;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\ExceptionTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('ExceptionTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputStr := 
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}';
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    InputReader := TStringTextReader.Create(InputStr);
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      // Process initialize
+      Server.RunOnce;
+      
+      // Process continue. The target app will hit the Access Violation shortly after starting.
+      // Server.RunOnce will block until the exception is hit.
+      Server.RunOnce;
+      
+      // Since OnDebuggerException is called from the debugger thread, it will push 
+      // a notification to our OutputWriter.
+      // Wait a bit to ensure the notification is written.
+      Sleep(1000); 
+
+      var ExceptionNotifFound := False;
+      for var I := 0 to OutputWriter.Output.Count - 1 do
+      begin
+        if OutputWriter.Output[I].Contains('notifications/debugger_exception') then
+        begin
+          ExceptionNotifFound := True;
+          JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[I]) as TJSONObject;
+          try
+            var Params := JSON.GetValue('params') as TJSONObject;
+            Assert.IsNotNull(Params, 'Notification missing params');
+            Assert.AreEqual('c0000005', Params.GetValue('code').Value, 'Expected Access Violation code (c0000005)');
+            Assert.AreEqual('ExceptionTarget.CrashProcedure', Params.GetValue('procedure').Value, 'Wrong procedure in stack trace');
+          finally
+            JSON.Free;
+          end;
+        end;
+      end;
+      
+      Assert.IsTrue(ExceptionNotifFound, 'Exception notification not received. Output: ' + OutputWriter.Output.Text);
+      
+      // We must send another continue so the debuggee can process the exception and terminate
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+      Server.RunOnce;
 
     finally
       Server.Free;
