@@ -65,6 +65,8 @@ begin
     Debugger.SetBreakpoint('DebugTarget.dpr', 17);
 
     Thread := TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
 
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
@@ -98,6 +100,8 @@ begin
     Debugger.SetBreakpoint('DebugTarget.dpr', 13);
 
     Thread := TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
 
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);

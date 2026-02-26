@@ -79,6 +79,7 @@ type
     
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
+    FReadyEvent: TEvent;
     FLastBreakpointHit: TBreakpoint;
     FLastThreadHit: THandle;
     FLastException: TExceptionRecord;
@@ -114,6 +115,7 @@ type
     procedure ResumeExecution;
     procedure StepInto;
     procedure StepOver;
+    procedure WaitForReady(Timeout: DWORD = INFINITE);
     function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
@@ -185,12 +187,14 @@ begin
   FActiveThreads := TList<THandle>.Create;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
+  FReadyEvent := TEvent.Create(nil, False, False, '');
   FStepType := stNone;
   FFirstBreak := True;
 end;
 
 destructor TDebugger.Destroy;
 begin
+  FReadyEvent.Free;
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
   FActiveThreads.Free;
@@ -210,6 +214,7 @@ end;
 procedure TDebugger.ResumeExecution;
 begin
   FStepType := stNone;
+  FBreakpointHitEvent.ResetEvent;
   FContinueEvent.SetEvent;
 end;
 
@@ -225,6 +230,7 @@ begin
     FStepStartLine := Stack[0].LineNumber;
     FStepStartDepth := Length(Stack);
   end;
+  FBreakpointHitEvent.ResetEvent;
   FContinueEvent.SetEvent;
 end;
 
@@ -240,12 +246,17 @@ begin
     FStepStartLine := Stack[0].LineNumber;
     FStepStartDepth := Length(Stack);
   end;
+  FBreakpointHitEvent.ResetEvent;
   FContinueEvent.SetEvent;
+end;
+
+procedure TDebugger.WaitForReady(Timeout: DWORD);
+begin
+  FReadyEvent.WaitFor(Timeout);
 end;
 
 function TDebugger.WaitForBreakpoint(Timeout: DWORD): TBreakpoint;
 begin
-  FBreakpointHitEvent.ResetEvent;
   if FBreakpointHitEvent.WaitFor(Timeout) = wrSignaled then
     Result := FLastBreakpointHit
   else
@@ -553,7 +564,6 @@ procedure TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer)
 var
   Addr: Pointer;
   BP: TBreakpoint;
-  Thread: THandle;
 begin
   if FBreakpoints.Count >= 4 then Exit;
 
@@ -563,47 +573,24 @@ begin
 
   BP := TBreakpoint.Create(AUnitName, ALineNumber, Addr);
   FBreakpoints.Add(BP);
-
-  if Addr <> nil then
-  begin
-    for Thread in FActiveThreads do
-      ApplyBreakpointsToThread(Thread);
-  end;
 end;
 
 procedure TDebugger.RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
 var
   I: Integer;
-  Thread: THandle;
-  Found: Boolean;
 begin
-  Found := False;
   for I := FBreakpoints.Count - 1 downto 0 do
   begin
     if SameText(FBreakpoints[I].UnitName, AUnitName) and (FBreakpoints[I].LineNumber = ALineNumber) then
     begin
       FBreakpoints.Delete(I);
-      Found := True;
     end;
-  end;
-
-  if Found then
-  begin
-    for Thread in FActiveThreads do
-      ApplyBreakpointsToThread(Thread);
   end;
 end;
 
 procedure TDebugger.ClearAllBreakpoints;
-var
-  Thread: THandle;
 begin
-  if FBreakpoints.Count > 0 then
-  begin
-    FBreakpoints.Clear;
-    for Thread in FActiveThreads do
-      ApplyBreakpointsToThread(Thread);
-  end;
+  FBreakpoints.Clear;
 end;
 
 procedure TDebugger.HandleCreateProcess(const ADebugEvent: TDebugEvent);
@@ -624,14 +611,11 @@ begin
     if FBreakpoints[I].Address = nil then
       FBreakpoints[I].Address := GetAddressFromUnitLine(FBreakpoints[I].UnitName, FBreakpoints[I].LineNumber);
   end;
-
-  ApplyBreakpointsToThread(ADebugEvent.CreateProcessInfo.hThread);
 end;
 
 procedure TDebugger.HandleCreateThread(const ADebugEvent: TDebugEvent);
 begin
   FActiveThreads.Add(ADebugEvent.CreateThread.hThread);
-  ApplyBreakpointsToThread(ADebugEvent.CreateThread.hThread);
 end;
 
 procedure TDebugger.HandleExitThread(const ADebugEvent: TDebugEvent);
@@ -653,6 +637,7 @@ begin
     if FFirstBreak then
     begin
       FFirstBreak := False;
+      FReadyEvent.SetEvent;
       FContinueEvent.WaitFor(INFINITE);
       FContinueEvent.ResetEvent;
     end;
@@ -789,6 +774,7 @@ var
   LRunning: Boolean;
   SA: TSecurityAttributes;
   hDevNull: THandle;
+  I: Integer;
 begin
   SA.nLength := SizeOf(SA);
   SA.lpSecurityDescriptor := nil;
@@ -837,6 +823,13 @@ begin
       LOAD_DLL_DEBUG_EVENT: if DebugEvent.LoadDll.hFile <> 0 then CloseHandle(DebugEvent.LoadDll.hFile);
       EXIT_PROCESS_DEBUG_EVENT: LRunning := False;
     end;
+    
+    if LRunning then
+    begin
+      for I := 0 to FActiveThreads.Count - 1 do
+        ApplyBreakpointsToThread(FActiveThreads[I]);
+    end;
+
     if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then Break;
   end;
   FBreakpointHitEvent.SetEvent;
