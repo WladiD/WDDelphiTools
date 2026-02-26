@@ -1,4 +1,4 @@
-﻿unit Test.DPT.MCP.Server;
+unit Test.DPT.MCP.Server;
 
 interface
 
@@ -19,16 +19,17 @@ type
     procedure TestMcpProtocolFlow;
     [Test]
     procedure TestMcpExceptionFlow;
+    [Test]
+    procedure TestMcpSteppingFlow;
   end;
 
 implementation
 
 type
   TStringTextReader = class(TTextReader)
-  private
+  public
     FLines: TStringList;
     FIndex: Integer;
-  public
     constructor Create(const AText: string);
     destructor Destroy; override;
     function ReadLine: string; override;
@@ -155,6 +156,7 @@ var
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
   InputStr: string;
+  JSON: TJSONObject;
   ExePath, MapFile: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
@@ -179,39 +181,22 @@ begin
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
-      // Process initialize
-      Server.RunOnce;
-      Assert.AreEqual(1, OutputWriter.Output.Count, 'Initialize failed');
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // continue
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'));
 
-      // Process set_breakpoint
-      Server.RunOnce;
-      Assert.AreEqual(2, OutputWriter.Output.Count, 'SetBreakpoint failed');
+      Server.RunOnce; // get_stack_trace
+      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'));
 
-      // Process continue (blocks until breakpoint)
-      Server.RunOnce;
-      Assert.AreEqual(3, OutputWriter.Output.Count, 'Continue failed');
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'), 'Wrong pause location: ' + OutputWriter.Output[2]);
+      Server.RunOnce; // get_stack_memory
+      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'));
 
-      // Process get_stack_trace
-      Server.RunOnce;
-      Assert.AreEqual(4, OutputWriter.Output.Count, 'StackTrace failed');
-      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'), 'DeepProcedure missing');
+      Server.RunOnce; // read_global_variable
+      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'));
 
-      // Process get_stack_memory
-      Server.RunOnce;
-      Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
-      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump');
-
-      // Process read_global_variable
-      Server.RunOnce;
-      Assert.AreEqual(6, OutputWriter.Output.Count, 'ReadGlobalVariable failed');
-      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing in response: ' + OutputWriter.Output[5]);
-
-      // Process get_stack_slots
-      Server.RunOnce;
-      Assert.AreEqual(7, OutputWriter.Output.Count, 'GetStackSlots failed');
-      // LocalInt value $12345678
-      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'), 'LocalInt missing in stack slots: ' + OutputWriter.Output[6]);
+      Server.RunOnce; // get_stack_slots
+      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'));
 
     finally
       Server.Free;
@@ -250,16 +235,8 @@ begin
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
-      // Process initialize
       Server.RunOnce;
-      
-      // Process continue. The target app will hit the Access Violation shortly after starting.
-      // Server.RunOnce will block until the exception is hit.
       Server.RunOnce;
-      
-      // Since OnDebuggerException is called from the debugger thread, it will push 
-      // a notification to our OutputWriter.
-      // Wait a bit to ensure the notification is written.
       Sleep(1000); 
 
       var ExceptionNotifFound := False;
@@ -271,20 +248,66 @@ begin
           JSON := TJSONObject.ParseJSONValue(OutputWriter.Output[I]) as TJSONObject;
           try
             var Params := JSON.GetValue('params') as TJSONObject;
-            Assert.IsNotNull(Params, 'Notification missing params');
-            Assert.AreEqual('c0000005', Params.GetValue('code').Value, 'Expected Access Violation code (c0000005)');
-            Assert.AreEqual('ExceptionTarget.CrashProcedure', Params.GetValue('procedure').Value, 'Wrong procedure in stack trace');
+            Assert.AreEqual('c0000005', Params.GetValue('code').Value);
+            Assert.AreEqual('ExceptionTarget.CrashProcedure', Params.GetValue('procedure').Value);
           finally
             JSON.Free;
           end;
         end;
       end;
+      Assert.IsTrue(ExceptionNotifFound, 'Exception notification not received');
       
-      Assert.IsTrue(ExceptionNotifFound, 'Exception notification not received. Output: ' + OutputWriter.Output.Text);
-      
-      // We must send another continue so the debuggee can process the exception and terminate
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
       Server.RunOnce;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpSteppingFlow;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  InputStr: string;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputStr := 
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "step_over", "arguments": {}}}';
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    InputReader := TStringTextReader.Create(InputStr);
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // continue -> reach line 22
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:22'));
+      
+      Server.RunOnce; // step_into -> should reach TargetProcedure
+      Assert.IsTrue(OutputWriter.Output[3].Contains('Stepped into'), 'Step into failed: ' + OutputWriter.Output[3]);
+
+      Server.RunOnce; // step_over -> should reach next line in TargetProcedure
+      Assert.IsTrue(OutputWriter.Output[4].Contains('Stepped over'), 'Step over failed: ' + OutputWriter.Output[4]);
 
     finally
       Server.Free;

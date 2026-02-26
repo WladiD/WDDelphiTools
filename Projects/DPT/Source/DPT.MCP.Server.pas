@@ -28,6 +28,8 @@ type
     function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
     function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
     function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleStepInto(AParams: TJSONObject): TJSONObject;
+    function HandleStepOver(AParams: TJSONObject): TJSONObject;
 
     procedure OnDebuggerException(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean);
   public
@@ -203,6 +205,18 @@ begin
         ToolContinue.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolContinue);
 
+        var ToolStepInto := TJSONObject.Create;
+        ToolStepInto.AddPair('name', 'step_into');
+        ToolStepInto.AddPair('description', 'Steps into the next source line, entering function calls');
+        ToolStepInto.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolStepInto);
+
+        var ToolStepOver := TJSONObject.Create;
+        ToolStepOver.AddPair('name', 'step_over');
+        ToolStepOver.AddPair('description', 'Steps over the current source line, skipping function calls');
+        ToolStepOver.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolStepOver);
+
         var ToolStack := TJSONObject.Create;
         ToolStack.AddPair('name', 'get_stack_trace');
         ToolStack.AddPair('description', 'Returns the current call stack of the debugged process');
@@ -298,6 +312,10 @@ begin
           SendResponse(ID, HandleSetBreakpoint(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
+        else if ToolName = 'step_into' then
+          SendResponse(ID, HandleStepInto(ToolParams))
+        else if ToolName = 'step_over' then
+          SendResponse(ID, HandleStepOver(ToolParams))
         else if ToolName = 'get_stack_trace' then
           SendResponse(ID, HandleGetStackTrace(ToolParams))
         else if ToolName = 'read_memory' then
@@ -385,17 +403,79 @@ function TMcpServer.HandleContinue(AParams: TJSONObject): TJSONObject;
 var
   BP: TBreakpoint;
 begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
   FDebugger.ResumeExecution;
   BP := FDebugger.WaitForBreakpoint;
   
-  Result := TJSONObject.Create;
-  var ContentArr := TJSONArray.Create;
   if BP <> nil then
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Paused at %s:%d', [BP.UnitName, BP.LineNumber])))
   else if FDebugger.LastException.ExceptionCode <> 0 then
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Paused due to exception: %08x', [FDebugger.LastException.ExceptionCode])))
   else
+  begin
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Execution finished or timed out'));
+    // Auto-cleanup
+    FreeAndNil(FDebugger);
+  end;
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleStepInto(AParams: TJSONObject): TJSONObject;
+var
+  BP: TBreakpoint;
+begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  FDebugger.StepInto;
+  BP := FDebugger.WaitForBreakpoint;
+  
+  if BP <> nil then
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Stepped into %s:%d', [BP.UnitName, BP.LineNumber])))
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Step failed or process exited'));
+    
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleStepOver(AParams: TJSONObject): TJSONObject;
+var
+  BP: TBreakpoint;
+begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  FDebugger.StepOver;
+  BP := FDebugger.WaitForBreakpoint;
+  
+  if BP <> nil then
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Stepped over to %s:%d', [BP.UnitName, BP.LineNumber])))
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Step failed or process exited'));
+    
   Result.AddPair('content', ContentArr);
 end;
 
