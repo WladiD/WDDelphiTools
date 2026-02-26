@@ -495,6 +495,8 @@ begin
     FDebugger.LoadMapFile(MapFile);
 
   TDebuggerThread.Create(FDebugger, Trim(LExePath + ' ' + LArgs));
+  
+  FDebugger.WaitForReady(5000); // Wait up to 5 seconds for the initial pause
 
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Debug session started for ' + LExePath));
   Result.AddPair('content', ContentArr);
