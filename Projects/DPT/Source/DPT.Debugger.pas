@@ -83,6 +83,7 @@ type
     FLastThreadHit: THandle;
     FLastException: TExceptionRecord;
     FLastExceptionFirstChance: Boolean;
+    FFirstBreak: Boolean;
 
     FStepType: TStepType;
     FStepStartDepth: Integer;
@@ -185,6 +186,7 @@ begin
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FStepType := stNone;
+  FFirstBreak := True;
 end;
 
 destructor TDebugger.Destroy;
@@ -646,7 +648,17 @@ var
 begin
   AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
 
-  if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_SINGLE_STEP then
+  if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_BREAKPOINT then
+  begin
+    if FFirstBreak then
+    begin
+      FFirstBreak := False;
+      FContinueEvent.WaitFor(INFINITE);
+      FContinueEvent.ResetEvent;
+    end;
+    AContinueStatus := DBG_CONTINUE;
+  end
+  else if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_SINGLE_STEP then
   begin
     CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);
     if CurrentThread = 0 then Exit;
