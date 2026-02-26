@@ -18,6 +18,8 @@ const
   THREAD_SET_CONTEXT = $0010;
 
 type
+  TJclMapScannerCracker = class(TJclMapScanner);
+
   TBreakpoint = class
   public
     UnitName: string;
@@ -155,7 +157,9 @@ begin
     FDebugger.StartDebugging(FExecutablePath);
   except
     on E: Exception do
-      Writeln('Debugger Thread Error: ' + E.Message);
+    begin
+      // Cannot use Writeln here, it would corrupt MCP stream
+    end;
   end;
 end;
 
@@ -370,8 +374,6 @@ begin
     Buf := ReadProcessMemory(Result.StartAddress, 64);
     if Length(Buf) >= 3 then
     begin
-      Writeln(Format('  Analyzing prologue for %s at %p: %02x %02x %02x %02x %02x %02x %02x %02x', 
-        [Result.ProcedureName, Result.StartAddress, Buf[0], Buf[1], Buf[2], Buf[3], Buf[4], Buf[5], Buf[6], Buf[7]]));
       P := 0;
       // Skip push ebp (55) and mov ebp, esp (8B EC)
       if (Buf[P] = $55) then Inc(P);
@@ -434,9 +436,6 @@ begin
         Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
         Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
         Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
-        
-        Writeln(Format('  Stack Walking: Addr=%p, VA=%08x, Unit=%s, Proc=%s, Line=%d', 
-          [Frame.Address, RelativeVA, Frame.UnitName, Frame.ProcedureName, Frame.LineNumber]));
       end;
 
       Frames.Add(Frame);
@@ -667,8 +666,6 @@ begin
 
         if BP <> nil then
         begin
-          Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
-          
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
@@ -778,19 +775,42 @@ var
   DebugEvent: TDebugEvent;
   ContinueStatus: DWORD;
   LRunning: Boolean;
+  SA: TSecurityAttributes;
+  hDevNull: THandle;
 begin
+  SA.nLength := SizeOf(SA);
+  SA.lpSecurityDescriptor := nil;
+  SA.bInheritHandle := True;
+
+  // Open the NUL device to discard output
+  hDevNull := CreateFile('NUL', GENERIC_WRITE, FILE_SHARE_WRITE, @SA, OPEN_EXISTING, 0, 0);
+
   FillChar(StartupInfo, SizeOf(StartupInfo), 0);
   StartupInfo.cb := SizeOf(StartupInfo);
+  
+  if hDevNull <> INVALID_HANDLE_VALUE then
+  begin
+    StartupInfo.dwFlags := STARTF_USESTDHANDLES;
+    StartupInfo.hStdInput := GetStdHandle(STD_INPUT_HANDLE);
+    StartupInfo.hStdOutput := hDevNull;
+    StartupInfo.hStdError := hDevNull;
+  end;
+
   FillChar(ProcessInfo, SizeOf(ProcessInfo), 0);
 
-  if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, False,
+  if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, True, // True to inherit handles
     DEBUG_ONLY_THIS_PROCESS or NORMAL_PRIORITY_CLASS, nil, nil, StartupInfo, ProcessInfo) then
+  begin
+    if hDevNull <> INVALID_HANDLE_VALUE then CloseHandle(hDevNull);
     raise Exception.Create('Failed to create process: ' + IntToStr(GetLastError));
+  end;
 
   FProcessId := ProcessInfo.dwProcessId;
   FThreadId := ProcessInfo.dwThreadId;
   FProcessHandle := ProcessInfo.hProcess;
   FThreadHandle := ProcessInfo.hThread;
+
+  if hDevNull <> INVALID_HANDLE_VALUE then CloseHandle(hDevNull); // Process has its own copy now
 
   LRunning := True;
   while LRunning do
