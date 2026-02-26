@@ -51,6 +51,12 @@ type
     Interpretation: string;
   end;
 
+  TStackFrameInfo = record
+    ProcedureName: string;
+    StartAddress: Pointer;
+    LocalSize: Integer;
+  end;
+
   TStepType = (stNone, stInto, stOver);
 
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
@@ -108,6 +114,7 @@ type
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function GetRegisters(AThreadHandle: THandle): TRegisters;
     function GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
+    function GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
     
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
@@ -337,6 +344,58 @@ begin
   end;
 end;
 
+function TDebugger.GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
+var
+  Regs: TRegisters;
+  RelativeVA: DWORD;
+  IdxOffset: Integer;
+  Buf: TBytes;
+  P: Integer;
+begin
+  FillChar(Result, SizeOf(Result), 0);
+  if not Assigned(FMapScanner) then Exit;
+
+  Regs := GetRegisters(AThreadHandle);
+  RelativeVA := Regs.Eip - FBaseAddress - $1000;
+
+  Result.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA, IdxOffset);
+  if Result.ProcedureName <> '' then
+  begin
+    Result.StartAddress := Pointer(Regs.Eip - UIntPtr(IdxOffset));
+    
+    // Analyze prologue
+    Buf := ReadProcessMemory(Result.StartAddress, 64);
+    if Length(Buf) >= 3 then
+    begin
+      Writeln(Format('  Analyzing prologue for %s at %p: %02x %02x %02x %02x %02x %02x %02x %02x', 
+        [Result.ProcedureName, Result.StartAddress, Buf[0], Buf[1], Buf[2], Buf[3], Buf[4], Buf[5], Buf[6], Buf[7]]));
+      P := 0;
+      // Skip push ebp (55) and mov ebp, esp (8B EC)
+      if (Buf[P] = $55) then Inc(P);
+      if (P < Length(Buf) - 1) and (Buf[P] = $8B) and (Buf[P+1] = $EC) then Inc(P, 2);
+      
+      if P < Length(Buf) then
+      begin
+        // push ecx (51) - common optimization for 4-byte local
+        if (Buf[P] = $51) then
+          Result.LocalSize := 4
+        // sub esp, imm8 (83 EC XX)
+        else if (Buf[P] = $83) and (Buf[P+1] = $EC) then
+          Result.LocalSize := Buf[P+2]
+        // sub esp, imm32 (81 EC XX XX XX XX)
+        else if (Buf[P] = $81) and (Buf[P+1] = $EC) then
+          Result.LocalSize := PLongWord(@Buf[P+2])^
+        // add esp, -imm8 (83 C4 XX)
+        else if (Buf[P] = $83) and (Buf[P+1] = $C4) and (ShortInt(Buf[P+2]) < 0) then
+          Result.LocalSize := -ShortInt(Buf[P+2])
+        // add esp, -imm32 (81 C4 XX XX XX XX)
+        else if (Buf[P] = $81) and (Buf[P+1] = $C4) and (LongInt(PLongInt(@Buf[P+2])^) < 0) then
+          Result.LocalSize := -LongInt(PLongInt(@Buf[P+2])^);
+      end;
+    end;
+  end;
+end;
+
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
   Context: TContext;
@@ -372,6 +431,9 @@ begin
         Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
         Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
         Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
+        
+        Writeln(Format('  Stack Walking: Addr=%p, VA=%08x, Unit=%s, Proc=%s, Line=%d', 
+          [Frame.Address, RelativeVA, Frame.UnitName, Frame.ProcedureName, Frame.LineNumber]));
       end;
 
       Frames.Add(Frame);
@@ -415,6 +477,7 @@ begin
       UnitMatch := TJclMapScanner.MapStringToStr(LineInfo.UnitName);
       if SameText(UnitMatch, SearchUnit) or SameText(ExtractFileName(UnitMatch), SearchUnit) then
       begin
+        // VA is relative to module base address + $1000 for Delphi 2005+ (Win32)
         Result := Pointer(FBaseAddress + $1000 + LineInfo.VA);
         Exit;
       end;
@@ -563,6 +626,8 @@ begin
 
         if BP <> nil then
         begin
+          Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
+          
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
@@ -602,8 +667,6 @@ begin
             end
             else if (CurUnit = '') and (FStepType = stInto) then
             begin
-              // Landed in unknown code (System/DLL). We stop at the first instruction of unknown code
-              // to avoid single-stepping thousands of instructions.
               StopStepping := True;
             end;
           end;

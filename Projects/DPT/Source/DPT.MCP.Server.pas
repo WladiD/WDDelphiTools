@@ -27,6 +27,7 @@ type
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
     function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
     function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
+    function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
     function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
@@ -273,6 +274,12 @@ begin
         ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolSlots);
 
+        var ToolAsm := TJSONObject.Create;
+        ToolAsm.AddPair('name', 'get_proc_asm');
+        ToolAsm.AddPair('description', 'Returns the assembly bytes of the current procedure');
+        ToolAsm.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolAsm);
+
         var ToolStart := TJSONObject.Create;
         ToolStart.AddPair('name', 'start_debug_session');
         ToolStart.AddPair('description', 'Starts a new debug session for the specified executable');
@@ -312,10 +319,6 @@ begin
           SendResponse(ID, HandleSetBreakpoint(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
-        else if ToolName = 'step_into' then
-          SendResponse(ID, HandleStepInto(ToolParams))
-        else if ToolName = 'step_over' then
-          SendResponse(ID, HandleStepOver(ToolParams))
         else if ToolName = 'get_stack_trace' then
           SendResponse(ID, HandleGetStackTrace(ToolParams))
         else if ToolName = 'read_memory' then
@@ -328,8 +331,14 @@ begin
           SendResponse(ID, HandleGetRegisters(ToolParams))
         else if ToolName = 'get_stack_slots' then
           SendResponse(ID, HandleGetStackSlots(ToolParams))
+        else if ToolName = 'get_proc_asm' then
+          SendResponse(ID, HandleGetProcAsm(ToolParams))
         else if ToolName = 'start_debug_session' then
           SendResponse(ID, HandleStartDebugSession(ToolParams))
+        else if ToolName = 'step_into' then
+          SendResponse(ID, HandleStepInto(ToolParams))
+        else if ToolName = 'step_over' then
+          SendResponse(ID, HandleStepOver(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -350,10 +359,18 @@ begin
   var LUnit := AParams.GetValue('unit').Value;
   var LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
   
-  FDebugger.SetBreakpoint(LUnit, LLine);
-  
   Result := TJSONObject.Create;
   var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  FDebugger.SetBreakpoint(LUnit, LLine);
+  
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint set at %s:%d', [LUnit, LLine])));
   Result.AddPair('content', ContentArr);
 end;
@@ -423,7 +440,6 @@ begin
   else
   begin
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Execution finished or timed out'));
-    // Auto-cleanup
     FreeAndNil(FDebugger);
   end;
   Result.AddPair('content', ContentArr);
@@ -485,9 +501,17 @@ var
   FramesArr: TJSONArray;
   Frame: TStackFrame;
 begin
-  Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
-  
   Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
   FramesArr := TJSONArray.Create;
   
   for Frame in Stack do
@@ -500,7 +524,6 @@ begin
     FramesArr.Add(FrameObj);
   end;
   
-  var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', FramesArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
@@ -513,14 +536,21 @@ var
   Data: TBytes;
   Hex: string;
 begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
   LAddrStr := AParams.GetValue('address').Value;
   LAddr := UIntPtr(StrToInt64Def('$' + LAddrStr, 0));
   LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
   
   Data := FDebugger.ReadProcessMemory(Pointer(LAddr), LSize);
-  
-  Result := TJSONObject.Create;
-  var ContentArr := TJSONArray.Create;
   
   if Length(Data) > 0 then
   begin
@@ -541,10 +571,17 @@ var
   Hex: string;
   LSize: NativeUInt;
 begin
-  Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
-  
   Result := TJSONObject.Create;
   var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
   
   if (Regs.Esp <> 0) and (Regs.Ebp >= Regs.Esp) then
   begin
@@ -575,13 +612,20 @@ var
   Data: TBytes;
   Hex: string;
 begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
   LName := AParams.GetValue('name').Value;
   LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
   
   Addr := FDebugger.GetAddressFromSymbol(LName);
-  
-  Result := TJSONObject.Create;
-  var ContentArr := TJSONArray.Create;
   
   if Addr <> nil then
   begin
@@ -607,6 +651,16 @@ var
   Regs: TRegisters;
   RegObj: TJSONObject;
 begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
   Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
   
   RegObj := TJSONObject.Create;
@@ -617,8 +671,6 @@ begin
   RegObj.AddPair('edx', Format('%p', [Pointer(Regs.Edx)]));
   RegObj.AddPair('ecx', Format('%p', [Pointer(Regs.Ecx)]));
   
-  Result := TJSONObject.Create;
-  var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', RegObj.ToJSON));
   Result.AddPair('content', ContentArr);
   RegObj.Free;
@@ -629,12 +681,29 @@ var
   Slots: TArray<TStackSlot>;
   Slot: TStackSlot;
   SlotsArr: TJSONArray;
+  FrameInfo: TStackFrameInfo;
+  MetaObj: TJSONObject;
 begin
-  Slots := FDebugger.GetStackSlots(FDebugger.LastThreadHit);
-  
   Result := TJSONObject.Create;
-  SlotsArr := TJSONArray.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  Slots := FDebugger.GetStackSlots(FDebugger.LastThreadHit);
+  FrameInfo := FDebugger.GetStackFrameInfo(FDebugger.LastThreadHit);
   
+  MetaObj := TJSONObject.Create;
+  MetaObj.AddPair('procedure', FrameInfo.ProcedureName);
+  MetaObj.AddPair('start_address', Format('%p', [FrameInfo.StartAddress]));
+  MetaObj.AddPair('local_variable_size', TJSONNumber.Create(FrameInfo.LocalSize));
+  Result.AddPair('frame_metadata', MetaObj);
+
+  SlotsArr := TJSONArray.Create;
   for Slot in Slots do
   begin
     var SlotObj := TJSONObject.Create;
@@ -645,8 +714,38 @@ begin
     SlotsArr.Add(SlotObj);
   end;
   
-  var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', SlotsArr.ToJSON));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
+var
+  FrameInfo: TStackFrameInfo;
+  Data: TBytes;
+  Hex: string;
+begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  FrameInfo := FDebugger.GetStackFrameInfo(FDebugger.LastThreadHit);
+  if FrameInfo.StartAddress <> nil then
+  begin
+    Data := FDebugger.ReadProcessMemory(FrameInfo.StartAddress, 64);
+    Hex := '';
+    for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 
+      Format('Procedure: %s, Start: %p, Bytes: %s', [FrameInfo.ProcedureName, FrameInfo.StartAddress, Hex.Trim])));
+  end
+  else
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Could not find current procedure start.'));
+    
   Result.AddPair('content', ContentArr);
 end;
 
