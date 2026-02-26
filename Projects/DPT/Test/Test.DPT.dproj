@@ -2,7 +2,7 @@
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Console</AppType>
-        <Config Condition="'$(Config)'==''">Testinsight</Config>
+        <Config Condition="'$(Config)'==''">Debug</Config>
         <FrameworkType>None</FrameworkType>
         <MainSource>Test.DPT.dpr</MainSource>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
@@ -80,11 +80,14 @@
     <PropertyGroup Condition="'$(Cfg_3)'!=''">
         <DCC_Define>TESTINSIGHT;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
+    <PropertyGroup>
+        <PreBuildEvent><![CDATA["$(BDS)\bin\dcc32.exe" -GD -O- -V "$(MSBuildProjectDirectory)\DebugTarget.dpr"
+"$(BDS)\bin\dcc32.exe" -GD -O- -V "$(MSBuildProjectDirectory)\ExceptionTarget.dpr"]]></PreBuildEvent>
+    </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">
             <MainSource>MainSource</MainSource>
         </DelphiCompile>
-        <DCCReference Include="Test.DPT.LintFixtures.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
