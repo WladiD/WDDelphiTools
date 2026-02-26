@@ -1,4 +1,4 @@
-﻿unit DPT.Debugger;
+unit DPT.Debugger;
 
 interface
 
@@ -80,16 +80,19 @@ type
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
     FReadyEvent: TEvent;
+    FFinishedEvent: TEvent;
     FLastBreakpointHit: TBreakpoint;
     FLastThreadHit: THandle;
     FLastException: TExceptionRecord;
     FLastExceptionFirstChance: Boolean;
     FFirstBreak: Boolean;
+    FTerminated: Boolean;
 
     FStepType: TStepType;
     FStepStartDepth: Integer;
     FStepStartUnit: string;
     FStepStartLine: Integer;
+    FStepReturnBP: TBreakpoint;
 
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
@@ -188,12 +191,16 @@ begin
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
+  FFinishedEvent := TEvent.Create(nil, True, False, '');
   FStepType := stNone;
   FFirstBreak := True;
+  FTerminated := False;
 end;
 
 destructor TDebugger.Destroy;
 begin
+  Terminate;
+  FFinishedEvent.Free;
   FReadyEvent.Free;
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
@@ -207,8 +214,14 @@ end;
 
 procedure TDebugger.Terminate;
 begin
+  if FTerminated then Exit;
+  FTerminated := True;
+
   if FProcessHandle <> 0 then
     Winapi.Windows.TerminateProcess(FProcessHandle, 1);
+
+  FContinueEvent.SetEvent;
+  FFinishedEvent.WaitFor(5000);
 end;
 
 procedure TDebugger.ResumeExecution;
@@ -543,7 +556,6 @@ begin
   Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
   if not GetThreadContext(AThreadHandle, Context) then Exit;
 
-  // Clear all hardware breakpoint enables in DR7 (Bits 0-7)
   Context.Dr7 := Context.Dr7 and not $FF;
 
   BPCount := 0;
@@ -661,7 +673,52 @@ begin
           end;
         end;
 
-        if BP <> nil then
+        if (BP <> nil) and (BP = FStepReturnBP) then
+        begin
+          FBreakpoints.Extract(FStepReturnBP);
+          FreeAndNil(FStepReturnBP);
+
+          var Stack := GetStackTrace(CurrentThread);
+          var CurLine := 0;
+          if Length(Stack) > 0 then
+            CurLine := Stack[0].LineNumber;
+
+          if CurLine > 0 then
+          begin
+            if (Stack[0].UnitName <> FStepStartUnit) or (CurLine <> FStepStartLine) then
+            begin
+              FStepType := stNone;
+              Context.EFlags := Context.EFlags and not $100;
+              Context.EFlags := Context.EFlags or $10000; // RF
+              Context.Dr6 := Context.Dr6 and not $F;
+              FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, CurLine, Stack[0].Address);
+              FLastThreadHit := CurrentThread;
+              FBreakpointHitEvent.SetEvent;
+              FContinueEvent.ResetEvent;
+              FContinueEvent.WaitFor(INFINITE);
+              if FStepType <> stNone then Context.EFlags := Context.EFlags or $100;
+              SetThreadContext(CurrentThread, Context);
+              AContinueStatus := DBG_CONTINUE;
+            end
+            else
+            begin
+              Context.EFlags := Context.EFlags or $10000; // RF
+              Context.Dr6 := Context.Dr6 and not $F;
+              Context.EFlags := Context.EFlags or $100; // TF
+              SetThreadContext(CurrentThread, Context);
+              AContinueStatus := DBG_CONTINUE;
+            end;
+          end
+          else
+          begin
+            Context.EFlags := Context.EFlags or $10000; // RF
+            Context.Dr6 := Context.Dr6 and not $F;
+            Context.EFlags := Context.EFlags or $100; // TF
+            SetThreadContext(CurrentThread, Context);
+            AContinueStatus := DBG_CONTINUE;
+          end;
+        end
+        else if BP <> nil then
         begin
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
@@ -700,9 +757,24 @@ begin
                 if ((CurUnit <> FStepStartUnit) or (CurLine <> FStepStartLine)) and (CurDepth <= FStepStartDepth) then StopStepping := True;
               end;
             end
-            else if (CurUnit = '') and (FStepType = stInto) then
+            else if CurLine = 0 then
             begin
-              StopStepping := True;
+              var RetAddr := ReadProcessMemoryPtr(Pointer(Context.Esp));
+              if RetAddr <> nil then
+              begin
+                FStepReturnBP := TBreakpoint.Create('', 0, RetAddr);
+                FBreakpoints.Add(FStepReturnBP);
+                Context.EFlags := Context.EFlags and not $100; // Clear TF
+                SetThreadContext(CurrentThread, Context);
+                AContinueStatus := DBG_CONTINUE;
+              end
+              else
+              begin
+                Context.EFlags := Context.EFlags or $100;
+                SetThreadContext(CurrentThread, Context);
+                AContinueStatus := DBG_CONTINUE;
+              end;
+              Exit;
             end;
           end;
 
@@ -838,6 +910,7 @@ begin
     if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then Break;
   end;
   FBreakpointHitEvent.SetEvent;
+  FFinishedEvent.SetEvent;
 end;
 
 end.

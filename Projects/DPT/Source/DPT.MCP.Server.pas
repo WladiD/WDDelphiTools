@@ -526,7 +526,7 @@ begin
   else
   begin
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Execution finished or timed out'));
-    FreeAndNil(FDebugger);
+    FDebugger := nil;
   end;
   Result.AddPair('content', ContentArr);
 end;
