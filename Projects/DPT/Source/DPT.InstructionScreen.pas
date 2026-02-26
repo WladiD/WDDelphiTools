@@ -150,6 +150,15 @@ begin
         'Or joins them back into a single aligned style file.',
         'Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas'
       ]),
+      TActionInfo.Create('McpDebugger', '', [
+        'Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.',
+        'The server runs continuously in the background and provides tools for AI agents (like Gemini) to:',
+        '  - Start debug sessions dynamically (start_debug_session)',
+        '  - Set hardware breakpoints (set_breakpoint)',
+        '  - Control execution (continue, step_into, step_over)',
+        '  - Inspect state (get_stack_trace, get_registers, get_stack_slots, read_global_variable)',
+        'Example: DPT LATEST McpDebugger'
+      ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
         'Opens a source file in the Delphi IDE via the Slim Server plugin.',
         'Supports navigating to a specific line number or finding a member implementation (Class.Method).',
