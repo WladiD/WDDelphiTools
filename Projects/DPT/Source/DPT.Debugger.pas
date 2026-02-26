@@ -51,55 +51,61 @@ type
     Interpretation: string;
   end;
 
-  TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
-
-  TDebugger = class
-  private
-    FProcessId: DWORD;
-    FThreadId: DWORD;
-    FProcessHandle: THandle;
-    FThreadHandle: THandle;
-    FBaseAddress: UIntPtr;
-    FMapScanner: TJclMapScanner;
-    FBreakpoints: TObjectList<TBreakpoint>;
-    FActiveThreads: TList<THandle>;
-    FOnBreakpoint: TOnBreakpointEvent;
-
-    FContinueEvent: TEvent;
-    FBreakpointHitEvent: TEvent;
-    FLastBreakpointHit: TBreakpoint;
-    FLastThreadHit: THandle;
-
-    procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
-    procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
-    procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
-    procedure HandleExitThread(const ADebugEvent: TDebugEvent);
-    procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
-    procedure SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
-    function ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
-  public
-    constructor Create;
-    destructor Destroy; override;
-
-    procedure LoadMapFile(const AMapFileName: string);
-    function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
-
-    procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
-    procedure StartDebugging(const AExecutablePath: string);
-
-    procedure ResumeExecution;
-    function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
-
-    function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
-    function GetRegisters(AThreadHandle: THandle): TRegisters;
-    function GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
-    function GetAddressFromSymbol(const ASymbolName: string): Pointer;
-    function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
-
-    property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
-    property LastThreadHit: THandle read FLastThreadHit;
-  end;
-
+    TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
+    TOnExceptionEvent = procedure(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean) of object;
+  
+    TDebugger = class
+    private
+      FProcessId: DWORD;
+      FThreadId: DWORD;
+      FProcessHandle: THandle;
+      FThreadHandle: THandle;
+      FBaseAddress: UIntPtr;
+      FMapScanner: TJclMapScanner;
+      FBreakpoints: TObjectList<TBreakpoint>;
+      FActiveThreads: TList<THandle>;
+      FOnBreakpoint: TOnBreakpointEvent;
+      FOnException: TOnExceptionEvent;
+      
+      FContinueEvent: TEvent;
+      FBreakpointHitEvent: TEvent;
+      FLastBreakpointHit: TBreakpoint;
+      FLastThreadHit: THandle;
+      FLastException: TExceptionRecord;
+      FLastExceptionFirstChance: Boolean;
+      
+      procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
+      procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
+      procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
+      procedure HandleExitThread(const ADebugEvent: TDebugEvent);
+      procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
+      procedure SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
+      function ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
+    public
+      constructor Create;
+      destructor Destroy; override;
+      
+      procedure LoadMapFile(const AMapFileName: string);
+      function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
+      
+      procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
+      procedure StartDebugging(const AExecutablePath: string);
+      
+      procedure ResumeExecution;
+      function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
+      
+      function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+      function GetRegisters(AThreadHandle: THandle): TRegisters;
+      function GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
+      function GetAddressFromSymbol(const ASymbolName: string): Pointer;
+      function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
+      
+      property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
+      property OnException: TOnExceptionEvent read FOnException write FOnException;
+      property LastThreadHit: THandle read FLastThreadHit;
+      property LastException: TExceptionRecord read FLastException;
+      property LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
+    end;
   TDebuggerThread = class(TThread)
   private
     FDebugger: TDebugger;
@@ -511,6 +517,7 @@ var
   BP: TBreakpoint;
   Context: TContext;
   CurrentThread: THandle;
+  Handled: Boolean;
 begin
   AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
 
@@ -535,7 +542,7 @@ begin
         if BP <> nil then
         begin
           Writeln(Format('*** Hardware Breakpoint hit at %p (%s:%d) ***', [BP.Address, BP.UnitName, BP.LineNumber]));
-
+          
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
@@ -549,7 +556,7 @@ begin
 
           Context.EFlags := Context.EFlags or $10000; // RF
           Context.Dr6 := Context.Dr6 and not $F;
-
+          
           SetThreadContext(CurrentThread, Context);
           AContinueStatus := DBG_CONTINUE;
         end
@@ -559,9 +566,39 @@ begin
     finally
       CloseHandle(CurrentThread);
     end;
+  end
+  else if (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_BREAKPOINT) and
+          (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> $406D1388) then // ignore set thread name
+  begin
+    // Catch other exceptions (like Access Violation)
+    FLastException := ADebugEvent.Exception.ExceptionRecord;
+    FLastExceptionFirstChance := ADebugEvent.Exception.dwFirstChance <> 0;
+    
+    CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);
+    if CurrentThread <> 0 then
+    begin
+      FLastThreadHit := CurrentThread;
+      Handled := False;
+      
+      Writeln(Format('*** Exception caught at %p: %08x ***', [FLastException.ExceptionAddress, FLastException.ExceptionCode]));
+      
+      if Assigned(FOnException) then
+        FOnException(Self, FLastException, FLastExceptionFirstChance, Handled);
+        
+      if Handled then
+      begin
+        // The MCP server inspected and wants to continue
+        FContinueEvent.ResetEvent;
+        FContinueEvent.WaitFor(INFINITE);
+        AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
+      end
+      else
+        AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
+        
+      CloseHandle(CurrentThread);
+    end;
   end;
 end;
-
 procedure TDebugger.StartDebugging(const AExecutablePath: string);
 var
   StartupInfo: TStartupInfo;
