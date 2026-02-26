@@ -29,6 +29,8 @@ type
     function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
     function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
     function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
+    function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
 
@@ -171,7 +173,9 @@ begin
       begin
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('protocolVersion', '2024-11-05');
-        ResultObj.AddPair('capabilities', TJSONObject.Create);
+        var CapObj := TJSONObject.Create;
+        CapObj.AddPair('tools', TJSONObject.Create);
+        ResultObj.AddPair('capabilities', CapObj);
         ResultObj.AddPair('serverInfo', TJSONObject.Create.AddPair('name', 'DPT-Debugger').AddPair('version', '1.0.0'));
         SendResponse(ID, ResultObj);
       end
@@ -199,6 +203,28 @@ begin
         SchemaSetBP.AddPair('required', ReqArr);
         ToolSetBP.AddPair('inputSchema', SchemaSetBP);
         ToolsArr.Add(ToolSetBP);
+
+        var ToolRemoveBP := TJSONObject.Create;
+        ToolRemoveBP.AddPair('name', 'remove_breakpoint');
+        ToolRemoveBP.AddPair('description', 'Removes an existing hardware breakpoint');
+        var SchemaRemoveBP := TJSONObject.Create;
+        SchemaRemoveBP.AddPair('type', 'object');
+        var PropRemoveBP := TJSONObject.Create;
+        PropRemoveBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string'));
+        PropRemoveBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
+        SchemaRemoveBP.AddPair('properties', PropRemoveBP);
+        var ReqRemoveArr := TJSONArray.Create;
+        ReqRemoveArr.Add('unit');
+        ReqRemoveArr.Add('line');
+        SchemaRemoveBP.AddPair('required', ReqRemoveArr);
+        ToolRemoveBP.AddPair('inputSchema', SchemaRemoveBP);
+        ToolsArr.Add(ToolRemoveBP);
+
+        var ToolListBP := TJSONObject.Create;
+        ToolListBP.AddPair('name', 'list_breakpoints');
+        ToolListBP.AddPair('description', 'Lists all currently set hardware breakpoints');
+        ToolListBP.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolListBP);
 
         var ToolContinue := TJSONObject.Create;
         ToolContinue.AddPair('name', 'continue');
@@ -317,6 +343,10 @@ begin
         
         if ToolName = 'set_breakpoint' then
           SendResponse(ID, HandleSetBreakpoint(ToolParams))
+        else if ToolName = 'remove_breakpoint' then
+          SendResponse(ID, HandleRemoveBreakpoint(ToolParams))
+        else if ToolName = 'list_breakpoints' then
+          SendResponse(ID, HandleListBreakpoints(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
         else if ToolName = 'get_stack_trace' then
@@ -372,6 +402,54 @@ begin
   FDebugger.SetBreakpoint(LUnit, LLine);
   
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint set at %s:%d', [LUnit, LLine])));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
+begin
+  var LUnit := AParams.GetValue('unit').Value;
+  var LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
+  
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  FDebugger.RemoveBreakpoint(LUnit, LLine);
+  
+  ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint removed at %s:%d', [LUnit, LLine])));
+  Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  var ContentArr := TJSONArray.Create;
+
+  if not Assigned(FDebugger) then
+  begin
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Error: No active debug session.'));
+    Result.AddPair('content', ContentArr);
+    Exit;
+  end;
+
+  var BPArr := TJSONArray.Create;
+  for var I := 0 to FDebugger.Breakpoints.Count - 1 do
+  begin
+    var BP := FDebugger.Breakpoints[I];
+    var BPObj := TJSONObject.Create;
+    BPObj.AddPair('unit', BP.UnitName);
+    BPObj.AddPair('line', TJSONNumber.Create(BP.LineNumber));
+    BPObj.AddPair('address', Format('%p', [BP.Address]));
+    BPArr.Add(BPObj);
+  end;
+  
+  ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', BPArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
 
