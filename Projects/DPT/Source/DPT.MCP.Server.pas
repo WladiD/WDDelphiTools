@@ -80,7 +80,7 @@ begin
   end
   else
   begin
-    System.Writeln(Resp.ToJSON);
+    System.Write(Resp.ToJSON + #13#10);
     System.Flush(System.Output);
   end;
 end;
@@ -106,7 +106,7 @@ begin
   end
   else
   begin
-    System.Writeln(Resp.ToJSON);
+    System.Write(Resp.ToJSON + #13#10);
     System.Flush(System.Output);
   end;
 end;
@@ -116,34 +116,40 @@ var
   Notif: TJSONObject;
   Params: TJSONObject;
   Stack: TArray<TStackFrame>;
+  LJSON: string;
 begin
   Notif := TJSONObject.Create;
-  Notif.AddPair('jsonrpc', '2.0');
-  Notif.AddPair('method', 'notifications/debugger_exception');
-  
-  Params := TJSONObject.Create;
-  Params.AddPair('code', Format('%08x', [ExceptionRecord.ExceptionCode]));
-  Params.AddPair('address', Format('%p', [ExceptionRecord.ExceptionAddress]));
-  Params.AddPair('firstChance', TJSONBool.Create(FirstChance));
-  
-  Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
-  if Length(Stack) > 0 then
-  begin
-    Params.AddPair('unit', Stack[0].UnitName);
-    Params.AddPair('line', TJSONNumber.Create(Stack[0].LineNumber));
-    Params.AddPair('procedure', Stack[0].ProcedureName);
+  try
+    Notif.AddPair('jsonrpc', '2.0');
+    Notif.AddPair('method', 'notifications/debugger_exception');
+    
+    Params := TJSONObject.Create;
+    Params.AddPair('code', Format('%08x', [ExceptionRecord.ExceptionCode]));
+    Params.AddPair('address', Format('%p', [ExceptionRecord.ExceptionAddress]));
+    Params.AddPair('firstChance', TJSONBool.Create(FirstChance));
+    
+    Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
+    if Length(Stack) > 0 then
+    begin
+      Params.AddPair('unit', Stack[0].UnitName);
+      Params.AddPair('line', TJSONNumber.Create(Stack[0].LineNumber));
+      Params.AddPair('procedure', Stack[0].ProcedureName);
+    end;
+    
+    Notif.AddPair('params', Params);
+    LJSON := Notif.ToJSON;
+  finally
+    Notif.Free;
   end;
-  
-  Notif.AddPair('params', Params);
   
   if Assigned(FOutputWriter) then
   begin
-    FOutputWriter.WriteLine(Notif.ToJSON);
+    FOutputWriter.WriteLine(LJSON);
     FOutputWriter.Flush;
   end
   else
   begin
-    System.Writeln(Notif.ToJSON);
+    System.Write(LJSON + #13#10);
     System.Flush(System.Output);
   end;
   
