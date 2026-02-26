@@ -47,7 +47,6 @@ type
     function IsBuildNeeded(const AExePath: String): Boolean;
   public
     OnlyIfChanged: Boolean;
-    StartMcpDebugger: Boolean;
     RunArgs: String;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
@@ -58,9 +57,7 @@ implementation
 uses
 
   DPT.DProjAnalyzer,
-  DPT.Workflow,
-  DPT.Debugger,
-  DPT.MCP.Server;
+  DPT.Workflow;
 
 { TDptBuildTask }
 
@@ -243,13 +240,6 @@ begin
       Continue;
     end;
 
-    if SameText(Arg, '--StartMcpDebugger') then
-    begin
-      StartMcpDebugger := True;
-      CmdLine.ConsumeParameter;
-      Continue;
-    end;
-
     if (TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
     begin
       TargetPlatform := Arg;
@@ -355,30 +345,6 @@ begin
   begin
     Writeln('ERROR: Executable not found at ' + ExePath);
     System.ExitCode := 1;
-    Exit;
-  end;
-
-  if StartMcpDebugger then
-  begin
-    var Debugger := TDebugger.Create;
-    try
-      var MapFile := ChangeFileExt(ExePath, '.map');
-      if FileExists(MapFile) then
-        Debugger.LoadMapFile(MapFile);
-
-      Writeln('Starting debugger thread for ' + ExePath);
-      TDebuggerThread.Create(Debugger, ExePath + ' ' + RunArgs);
-      
-      var Server := TMcpServer.Create(Debugger);
-      try
-        Writeln('MCP Server started. Waiting for tool calls on Stdin.');
-        Server.Run;
-      finally
-        Server.Free;
-      end;
-    finally
-      Debugger.Free;
-    end;
     Exit;
   end;
 
