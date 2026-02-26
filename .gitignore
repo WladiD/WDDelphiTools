@@ -28,3 +28,5 @@ Win32
 /Projects/DPT/Lint/*.Descriptions.txt
 /Projects/DPT/Lint/*.Template.pas
 /Projects/DPT/Lint/*.Tests.txt
+/Projects/DPT/Test/DebugTarget.exe
+/Projects/DPT/Test/ExceptionTarget.exe

@@ -127,9 +127,13 @@ begin
   if FAIMode <> amNone then
   begin
     FWorkflowFile := FindWorkflowFile;
+    var IsMcpDebugger := False;
+    for var i := 1 to ParamCount do
+      if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
+
     if FWorkflowFile <> '' then
     begin
-      Writeln('AI Workflow file FOUND: ', FWorkflowFile);
+      if not IsMcpDebugger then Writeln('AI Workflow file FOUND: ', FWorkflowFile);
       FSessionFile := FWorkflowFile + '.Session' + IntToStr(FHostPID) + '.json';
       FSession := TDptSessionData.Create;
       FSession.HostPID := FHostPID;
@@ -138,7 +142,7 @@ begin
       LoadWorkflow;
     end
     else
-      Writeln('AI Workflow file NOT found. Searched up from: ', GetCurrentDir);
+      if not IsMcpDebugger then Writeln('AI Workflow file NOT found. Searched up from: ', GetCurrentDir);
   end;
 end;
 

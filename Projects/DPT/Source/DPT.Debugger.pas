@@ -103,6 +103,8 @@ type
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
     
     procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
+    procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
+    procedure ClearAllBreakpoints;
     procedure StartDebugging(const AExecutablePath: string);
     procedure Terminate;
     
@@ -122,6 +124,7 @@ type
     property LastThreadHit: THandle read FLastThreadHit;
     property LastException: TExceptionRecord read FLastException;
     property LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
+    property Breakpoints: TObjectList<TBreakpoint> read FBreakpoints;
   end;
 
   TDebuggerThread = class(TThread)
@@ -528,6 +531,9 @@ begin
   Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
   if not GetThreadContext(AThreadHandle, Context) then Exit;
 
+  // Clear all hardware breakpoint enables in DR7 (Bits 0-7)
+  Context.Dr7 := Context.Dr7 and not $FF;
+
   BPCount := 0;
   for I := 0 to FBreakpoints.Count - 1 do
   begin
@@ -559,6 +565,41 @@ begin
 
   if Addr <> nil then
   begin
+    for Thread in FActiveThreads do
+      ApplyBreakpointsToThread(Thread);
+  end;
+end;
+
+procedure TDebugger.RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
+var
+  I: Integer;
+  Thread: THandle;
+  Found: Boolean;
+begin
+  Found := False;
+  for I := FBreakpoints.Count - 1 downto 0 do
+  begin
+    if SameText(FBreakpoints[I].UnitName, AUnitName) and (FBreakpoints[I].LineNumber = ALineNumber) then
+    begin
+      FBreakpoints.Delete(I);
+      Found := True;
+    end;
+  end;
+
+  if Found then
+  begin
+    for Thread in FActiveThreads do
+      ApplyBreakpointsToThread(Thread);
+  end;
+end;
+
+procedure TDebugger.ClearAllBreakpoints;
+var
+  Thread: THandle;
+begin
+  if FBreakpoints.Count > 0 then
+  begin
+    FBreakpoints.Clear;
     for Thread in FActiveThreads do
       ApplyBreakpointsToThread(Thread);
   end;

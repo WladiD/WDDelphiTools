@@ -23,6 +23,8 @@ type
     procedure TestMcpSteppingFlow;
     [Test]
     procedure TestMcpStackFrameInfo;
+    [Test]
+    procedure TestMcpBreakpointManagement;
   end;
 
 implementation
@@ -158,6 +160,7 @@ var
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
   InputStr: string;
+  LJSON: TJSONObject;
   ExePath, MapFile: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
@@ -182,22 +185,38 @@ begin
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // continue
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'));
+      // Process initialize
+      Server.RunOnce;
+      Assert.AreEqual(1, OutputWriter.Output.Count, 'Initialize failed');
 
-      Server.RunOnce; // get_stack_trace
-      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'));
+      // Process set_breakpoint
+      Server.RunOnce;
+      Assert.AreEqual(2, OutputWriter.Output.Count, 'SetBreakpoint failed');
 
-      Server.RunOnce; // get_stack_memory
-      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'));
+      // Process continue
+      Server.RunOnce;
+      Assert.AreEqual(3, OutputWriter.Output.Count, 'Continue failed');
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'), 'Wrong pause location: ' + OutputWriter.Output[2]);
 
-      Server.RunOnce; // read_global_variable
-      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'));
+      // Process get_stack_trace
+      Server.RunOnce;
+      Assert.AreEqual(4, OutputWriter.Output.Count, 'StackTrace failed');
+      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'), 'DeepProcedure missing');
 
-      Server.RunOnce; // get_stack_slots
-      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'));
+      // Process get_stack_memory
+      Server.RunOnce;
+      Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
+      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+
+      // Process read_global_variable
+      Server.RunOnce;
+      Assert.AreEqual(6, OutputWriter.Output.Count, 'ReadGlobalVariable failed');
+      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+
+      // Process get_stack_slots
+      Server.RunOnce;
+      Assert.AreEqual(7, OutputWriter.Output.Count, 'GetStackSlots failed');
+      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'), 'LocalInt missing in stack slots');
 
     finally
       Server.Free;
@@ -287,7 +306,8 @@ begin
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_over", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}';
 
   Debugger := TDebugger.Create;
   try
@@ -300,12 +320,13 @@ begin
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
-      Server.RunOnce; // continue -> reach line 22 (TargetProcedure;)
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:22'), 'Did not reach line 22: ' + OutputWriter.Output[2]);
+      Server.RunOnce; // continue -> reach line 22
+      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:22'));
       
-      Server.RunOnce; // step_over -> should reach next line in main or finish.
-      // We don't have many lines in main. Let's just verify it didn't hang.
-      Assert.IsTrue(OutputWriter.Output[3].Contains('Stepped over') or OutputWriter.Output[3].Contains('Execution finished'), 'Step over failed: ' + OutputWriter.Output[3]);
+      Server.RunOnce; // step_into
+      Server.RunOnce; // step_into
+      Assert.IsTrue(OutputWriter.Output[4].Contains('DebugTarget') and (OutputWriter.Output[4].Contains(':16') or OutputWriter.Output[4].Contains(':17')), 
+                    'Step into TargetProcedure failed: ' + OutputWriter.Output[4]);
 
     finally
       Server.Free;
@@ -361,11 +382,64 @@ begin
         Assert.AreEqual('DebugTarget.DeepProcedure', Meta.GetValue('procedure').Value);
         
         var LocalSize := (Meta.GetValue('local_variable_size') as TJSONNumber).AsInt;
-        // DeepProcedure has local 'LocalInt' (4 bytes). We expect 4 bytes detected.
         Assert.IsTrue(LocalSize >= 4, 'Detected local size too small: ' + IntToStr(LocalSize));
       finally
         LJSON.Free;
       end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpBreakpointManagement;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  InputStr: string;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputStr :=
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "remove_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}';
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    InputReader := TStringTextReader.Create(InputStr);
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      
+      // Process list_breakpoints (should have 1)
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.Output[2].Contains('DebugTarget.dpr') and OutputWriter.Output[2].Contains('13'), 'Breakpoint missing in list');
+
+      // Process remove_breakpoint
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.Output[3].Contains('removed'), 'Remove failed');
+
+      // Process list_breakpoints (should be empty)
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.Output[4].Contains('[]'), 'Breakpoint list should be empty: ' + OutputWriter.Output[4]);
+
     finally
       Server.Free;
       InputReader.Free;
