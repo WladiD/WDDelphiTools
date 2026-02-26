@@ -1,4 +1,4 @@
-unit DPT.Debugger;
+﻿unit DPT.Debugger;
 
 interface
 
@@ -76,7 +76,7 @@ type
     FActiveThreads: TList<THandle>;
     FOnBreakpoint: TOnBreakpointEvent;
     FOnException: TOnExceptionEvent;
-    
+
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
     FReadyEvent: TEvent;
@@ -90,7 +90,7 @@ type
     FStepStartDepth: Integer;
     FStepStartUnit: string;
     FStepStartLine: Integer;
-    
+
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
@@ -101,29 +101,29 @@ type
   public
     constructor Create;
     destructor Destroy; override;
-    
+
     procedure LoadMapFile(const AMapFileName: string);
     function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
-    
+
     procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ClearAllBreakpoints;
     procedure StartDebugging(const AExecutablePath: string);
     procedure Terminate;
-    
+
     procedure ResumeExecution;
     procedure StepInto;
     procedure StepOver;
     procedure WaitForReady(Timeout: DWORD = INFINITE);
     function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
-    
+
     function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function GetRegisters(AThreadHandle: THandle): TRegisters;
     function GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
-    
+
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property OnException: TOnExceptionEvent read FOnException write FOnException;
     property LastThreadHit: THandle read FLastThreadHit;
@@ -330,7 +330,7 @@ begin
     begin
       Slot.Offset := -(I * SizeOf(Pointer));
       Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
-      
+
       if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then Break;
 
       Val := UIntPtr(ReadProcessMemoryPtr(Slot.Address));
@@ -349,7 +349,7 @@ begin
 
         if (Slot.Interpretation = '') and (Val < $10000) then
           Slot.Interpretation := IntToStr(Val);
-          
+
         if Slot.Interpretation = '' then
           Slot.Interpretation := '$' + IntToHex(Val, SizeOf(Pointer) * 2);
       end
@@ -382,7 +382,7 @@ begin
   if Result.ProcedureName <> '' then
   begin
     Result.StartAddress := Pointer(Regs.Eip - UIntPtr(IdxOffset));
-    
+
     // Analyze prologue
     Buf := ReadProcessMemory(Result.StartAddress, 64);
     if Length(Buf) >= 3 then
@@ -391,7 +391,7 @@ begin
       // Skip push ebp (55) and mov ebp, esp (8B EC)
       if (Buf[P] = $55) then Inc(P);
       if (P < Length(Buf) - 1) and (Buf[P] = $8B) and (Buf[P+1] = $EC) then Inc(P, 2);
-      
+
       if P < Length(Buf) then
       begin
         // push ecx (51) - common optimization for 4-byte local
@@ -667,14 +667,14 @@ begin
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
           if Assigned(FOnBreakpoint) then FOnBreakpoint(Self, BP);
-          
+
           FContinueEvent.ResetEvent;
           FContinueEvent.WaitFor(INFINITE);
 
           Context.EFlags := Context.EFlags or $10000; // RF
           Context.Dr6 := Context.Dr6 and not $F;
           if FStepType <> stNone then Context.EFlags := Context.EFlags or $100; // TF
-          
+
           SetThreadContext(CurrentThread, Context);
           AContinueStatus := DBG_CONTINUE;
         end
@@ -710,7 +710,7 @@ begin
           begin
             FStepType := stNone;
             Context.EFlags := Context.EFlags and not $100; // Clear TF
-            
+
             if Length(Stack) > 0 then
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, Stack[0].LineNumber, Stack[0].Address)
             else
@@ -785,7 +785,7 @@ begin
 
   FillChar(StartupInfo, SizeOf(StartupInfo), 0);
   StartupInfo.cb := SizeOf(StartupInfo);
-  
+
   if hDevNull <> INVALID_HANDLE_VALUE then
   begin
     StartupInfo.dwFlags := STARTF_USESTDHANDLES;
@@ -821,9 +821,14 @@ begin
       EXIT_THREAD_DEBUG_EVENT: HandleExitThread(DebugEvent);
       EXCEPTION_DEBUG_EVENT: HandleException(DebugEvent, ContinueStatus);
       LOAD_DLL_DEBUG_EVENT: if DebugEvent.LoadDll.hFile <> 0 then CloseHandle(DebugEvent.LoadDll.hFile);
-      EXIT_PROCESS_DEBUG_EVENT: LRunning := False;
+      EXIT_PROCESS_DEBUG_EVENT: 
+      begin
+        LRunning := False;
+        FLastBreakpointHit := nil;
+        FLastException.ExceptionCode := 0;
+      end;
     end;
-    
+
     if LRunning then
     begin
       for I := 0 to FActiveThreads.Count - 1 do
