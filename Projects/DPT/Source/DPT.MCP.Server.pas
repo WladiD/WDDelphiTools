@@ -35,6 +35,7 @@ type
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
     procedure SendNotification(const AMethod: string; AParams: TJSONObject);
+    procedure SendSamplingRequest(const AText: string);
     procedure WriteOutput(const AJSON: string);
 
     function MakeTextResult(const AText: string): TJSONObject;
@@ -102,6 +103,13 @@ end;
 
 destructor TMcpServer.Destroy;
 begin
+  if Assigned(FDebugger) then
+  begin
+    FDebugger.OnException := nil;
+    FDebugger.OnBreakpoint := nil;
+    FDebugger.OnStepped := nil;
+    FDebugger.OnProcessExit := nil;
+  end;
   FPendingBreakpoints.Free;
   FOutputLock.Free;
   inherited Destroy;
@@ -177,6 +185,41 @@ begin
   end;
 end;
 
+procedure TMcpServer.SendSamplingRequest(const AText: string);
+var
+  Req, Params, ContentObj, MsgObj: TJSONObject;
+  MsgArr: TJSONArray;
+  IDStr: string;
+begin
+  IDStr := 'smpl_' + IntToStr(GetTickCount);
+  Req := TJSONObject.Create;
+  try
+    Req.AddPair('jsonrpc', '2.0');
+    Req.AddPair('id', IDStr);
+    Req.AddPair('method', 'sampling/createMessage');
+
+    Params := TJSONObject.Create;
+    MsgArr := TJSONArray.Create;
+    MsgObj := TJSONObject.Create;
+    MsgObj.AddPair('role', 'user');
+
+    ContentObj := TJSONObject.Create;
+    ContentObj.AddPair('type', 'text');
+    ContentObj.AddPair('text', AText);
+
+    MsgObj.AddPair('content', ContentObj);
+    MsgArr.Add(MsgObj);
+
+    Params.AddPair('messages', MsgArr);
+    Params.AddPair('maxTokens', TJSONNumber.Create(1000));
+
+    Req.AddPair('params', Params);
+    WriteOutput(Req.ToJSON);
+  finally
+    Req.Free;
+  end;
+end;
+
 function TMcpServer.MakeTextResult(const AText: string): TJSONObject;
 var
   ContentArr: TJSONArray;
@@ -226,6 +269,7 @@ end;
 procedure TMcpServer.OnDebuggerBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
 var
   Params: TJSONObject;
+  LMsg: string;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
@@ -234,13 +278,19 @@ begin
   begin
     Params.AddPair('unit', Breakpoint.UnitName);
     Params.AddPair('line', TJSONNumber.Create(Breakpoint.LineNumber));
-  end;
+    LMsg := Format('The debugger stopped at a breakpoint in %s line %d.', [Breakpoint.UnitName, Breakpoint.LineNumber]);
+  end
+  else
+    LMsg := 'The debugger stopped at a breakpoint.';
+
   SendNotification('notifications/stopped', Params);
+  SendSamplingRequest(LMsg);
 end;
 
 procedure TMcpServer.OnDebuggerStepped(Sender: TObject; Breakpoint: TBreakpoint);
 var
   Params: TJSONObject;
+  LMsg: string;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
@@ -249,8 +299,13 @@ begin
   begin
     Params.AddPair('unit', Breakpoint.UnitName);
     Params.AddPair('line', TJSONNumber.Create(Breakpoint.LineNumber));
-  end;
+    LMsg := Format('The debugger stopped after a step in %s line %d.', [Breakpoint.UnitName, Breakpoint.LineNumber]);
+  end
+  else
+    LMsg := 'The debugger stopped after a step.';
+
   SendNotification('notifications/stopped', Params);
+  SendSamplingRequest(LMsg);
 end;
 
 procedure TMcpServer.OnDebuggerProcessExit(Sender: TObject; ExitCode: DWORD);

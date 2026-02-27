@@ -3,6 +3,7 @@ unit Test.DPT.MCP.Server;
 interface
 
 uses
+  Winapi.Windows,
   DUnitX.TestFramework,
   DPT.Debugger,
   DPT.MCP.Server,
@@ -248,7 +249,7 @@ begin
       Assert.IsTrue(OutputWriter.GetLine(2).Contains('Execution resumed'), 'Continue should return immediately: ' + OutputWriter.GetLine(2));
 
       // Wait for breakpoint notification from debugger thread
-      WaitForOutput(OutputWriter, 4);
+      WaitForOutput(OutputWriter, 5);
       Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification: ' + OutputWriter.GetLine(3));
       Assert.IsTrue(OutputWriter.GetLine(3).Contains('breakpoint'), 'Expected breakpoint reason');
 
@@ -259,20 +260,20 @@ begin
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
 
       Server.RunOnce; // get_stack_trace
-      Assert.AreEqual(5, OutputWriter.GetCount, 'StackTrace failed');
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('DeepProcedure'), 'DeepProcedure missing');
+      Assert.AreEqual(6, OutputWriter.GetCount, 'StackTrace failed');
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('DeepProcedure'), 'DeepProcedure missing');
 
       Server.RunOnce; // get_stack_memory
-      Assert.AreEqual(6, OutputWriter.GetCount, 'StackMemory failed');
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+      Assert.AreEqual(7, OutputWriter.GetCount, 'StackMemory failed');
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('78 56 34 12'), 'LocalInt missing in stack dump');
 
       Server.RunOnce; // read_global_variable
-      Assert.AreEqual(7, OutputWriter.GetCount, 'ReadGlobalVariable failed');
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+      Assert.AreEqual(8, OutputWriter.GetCount, 'ReadGlobalVariable failed');
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
 
       Server.RunOnce; // get_stack_slots
-      Assert.AreEqual(8, OutputWriter.GetCount, 'GetStackSlots failed');
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('12345678'), 'LocalInt missing in stack slots');
+      Assert.AreEqual(9, OutputWriter.GetCount, 'GetStackSlots failed');
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('12345678'), 'LocalInt missing in stack slots');
 
     finally
       Server.Free;
@@ -376,24 +377,24 @@ begin
       Server.RunOnce; // continue (async)
 
       // Wait for breakpoint notification at line 22
-      WaitForOutput(OutputWriter, 4);
+      WaitForOutput(OutputWriter, 5);
       Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification after continue');
 
       // step_into (async)
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('Stepping into'), 'Step into should return immediately');
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('Stepping into'), 'Step into should return immediately');
 
       // Wait for step notification
-      WaitForOutput(OutputWriter, 6);
+      WaitForOutput(OutputWriter, 8);
 
       // step_into again (async)
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
       Server.RunOnce;
 
       // Wait for step notification
-      WaitForOutput(OutputWriter, 8);
-      StepNotif := OutputWriter.GetLine(7);
+      WaitForOutput(OutputWriter, 11);
+      StepNotif := OutputWriter.GetLine(9);
       Assert.IsTrue(StepNotif.Contains('notifications/stopped'), 'Expected stopped notification after step: ' + StepNotif);
       Assert.IsTrue(StepNotif.Contains('DebugTarget'), 'Step should be in DebugTarget: ' + StepNotif);
 
@@ -439,13 +440,13 @@ begin
       Server.RunOnce; // continue (async)
 
       // Wait for breakpoint notification
-      WaitForOutput(OutputWriter, 4);
+      WaitForOutput(OutputWriter, 5);
 
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
       Server.RunOnce; // get_stack_slots
 
-      Assert.AreEqual(5, OutputWriter.GetCount);
-      LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(4)) as TJSONObject;
+      Assert.AreEqual(6, OutputWriter.GetCount);
+      LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(5)) as TJSONObject;
       try
         ResultObj := LJSON.GetValue('result') as TJSONObject;
         Meta := ResultObj.GetValue('frame_metadata') as TJSONObject;
@@ -556,7 +557,7 @@ begin
     Assert.IsTrue(OutputWriter.GetLine(4).Contains('Execution resumed'), 'Continue should return immediately');
 
     // Wait for breakpoint notification
-    WaitForOutput(OutputWriter, 6);
+    WaitForOutput(OutputWriter, 7);
     Assert.IsTrue(OutputWriter.GetLine(5).Contains('notifications/stopped'), 'Expected breakpoint notification');
     Assert.IsTrue(OutputWriter.GetLine(5).Contains('breakpoint'), 'Expected breakpoint reason');
 
@@ -656,13 +657,13 @@ begin
       Server.RunOnce; // continue (async)
 
       // Wait for breakpoint notification
-      WaitForOutput(OutputWriter, 4);
+      WaitForOutput(OutputWriter, 5);
 
       // get_state should show paused with location
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('paused'), 'Should be paused: ' + OutputWriter.GetLine(4));
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('DebugTarget'), 'Should contain unit name');
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('paused'), 'Should be paused: ' + OutputWriter.GetLine(5));
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('DebugTarget'), 'Should contain unit name');
 
     finally
       Server.Free;
@@ -794,20 +795,20 @@ begin
       Server.RunOnce; // init
       Server.RunOnce; // set_breakpoint
       Server.RunOnce; // continue (async)
-      WaitForOutput(OutputWriter, 4); // wait for breakpoint notification
+      WaitForOutput(OutputWriter, 5); // wait for breakpoint notification
 
       // Now paused - stop the session (detach)
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('continues running'),
-        'Should confirm process continues: ' + OutputWriter.GetLine(4));
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('continues running'),
+        'Should confirm process continues: ' + OutputWriter.GetLine(5));
       Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
 
       // Verify get_state returns no_session
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('no_session'),
-        'get_state should return no_session: ' + OutputWriter.GetLine(5));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('no_session'),
+        'get_state should return no_session: ' + OutputWriter.GetLine(6));
     finally
       Server.Free;
       InputReader.Free;
@@ -846,20 +847,20 @@ begin
       Server.RunOnce; // init
       Server.RunOnce; // set_breakpoint
       Server.RunOnce; // continue (async)
-      WaitForOutput(OutputWriter, 4); // wait for breakpoint notification
+      WaitForOutput(OutputWriter, 5); // wait for breakpoint notification
 
       // Now paused - terminate the session
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(4).Contains('killed'),
-        'Should confirm process was killed: ' + OutputWriter.GetLine(4));
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('killed'),
+        'Should confirm process was killed: ' + OutputWriter.GetLine(5));
       Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
 
       // Verify inspection tools are rejected
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('Invalid state'),
-        'Inspection should fail in no_session: ' + OutputWriter.GetLine(5));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Invalid state'),
+        'Inspection should fail in no_session: ' + OutputWriter.GetLine(6));
     finally
       Server.Free;
       InputReader.Free;
@@ -880,8 +881,8 @@ begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   
-  // Create a temporary copy of the executable WITHOUT the map file
-  var TempPath := ChangeFileExt(ExePath, '.NoMap.exe');
+  // Create a temporary copy of the executable WITHOUT the map file, using a unique name
+  var TempPath := ChangeFileExt(ExePath, Format('.NoMap.%d.exe', [GetTickCount]));
   TFile.Copy(ExePath, TempPath, True);
   try
     InputReader := TStringTextReader.Create(
@@ -906,7 +907,7 @@ begin
       
       Server.RunOnce; // terminate_debug_session
       Assert.IsTrue(OutputWriter.GetLine(2).Contains('killed'),
-        'Process should be terminated properly');
+        'Process should be terminated properly: ' + OutputWriter.GetLine(2));
     finally
       Server.Free;
       InputReader.Free;
@@ -918,7 +919,11 @@ begin
     begin
       // Give the OS a moment to release the file lock from the terminated process
       Sleep(100);
-      TFile.Delete(TempPath);
+      try
+        TFile.Delete(TempPath);
+      except
+        // ignore errors
+      end;
     end;
   end;
 end;
