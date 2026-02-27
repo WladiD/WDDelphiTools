@@ -120,7 +120,8 @@ type
     function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
 
-    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
+    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean; overload;
+    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean; overload;
     procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ClearAllBreakpoints;
     procedure StartDebugging(const AExecutablePath: string);
@@ -594,6 +595,11 @@ begin
 end;
 
 function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
+begin
+  Result := SetBreakpoint(AUnitName, ALineNumber, False);
+end;
+
+function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean;
 var
   Addr: Pointer;
   BP: TBreakpoint;
@@ -605,7 +611,11 @@ begin
 
     Addr := nil;
     if FBaseAddress <> 0 then
+    begin
       Addr := GetAddressFromUnitLine(AUnitName, ALineNumber);
+      if ARequireAddress and (Addr = nil) then
+        Exit(False);
+    end;
 
     BP := TBreakpoint.Create(AUnitName, ALineNumber, Addr);
     FBreakpoints.Add(BP);

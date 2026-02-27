@@ -325,11 +325,11 @@ begin
 
         var ToolSetBP := TJSONObject.Create;
         ToolSetBP.AddPair('name', 'set_breakpoint');
-        ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Typical workflow: set_breakpoint -> start_debug_session -> continue -> get_state (poll until paused) -> inspect with get_stack_trace etc.');
+        ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. The "unit" parameter is the source file name (e.g. "MyUnit.pas" or just "MyUnit" - the .pas extension is added automatically if omitted). Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Returns an error if the unit/line cannot be resolved to a code address. Typical workflow: set_breakpoint -> start_debug_session -> continue -> get_state (poll until paused) -> inspect with get_stack_trace etc.');
         var SchemaSetBP := TJSONObject.Create;
         SchemaSetBP.AddPair('type', 'object');
         var PropSetBP := TJSONObject.Create;
-        PropSetBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string'));
+        PropSetBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Delphi source file name, e.g. "MyUnit.pas" or "MyUnit" (.pas is added if omitted)'));
         PropSetBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
         SchemaSetBP.AddPair('properties', PropSetBP);
         var ReqArr := TJSONArray.Create;
@@ -535,6 +535,9 @@ begin
   LUnit := AParams.GetValue('unit').Value;
   LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
 
+  if ExtractFileExt(LUnit) = '' then
+    LUnit := LUnit + '.pas';
+
   if GetBreakpointCount >= 4 then
     Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'));
 
@@ -547,8 +550,13 @@ begin
   begin
     if not RequireState([dsPaused, dsRunning], Result) then
       Exit;
-    if not FDebugger.SetBreakpoint(LUnit, LLine) then
-      Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'));
+    if not FDebugger.SetBreakpoint(LUnit, LLine, True) then
+    begin
+      if FDebugger.Breakpoints.Count >= 4 then
+        Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'))
+      else
+        Exit(MakeErrorResult(Format('Error: Could not resolve address for %s:%d. Verify that the unit name and line number are correct and that debug info is available.', [LUnit, LLine])));
+    end;
     Result := MakeTextResult(Format('Breakpoint set at %s:%d', [LUnit, LLine]));
   end;
 end;
@@ -561,6 +569,9 @@ var
 begin
   LUnit := AParams.GetValue('unit').Value;
   LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
+
+  if ExtractFileExt(LUnit) = '' then
+    LUnit := LUnit + '.pas';
 
   if FState = dsNoSession then
   begin
@@ -625,6 +636,7 @@ function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 var
   LExePath, LArgs, MapFile: string;
   I: Integer;
+  LUnresolved: string;
 begin
   if not RequireState([dsNoSession], Result) then
     Exit;
@@ -658,7 +670,23 @@ begin
   FDebugger.WaitForReady(5000);
   FState := dsPaused;
 
-  Result := MakeTextResult('Debug session started for ' + LExePath);
+  LUnresolved := '';
+  for I := 0 to FDebugger.Breakpoints.Count - 1 do
+  begin
+    if FDebugger.Breakpoints[I].Address = nil then
+    begin
+      if LUnresolved <> '' then
+        LUnresolved := LUnresolved + ', ';
+      LUnresolved := LUnresolved + Format('%s:%d', [FDebugger.Breakpoints[I].UnitName, FDebugger.Breakpoints[I].LineNumber]);
+    end;
+  end;
+
+  if LUnresolved <> '' then
+    Result := MakeTextResult('Debug session started for ' + LExePath +
+      '. WARNING: Could not resolve address for breakpoint(s): ' + LUnresolved +
+      '. These breakpoints will not trigger. Verify unit names and line numbers.')
+  else
+    Result := MakeTextResult('Debug session started for ' + LExePath);
 end;
 
 function TMcpServer.HandleContinue(AParams: TJSONObject): TJSONObject;

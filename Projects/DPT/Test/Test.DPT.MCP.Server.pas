@@ -25,6 +25,14 @@ type
     procedure TestMcpStackFrameInfo;
     [Test]
     procedure TestMcpBreakpointManagement;
+    [Test]
+    procedure TestMcpPendingBreakpoints;
+    [Test]
+    procedure TestMcpBreakpointLimit;
+    [Test]
+    procedure TestMcpGetState;
+    [Test]
+    procedure TestMcpBreakpointUnresolvable;
   end;
 
 implementation
@@ -49,6 +57,7 @@ type
   TStringTextWriter = class(TTextWriter)
   private
     FOutput: TStringList;
+    FLock: TCriticalSection;
   public
     constructor Create;
     destructor Destroy; override;
@@ -56,6 +65,8 @@ type
     procedure WriteLine(const S: string); override;
     procedure Close; override;
     procedure Flush; override;
+    function GetCount: Integer;
+    function GetLine(AIndex: Integer): string;
     property Output: TStringList read FOutput;
   end;
 
@@ -126,10 +137,12 @@ constructor TStringTextWriter.Create;
 begin
   inherited Create;
   FOutput := TStringList.Create;
+  FLock := TCriticalSection.Create;
 end;
 
 destructor TStringTextWriter.Destroy;
 begin
+  FLock.Free;
   FOutput.Free;
   inherited;
 end;
@@ -148,7 +161,46 @@ end;
 
 procedure TStringTextWriter.WriteLine(const S: string);
 begin
-  FOutput.Add(S);
+  FLock.Enter;
+  try
+    FOutput.Add(S);
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TStringTextWriter.GetCount: Integer;
+begin
+  FLock.Enter;
+  try
+    Result := FOutput.Count;
+  finally
+    FLock.Leave;
+  end;
+end;
+
+function TStringTextWriter.GetLine(AIndex: Integer): string;
+begin
+  FLock.Enter;
+  try
+    Result := FOutput[AIndex];
+  finally
+    FLock.Leave;
+  end;
+end;
+
+procedure WaitForOutput(AWriter: TStringTextWriter; AMinCount: Integer; ATimeoutMs: Integer = 5000);
+var
+  Elapsed: Integer;
+begin
+  Elapsed := 0;
+  while (AWriter.GetCount < AMinCount) and (Elapsed < ATimeoutMs) do
+  begin
+    Sleep(50);
+    Inc(Elapsed, 50);
+  end;
+  Assert.IsTrue(AWriter.GetCount >= AMinCount,
+    Format('Timeout waiting for output. Expected %d lines, got %d', [AMinCount, AWriter.GetCount]));
 end;
 
 { TMcpServerTests }
@@ -159,64 +211,61 @@ var
   Server: TMcpServer;
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
-  InputStr: string;
-  LJSON: TJSONObject;
   ExePath, MapFile: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr :=
+  InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
     TDebuggerThread.Create(Debugger, ExePath);
 
-    InputReader := TStringTextReader.Create(InputStr);
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
-      // Process initialize
-      Server.RunOnce;
-      Assert.AreEqual(1, OutputWriter.Output.Count, 'Initialize failed');
+      Server.RunOnce; // initialize
+      Assert.AreEqual(1, OutputWriter.GetCount, 'Initialize failed');
 
-      // Process set_breakpoint
-      Server.RunOnce;
-      Assert.AreEqual(2, OutputWriter.Output.Count, 'SetBreakpoint failed');
+      Server.RunOnce; // set_breakpoint
+      Assert.AreEqual(2, OutputWriter.GetCount, 'SetBreakpoint failed');
 
-      // Process continue
-      Server.RunOnce;
-      Assert.AreEqual(3, OutputWriter.Output.Count, 'Continue failed');
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:13'), 'Wrong pause location: ' + OutputWriter.Output[2]);
+      Server.RunOnce; // continue (async)
+      Assert.AreEqual(3, OutputWriter.GetCount, 'Continue failed');
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('Execution resumed'), 'Continue should return immediately: ' + OutputWriter.GetLine(2));
 
-      // Process get_stack_trace
-      Server.RunOnce;
-      Assert.AreEqual(4, OutputWriter.Output.Count, 'StackTrace failed');
-      Assert.IsTrue(OutputWriter.Output[3].Contains('DeepProcedure'), 'DeepProcedure missing');
+      // Wait for breakpoint notification from debugger thread
+      WaitForOutput(OutputWriter, 4);
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification: ' + OutputWriter.GetLine(3));
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('breakpoint'), 'Expected breakpoint reason');
 
-      // Process get_stack_memory
-      Server.RunOnce;
-      Assert.AreEqual(5, OutputWriter.Output.Count, 'StackMemory failed');
-      Assert.IsTrue(OutputWriter.Output[4].Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+      // Now state is paused, we can inspect
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
 
-      // Process read_global_variable
-      Server.RunOnce;
-      Assert.AreEqual(6, OutputWriter.Output.Count, 'ReadGlobalVariable failed');
-      Assert.IsTrue(OutputWriter.Output[5].Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+      Server.RunOnce; // get_stack_trace
+      Assert.AreEqual(5, OutputWriter.GetCount, 'StackTrace failed');
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('DeepProcedure'), 'DeepProcedure missing');
 
-      // Process get_stack_slots
-      Server.RunOnce;
-      Assert.AreEqual(7, OutputWriter.Output.Count, 'GetStackSlots failed');
-      Assert.IsTrue(OutputWriter.Output[6].Contains('12345678'), 'LocalInt missing in stack slots');
+      Server.RunOnce; // get_stack_memory
+      Assert.AreEqual(6, OutputWriter.GetCount, 'StackMemory failed');
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+
+      Server.RunOnce; // read_global_variable
+      Assert.AreEqual(7, OutputWriter.GetCount, 'ReadGlobalVariable failed');
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+
+      Server.RunOnce; // get_stack_slots
+      Assert.AreEqual(8, OutputWriter.GetCount, 'GetStackSlots failed');
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('12345678'), 'LocalInt missing in stack slots');
 
     finally
       Server.Free;
@@ -234,7 +283,6 @@ var
   Server: TMcpServer;
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
-  InputStr: string;
   LJSON: TJSONObject;
   ExePath, MapFile: string;
 begin
@@ -242,30 +290,31 @@ begin
   if not FileExists(ExePath) then ExePath := ExpandFileName('ExceptionTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr := 
+  InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
     TDebuggerThread.Create(Debugger, ExePath);
 
-    InputReader := TStringTextReader.Create(InputStr);
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
-      Server.RunOnce;
-      Server.RunOnce;
-      Sleep(1000); 
+      Server.RunOnce; // init
+      Server.RunOnce; // continue (async)
+
+      // Wait for exception notification from debugger thread
+      WaitForOutput(OutputWriter, 3);
 
       var ExceptionNotifFound := False;
-      for var I := 0 to OutputWriter.Output.Count - 1 do
+      for var I := 0 to OutputWriter.GetCount - 1 do
       begin
-        if OutputWriter.Output[I].Contains('notifications/debugger_exception') then
+        if OutputWriter.GetLine(I).Contains('notifications/debugger_exception') then
         begin
           ExceptionNotifFound := True;
-          LJSON := TJSONObject.ParseJSONValue(OutputWriter.Output[I]) as TJSONObject;
+          LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(I)) as TJSONObject;
           try
             var Params := LJSON.GetValue('params') as TJSONObject;
             Assert.AreEqual('c0000005', Params.GetValue('code').Value);
@@ -276,7 +325,7 @@ begin
         end;
       end;
       Assert.IsTrue(ExceptionNotifFound, 'Exception notification not received');
-      
+
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
       Server.RunOnce;
     finally
@@ -295,38 +344,51 @@ var
   Server: TMcpServer;
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
-  InputStr: string;
   ExePath, MapFile: string;
+  StepNotif: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr := 
+  InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
     TDebuggerThread.Create(Debugger, ExePath);
 
-    InputReader := TStringTextReader.Create(InputStr);
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
-      Server.RunOnce; // continue -> reach line 22
-      Assert.IsTrue(OutputWriter.Output[2].Contains('Paused at DebugTarget.dpr:22'));
-      
-      Server.RunOnce; // step_into
-      Server.RunOnce; // step_into
-      Assert.IsTrue(OutputWriter.Output[4].Contains('DebugTarget') and (OutputWriter.Output[4].Contains(':16') or OutputWriter.Output[4].Contains(':17')), 
-                    'Step into TargetProcedure failed: ' + OutputWriter.Output[4]);
+      Server.RunOnce; // continue (async)
+
+      // Wait for breakpoint notification at line 22
+      WaitForOutput(OutputWriter, 4);
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification after continue');
+
+      // step_into (async)
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('Stepping into'), 'Step into should return immediately');
+
+      // Wait for step notification
+      WaitForOutput(OutputWriter, 6);
+
+      // step_into again (async)
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
+      Server.RunOnce;
+
+      // Wait for step notification
+      WaitForOutput(OutputWriter, 8);
+      StepNotif := OutputWriter.GetLine(7);
+      Assert.IsTrue(StepNotif.Contains('notifications/stopped'), 'Expected stopped notification after step: ' + StepNotif);
+      Assert.IsTrue(StepNotif.Contains('DebugTarget'), 'Step should be in DebugTarget: ' + StepNotif);
 
     finally
       Server.Free;
@@ -344,7 +406,6 @@ var
   Server: TMcpServer;
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
-  InputStr: string;
   LJSON: TJSONObject;
   ResultObj, Meta: TJSONObject;
   ExePath, MapFile: string;
@@ -353,34 +414,37 @@ begin
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr := 
+  InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
     TDebuggerThread.Create(Debugger, ExePath);
 
-    InputReader := TStringTextReader.Create(InputStr);
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
-      Server.RunOnce; // continue
+      Server.RunOnce; // continue (async)
+
+      // Wait for breakpoint notification
+      WaitForOutput(OutputWriter, 4);
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
       Server.RunOnce; // get_stack_slots
 
-      Assert.AreEqual(4, OutputWriter.Output.Count);
-      LJSON := TJSONObject.ParseJSONValue(OutputWriter.Output[3]) as TJSONObject;
+      Assert.AreEqual(5, OutputWriter.GetCount);
+      LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(4)) as TJSONObject;
       try
         ResultObj := LJSON.GetValue('result') as TJSONObject;
         Meta := ResultObj.GetValue('frame_metadata') as TJSONObject;
         Assert.IsNotNull(Meta, 'Frame metadata missing');
         Assert.AreEqual('DebugTarget.DeepProcedure', Meta.GetValue('procedure').Value);
-        
+
         var LocalSize := (Meta.GetValue('local_variable_size') as TJSONNumber).AsInt;
         Assert.IsTrue(LocalSize >= 4, 'Detected local size too small: ' + IntToStr(LocalSize));
       finally
@@ -402,43 +466,38 @@ var
   Server: TMcpServer;
   InputReader: TStringTextReader;
   OutputWriter: TStringTextWriter;
-  InputStr: string;
   ExePath, MapFile: string;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
   MapFile := ChangeFileExt(ExePath, '.map');
 
-  InputStr :=
+  InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "remove_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}';
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
     TDebuggerThread.Create(Debugger, ExePath);
 
-    InputReader := TStringTextReader.Create(InputStr);
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
-      
-      // Process list_breakpoints (should have 1)
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.Output[2].Contains('DebugTarget.dpr') and OutputWriter.Output[2].Contains('13'), 'Breakpoint missing in list');
 
-      // Process remove_breakpoint
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.Output[3].Contains('removed'), 'Remove failed');
+      Server.RunOnce; // list_breakpoints (should have 1)
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('DebugTarget.dpr') and OutputWriter.GetLine(2).Contains('13'), 'Breakpoint missing in list');
 
-      // Process list_breakpoints (should be empty)
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.Output[4].Contains('[]'), 'Breakpoint list should be empty: ' + OutputWriter.Output[4]);
+      Server.RunOnce; // remove_breakpoint
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('removed'), 'Remove failed');
+
+      Server.RunOnce; // list_breakpoints (should be empty)
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('[]'), 'Breakpoint list should be empty: ' + OutputWriter.GetLine(4));
 
     finally
       Server.Free;
@@ -447,6 +506,256 @@ begin
     end;
   finally
     Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpPendingBreakpoints;
+var
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
+    Format('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    Assert.AreEqual(1, OutputWriter.GetCount);
+
+    // Set breakpoint before session (pending)
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('pending'), 'Should indicate pending: ' + OutputWriter.GetLine(1));
+
+    // List should show pending BP
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('DebugTarget.dpr') and OutputWriter.GetLine(2).Contains('pending'), 'Should list pending BP');
+
+    // Start debug session - transfers pending BPs
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(3));
+
+    // Continue (async) - should hit the pending breakpoint
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('Execution resumed'), 'Continue should return immediately');
+
+    // Wait for breakpoint notification
+    WaitForOutput(OutputWriter, 6);
+    Assert.IsTrue(OutputWriter.GetLine(5).Contains('notifications/stopped'), 'Expected breakpoint notification');
+    Assert.IsTrue(OutputWriter.GetLine(5).Contains('breakpoint'), 'Expected breakpoint reason');
+
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpBreakpointLimit;
+var
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+begin
+  // Test without a session (pending BPs)
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "A.pas", "line": 1}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "B.pas", "line": 2}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "C.pas", "line": 3}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "D.pas", "line": 4}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "E.pas", "line": 5}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+
+    // Set 4 breakpoints (should succeed)
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('pending'), 'BP 1 should succeed');
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('pending'), 'BP 2 should succeed');
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('pending'), 'BP 3 should succeed');
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('pending'), 'BP 4 should succeed');
+
+    // 5th breakpoint should fail
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(5).Contains('Maximum of 4'), '5th BP should fail with limit error: ' + OutputWriter.GetLine(5));
+
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetState;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // Test get_state in no_session state
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    Server.RunOnce; // get_state
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('no_session'), 'Should be no_session: ' + OutputWriter.GetLine(1));
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
+  end;
+
+  // Test get_state in paused state
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // continue (async)
+
+      // Wait for breakpoint notification
+      WaitForOutput(OutputWriter, 4);
+
+      // get_state should show paused with location
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('paused'), 'Should be paused: ' + OutputWriter.GetLine(4));
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('DebugTarget'), 'Should contain unit name');
+
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpBreakpointUnresolvable;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // Test 1: set_breakpoint on invalid unit during active session -> immediate error
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "NonExistent.pas", "line": 1}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint on invalid unit
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('Could not resolve address'),
+        'Should report unresolvable address: ' + OutputWriter.GetLine(1));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+
+  // Test 2: set_breakpoint without extension should auto-append .pas
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget", "line": 13}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint without .pas extension
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('Breakpoint set'),
+        'BP without extension should succeed: ' + OutputWriter.GetLine(1));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+
+  // Test 3: pending BP on invalid unit -> warning on session start
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "NonExistent.pas", "line": 1}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' + StringReplace(ExePath, '\', '\\', [rfReplaceAll]) + '"}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    Server.RunOnce; // set_breakpoint (pending)
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('pending'), 'Should be pending: ' + OutputWriter.GetLine(1));
+
+    Server.RunOnce; // start_debug_session
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(2));
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('WARNING'),
+      'Should warn about unresolvable BP: ' + OutputWriter.GetLine(2));
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('NonExistent.pas'),
+      'Warning should mention the unit name: ' + OutputWriter.GetLine(2));
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
   end;
 end;
 
