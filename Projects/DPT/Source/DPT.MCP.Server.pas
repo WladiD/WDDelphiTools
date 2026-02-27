@@ -704,7 +704,15 @@ begin
       '. WARNING: Could not resolve address for breakpoint(s): ' + LUnresolved +
       '. These breakpoints will not trigger. Verify unit names and line numbers.')
   else
-    Result := MakeTextResult('Debug session started for ' + LExePath);
+  begin
+    if not FileExists(MapFile) then
+      Result := MakeTextResult('Debug session started for ' + LExePath +
+        '. WARNING: No .map file found! Source-level debugging (setting breakpoints by line, stack trace with lines) will NOT work. ' +
+        'You can rebuild the project with DPT to generate the map file using the following parameter: /p:DCC_MapFile=3 ' +
+        '(e.g., DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"). Alternatively, terminate this session, rebuild, and restart.')
+    else
+      Result := MakeTextResult('Debug session started for ' + LExePath);
+  end;
 end;
 
 function TMcpServer.HandleContinue(AParams: TJSONObject): TJSONObject;

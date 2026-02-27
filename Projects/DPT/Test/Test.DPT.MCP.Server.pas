@@ -9,7 +9,8 @@ uses
   System.SysUtils,
   System.Classes,
   System.JSON,
-  System.SyncObjs;
+  System.SyncObjs,
+  System.IOUtils;
 
 type
   [TestFixture]
@@ -37,6 +38,8 @@ type
     procedure TestMcpStopDebugSession;
     [Test]
     procedure TestMcpTerminateDebugSession;
+    [Test]
+    procedure TestMcpStartSessionWithoutMapFile;
   end;
 
 implementation
@@ -864,6 +867,59 @@ begin
     end;
   finally
     Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpStartSessionWithoutMapFile;
+var
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  
+  // Create a temporary copy of the executable WITHOUT the map file
+  var TempPath := ChangeFileExt(ExePath, '.NoMap.exe');
+  TFile.Copy(ExePath, TempPath, True);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' + StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    // Do NOT pass a debugger instance here; handle_start_debug_session creates its own.
+    Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      
+      Server.RunOnce; // start_debug_session
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('WARNING: No .map file found'),
+        'Warning about missing map file should be present: ' + OutputWriter.GetLine(1));
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('/p:DCC_MapFile=3'),
+        'Instruction on how to create the map file should be present: ' + OutputWriter.GetLine(1));
+        
+      // Ensure the session was actually started despite the missing map
+      Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after starting');
+      
+      Server.RunOnce; // terminate_debug_session
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('killed'),
+        'Process should be terminated properly');
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    // Cleanup temporary file
+    if FileExists(TempPath) then
+    begin
+      // Give the OS a moment to release the file lock from the terminated process
+      Sleep(100);
+      TFile.Delete(TempPath);
+    end;
   end;
 end;
 
