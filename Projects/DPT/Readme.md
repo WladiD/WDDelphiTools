@@ -1,435 +1,79 @@
 # DPT (Delphi Processing Tools)
-This project was created for automated Delphi configuration from batch scripts. 
 
-Currently it supports not all Delphi versions, but will be expanded on demand.
+DPT is the "Swiss Army Knife" for Delphi development, created for automated Delphi configuration, CI/CD pipelines, and AI-assisted workflows from batch scripts. 
 
-## AI-Workflows
-DPT provides special support for AI agents through rule-based workflows. 
-See [AiWorkflow.md](AiWorkflow.md) for details.
+Currently, it supports selected Delphi versions (automatically prioritizing the `LATEST` installed version) and gets expanded on demand.
 
-## Usage
+## 🚀 Features & Usage
 
-### Overview
-```
-DPT.exe DelphiVersion Action [Parameters]
-DPT.exe Help [Action]
+Run `DPT.exe Help <Action>` for detailed information on any specific command. Below is an overview of the core capabilities grouped by use cases.
 
-Actions:
-  AiSession <Start|Stop|Reset|Status|RegisterFiles> [Files...]
-  Build <ProjectFile> [Platform] [Config] [ExtraArgs]
-  BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
-  DProjPrintConfigs <ProjectFile>
-  DProjPrintCurConfig <ProjectFile>
-  DProjPrintOutputFile <ProjectFile> [Config] [Platform]
-  DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
-  ExportBuildEnvironment <TargetPath>
-  HandleProtocol <dpt://URL>
-  ImportBuildEnvironment
-  IsPackageRegistered <PackageFileName>
-  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFiles...>
-  LintSetup <Split|Join> <StyleFile>
-  McpDebugger
-  OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
-  PrintPath <PathLiteral>
-  RegisterPackage <PathToBPL>
-  RemovePackage <PackageFileName>
-  RemovePackagesBySourceDir <SourceDir>
-  Start
-  Stop
+### 🤖 AI & Debugging
 
-For more details use: DPT.exe Help Action
-```
+DPT provides special support for AI agents through rule-based workflows and the Model Context Protocol (MCP).
 
-### Detailed Help
-To see all available actions and their descriptions, run:
+*   **`McpDebugger`**: Starts a standalone MCP server for debugging Delphi applications. It runs continuously in the background and provides tools for AI agents (like Gemini, Claude) to:
+    *   Start debug sessions dynamically (`start_debug_session`)
+    *   Set/remove hardware breakpoints (`set_breakpoint`, `remove_breakpoint`, `list_breakpoints`)
+    *   Control asynchronous execution (`continue`, `step_into`, `step_over`)
+    *   Inspect state and memory (`get_stack_trace`, `get_registers`, `get_stack_slots`, `read_memory`, `read_global_variable`)
+*   **`AiSession`**: Manages an AI session for the current process hierarchy. Uses an internal workflow engine to provide instructions and track state (e.g., Lint results). See [AiWorkflow.md](AiWorkflow.md) for details.
 
-    DPT.exe Help
+### 🏗️ Build-Management & CI/CD
 
-Output
-```
-Usage: DPT.exe Help <Action>
+Commands to automate compilation and manage portable build environments.
 
-DelphiVersion:
-  LATEST              Automatically selects the newest installed version (Alias: RECENT)
-  D2007
-  D10.1
-  D10.3
-  D11
-  D12
+*   **`Build`**: Builds a project using MSBuild. Automatically sets up `rsvars.bat` environments. Supports embedded configs and instructions via the internal `TmplCodeGen` preprocessor.
+    ```cmd
+    DPT.exe LATEST Build TmplCodeGen.dproj Win32 Debug
+    ```
+*   **`BuildAndRun`**: Builds and subsequently executes a project, skipping build if executable is up-to-date (`--OnlyIfChanged`).
+    ```cmd
+    DPT.exe LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
+    ```
+*   **`ExportBuildEnvironment` / `ImportBuildEnvironment`**: Exports a minimal Delphi build environment (binaries, registry settings, init scripts) for CI/CD pipelines on clean Windows machines (valid license still required).
+    ```cmd
+    DPT.exe D12 ExportBuildEnvironment C:\VM-Share\Delphi12BuildEnvironment\
+    ```
 
-Available Actions:
-  AiSession <Start|Stop|Reset|Status|RegisterFiles> [Files...]
-    Manages an AI session for the current process hierarchy.
-    Uses an internal workflow engine to provide instructions and track state (e.g., Lint results).
-    Sub-actions:
-      Start:          Starts a new AI session.
-      Stop:           Stops and removes the current AI session.
-      Reset:          Clears registered files and resets the session start time.
-      Status:         Displays session information and registered files.
-      RegisterFiles:  Manually adds one or more files to the session.
-    Example: DPT LATEST AiSession Start
-    Example: DPT LATEST AiSession RegisterFiles Unit1.pas Unit2.pas
+### 🔍 Project- & Code-Analysis
 
-  Build <ProjectFile> [Platform] [Config] [ExtraArgs]
-    Builds the specified project using MSBuild.
-    Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.
-    If <ProjectFile> is not a .dproj file, it is processed by the internal TmplCodeGen preprocessor first.
-      - Supports embedded configs: (* Name-conf.json ... *)
-      - Supports generation instructions: // TmplCodeGen Prefix
-      - Supports include partials: // TmplCodeGen include_partials [Target]
-    Defaults: Platform=Win32, Config=Debug
-    Example: DPT LATEST Build MyProject.dproj Win64 Release "/t:Clean;Build"
+Automate `.dproj` extraction and enforce code style rules.
 
-  BuildAndRun <ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]
-    Builds and executes the project.
-    Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).
-    --OnlyIfChanged: Skips build if executable is newer than source files.
-    -- <Args>: Passes all subsequent arguments to the executable.
-    Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug
+*   **`.dproj` Analysis**: Read active configurations, output paths, and search paths.
+    *   `DPT.exe D12 DProjPrintConfigs MyProject.dproj`
+    *   `DPT.exe D12 DProjPrintCurConfig MyProject.dproj`
+    *   `DPT.exe D12 DProjPrintOutputFile MyProject.dproj Release Win64`
+    *   `DPT.exe D12 DProjPrintSearchPaths MyProject.dproj Release Win64`
+*   **`Lint`**: Analyzes Delphi units for style violations using an internal Slim/FitNesse engine.
+    ```cmd
+    DPT.exe LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas
+    ```
+*   **`LintSetup`**: Split or join style files into templates and descriptions for easier editing.
 
-  DProjPrintConfigs <ProjectFile>
-    Lists all build configurations defined in the specified .dproj file.
-    Example: DPT D12 DProjPrintConfigs MyProject.dproj
+### 🔌 IDE Automation & Packages
 
-  DProjPrintCurConfig <ProjectFile>
-    Displays the default/active build configuration of the specified .dproj file.
-    Example: DPT D12 DProjPrintCurConfig MyProject.dproj
+Control the Delphi IDE, register packages natively from the command line, and open files via custom protocols.
 
-  DProjPrintOutputFile <ProjectFile> [Config] [Platform]
-    Displays the output executable file path for the project based on current configuration and platform.
-    Example: DPT D12 DProjPrintOutputFile MyProject.dproj Release Win64
+*   **`OpenUnit`**: Opens a Delphi source file in the IDE at a specific line or member implementation. Starts the IDE if necessary.
+    ```cmd
+    DPT.exe LATEST OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
+    DPT.exe LATEST OpenUnit "C:\Projects\MyUnit.pas" GoToMemberImplementation TMyClass.Execute
+    ```
+*   **`RegisterPackage` / `RemovePackage`**: Manage design-time packages (`.bpl`).
+    ```cmd
+    DPT.exe D12 RegisterPackage "C:\Dev\Bpl\JclBaseExpert240.bpl"
+    DPT.exe D12 RemovePackage JclBaseExpert240
+    DPT.exe D12 RemovePackagesBySourceDir "C:\Dev\Bpl"
+    ```
+*   **`PrintPath` / `Start` / `Stop`**: Output IDE internal paths (`BDSBinPath`), manually start or violently terminate the IDE process.
 
-  DProjPrintSearchPaths <ProjectFile> [Config] [Platform]
-    Displays the effective unit search path for the project.
-    Combines the project's specific search path (resolving variables) with the IDE's global library path.
-    Defaults: Config=<ActiveConfig>, Platform=Win32.
-    Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64
+## 🔗 URL Protocol Registration (`dpt://`)
 
-  ExportBuildEnvironment <TargetPath>
-    Exports a minimal Delphi build environment to the specified directory.
-    The environment can be used on a clean Windows machine for CI/CD builds.
-    Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.
-    Generates a smart Init...bat script that handles Admin rights and Unattended mode.
-    WARNING: The target machine still requires a valid license/activation.
-    Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build
-
-  HandleProtocol <dpt://URL>
-    Internal handler for "dpt://" URI schemes.
-    Used to trigger actions like opening units from external applications (e.g., browsers or log viewers).
-    Example: dpt://openunit/?file=C:\MyUnit.pas&line=50
-
-  ImportBuildEnvironment
-    Restores a build environment from the directory where this DPT.exe is located.
-    Copies BDS files to Program Files, restores AppData, and imports Registry settings.
-    The target paths are determined automatically based on the DelphiVersion parameter.
-    Intended to be called by the generated Init...bat script.
-    Example: DPT D12 ImportBuildEnvironment
-
-  IsPackageRegistered <PackageFileName>
-    Checks if a specific BPL package is currently registered in the IDE.
-    Returns ExitCode 0 if registered, 1 if not.
-
-  Lint [--verbose] [--fitnesse-dir=<Path>] <StyleFile> <TargetFiles...>
-    Analyzes one or more Delphi units for style violations based on the specified StyleFile.
-    Requires a corresponding "<StyleFile>.Linting.wiki" containing the FitNesse test definitions.
-    Uses an internal Slim/FitNesse engine to verify the code structure.
-    All target files are processed in a single FitNesse session (Suite execution).
-    Options:
-      --verbose: Displays full FitNesse and Slim server logs.
-      --fitnesse-dir=<Path>: Explicitly sets the FitNesse installation directory.
-    Configuration Priority:
-      1. --fitnesse-dir parameter
-      2. "Dir" entry in [FitNesse] section of DptConfig.ini (searched in PATH)
-    Example: DPT LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas
-
-  LintSetup <Split|Join> <StyleFile>
-    Splits a 2-column style file (Code and Description) into 2 separate files for easier editing:
-      - <StyleFile>.Template.pas
-      - <StyleFile>.Descriptions.txt
-    Or joins them back into a single aligned style file.
-    Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas
-
-  McpDebugger
-    Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.
-    The server runs continuously in the background and provides the following tools for AI agents:
-      - start_debug_session:   Starts a new debug session for the specified executable
-      - set_breakpoint:        Sets a hardware breakpoint in a Delphi unit at a specific line
-      - list_breakpoints:      Lists all currently set hardware breakpoints
-      - remove_breakpoint:     Removes an existing hardware breakpoint
-      - continue:              Continues execution of the debugged process (asynchronous)
-      - step_into:             Steps into the next source line, entering function calls
-      - step_over:             Steps over the current source line, skipping function calls
-      - get_stack_trace:       Returns the current call stack of the debugged process
-      - get_registers:         Returns the current CPU registers
-      - get_stack_slots:       Returns a list of stack slots with interpretation
-      - get_stack_memory:      Reads the memory of the current stack frame
-      - read_memory:           Reads a range of memory from the debugged process
-      - read_global_variable:  Reads the value of a global variable by name
-      - get_proc_asm:          Returns the assembly bytes of the current procedure
-    Example: DPT LATEST McpDebugger
-
-  OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
-    Opens a source file in the Delphi IDE via the Slim Server plugin.
-    Supports navigating to a specific line number or finding a member implementation (Class.Method).
-    Automatically starts the IDE if it is not running and waits for the plugin to become available.
-
-  PrintPath <PathLiteral>
-    Outputs various IDE configuration paths to the console.
-    Useful for build scripts to locate BDS, Bin, or default BPL/DCP output directories.
-    Available literals:
-    BDSPath, BDSBINPath,
-    BPLOutputPath-Win32, BPLOutputPath-Win64,
-    DCPOutputPath-Win32, DCPOutputPath-Win64
-
-  RegisterPackage <PathToBPL>
-    Registers a specific BPL file as a design-time package in the currently selected Delphi version.
-
-  RemovePackage <PackageFileName>
-    Unregisters a design-time package by its file name (without path or extension).
-
-  RemovePackagesBySourceDir <SourceDir>
-    Scans the registry for design-time packages located inside the specified directory tree and unregisters them.
-
-  Start
-    Ensures the Delphi IDE is running.
-    If not, it launches the process and waits for it to become responsive.
-    Brings the IDE window to the front.
-
-  Stop
-    Forcefully terminates the running Delphi IDE process associated with the selected version.
-    WARNING: Unsaved data will be lost.
-```
-
-## URL Protocol Registration
-To use the `dpt://` URL protocol (e.g., to open units directly from a browser or other tools), you need to register it in Windows.
-
-### _GenerateRegisterDptProtocol.bat
-This script generates a Windows Registry file (`RegisterDptProtocol.reg`) that links the `dpt://` protocol to the current location of `DPT.exe`.
+To use the `dpt://` URL protocol (e.g., to open units directly from a browser or log viewers), you need to register it in Windows.
 
 1. Run `_GenerateRegisterDptProtocol.bat`.
 2. Execute the generated `RegisterDptProtocol.reg` file to update your registry.
 
 Once registered, you can use links like:
 `dpt://openunit/?file=C:\MyUnit.pas&line=42`
-
-## Examples
-### Print BDSBinPath
-If you want simply to determine the bin path of a specific Delphi version, just try this:
-
-    DPT.exe D10.1 PrintPath BDSBinPath
-
-Output
-
-    C:\Program Files (x86)\Embarcadero\Studio\18.0\bin
-
----
-
-### Print BPLOutputPath
-
-    DPT.exe D10.1 PrintPath BPLOutputPath-Win32
-
-Output
-
-    C:\Dev\Bpl
-
----
-
-### Remove a single package
-
-    DPT.exe D10.1 RemovePackage JclBaseExpert240
-
-Output
-```
-Unregister design time package "JclBaseExpert240"...
-C:\Dev\Bpl\JclBaseExpert240.bpl > deleted
-```
-
----
-
-### Remove packages
-If you want to clean your registered design time packages by a specific folder, so call simply the following command:
-
-    DPT.exe D10.1 RemovePackagesBySourceDir "C:\Dev\Bpl"
-    
-Output
-```
-Unregister design time packages contained in "C:\Dev\Bpl"...
-C:\Dev\Bpl\BarcodeFastReport.bpl > deleted
-C:\Dev\Bpl\BarcodeStudio.bpl > deleted
-C:\Dev\Bpl\BarcodeStudioEditors.bpl > deleted
-C:\Dev\Bpl\dclFrameViewerD10_1Berlin.bpl > deleted
-C:\Dev\Bpl\dclfrx24.bpl > deleted
-```
-Note: The BPL files itself are not deleted as it looks like in output, but the registration in Delphi is.
-
----
-
-### Register a design time package
-
-    DPT.exe D10.1 RegisterPackage "C:\Dev\Bpl\JclBaseExpert240.bpl"
-
-Output
-```
-Register design time package "C:\Dev\Bpl\JclBaseExpert240.bpl"...
-Cleaning package cache for JclBaseExpert240.bpl
-Cleaning ok
-Registering package C:\Dev\Bpl\JclBaseExpert240.bpl
-Registration ok
-```
-
----
-
-### Open a unit in IDE at specific line
-
-    DPT.exe LATEST OpenUnit "C:\Projects\MyUnit.pas" GoToLine 42
-
----
-
-### Open a unit and jump to member implementation
-
-    DPT.exe LATEST OpenUnit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas" GoToMemberImplementation TDptOpenUnitTask.Execute
-
-Output
-```
-Opening unit "C:\WDC\WDDelphiTools\Projects\DPT\DPT.OpenUnitTask.pas"...
-Found member "TDptOpenUnitTask.Execute" at line 146.
-Debug: Connection to 9012 failed: Zeitüberschreitung der Verbindung.
-IDE Plugin not reachable via standard port. Checking IDE status...
-Checking for running BDS instance...
-Starting BDS: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\bds.exe
-Waiting for BDS to become ready...
-Waiting for main window to become visible and enabled...
-.....[Handle:394696 Vis:False En:True Title:"Delphi 12"].....[Handle:394696 Vis:False En:True Title:"DPT - Delphi 12 - ProjectGroup1.groupproj"]. Window 460232 is ready: "DPT - Delphi 12 - ProjectGroup1.groupproj"
-
-IDE is ready. Scanning for listening Slim ports (9000-9100) on PID 25656...
- Found candidate port 9012. Trying to connect...
-Successfully opened unit via IDE Plugin.
-```
-
----
-
-### Analyze Project (.dproj)
-
-**List Configs:**
-
-    DPT.exe D12 DProjPrintConfigs MyProject.dproj
-
-Output
-```
-Debug
-Release
-```
-
-**Show Active Config:**
-
-    DPT.exe D12 DProjPrintCurConfig MyProject.dproj
-
-Output
-```
-Debug
-```
-
-**Show Output Executable File:**
-
-    DPT.exe D12 DProjPrintOutputFile MyProject.dproj Release Win64
-
-Output
-```
-C:\MyProject\Win64\Release\MyProject.exe
-```
-
-**Show Effective Search Paths:**
-
-    DPT.exe D12 DProjPrintSearchPaths MyProject.dproj Release Win64
-
-Output
-```
-C:\Program Files (x86)\Embarcadero\Studio\23.0\lib\win64\release
-C:\MyProject\Source
-C:\MyProject\Common
-```
-
----
-
-### Export Build Environment
-Creates a deployable build environment in the specified directory.
-This includes binaries, libraries, registry settings, and initialization scripts.
-**Note:** The environment is not ready to use immediately. It must be initialized on the target machine using the generated `Init<Version>BuildEnvironment.bat` script (see *Import Build Environment*).
-
-    DPT.exe D12 ExportBuildEnvironment C:\VM-Share\Delphi12BuildEnvironment\
-
-Output
-```
-Exporting BDS files from: C:\Program Files (x86)\Embarcadero\Studio\23.0\
-  Copying bin...
-  Copying lib...
-  Copying Imports...
-  Copying include...
-  Copying redist...
-Exporting Registry...
-Copying DPT.exe...
-Copying Template...
-Creating Init scripts...
-Exporting EnvOptions.proj...
-Exporting environment.proj...
-Export completed successfully to: C:\VM-Share\Delphi12BuildEnvironment\
-```
-
----
-
-### Import Build Environment
-This action is usually triggered by the `Init<Version>BuildEnvironment.bat` script generated during export.
-It restores the environment from the current directory.
-
-    DPT.exe D12 ImportBuildEnvironment
-
-For automated setups (Docker/CI), use the generated batch file with the unattended flag:
-
-    InitD12BuildEnvironment.bat --Unattended
-
----
-
-### Build a project
-
-    DPT.exe D12 Build TmplCodeGen.dproj
-
-Output
-```
-Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
-PRODUCTVERSION: 23.0
-Building TmplCodeGen.dproj...
-Microsoft (R)-Buildmodul, Version 4.8.9032.0
-[Microsoft .NET Framework, Version 4.0.30319.42000]
-Copyright (C) Microsoft Corporation. Alle Rechte vorbehalten.
-...
-Build succeeded.
-```
-
----
-
-### Build and Run a project
-
-    DPT.exe LATEST BuildAndRun TmplCodeGen.dproj Win32 Debug --OnlyIfChanged
-
-Output (First run)
-```
-Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
-PRODUCTVERSION: 23.0
-Building C:\...\TmplCodeGen.dproj...
-Microsoft (R)-Buildmodul, Version 4.8.9032.0
-...
-Build succeeded.
-Running C:\...\TmplCodeGen.exe ...
---------------------------------------------------
-TmplCodeGen.exe prefix
-TmplCodeGen.exe include_partials target_file
-```
-
-Output (Subsequent run with `--OnlyIfChanged`)
-```
-Executable is up to date. Skipping build.
-Running C:\...\TmplCodeGen.exe ...
---------------------------------------------------
-TmplCodeGen.exe prefix
-TmplCodeGen.exe include_partials target_file
-```
