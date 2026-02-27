@@ -1,23 +1,29 @@
-unit DPT.Debugger;
+﻿unit DPT.Debugger;
 
 interface
 
 uses
+
   Winapi.Windows,
-  System.SysUtils,
+
   System.Classes,
-  System.SyncObjs,
   System.Generics.Collections,
+  System.SyncObjs,
+  System.SysUtils,
+
   JclDebug,
+
   DPT.Logger;
 
 function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL; dwThreadId: DWORD): THandle; stdcall; external kernel32;
 
 const
+
   THREAD_GET_CONTEXT = $0008;
   THREAD_SET_CONTEXT = $0010;
 
 type
+
   TJclMapScannerCracker = class(TJclMapScanner);
 
   TBreakpoint = class

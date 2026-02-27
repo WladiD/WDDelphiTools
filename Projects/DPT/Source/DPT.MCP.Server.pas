@@ -1,13 +1,23 @@
-unit DPT.MCP.Server;
+﻿unit DPT.MCP.Server;
 
 interface
 
 uses
-  Winapi.Windows, System.SysUtils, System.Classes, System.JSON,
-  mormot.core.base, mormot.core.json,
+
+  mormot.core.base,
+
+  Winapi.Windows,
+
+  System.SysUtils,
+  System.Classes,
+  System.JSON,
+
+  mormot.core.json,
+
   DPT.Debugger;
 
 type
+
   TMcpServer = class
   private
     FDebugger: TDebugger;
@@ -17,7 +27,7 @@ type
     procedure ProcessMessage(const AMessage: string);
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
-    
+
     // Tool handlers
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleContinue(AParams: TJSONObject): TJSONObject;
@@ -72,7 +82,7 @@ begin
   if AID <> nil then
     Resp.AddPair('id', AID.Clone as TJSONValue);
   Resp.AddPair('result', AResult);
-  
+
   if Assigned(FOutputWriter) then
   begin
     FOutputWriter.WriteLine(Resp.ToJSON);
@@ -93,12 +103,12 @@ begin
   Resp.AddPair('jsonrpc', '2.0');
   if AID <> nil then
     Resp.AddPair('id', AID.Clone as TJSONValue);
-    
+
   Err := TJSONObject.Create;
   Err.AddPair('code', TJSONNumber.Create(ACode));
   Err.AddPair('message', AMessage);
   Resp.AddPair('error', Err);
-  
+
   if Assigned(FOutputWriter) then
   begin
     FOutputWriter.WriteLine(Resp.ToJSON);
@@ -122,12 +132,12 @@ begin
   try
     Notif.AddPair('jsonrpc', '2.0');
     Notif.AddPair('method', 'notifications/debugger_exception');
-    
+
     Params := TJSONObject.Create;
     Params.AddPair('code', Format('%08x', [ExceptionRecord.ExceptionCode]));
     Params.AddPair('address', Format('%p', [ExceptionRecord.ExceptionAddress]));
     Params.AddPair('firstChance', TJSONBool.Create(FirstChance));
-    
+
     Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
     if Length(Stack) > 0 then
     begin
@@ -135,13 +145,13 @@ begin
       Params.AddPair('line', TJSONNumber.Create(Stack[0].LineNumber));
       Params.AddPair('procedure', Stack[0].ProcedureName);
     end;
-    
+
     Notif.AddPair('params', Params);
     LJSON := Notif.ToJSON;
   finally
     Notif.Free;
   end;
-  
+
   if Assigned(FOutputWriter) then
   begin
     FOutputWriter.WriteLine(LJSON);
@@ -152,7 +162,7 @@ begin
     System.Write(LJSON + #13#10);
     System.Flush(System.Output);
   end;
-  
+
   Handled := True;
 end;
 
@@ -193,7 +203,7 @@ begin
       begin
         // Return available tools
         var ToolsArr := TJSONArray.Create;
-        
+
         var ToolSetBP := TJSONObject.Create;
         ToolSetBP.AddPair('name', 'set_breakpoint');
         ToolSetBP.AddPair('description', 'Sets a hardware breakpoint in a Delphi unit at a specific line');
@@ -346,7 +356,7 @@ begin
         end;
         var ToolName := NameVal.Value;
         var ToolParams := Params.GetValue('arguments') as TJSONObject;
-        
+
         if ToolName = 'set_breakpoint' then
           SendResponse(ID, HandleSetBreakpoint(ToolParams))
         else if ToolName = 'remove_breakpoint' then
@@ -394,7 +404,7 @@ function TMcpServer.HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
 begin
   var LUnit := AParams.GetValue('unit').Value;
   var LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
-  
+
   Result := TJSONObject.Create;
   var ContentArr := TJSONArray.Create;
 
@@ -406,7 +416,7 @@ begin
   end;
 
   FDebugger.SetBreakpoint(LUnit, LLine);
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint set at %s:%d', [LUnit, LLine])));
   Result.AddPair('content', ContentArr);
 end;
@@ -415,7 +425,7 @@ function TMcpServer.HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
 begin
   var LUnit := AParams.GetValue('unit').Value;
   var LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
-  
+
   Result := TJSONObject.Create;
   var ContentArr := TJSONArray.Create;
 
@@ -427,7 +437,7 @@ begin
   end;
 
   FDebugger.RemoveBreakpoint(LUnit, LLine);
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Breakpoint removed at %s:%d', [LUnit, LLine])));
   Result.AddPair('content', ContentArr);
 end;
@@ -454,7 +464,7 @@ begin
     BPObj.AddPair('address', Format('%p', [BP.Address]));
     BPArr.Add(BPObj);
   end;
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', BPArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
@@ -495,7 +505,7 @@ begin
     FDebugger.LoadMapFile(MapFile);
 
   TDebuggerThread.Create(FDebugger, Trim(LExePath + ' ' + LArgs));
-  
+
   FDebugger.WaitForReady(5000); // Wait up to 5 seconds for the initial pause
 
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Debug session started for ' + LExePath));
@@ -518,7 +528,7 @@ begin
 
   FDebugger.ResumeExecution;
   BP := FDebugger.WaitForBreakpoint;
-  
+
   if BP <> nil then
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Paused at %s:%d', [BP.UnitName, BP.LineNumber])))
   else if FDebugger.LastException.ExceptionCode <> 0 then
@@ -547,12 +557,12 @@ begin
 
   FDebugger.StepInto;
   BP := FDebugger.WaitForBreakpoint;
-  
+
   if BP <> nil then
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Stepped into %s:%d', [BP.UnitName, BP.LineNumber])))
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Step failed or process exited'));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -572,12 +582,12 @@ begin
 
   FDebugger.StepOver;
   BP := FDebugger.WaitForBreakpoint;
-  
+
   if BP <> nil then
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Format('Stepped over to %s:%d', [BP.UnitName, BP.LineNumber])))
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Step failed or process exited'));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -599,7 +609,7 @@ begin
 
   Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
   FramesArr := TJSONArray.Create;
-  
+
   for Frame in Stack do
   begin
     var FrameObj := TJSONObject.Create;
@@ -609,7 +619,7 @@ begin
     FrameObj.AddPair('line', TJSONNumber.Create(Frame.LineNumber));
     FramesArr.Add(FrameObj);
   end;
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', FramesArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
@@ -635,9 +645,9 @@ begin
   LAddrStr := AParams.GetValue('address').Value;
   LAddr := UIntPtr(StrToInt64Def('$' + LAddrStr, 0));
   LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
-  
+
   Data := FDebugger.ReadProcessMemory(Pointer(LAddr), LSize);
-  
+
   if Length(Data) > 0 then
   begin
     Hex := '';
@@ -646,7 +656,7 @@ begin
   end
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Failed to read memory'));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -668,25 +678,25 @@ begin
   end;
 
   Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
-  
+
   if (Regs.Esp <> 0) and (Regs.Ebp >= Regs.Esp) then
   begin
     LSize := Regs.Ebp - Regs.Esp + 16; // Add some context after EBP
     if LSize > 4096 then LSize := 4096; // Limit to 4KB
     Data := FDebugger.ReadProcessMemory(Pointer(Regs.Esp), LSize);
-    
+
     Hex := Format('ESP: %p, EBP: %p' + sLineBreak, [Pointer(Regs.Esp), Pointer(Regs.Ebp)]);
     for var I := 0 to Length(Data) - 1 do
     begin
       if I mod 16 = 0 then Hex := Hex + sLineBreak + IntToHex(Regs.Esp + UIntPtr(I), 8) + ': ';
       Hex := Hex + IntToHex(Data[I], 2) + ' ';
     end;
-    
+
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', Hex.Trim));
   end
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Invalid stack registers or process not paused'));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -710,9 +720,9 @@ begin
 
   LName := AParams.GetValue('name').Value;
   LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
-  
+
   Addr := FDebugger.GetAddressFromSymbol(LName);
-  
+
   if Addr <> nil then
   begin
     Data := FDebugger.ReadProcessMemory(Addr, LSize);
@@ -720,7 +730,7 @@ begin
     begin
       Hex := '';
       for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
-      ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 
+      ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text',
         Format('Address: %p, Value: %s', [Addr, Hex.Trim])));
     end
     else
@@ -728,7 +738,7 @@ begin
   end
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Symbol not found: ' + LName));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -748,7 +758,7 @@ begin
   end;
 
   Regs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
-  
+
   RegObj := TJSONObject.Create;
   RegObj.AddPair('eip', Format('%p', [Pointer(Regs.Eip)]));
   RegObj.AddPair('esp', Format('%p', [Pointer(Regs.Esp)]));
@@ -756,7 +766,7 @@ begin
   RegObj.AddPair('eax', Format('%p', [Pointer(Regs.Eax)]));
   RegObj.AddPair('edx', Format('%p', [Pointer(Regs.Edx)]));
   RegObj.AddPair('ecx', Format('%p', [Pointer(Regs.Ecx)]));
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', RegObj.ToJSON));
   Result.AddPair('content', ContentArr);
   RegObj.Free;
@@ -782,7 +792,7 @@ begin
 
   Slots := FDebugger.GetStackSlots(FDebugger.LastThreadHit);
   FrameInfo := FDebugger.GetStackFrameInfo(FDebugger.LastThreadHit);
-  
+
   MetaObj := TJSONObject.Create;
   MetaObj.AddPair('procedure', FrameInfo.ProcedureName);
   MetaObj.AddPair('start_address', Format('%p', [FrameInfo.StartAddress]));
@@ -799,7 +809,7 @@ begin
     SlotObj.AddPair('interpretation', Slot.Interpretation);
     SlotsArr.Add(SlotObj);
   end;
-  
+
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', SlotsArr.ToJSON));
   Result.AddPair('content', ContentArr);
 end;
@@ -826,12 +836,12 @@ begin
     Data := FDebugger.ReadProcessMemory(FrameInfo.StartAddress, 64);
     Hex := '';
     for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
-    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 
+    ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text',
       Format('Procedure: %s, Start: %p, Bytes: %s', [FrameInfo.ProcedureName, FrameInfo.StartAddress, Hex.Trim])));
   end
   else
     ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', 'Could not find current procedure start.'));
-    
+
   Result.AddPair('content', ContentArr);
 end;
 
@@ -843,7 +853,7 @@ begin
     Line := FInputReader.ReadLine
   else
     System.Readln(System.Input, Line);
-    
+
   if Line <> '' then
     ProcessMessage(Line);
 end;
@@ -857,7 +867,7 @@ begin
       if FInputReader.Peek = -1 then Break;
     end
     else if System.EOF(System.Input) then Break;
-    
+
     RunOnce;
   end;
 end;
