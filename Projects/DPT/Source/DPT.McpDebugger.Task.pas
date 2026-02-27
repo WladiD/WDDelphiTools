@@ -1,30 +1,26 @@
-unit DPT.McpDebugger.Task;
+﻿unit DPT.McpDebugger.Task;
 
 interface
 
 uses
+
   System.SysUtils,
-  DPT.Types,
-  DPT.Task,
+
   DPT.Debugger,
-  DPT.MCP.Server;
+  DPT.MCP.Server,
+  DPT.Task,
+  DPT.Types;
 
 type
+
   TDptMcpDebuggerTask = class(TDptTaskBase)
   public
-    procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
 implementation
 
 { TDptMcpDebuggerTask }
-
-procedure TDptMcpDebuggerTask.Parse(CmdLine: TCmdLineConsumer);
-begin
-  inherited;
-  // No parameters needed anymore, MCP Server starts empty
-end;
 
 procedure TDptMcpDebuggerTask.Execute;
 var
