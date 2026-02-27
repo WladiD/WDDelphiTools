@@ -126,6 +126,7 @@ type
     procedure ClearAllBreakpoints;
     procedure StartDebugging(const AExecutablePath: string);
     procedure Terminate;
+    procedure Detach;
 
     procedure ResumeExecution;
     procedure StepInto;
@@ -237,6 +238,33 @@ begin
   if FProcessHandle <> 0 then
     Winapi.Windows.TerminateProcess(FProcessHandle, 1);
 
+  FContinueEvent.SetEvent;
+  FFinishedEvent.WaitFor(5000);
+end;
+
+procedure TDebugger.Detach;
+var
+  I: Integer;
+  Context: TContext;
+begin
+  if FTerminated then Exit;
+  FTerminated := True;
+
+  for I := 0 to FActiveThreads.Count - 1 do
+  begin
+    Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
+    if GetThreadContext(FActiveThreads[I], Context) then
+    begin
+      Context.Dr0 := 0;
+      Context.Dr1 := 0;
+      Context.Dr2 := 0;
+      Context.Dr3 := 0;
+      Context.Dr7 := Context.Dr7 and not $FF;
+      SetThreadContext(FActiveThreads[I], Context);
+    end;
+  end;
+
+  DebugActiveProcessStop(FProcessId);
   FContinueEvent.SetEvent;
   FFinishedEvent.WaitFor(5000);
 end;

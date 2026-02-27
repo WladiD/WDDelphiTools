@@ -33,6 +33,10 @@ type
     procedure TestMcpGetState;
     [Test]
     procedure TestMcpBreakpointUnresolvable;
+    [Test]
+    procedure TestMcpStopDebugSession;
+    [Test]
+    procedure TestMcpTerminateDebugSession;
   end;
 
 implementation
@@ -756,6 +760,110 @@ begin
     Server.Free;
     InputReader.Free;
     OutputWriter.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpStopDebugSession;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint
+      Server.RunOnce; // continue (async)
+      WaitForOutput(OutputWriter, 4); // wait for breakpoint notification
+
+      // Now paused - stop the session (detach)
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('continues running'),
+        'Should confirm process continues: ' + OutputWriter.GetLine(4));
+      Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
+
+      // Verify get_state returns no_session
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('no_session'),
+        'get_state should return no_session: ' + OutputWriter.GetLine(5));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpTerminateDebugSession;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint
+      Server.RunOnce; // continue (async)
+      WaitForOutput(OutputWriter, 4); // wait for breakpoint notification
+
+      // Now paused - terminate the session
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('killed'),
+        'Should confirm process was killed: ' + OutputWriter.GetLine(4));
+      Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
+
+      // Verify inspection tools are rejected
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('Invalid state'),
+        'Inspection should fail in no_session: ' + OutputWriter.GetLine(5));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
   end;
 end;
 

@@ -59,6 +59,8 @@ type
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleGetState(AParams: TJSONObject): TJSONObject;
+    function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
 
     procedure OnDebuggerException(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean);
     procedure OnDebuggerBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
@@ -462,6 +464,18 @@ begin
         ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
         ToolsArr.Add(ToolGetState);
 
+        var ToolStopSession := TJSONObject.Create;
+        ToolStopSession.AddPair('name', 'stop_debug_session');
+        ToolStopSession.AddPair('description', 'Detaches from the debugged process and ends the debug session. The process continues running normally with all hardware breakpoints removed. Use this when you want to release the process without killing it (e.g. after verifying behavior, or to let it finish naturally). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
+        ToolStopSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolStopSession);
+
+        var ToolTerminateSession := TJSONObject.Create;
+        ToolTerminateSession.AddPair('name', 'terminate_debug_session');
+        ToolTerminateSession.AddPair('description', 'Kills the debugged process and ends the debug session. Use this when the process should not continue running (e.g. after finding a bug, or when restarting with different breakpoints). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
+        ToolTerminateSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+        ToolsArr.Add(ToolTerminateSession);
+
         ResultObj := TJSONObject.Create;
         ResultObj.AddPair('tools', ToolsArr);
         SendResponse(ID, ResultObj);
@@ -512,6 +526,10 @@ begin
           SendResponse(ID, HandleStepOver(ToolParams))
         else if ToolName = 'get_state' then
           SendResponse(ID, HandleGetState(ToolParams))
+        else if ToolName = 'stop_debug_session' then
+          SendResponse(ID, HandleStopDebugSession(ToolParams))
+        else if ToolName = 'terminate_debug_session' then
+          SendResponse(ID, HandleTerminateDebugSession(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -749,6 +767,36 @@ begin
   finally
     StateObj.Free;
   end;
+end;
+
+function TMcpServer.HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
+begin
+  if not RequireState([dsPaused, dsRunning], Result) then
+    Exit;
+
+  FDebugger.OnBreakpoint := nil;
+  FDebugger.OnStepped := nil;
+  FDebugger.OnProcessExit := nil;
+  FDebugger.OnException := nil;
+  FDebugger.Detach;
+  FState := dsNoSession;
+  FDebugger := nil;
+  Result := MakeTextResult('Debug session stopped. The process continues running.');
+end;
+
+function TMcpServer.HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
+begin
+  if not RequireState([dsPaused, dsRunning], Result) then
+    Exit;
+
+  FDebugger.OnBreakpoint := nil;
+  FDebugger.OnStepped := nil;
+  FDebugger.OnProcessExit := nil;
+  FDebugger.OnException := nil;
+  FDebugger.Terminate;
+  FState := dsNoSession;
+  FDebugger := nil;
+  Result := MakeTextResult('Debug session terminated. The process has been killed.');
 end;
 
 function TMcpServer.HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
