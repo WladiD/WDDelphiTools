@@ -151,11 +151,21 @@ Available Actions:
 
   McpDebugger
     Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.
-    The server runs continuously in the background and provides tools for AI agents (like Gemini) to:
-      - Start debug sessions dynamically (start_debug_session)
-      - Set hardware breakpoints (set_breakpoint)
-      - Control execution (continue, step_into, step_over)
-      - Inspect state (get_stack_trace, get_registers, get_stack_slots, read_global_variable)
+    The server runs continuously in the background and provides the following tools for AI agents:
+      - start_debug_session:   Starts a new debug session for the specified executable
+      - set_breakpoint:        Sets a hardware breakpoint in a Delphi unit at a specific line
+      - list_breakpoints:      Lists all currently set hardware breakpoints
+      - remove_breakpoint:     Removes an existing hardware breakpoint
+      - continue:              Continues execution of the debugged process (asynchronous)
+      - step_into:             Steps into the next source line, entering function calls
+      - step_over:             Steps over the current source line, skipping function calls
+      - get_stack_trace:       Returns the current call stack of the debugged process
+      - get_registers:         Returns the current CPU registers
+      - get_stack_slots:       Returns a list of stack slots with interpretation
+      - get_stack_memory:      Reads the memory of the current stack frame
+      - read_memory:           Reads a range of memory from the debugged process
+      - read_global_variable:  Reads the value of a global variable by name
+      - get_proc_asm:          Returns the assembly bytes of the current procedure
     Example: DPT LATEST McpDebugger
 
   OpenUnit <FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]
