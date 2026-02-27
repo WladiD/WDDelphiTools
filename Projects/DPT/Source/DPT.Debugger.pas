@@ -1,4 +1,4 @@
-﻿unit DPT.Debugger;
+unit DPT.Debugger;
 
 interface
 
@@ -68,7 +68,9 @@ type
   TStepType = (stNone, stInto, stOver);
 
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
+  TOnSteppedEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
   TOnExceptionEvent = procedure(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean) of object;
+  TOnProcessExitEvent = procedure(Sender: TObject; ExitCode: DWORD) of object;
 
   TDebugger = class
   private
@@ -81,7 +83,10 @@ type
     FBreakpoints: TObjectList<TBreakpoint>;
     FActiveThreads: TList<THandle>;
     FOnBreakpoint: TOnBreakpointEvent;
+    FOnStepped: TOnSteppedEvent;
     FOnException: TOnExceptionEvent;
+    FOnProcessExit: TOnProcessExitEvent;
+    FBreakpointLock: TCriticalSection;
 
     FContinueEvent: TEvent;
     FBreakpointHitEvent: TEvent;
@@ -115,7 +120,7 @@ type
     function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
 
-    procedure SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
+    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
     procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ClearAllBreakpoints;
     procedure StartDebugging(const AExecutablePath: string);
@@ -134,7 +139,10 @@ type
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
 
     property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
+    property OnStepped: TOnSteppedEvent read FOnStepped write FOnStepped;
     property OnException: TOnExceptionEvent read FOnException write FOnException;
+    property OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
+    property BreakpointLock: TCriticalSection read FBreakpointLock;
     property LastThreadHit: THandle read FLastThreadHit;
     property LastException: TExceptionRecord read FLastException;
     property LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
@@ -194,6 +202,7 @@ begin
   inherited Create;
   FBreakpoints := TObjectList<TBreakpoint>.Create(True);
   FActiveThreads := TList<THandle>.Create;
+  FBreakpointLock := TCriticalSection.Create;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
@@ -211,6 +220,7 @@ begin
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
   FActiveThreads.Free;
+  FBreakpointLock.Free;
   FBreakpoints.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then CloseHandle(FProcessHandle);
@@ -564,45 +574,60 @@ begin
 
   Context.Dr7 := Context.Dr7 and not $FF;
 
-  BPCount := 0;
-  for I := 0 to FBreakpoints.Count - 1 do
-  begin
-    if (FBreakpoints[I].Address <> nil) and (BPCount < 4) then
+  FBreakpointLock.Enter;
+  try
+    BPCount := 0;
+    for I := 0 to FBreakpoints.Count - 1 do
     begin
-      FBreakpoints[I].Slot := BPCount;
-      SetHardwareBreakpointInContext(Context, FBreakpoints[I].Address, BPCount);
-      Inc(BPCount);
+      if (FBreakpoints[I].Address <> nil) and (BPCount < 4) then
+      begin
+        FBreakpoints[I].Slot := BPCount;
+        SetHardwareBreakpointInContext(Context, FBreakpoints[I].Address, BPCount);
+        Inc(BPCount);
+      end;
     end;
+  finally
+    FBreakpointLock.Leave;
   end;
 
   SetThreadContext(AThreadHandle, Context);
 end;
 
-procedure TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer);
+function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
 var
   Addr: Pointer;
   BP: TBreakpoint;
 begin
-  if FBreakpoints.Count >= 4 then Exit;
+  FBreakpointLock.Enter;
+  try
+    if FBreakpoints.Count >= 4 then
+      Exit(False);
 
-  Addr := nil;
-  if FBaseAddress <> 0 then
-    Addr := GetAddressFromUnitLine(AUnitName, ALineNumber);
+    Addr := nil;
+    if FBaseAddress <> 0 then
+      Addr := GetAddressFromUnitLine(AUnitName, ALineNumber);
 
-  BP := TBreakpoint.Create(AUnitName, ALineNumber, Addr);
-  FBreakpoints.Add(BP);
+    BP := TBreakpoint.Create(AUnitName, ALineNumber, Addr);
+    FBreakpoints.Add(BP);
+    Result := True;
+  finally
+    FBreakpointLock.Leave;
+  end;
 end;
 
 procedure TDebugger.RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
 var
   I: Integer;
 begin
-  for I := FBreakpoints.Count - 1 downto 0 do
-  begin
-    if SameText(FBreakpoints[I].UnitName, AUnitName) and (FBreakpoints[I].LineNumber = ALineNumber) then
+  FBreakpointLock.Enter;
+  try
+    for I := FBreakpoints.Count - 1 downto 0 do
     begin
-      FBreakpoints.Delete(I);
+      if SameText(FBreakpoints[I].UnitName, AUnitName) and (FBreakpoints[I].LineNumber = ALineNumber) then
+        FBreakpoints.Delete(I);
     end;
+  finally
+    FBreakpointLock.Leave;
   end;
 end;
 
@@ -700,6 +725,7 @@ begin
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, CurLine, Stack[0].Address);
               FLastThreadHit := CurrentThread;
               FBreakpointHitEvent.SetEvent;
+              if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
               FContinueEvent.ResetEvent;
               FContinueEvent.WaitFor(INFINITE);
               if FStepType <> stNone then Context.EFlags := Context.EFlags or $100;
@@ -796,6 +822,7 @@ begin
 
             FLastThreadHit := CurrentThread;
             FBreakpointHitEvent.SetEvent;
+            if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
             FContinueEvent.ResetEvent;
             FContinueEvent.WaitFor(INFINITE);
 
@@ -904,6 +931,8 @@ begin
         LRunning := False;
         FLastBreakpointHit := nil;
         FLastException.ExceptionCode := 0;
+        if Assigned(FOnProcessExit) then
+          FOnProcessExit(Self, DebugEvent.ExitProcess.dwExitCode);
       end;
     end;
 
