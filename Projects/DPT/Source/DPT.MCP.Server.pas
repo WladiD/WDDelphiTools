@@ -32,15 +32,15 @@ type
     FPendingBreakpoints: TObjectList<TBreakpoint>;
     FState             : TDebugState;
     function  GetBreakpointCount: Integer;
-    function  MakeErrorResult(const AText: string): TJSONObject;
-    function  MakeTextResult(const AText: string): TJSONObject;
-    procedure ProcessMessage(const AMessage: string);
+    function  MakeErrorResult(const AText: String): TJSONObject;
+    function  MakeTextResult(const AText: String): TJSONObject;
+    procedure ProcessMessage(const AMessage: String);
     function  RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
-    procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
-    procedure SendNotification(const AMethod: string; AParams: TJSONObject);
+    procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: String);
+    procedure SendNotification(const AMethod: String; AParams: TJSONObject);
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
-    procedure SendSamplingRequest(const AText: string);
-    procedure WriteOutput(const AJSON: string);
+    procedure SendSamplingRequest(const AText: String);
+    procedure WriteOutput(const AJSON: String);
   private // Tool handlers
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
@@ -113,7 +113,7 @@ begin
   inherited Destroy;
 end;
 
-procedure TMcpServer.WriteOutput(const AJSON: string);
+procedure TMcpServer.WriteOutput(const AJSON: String);
 begin
   FOutputLock.Enter;
   try
@@ -148,7 +148,7 @@ begin
   end;
 end;
 
-procedure TMcpServer.SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
+procedure TMcpServer.SendError(const AID: TJSONValue; ACode: Integer; const AMessage: String);
 var
   Err : TJSONObject;
   Resp: TJSONObject;
@@ -169,7 +169,7 @@ begin
   end;
 end;
 
-procedure TMcpServer.SendNotification(const AMethod: string; AParams: TJSONObject);
+procedure TMcpServer.SendNotification(const AMethod: String; AParams: TJSONObject);
 var
   Notif: TJSONObject;
 begin
@@ -184,7 +184,7 @@ begin
   end;
 end;
 
-procedure TMcpServer.SendSamplingRequest(const AText: string);
+procedure TMcpServer.SendSamplingRequest(const AText: String);
 var
   ContentObj: TJSONObject;
   IDStr     : String;
@@ -222,7 +222,7 @@ begin
   end;
 end;
 
-function TMcpServer.MakeTextResult(const AText: string): TJSONObject;
+function TMcpServer.MakeTextResult(const AText: String): TJSONObject;
 var
   ContentArr: TJSONArray;
 begin
@@ -232,7 +232,7 @@ begin
   Result.AddPair('content', ContentArr);
 end;
 
-function TMcpServer.MakeErrorResult(const AText: string): TJSONObject;
+function TMcpServer.MakeErrorResult(const AText: String): TJSONObject;
 var
   ContentArr: TJSONArray;
 begin
@@ -344,7 +344,7 @@ begin
   AHandled := True;
 end;
 
-procedure TMcpServer.ProcessMessage(const AMessage: string);
+procedure TMcpServer.ProcessMessage(const AMessage: String);
 var
   ID       : TJSONValue;
   JSON     : TJSONObject;
