@@ -1,4 +1,4 @@
-unit DPT.MCP.Server;
+﻿unit DPT.MCP.Server;
 
 interface
 
@@ -24,27 +24,24 @@ type
 
   TMcpServer = class
   private
-    FDebugger: TDebugger;
-    FExitRequest: Boolean;
-    FInputReader: TTextReader;
-    FOutputWriter: TTextWriter;
-    FOutputLock: TCriticalSection;
-    FState: TDebugState;
+    FDebugger          : TDebugger;
+    FExitRequest       : Boolean;
+    FInputReader       : TTextReader;
+    FOutputLock        : TCriticalSection;
+    FOutputWriter      : TTextWriter;
     FPendingBreakpoints: TObjectList<TBreakpoint>;
+    FState             : TDebugState;
+    function  GetBreakpointCount: Integer;
+    function  MakeErrorResult(const AText: string): TJSONObject;
+    function  MakeTextResult(const AText: string): TJSONObject;
     procedure ProcessMessage(const AMessage: string);
-    procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
+    function  RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
     procedure SendNotification(const AMethod: string; AParams: TJSONObject);
+    procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure SendSamplingRequest(const AText: string);
     procedure WriteOutput(const AJSON: string);
-
-    function MakeTextResult(const AText: string): TJSONObject;
-    function MakeErrorResult(const AText: string): TJSONObject;
-    function RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
-
-    function GetBreakpointCount: Integer;
-
-    // Tool handlers
+  private // Tool handlers
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
@@ -62,14 +59,14 @@ type
     function HandleGetState(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
-
-    procedure OnDebuggerException(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean);
-    procedure OnDebuggerBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
-    procedure OnDebuggerStepped(Sender: TObject; Breakpoint: TBreakpoint);
-    procedure OnDebuggerProcessExit(Sender: TObject; ExitCode: DWORD);
+  private // Event handler
+    procedure DebuggerBreakpointHandler(ASender: TObject; ABreakpoint: TBreakpoint);
+    procedure DebuggerExceptionHandler(ASender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
+    procedure DebuggerProcessExitHandler(ASender: TObject; AExitCode: DWORD);
+    procedure DebuggerSteppedHandler(ASender: TObject; ABreakpoint: TBreakpoint);
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
-    destructor Destroy; override;
+    destructor  Destroy; override;
     procedure Run;
     procedure RunOnce;
     property State: TDebugState read FState;
@@ -91,10 +88,10 @@ begin
 
   if Assigned(FDebugger) then
   begin
-    FDebugger.OnException := OnDebuggerException;
-    FDebugger.OnBreakpoint := OnDebuggerBreakpoint;
-    FDebugger.OnStepped := OnDebuggerStepped;
-    FDebugger.OnProcessExit := OnDebuggerProcessExit;
+    FDebugger.OnException := DebuggerExceptionHandler;
+    FDebugger.OnBreakpoint := DebuggerBreakpointHandler;
+    FDebugger.OnStepped := DebuggerSteppedHandler;
+    FDebugger.OnProcessExit := DebuggerProcessExitHandler;
     FState := dsPaused;
   end
   else
@@ -152,7 +149,8 @@ end;
 
 procedure TMcpServer.SendError(const AID: TJSONValue; ACode: Integer; const AMessage: string);
 var
-  Resp, Err: TJSONObject;
+  Err : TJSONObject;
+  Resp: TJSONObject;
 begin
   Resp := TJSONObject.Create;
   try
@@ -187,9 +185,12 @@ end;
 
 procedure TMcpServer.SendSamplingRequest(const AText: string);
 var
-  Req, Params, ContentObj, MsgObj: TJSONObject;
-  MsgArr: TJSONArray;
-  IDStr: string;
+  ContentObj: TJSONObject;
+  IDStr     : String;
+  MsgArr    : TJSONArray;
+  MsgObj    : TJSONObject;
+  Params    : TJSONObject;
+  Req       : TJSONObject;
 begin
   IDStr := 'smpl_' + IntToStr(GetTickCount);
   Req := TJSONObject.Create;
@@ -243,8 +244,8 @@ end;
 
 function TMcpServer.RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
 var
-  S: TDebugState;
-  StateNames: array[TDebugState] of string;
+  S         : TDebugState;
+  StateNames: Array[TDebugState] of String;
 begin
   StateNames[dsNoSession] := 'no_session';
   StateNames[dsPaused] := 'paused';
@@ -266,19 +267,19 @@ begin
     Result := Result + FDebugger.Breakpoints.Count;
 end;
 
-procedure TMcpServer.OnDebuggerBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
+procedure TMcpServer.DebuggerBreakpointHandler(ASender: TObject; ABreakpoint: TBreakpoint);
 var
   Params: TJSONObject;
-  LMsg: string;
+  LMsg  : String;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
   Params.AddPair('reason', 'breakpoint');
-  if Breakpoint <> nil then
+  if ABreakpoint <> nil then
   begin
-    Params.AddPair('unit', Breakpoint.UnitName);
-    Params.AddPair('line', TJSONNumber.Create(Breakpoint.LineNumber));
-    LMsg := Format('The debugger stopped at a breakpoint in %s line %d.', [Breakpoint.UnitName, Breakpoint.LineNumber]);
+    Params.AddPair('unit', ABreakpoint.UnitName);
+    Params.AddPair('line', TJSONNumber.Create(ABreakpoint.LineNumber));
+    LMsg := Format('The debugger stopped at a breakpoint in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
   end
   else
     LMsg := 'The debugger stopped at a breakpoint.';
@@ -287,19 +288,19 @@ begin
   SendSamplingRequest(LMsg);
 end;
 
-procedure TMcpServer.OnDebuggerStepped(Sender: TObject; Breakpoint: TBreakpoint);
+procedure TMcpServer.DebuggerSteppedHandler(ASender: TObject; ABreakpoint: TBreakpoint);
 var
   Params: TJSONObject;
-  LMsg: string;
+  LMsg  : String;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
   Params.AddPair('reason', 'step');
-  if Breakpoint <> nil then
+  if ABreakpoint <> nil then
   begin
-    Params.AddPair('unit', Breakpoint.UnitName);
-    Params.AddPair('line', TJSONNumber.Create(Breakpoint.LineNumber));
-    LMsg := Format('The debugger stopped after a step in %s line %d.', [Breakpoint.UnitName, Breakpoint.LineNumber]);
+    Params.AddPair('unit', ABreakpoint.UnitName);
+    Params.AddPair('line', TJSONNumber.Create(ABreakpoint.LineNumber));
+    LMsg := Format('The debugger stopped after a step in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
   end
   else
     LMsg := 'The debugger stopped after a step.';
@@ -308,27 +309,27 @@ begin
   SendSamplingRequest(LMsg);
 end;
 
-procedure TMcpServer.OnDebuggerProcessExit(Sender: TObject; ExitCode: DWORD);
+procedure TMcpServer.DebuggerProcessExitHandler(ASender: TObject; AExitCode: DWORD);
 var
   Params: TJSONObject;
 begin
   FState := dsExited;
   Params := TJSONObject.Create;
   Params.AddPair('reason', 'exited');
-  Params.AddPair('exitCode', TJSONNumber.Create(ExitCode));
+  Params.AddPair('exitCode', TJSONNumber.Create(AExitCode));
   SendNotification('notifications/stopped', Params);
 end;
 
-procedure TMcpServer.OnDebuggerException(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean);
+procedure TMcpServer.DebuggerExceptionHandler(ASender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
 var
   Params: TJSONObject;
-  Stack: TArray<TStackFrame>;
+  Stack : TArray<TStackFrame>;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
-  Params.AddPair('code', Format('%08x', [ExceptionRecord.ExceptionCode]));
-  Params.AddPair('address', Format('%p', [ExceptionRecord.ExceptionAddress]));
-  Params.AddPair('firstChance', TJSONBool.Create(FirstChance));
+  Params.AddPair('code', Format('%08x', [AExceptionRecord.ExceptionCode]));
+  Params.AddPair('address', Format('%p', [AExceptionRecord.ExceptionAddress]));
+  Params.AddPair('firstChance', TJSONBool.Create(AFirstChance));
 
   Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
   if Length(Stack) > 0 then
@@ -339,17 +340,16 @@ begin
   end;
 
   SendNotification('notifications/debugger_exception', Params);
-
-  Handled := True;
+  AHandled := True;
 end;
 
 procedure TMcpServer.ProcessMessage(const AMessage: string);
 var
-  JSON: TJSONObject;
-  ID: TJSONValue;
+  ID       : TJSONValue;
+  JSON     : TJSONObject;
+  Method   : String;
   MethodVal: TJSONValue;
-  Method: string;
-  Params: TJSONObject;
+  Params   : TJSONObject;
   ResultObj: TJSONObject;
 begin
   try
@@ -725,10 +725,10 @@ begin
     LArgs := '';
 
   FDebugger := TDebugger.Create;
-  FDebugger.OnException := OnDebuggerException;
-  FDebugger.OnBreakpoint := OnDebuggerBreakpoint;
-  FDebugger.OnStepped := OnDebuggerStepped;
-  FDebugger.OnProcessExit := OnDebuggerProcessExit;
+  FDebugger.OnException := DebuggerExceptionHandler;
+  FDebugger.OnBreakpoint := DebuggerBreakpointHandler;
+  FDebugger.OnStepped := DebuggerSteppedHandler;
+  FDebugger.OnProcessExit := DebuggerProcessExitHandler;
 
   MapFile := ChangeFileExt(LExePath, '.map');
   if FileExists(MapFile) then
