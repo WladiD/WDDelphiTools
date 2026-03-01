@@ -37,7 +37,7 @@ type
     function  MakeErrorResult(const AText: String): TJSONObject;
     function  MakeTextResult(const AText: String): TJSONObject;
     procedure ProcessMessage(const AMessage: String);
-    function  RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
+    function  RequireState(const AAllowed: Array of TDebugState; out AResult: TJSONObject): Boolean;
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: String);
     procedure SendNotification(const AMethod: String; AParams: TJSONObject);
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
@@ -236,7 +236,7 @@ begin
   Result.AddPair('isError', TJSONBool.Create(True));
 end;
 
-function TMcpServer.RequireState(const AAllowed: array of TDebugState; out AResult: TJSONObject): Boolean;
+function TMcpServer.RequireState(const AAllowed: Array of TDebugState; out AResult: TJSONObject): Boolean;
 var
   S         : TDebugState;
   StateNames: Array[TDebugState] of String;
@@ -263,8 +263,8 @@ end;
 
 procedure TMcpServer.DebuggerBreakpointHandler(ASender: TObject; ABreakpoint: TBreakpoint);
 var
+  Msg   : String;
   Params: TJSONObject;
-  LMsg  : String;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
@@ -273,19 +273,19 @@ begin
   begin
     Params.AddPair('unit', ABreakpoint.UnitName);
     Params.AddPair('line', TJSONNumber.Create(ABreakpoint.LineNumber));
-    LMsg := Format('The debugger stopped at a breakpoint in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
+    Msg := Format('The debugger stopped at a breakpoint in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
   end
   else
-    LMsg := 'The debugger stopped at a breakpoint.';
+    Msg := 'The debugger stopped at a breakpoint.';
 
   SendNotification('notifications/stopped', Params);
-  SendSamplingRequest(LMsg);
+  SendSamplingRequest(Msg);
 end;
 
 procedure TMcpServer.DebuggerSteppedHandler(ASender: TObject; ABreakpoint: TBreakpoint);
 var
+  Msg   : String;
   Params: TJSONObject;
-  LMsg  : String;
 begin
   FState := dsPaused;
   Params := TJSONObject.Create;
@@ -294,13 +294,13 @@ begin
   begin
     Params.AddPair('unit', ABreakpoint.UnitName);
     Params.AddPair('line', TJSONNumber.Create(ABreakpoint.LineNumber));
-    LMsg := Format('The debugger stopped after a step in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
+    Msg := Format('The debugger stopped after a step in %s line %d.', [ABreakpoint.UnitName, ABreakpoint.LineNumber]);
   end
   else
-    LMsg := 'The debugger stopped after a step.';
+    Msg := 'The debugger stopped after a step.';
 
   SendNotification('notifications/stopped', Params);
-  SendSamplingRequest(LMsg);
+  SendSamplingRequest(Msg);
 end;
 
 procedure TMcpServer.DebuggerProcessExitHandler(ASender: TObject; AExitCode: DWORD);
@@ -375,7 +375,8 @@ begin
     try
       ID := JSON.GetValue('id');
       MethodVal := JSON.GetValue('method');
-      if MethodVal = nil then Exit;
+      if MethodVal = nil then
+        Exit;
       Method := MethodVal.Value;
       Params := JSON.GetValue('params') as TJSONObject;
 
@@ -654,7 +655,6 @@ end;
 
 function TMcpServer.HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
 var
-  I    : Integer;
   LLine: Integer;
   LUnit: String;
 begin
@@ -666,7 +666,7 @@ begin
 
   if FState = dsNoSession then
   begin
-    for I := FPendingBreakpoints.Count - 1 downto 0 do
+    for var I: Integer := FPendingBreakpoints.Count - 1 downto 0 do
     begin
       if SameText(FPendingBreakpoints[I].UnitName, LUnit) and (FPendingBreakpoints[I].LineNumber = LLine) then
         FPendingBreakpoints.Delete(I);
@@ -1066,7 +1066,8 @@ begin
   begin
     Data := FDebugger.ReadProcessMemory(FrameInfo.StartAddress, 64);
     Hex := '';
-    for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
+    for var B in Data do
+      Hex := Hex + IntToHex(B, 2) + ' ';
     Result := MakeTextResult(Format('Procedure: %s, Start: %p, Bytes: %s', [FrameInfo.ProcedureName, FrameInfo.StartAddress, Hex.Trim]));
   end
   else
