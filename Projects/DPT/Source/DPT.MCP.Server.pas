@@ -31,6 +31,8 @@ type
     FOutputWriter      : TTextWriter;
     FPendingBreakpoints: TObjectList<TBreakpoint>;
     FState             : TDebugState;
+    procedure ConnectDebuggerEvents;
+    procedure DisconnectDebuggerEvents;
     function  GetBreakpointCount: Integer;
     function  MakeErrorResult(const AText: String): TJSONObject;
     function  MakeTextResult(const AText: String): TJSONObject;
@@ -65,7 +67,6 @@ type
     procedure DebuggerExceptionHandler(ASender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
     procedure DebuggerProcessExitHandler(ASender: TObject; AExitCode: DWORD);
     procedure DebuggerSteppedHandler(ASender: TObject; ABreakpoint: TBreakpoint);
-    procedure DisconnectDebuggerEvents;
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
     destructor  Destroy; override;
@@ -90,10 +91,7 @@ begin
 
   if Assigned(FDebugger) then
   begin
-    FDebugger.OnException := DebuggerExceptionHandler;
-    FDebugger.OnBreakpoint := DebuggerBreakpointHandler;
-    FDebugger.OnStepped := DebuggerSteppedHandler;
-    FDebugger.OnProcessExit := DebuggerProcessExitHandler;
+    ConnectDebuggerEvents;
     FState := dsPaused;
   end
   else
@@ -337,6 +335,17 @@ begin
 
   SendNotification('notifications/debugger_exception', Params);
   AHandled := True;
+end;
+
+procedure TMcpServer.ConnectDebuggerEvents;
+begin
+  if Assigned(FDebugger) then
+  begin
+    FDebugger.OnException := DebuggerExceptionHandler;
+    FDebugger.OnBreakpoint := DebuggerBreakpointHandler;
+    FDebugger.OnStepped := DebuggerSteppedHandler;
+    FDebugger.OnProcessExit := DebuggerProcessExitHandler;
+  end;
 end;
 
 procedure TMcpServer.DisconnectDebuggerEvents;
@@ -736,10 +745,7 @@ begin
     Args := '';
 
   FDebugger := TDebugger.Create;
-  FDebugger.OnException := DebuggerExceptionHandler;
-  FDebugger.OnBreakpoint := DebuggerBreakpointHandler;
-  FDebugger.OnStepped := DebuggerSteppedHandler;
-  FDebugger.OnProcessExit := DebuggerProcessExitHandler;
+  ConnectDebuggerEvents;
 
   MapFile := ChangeFileExt(ExePath, '.map');
   if FileExists(MapFile) then
