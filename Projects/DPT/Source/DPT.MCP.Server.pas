@@ -65,6 +65,7 @@ type
     procedure DebuggerExceptionHandler(ASender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
     procedure DebuggerProcessExitHandler(ASender: TObject; AExitCode: DWORD);
     procedure DebuggerSteppedHandler(ASender: TObject; ABreakpoint: TBreakpoint);
+    procedure DisconnectDebuggerEvents;
   public
     constructor Create(ADebugger: TDebugger; AInput: TTextReader = nil; AOutput: TTextWriter = nil);
     destructor  Destroy; override;
@@ -101,13 +102,7 @@ end;
 
 destructor TMcpServer.Destroy;
 begin
-  if Assigned(FDebugger) then
-  begin
-    FDebugger.OnException := nil;
-    FDebugger.OnBreakpoint := nil;
-    FDebugger.OnStepped := nil;
-    FDebugger.OnProcessExit := nil;
-  end;
+  DisconnectDebuggerEvents;
   FPendingBreakpoints.Free;
   FOutputLock.Free;
   inherited Destroy;
@@ -342,6 +337,17 @@ begin
 
   SendNotification('notifications/debugger_exception', Params);
   AHandled := True;
+end;
+
+procedure TMcpServer.DisconnectDebuggerEvents;
+begin
+  if Assigned(FDebugger) then
+  begin
+    FDebugger.OnException := nil;
+    FDebugger.OnBreakpoint := nil;
+    FDebugger.OnStepped := nil;
+    FDebugger.OnProcessExit := nil;
+  end;
 end;
 
 procedure TMcpServer.ProcessMessage(const AMessage: String);
@@ -842,10 +848,7 @@ begin
   if not RequireState([dsPaused, dsRunning], Result) then
     Exit;
 
-  FDebugger.OnBreakpoint := nil;
-  FDebugger.OnStepped := nil;
-  FDebugger.OnProcessExit := nil;
-  FDebugger.OnException := nil;
+  DisconnectDebuggerEvents;
   FDebugger.Detach;
   FState := dsNoSession;
   FDebugger := nil;
@@ -857,10 +860,7 @@ begin
   if not RequireState([dsPaused, dsRunning], Result) then
     Exit;
 
-  FDebugger.OnBreakpoint := nil;
-  FDebugger.OnStepped := nil;
-  FDebugger.OnProcessExit := nil;
-  FDebugger.OnException := nil;
+  DisconnectDebuggerEvents;
   FDebugger.Terminate;
   FState := dsNoSession;
   FDebugger := nil;
