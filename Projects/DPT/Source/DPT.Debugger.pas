@@ -1,3 +1,9 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit DPT.Debugger;
 
 interface
@@ -28,41 +34,45 @@ type
 
   TBreakpoint = class
   public
-    UnitName: string;
+    Address   : Pointer;
+    IsActive  : Boolean;
     LineNumber: Integer;
-    Address: Pointer;
-    Slot: Integer; // 0..3 for DR0..DR3
-    IsActive: Boolean;
+    Slot      : Integer; // 0..3 for DR0..DR3
+    UnitName  : String;
     constructor Create(const AUnitName: string; ALineNumber: Integer; AAddress: Pointer);
   end;
 
   TStackFrame = record
-    Address: Pointer;
-    UnitName: string;
-    ProcedureName: string;
-    LineNumber: Integer;
+    Address      : Pointer;
+    LineNumber   : Integer;
+    ProcedureName: String;
+    UnitName     : String;
   end;
 
   TRegisters = record
-    Eip: UIntPtr;
-    Esp: UIntPtr;
-    Ebp: UIntPtr;
-    Eax, Ebx, Ecx, Edx: UIntPtr;
-    Esi, Edi: UIntPtr;
+    Eip   : UIntPtr;
+    Esp   : UIntPtr;
+    Ebp   : UIntPtr;
+    Eax   : UIntPtr;
+    Ebx   : UIntPtr;
+    Ecx   : UIntPtr;
+    Edx   : UIntPtr;
+    Esi   : UIntPtr;
+    Edi   : UIntPtr;
     EFlags: DWORD;
   end;
 
   TStackSlot = record
-    Offset: Integer; // Offset from EBP
-    Address: Pointer;
-    Value: UIntPtr;
-    Interpretation: string;
+    Address       : Pointer;
+    Interpretation: String;
+    Offset        : Integer; // Offset from EBP
+    Value         : UIntPtr;
   end;
 
   TStackFrameInfo = record
-    ProcedureName: string;
-    StartAddress: Pointer;
-    LocalSize: Integer;
+    LocalSize    : Integer;
+    ProcedureName: String;
+    StartAddress : Pointer;
   end;
 
   TStepType = (stNone, stInto, stOver);
@@ -74,98 +84,90 @@ type
 
   TDebugger = class
   private
-    FProcessId: DWORD;
-    FThreadId: DWORD;
-    FProcessHandle: THandle;
-    FThreadHandle: THandle;
-    FBaseAddress: UIntPtr;
-    FMapScanner: TJclMapScanner;
-    FBreakpoints: TObjectList<TBreakpoint>;
-    FActiveThreads: TList<THandle>;
-    FOnBreakpoint: TOnBreakpointEvent;
-    FOnStepped: TOnSteppedEvent;
-    FOnException: TOnExceptionEvent;
-    FOnProcessExit: TOnProcessExitEvent;
-    FBreakpointLock: TCriticalSection;
-
-    FContinueEvent: TEvent;
-    FBreakpointHitEvent: TEvent;
-    FReadyEvent: TEvent;
-    FFinishedEvent: TEvent;
-    FLastBreakpointHit: TBreakpoint;
-    FLastThreadHit: THandle;
-    FLastException: TExceptionRecord;
+    FActiveThreads           : TList<THandle>;
+    FBaseAddress             : UIntPtr;
+    FBreakpointHitEvent      : TEvent;
+    FBreakpointLock          : TCriticalSection;
+    FBreakpoints             : TObjectList<TBreakpoint>;
+    FContinueEvent           : TEvent;
+    FFinishedEvent           : TEvent;
+    FFirstBreak              : Boolean;
+    FLastBreakpointHit       : TBreakpoint;
+    FLastException           : TExceptionRecord;
     FLastExceptionFirstChance: Boolean;
-    FFirstBreak: Boolean;
-    FTerminated: Boolean;
-
-    FStepType: TStepType;
-    FStepStartDepth: Integer;
-    FStepStartUnit: string;
-    FStepStartLine: Integer;
-    FStepReturnBP: TBreakpoint;
-
-    procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
+    FLastThreadHit           : THandle;
+    FMapScanner              : TJclMapScanner;
+    FOnBreakpoint            : TOnBreakpointEvent;
+    FOnException             : TOnExceptionEvent;
+    FOnProcessExit           : TOnProcessExitEvent;
+    FOnStepped               : TOnSteppedEvent;
+    FProcessHandle           : THandle;
+    FProcessId               : DWORD;
+    FReadyEvent              : TEvent;
+    FStepReturnBP            : TBreakpoint;
+    FStepStartDepth          : Integer;
+    FStepStartLine           : Integer;
+    FStepStartUnit           : String;
+    FStepType                : TStepType;
+    FTerminated              : Boolean;
+    FThreadHandle            : THandle;
+    FThreadId                : DWORD;
+    procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
+    procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleExitThread(const ADebugEvent: TDebugEvent);
-    procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
+    function  ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
-    function ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
   public
     constructor Create;
     destructor Destroy; override;
-
-    procedure LoadMapFile(const AMapFileName: string);
-    function GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
-    function GetAddressFromSymbol(const ASymbolName: string): Pointer;
-
-    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean; overload;
-    function SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean; overload;
-    procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ClearAllBreakpoints;
-    procedure StartDebugging(const AExecutablePath: string);
-    procedure Terminate;
     procedure Detach;
-
+    function  GetAddressFromSymbol(const ASymbolName: string): Pointer;
+    function  GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
+    function  GetRegisters(AThreadHandle: THandle): TRegisters;
+    function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
+    function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
+    function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+    procedure LoadMapFile(const AMapFileName: string);
+    function  ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
+    procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ResumeExecution;
+    function  SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean; overload;
+    function  SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean; overload;
+    procedure StartDebugging(const AExecutablePath: string);
     procedure StepInto;
     procedure StepOver;
+    procedure Terminate;
+    function  WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     procedure WaitForReady(Timeout: DWORD = INFINITE);
-    function WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
-
-    function GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
-    function GetRegisters(AThreadHandle: THandle): TRegisters;
-    function GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
-    function GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
-    function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
-
-    property OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
-    property OnStepped: TOnSteppedEvent read FOnStepped write FOnStepped;
-    property OnException: TOnExceptionEvent read FOnException write FOnException;
-    property OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
-    property BreakpointLock: TCriticalSection read FBreakpointLock;
-    property LastThreadHit: THandle read FLastThreadHit;
-    property LastException: TExceptionRecord read FLastException;
-    property LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
-    property Breakpoints: TObjectList<TBreakpoint> read FBreakpoints;
+    property  BreakpointLock: TCriticalSection read FBreakpointLock;
+    property  Breakpoints: TObjectList<TBreakpoint> read FBreakpoints;
+    property  LastException: TExceptionRecord read FLastException;
+    property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
+    property  LastThreadHit: THandle read FLastThreadHit;
+    property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
+    property  OnException: TOnExceptionEvent read FOnException write FOnException;
+    property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
+    property  OnStepped: TOnSteppedEvent read FOnStepped write FOnStepped;
   end;
 
   TDebuggerThread = class(TThread)
   private
-    FDebugger: TDebugger;
-    FExecutablePath: string;
+    FDebugger      : TDebugger;
+    FExecutablePath: String;
   protected
     procedure Execute; override;
   public
-    constructor Create(ADebugger: TDebugger; const AExecutablePath: string);
+    constructor Create(ADebugger: TDebugger; const AExecutablePath: String);
   end;
 
 implementation
 
 { TDebuggerThread }
 
-constructor TDebuggerThread.Create(ADebugger: TDebugger; const AExecutablePath: string);
+constructor TDebuggerThread.Create(ADebugger: TDebugger; const AExecutablePath: String);
 begin
   inherited Create(False);
   FDebugger := ADebugger;
@@ -187,7 +189,7 @@ end;
 
 { TBreakpoint }
 
-constructor TBreakpoint.Create(const AUnitName: string; ALineNumber: Integer; AAddress: Pointer);
+constructor TBreakpoint.Create(const AUnitName: String; ALineNumber: Integer; AAddress: Pointer);
 begin
   inherited Create;
   UnitName := AUnitName;
@@ -225,14 +227,17 @@ begin
   FBreakpointLock.Free;
   FBreakpoints.Free;
   FMapScanner.Free;
-  if FProcessHandle <> 0 then CloseHandle(FProcessHandle);
-  if FThreadHandle <> 0 then CloseHandle(FThreadHandle);
+  if FProcessHandle <> 0 then
+    CloseHandle(FProcessHandle);
+  if FThreadHandle <> 0 then
+    CloseHandle(FThreadHandle);
   inherited Destroy;
 end;
 
 procedure TDebugger.Terminate;
 begin
-  if FTerminated then Exit;
+  if FTerminated then
+    Exit;
   FTerminated := True;
 
   if FProcessHandle <> 0 then
@@ -244,13 +249,12 @@ end;
 
 procedure TDebugger.Detach;
 var
-  I: Integer;
   Context: TContext;
 begin
   if FTerminated then Exit;
   FTerminated := True;
 
-  for I := 0 to FActiveThreads.Count - 1 do
+  for var I: Integer := 0 to FActiveThreads.Count - 1 do
   begin
     Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
     if GetThreadContext(FActiveThreads[I], Context) then
@@ -373,18 +377,17 @@ end;
 
 function TDebugger.GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer): TArray<TStackSlot>;
 var
-  Regs: TRegisters;
-  I: Integer;
-  Val: UIntPtr;
-  ResultList: TList<TStackSlot>;
-  Slot: TStackSlot;
+  Regs      : TRegisters;
   RelativeVA: DWORD;
-  SymbolName: string;
+  ResultList: TList<TStackSlot>;
+  Slot      : TStackSlot;
+  SymbolName: String;
+  Val       : UIntPtr;
 begin
   Regs := GetRegisters(AThreadHandle);
   ResultList := TList<TStackSlot>.Create;
   try
-    for I := 0 to AMaxSlots - 1 do
+    for var I: Integer := 0 to AMaxSlots - 1 do
     begin
       Slot.Offset := -(I * SizeOf(Pointer));
       Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
@@ -424,61 +427,63 @@ end;
 
 function TDebugger.GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
 var
-  Regs: TRegisters;
+  Buf       : TBytes;
+  IdxOffset : Integer;
+  P         : Integer;
+  Regs      : TRegisters;
   RelativeVA: DWORD;
-  IdxOffset: Integer;
-  Buf: TBytes;
-  P: Integer;
 begin
   FillChar(Result, SizeOf(Result), 0);
-  if not Assigned(FMapScanner) then Exit;
+  if not Assigned(FMapScanner) then
+    Exit;
 
   Regs := GetRegisters(AThreadHandle);
   RelativeVA := Regs.Eip - FBaseAddress - $1000;
 
   Result.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA, IdxOffset);
-  if Result.ProcedureName <> '' then
+  if Result.ProcedureName = '' then
+    Exit;
+
+  Result.StartAddress := Pointer(Regs.Eip - UIntPtr(IdxOffset));
+
+  // Analyze prologue
+  Buf := ReadProcessMemory(Result.StartAddress, 64);
+  if Length(Buf) >= 3 then
   begin
-    Result.StartAddress := Pointer(Regs.Eip - UIntPtr(IdxOffset));
+    P := 0;
+    // Skip push ebp (55) and mov ebp, esp (8B EC)
+    if (Buf[P] = $55) then Inc(P);
+    if (P < Length(Buf) - 1) and (Buf[P] = $8B) and (Buf[P+1] = $EC) then Inc(P, 2);
 
-    // Analyze prologue
-    Buf := ReadProcessMemory(Result.StartAddress, 64);
-    if Length(Buf) >= 3 then
+    if P < Length(Buf) then
     begin
-      P := 0;
-      // Skip push ebp (55) and mov ebp, esp (8B EC)
-      if (Buf[P] = $55) then Inc(P);
-      if (P < Length(Buf) - 1) and (Buf[P] = $8B) and (Buf[P+1] = $EC) then Inc(P, 2);
-
-      if P < Length(Buf) then
-      begin
-        // push ecx (51) - common optimization for 4-byte local
-        if (Buf[P] = $51) then
-          Result.LocalSize := 4
-        // sub esp, imm8 (83 EC XX)
-        else if (Buf[P] = $83) and (Buf[P+1] = $EC) then
-          Result.LocalSize := Buf[P+2]
-        // sub esp, imm32 (81 EC XX XX XX XX)
-        else if (Buf[P] = $81) and (Buf[P+1] = $EC) then
-          Result.LocalSize := PLongWord(@Buf[P+2])^
-        // add esp, -imm8 (83 C4 XX)
-        else if (Buf[P] = $83) and (Buf[P+1] = $C4) and (ShortInt(Buf[P+2]) < 0) then
-          Result.LocalSize := -ShortInt(Buf[P+2])
-        // add esp, -imm32 (81 C4 XX XX XX XX)
-        else if (Buf[P] = $81) and (Buf[P+1] = $C4) and (LongInt(PLongInt(@Buf[P+2])^) < 0) then
-          Result.LocalSize := -LongInt(PLongInt(@Buf[P+2])^);
-      end;
+      // push ecx (51) - common optimization for 4-byte local
+      if (Buf[P] = $51) then
+        Result.LocalSize := 4
+      // sub esp, imm8 (83 EC XX)
+      else if (Buf[P] = $83) and (Buf[P+1] = $EC) then
+        Result.LocalSize := Buf[P+2]
+      // sub esp, imm32 (81 EC XX XX XX XX)
+      else if (Buf[P] = $81) and (Buf[P+1] = $EC) then
+        Result.LocalSize := PLongWord(@Buf[P+2])^
+      // add esp, -imm8 (83 C4 XX)
+      else if (Buf[P] = $83) and (Buf[P+1] = $C4) and (ShortInt(Buf[P+2]) < 0) then
+        Result.LocalSize := -ShortInt(Buf[P+2])
+      // add esp, -imm32 (81 C4 XX XX XX XX)
+      else if (Buf[P] = $81) and (Buf[P+1] = $C4) and (LongInt(PLongInt(@Buf[P+2])^) < 0) then
+        Result.LocalSize := -LongInt(PLongInt(@Buf[P+2])^);
     end;
   end;
 end;
 
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
-  Context: TContext;
-  FramePtr, ReturnAddr: Pointer;
-  Frame: TStackFrame;
-  Frames: TList<TStackFrame>;
+  Context   : TContext;
+  Frame     : TStackFrame;
+  FramePtr  : Pointer;
+  Frames    : TList<TStackFrame>;
   RelativeVA: DWORD;
+  ReturnAddr: Pointer;
 begin
   Frames := TList<TStackFrame>.Create;
   try
@@ -532,17 +537,16 @@ end;
 
 function TDebugger.GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
 var
-  I: Integer;
-  LineInfo: TJclMapLineNumber;
-  UnitMatch: string;
-  SearchUnit: string;
+  LineInfo  : TJclMapLineNumber;
+  SearchUnit: String;
+  UnitMatch : String;
 begin
   Result := nil;
   if not Assigned(FMapScanner) then Exit;
 
   SearchUnit := ChangeFileExt(AUnitName, '');
 
-  for I := 0 to FMapScanner.LineNumbersCnt - 1 do
+  for var I: Integer := 0 to FMapScanner.LineNumbersCnt - 1 do
   begin
     LineInfo := FMapScanner.LineNumberByIndex[I];
     if LineInfo.LineNumber = ALineNumber then
@@ -560,9 +564,10 @@ end;
 
 function TDebugger.GetAddressFromSymbol(const ASymbolName: string): Pointer;
 var
-  DotPos: Integer;
-  UnitName, SymbolName: string;
-  VA: DWORD;
+  DotPos    : Integer;
+  SymbolName: String;
+  UnitName  : String;
+  VA        : DWORD;
 begin
   Result := nil;
   if not Assigned(FMapScanner) then Exit;

@@ -1,4 +1,10 @@
-﻿unit DPT.McpDebugger.Task;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit DPT.McpDebugger.Task;
 
 interface
 
