@@ -42,21 +42,22 @@ type
     procedure SendSamplingRequest(const AText: string);
     procedure WriteOutput(const AJSON: string);
   private // Tool handlers
-    function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleContinue(AParams: TJSONObject): TJSONObject;
-    function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
-    function HandleReadMemory(AParams: TJSONObject): TJSONObject;
-    function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
-    function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
-    function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
-    function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
     function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
-    function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
-    function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
+    function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
+    function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
+    function HandleGetState(AParams: TJSONObject): TJSONObject;
     function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
+    function HandleListTools(AParams: TJSONObject): TJSONObject;
+    function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
+    function HandleReadMemory(AParams: TJSONObject): TJSONObject;
+    function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
+    function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
+    function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
-    function HandleGetState(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
   private // Event handler
@@ -354,7 +355,8 @@ var
 begin
   try
     JSON := TJSONObject.ParseJSONValue(AMessage) as TJSONObject;
-    if JSON = nil then Exit;
+    if JSON = nil then
+      Exit;
     try
       ID := JSON.GetValue('id');
       MethodVal := JSON.GetValue('method');
@@ -377,164 +379,7 @@ begin
         // Handled
       end
       else if Method = 'tools/list' then
-      begin
-        var ToolsArr := TJSONArray.Create;
-
-        var ToolSetBP := TJSONObject.Create;
-        ToolSetBP.AddPair('name', 'set_breakpoint');
-        ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. The "unit" parameter is the source file name (e.g. "MyUnit.pas" or just "MyUnit" - the .pas extension is added automatically if omitted). Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Returns an error if the unit/line cannot be resolved to a code address. Typical workflow: set_breakpoint -> start_debug_session -> continue -> get_state (poll until paused) -> inspect with get_stack_trace etc.');
-        var SchemaSetBP := TJSONObject.Create;
-        SchemaSetBP.AddPair('type', 'object');
-        var PropSetBP := TJSONObject.Create;
-        PropSetBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Delphi source file name, e.g. "MyUnit.pas" or "MyUnit" (.pas is added if omitted)'));
-        PropSetBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
-        SchemaSetBP.AddPair('properties', PropSetBP);
-        var ReqArr := TJSONArray.Create;
-        ReqArr.Add('unit');
-        ReqArr.Add('line');
-        SchemaSetBP.AddPair('required', ReqArr);
-        ToolSetBP.AddPair('inputSchema', SchemaSetBP);
-        ToolsArr.Add(ToolSetBP);
-
-        var ToolRemoveBP := TJSONObject.Create;
-        ToolRemoveBP.AddPair('name', 'remove_breakpoint');
-        ToolRemoveBP.AddPair('description', 'Removes an existing hardware breakpoint by unit name and line number. Can be called before or during a debug session.');
-        var SchemaRemoveBP := TJSONObject.Create;
-        SchemaRemoveBP.AddPair('type', 'object');
-        var PropRemoveBP := TJSONObject.Create;
-        PropRemoveBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string'));
-        PropRemoveBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
-        SchemaRemoveBP.AddPair('properties', PropRemoveBP);
-        var ReqRemoveArr := TJSONArray.Create;
-        ReqRemoveArr.Add('unit');
-        ReqRemoveArr.Add('line');
-        SchemaRemoveBP.AddPair('required', ReqRemoveArr);
-        ToolRemoveBP.AddPair('inputSchema', SchemaRemoveBP);
-        ToolsArr.Add(ToolRemoveBP);
-
-        var ToolListBP := TJSONObject.Create;
-        ToolListBP.AddPair('name', 'list_breakpoints');
-        ToolListBP.AddPair('description', 'Lists all currently set hardware breakpoints. Each entry includes unit, line, and status ("pending" if set before session start, "active" if resolved to an address).');
-        ToolListBP.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolListBP);
-
-        var ToolContinue := TJSONObject.Create;
-        ToolContinue.AddPair('name', 'continue');
-        ToolContinue.AddPair('description', 'Resumes execution of the debugged process. Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"breakpoint"|"exited",...}} when execution pauses again or the process exits. If notifications are not available, poll with get_state until state is "paused" or "exited". Only callable when state is "paused".');
-        ToolContinue.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolContinue);
-
-        var ToolStepInto := TJSONObject.Create;
-        ToolStepInto.AddPair('name', 'step_into');
-        ToolStepInto.AddPair('description', 'Steps into the next source line (enters function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
-        ToolStepInto.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolStepInto);
-
-        var ToolStepOver := TJSONObject.Create;
-        ToolStepOver.AddPair('name', 'step_over');
-        ToolStepOver.AddPair('description', 'Steps over the current source line (does not enter function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
-        ToolStepOver.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolStepOver);
-
-        var ToolStack := TJSONObject.Create;
-        ToolStack.AddPair('name', 'get_stack_trace');
-        ToolStack.AddPair('description', 'Returns the current call stack as a list of frames with unit name, line number, and address. Only callable when state is "paused".');
-        ToolStack.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolStack);
-
-        var ToolReadMem := TJSONObject.Create;
-        ToolReadMem.AddPair('name', 'read_memory');
-        ToolReadMem.AddPair('description', 'Reads raw memory bytes from the debugged process at a given address. Returns a hex dump. To interpret the result, consider the data type and byte order (little-endian on x86). For example, 4 bytes for a 32-bit integer, pointer, or single float. Only callable when state is "paused".');
-        var SchemaReadMem := TJSONObject.Create;
-        SchemaReadMem.AddPair('type', 'object');
-        var PropReadMem := TJSONObject.Create;
-        PropReadMem.AddPair('address', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex address string, e.g. "00401000"'));
-        PropReadMem.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
-        SchemaReadMem.AddPair('properties', PropReadMem);
-        var ReqReadMem := TJSONArray.Create;
-        ReqReadMem.Add('address');
-        ReqReadMem.Add('size');
-        SchemaReadMem.AddPair('required', ReqReadMem);
-        ToolReadMem.AddPair('inputSchema', SchemaReadMem);
-        ToolsArr.Add(ToolReadMem);
-
-        var ToolStackMem := TJSONObject.Create;
-        ToolStackMem.AddPair('name', 'get_stack_memory');
-        ToolStackMem.AddPair('description', 'Reads the raw memory of the current stack frame (from ESP to EBP). Returns a hex dump of the stack contents. Useful for inspecting local variables and parameters. Only callable when state is "paused".');
-        ToolStackMem.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolStackMem);
-
-        var ToolReadGlobal := TJSONObject.Create;
-        ToolReadGlobal.AddPair('name', 'read_global_variable');
-        ToolReadGlobal.AddPair('description', 'Reads raw bytes of a global variable by its qualified name (e.g. "UnitName.VarName"). Returns a hex dump. You must specify the expected size in bytes (e.g. 4 for Integer/Pointer, 8 for Int64/Double, 256 for ShortString). Interpret the hex result according to the variable''s Delphi type and little-endian byte order. Only callable when state is "paused".');
-        var SchemaReadGlobal := TJSONObject.Create;
-        SchemaReadGlobal.AddPair('type', 'object');
-        var PropReadGlobal := TJSONObject.Create;
-        PropReadGlobal.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
-        PropReadGlobal.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
-        SchemaReadGlobal.AddPair('properties', PropReadGlobal);
-        var ReqReadGlobal := TJSONArray.Create;
-        ReqReadGlobal.Add('name');
-        ReqReadGlobal.Add('size');
-        SchemaReadGlobal.AddPair('required', ReqReadGlobal);
-        ToolReadGlobal.AddPair('inputSchema', SchemaReadGlobal);
-        ToolsArr.Add(ToolReadGlobal);
-
-        var ToolRegs := TJSONObject.Create;
-        ToolRegs.AddPair('name', 'get_registers');
-        ToolRegs.AddPair('description', 'Returns the current x86 CPU register values (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP, EIP, EFLAGS). Only callable when state is "paused".');
-        ToolRegs.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolRegs);
-
-        var ToolSlots := TJSONObject.Create;
-        ToolSlots.AddPair('name', 'get_stack_slots');
-        ToolSlots.AddPair('description', 'Returns a structured list of stack slots from the current stack frame, with heuristic type interpretation (pointer, string, integer, etc.). Useful for quickly understanding local variables and parameters without manual hex interpretation. Only callable when state is "paused".');
-        ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolSlots);
-
-        var ToolAsm := TJSONObject.Create;
-        ToolAsm.AddPair('name', 'get_proc_asm');
-        ToolAsm.AddPair('description', 'Returns the raw assembly bytes (machine code) of the current procedure from its entry point to the return instruction. Useful for low-level analysis when source-level debugging is insufficient. Only callable when state is "paused".');
-        ToolAsm.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolAsm);
-
-        var ToolStart := TJSONObject.Create;
-        ToolStart.AddPair('name', 'start_debug_session');
-        ToolStart.AddPair('description', 'Starts a new debug session for the specified Delphi executable. The process is launched and paused at the entry point (state becomes "paused"). Any breakpoints set before this call are applied automatically. After this, use continue or step_* to advance execution. Only callable when state is "no_session".');
-        var SchemaStart := TJSONObject.Create;
-        SchemaStart.AddPair('type', 'object');
-        var PropStart := TJSONObject.Create;
-        PropStart.AddPair('executable_path', TJSONObject.Create.AddPair('type', 'string'));
-        PropStart.AddPair('arguments', TJSONObject.Create.AddPair('type', 'string'));
-        SchemaStart.AddPair('properties', PropStart);
-        var ReqStart := TJSONArray.Create;
-        ReqStart.Add('executable_path');
-        SchemaStart.AddPair('required', ReqStart);
-        ToolStart.AddPair('inputSchema', SchemaStart);
-        ToolsArr.Add(ToolStart);
-
-        var ToolGetState := TJSONObject.Create;
-        ToolGetState.AddPair('name', 'get_state');
-        ToolGetState.AddPair('description', 'Returns the current debugger state as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit" and "line" indicating the current source location. Use this to poll after continue/step_into/step_over until state transitions from "running" to "paused" or "exited". Can be called at any time.');
-        ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolGetState);
-
-        var ToolStopSession := TJSONObject.Create;
-        ToolStopSession.AddPair('name', 'stop_debug_session');
-        ToolStopSession.AddPair('description', 'Detaches from the debugged process and ends the debug session. The process continues running normally with all hardware breakpoints removed. Use this when you want to release the process without killing it (e.g. after verifying behavior, or to let it finish naturally). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
-        ToolStopSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolStopSession);
-
-        var ToolTerminateSession := TJSONObject.Create;
-        ToolTerminateSession.AddPair('name', 'terminate_debug_session');
-        ToolTerminateSession.AddPair('description', 'Kills the debugged process and ends the debug session. Use this when the process should not continue running (e.g. after finding a bug, or when restarting with different breakpoints). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
-        ToolTerminateSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
-        ToolsArr.Add(ToolTerminateSession);
-
-        ResultObj := TJSONObject.Create;
-        ResultObj.AddPair('tools', ToolsArr);
-        SendResponse(ID, ResultObj);
-      end
+        SendResponse(ID, HandleListTools(Params))
       else if Method = 'tools/call' then
       begin
         if Params = nil then
@@ -590,7 +435,6 @@ begin
       end
       else
         SendError(ID, -32601, 'Method not found');
-
     finally
       JSON.Free;
     end;
@@ -600,10 +444,169 @@ begin
   end;
 end;
 
+function TMcpServer.HandleListTools(AParams: TJSONObject): TJSONObject;
+begin
+  var ToolsArr := TJSONArray.Create;
+
+  var ToolSetBP := TJSONObject.Create;
+  ToolSetBP.AddPair('name', 'set_breakpoint');
+  ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. The "unit" parameter is the source file name (e.g. "MyUnit.pas" or just "MyUnit" - the .pas extension is added automatically if omitted). Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Returns an error if the unit/line cannot be resolved to a code address. Typical workflow: set_breakpoint -> start_debug_session -> continue -> get_state (poll until paused) -> inspect with get_stack_trace etc.');
+  var SchemaSetBP := TJSONObject.Create;
+  SchemaSetBP.AddPair('type', 'object');
+  var PropSetBP := TJSONObject.Create;
+  PropSetBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Delphi source file name, e.g. "MyUnit.pas" or "MyUnit" (.pas is added if omitted)'));
+  PropSetBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
+  SchemaSetBP.AddPair('properties', PropSetBP);
+  var ReqArr := TJSONArray.Create;
+  ReqArr.Add('unit');
+  ReqArr.Add('line');
+  SchemaSetBP.AddPair('required', ReqArr);
+  ToolSetBP.AddPair('inputSchema', SchemaSetBP);
+  ToolsArr.Add(ToolSetBP);
+
+  var ToolRemoveBP := TJSONObject.Create;
+  ToolRemoveBP.AddPair('name', 'remove_breakpoint');
+  ToolRemoveBP.AddPair('description', 'Removes an existing hardware breakpoint by unit name and line number. Can be called before or during a debug session.');
+  var SchemaRemoveBP := TJSONObject.Create;
+  SchemaRemoveBP.AddPair('type', 'object');
+  var PropRemoveBP := TJSONObject.Create;
+  PropRemoveBP.AddPair('unit', TJSONObject.Create.AddPair('type', 'string'));
+  PropRemoveBP.AddPair('line', TJSONObject.Create.AddPair('type', 'integer'));
+  SchemaRemoveBP.AddPair('properties', PropRemoveBP);
+  var ReqRemoveArr := TJSONArray.Create;
+  ReqRemoveArr.Add('unit');
+  ReqRemoveArr.Add('line');
+  SchemaRemoveBP.AddPair('required', ReqRemoveArr);
+  ToolRemoveBP.AddPair('inputSchema', SchemaRemoveBP);
+  ToolsArr.Add(ToolRemoveBP);
+
+  var ToolListBP := TJSONObject.Create;
+  ToolListBP.AddPair('name', 'list_breakpoints');
+  ToolListBP.AddPair('description', 'Lists all currently set hardware breakpoints. Each entry includes unit, line, and status ("pending" if set before session start, "active" if resolved to an address).');
+  ToolListBP.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolListBP);
+
+  var ToolContinue := TJSONObject.Create;
+  ToolContinue.AddPair('name', 'continue');
+  ToolContinue.AddPair('description', 'Resumes execution of the debugged process. Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"breakpoint"|"exited",...}} when execution pauses again or the process exits. If notifications are not available, poll with get_state until state is "paused" or "exited". Only callable when state is "paused".');
+  ToolContinue.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolContinue);
+
+  var ToolStepInto := TJSONObject.Create;
+  ToolStepInto.AddPair('name', 'step_into');
+  ToolStepInto.AddPair('description', 'Steps into the next source line (enters function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
+  ToolStepInto.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolStepInto);
+
+  var ToolStepOver := TJSONObject.Create;
+  ToolStepOver.AddPair('name', 'step_over');
+  ToolStepOver.AddPair('description', 'Steps over the current source line (does not enter function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
+  ToolStepOver.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolStepOver);
+
+  var ToolStack := TJSONObject.Create;
+  ToolStack.AddPair('name', 'get_stack_trace');
+  ToolStack.AddPair('description', 'Returns the current call stack as a list of frames with unit name, line number, and address. Only callable when state is "paused".');
+  ToolStack.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolStack);
+
+  var ToolReadMem := TJSONObject.Create;
+  ToolReadMem.AddPair('name', 'read_memory');
+  ToolReadMem.AddPair('description', 'Reads raw memory bytes from the debugged process at a given address. Returns a hex dump. To interpret the result, consider the data type and byte order (little-endian on x86). For example, 4 bytes for a 32-bit integer, pointer, or single float. Only callable when state is "paused".');
+  var SchemaReadMem := TJSONObject.Create;
+  SchemaReadMem.AddPair('type', 'object');
+  var PropReadMem := TJSONObject.Create;
+  PropReadMem.AddPair('address', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex address string, e.g. "00401000"'));
+  PropReadMem.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
+  SchemaReadMem.AddPair('properties', PropReadMem);
+  var ReqReadMem := TJSONArray.Create;
+  ReqReadMem.Add('address');
+  ReqReadMem.Add('size');
+  SchemaReadMem.AddPair('required', ReqReadMem);
+  ToolReadMem.AddPair('inputSchema', SchemaReadMem);
+  ToolsArr.Add(ToolReadMem);
+
+  var ToolStackMem := TJSONObject.Create;
+  ToolStackMem.AddPair('name', 'get_stack_memory');
+  ToolStackMem.AddPair('description', 'Reads the raw memory of the current stack frame (from ESP to EBP). Returns a hex dump of the stack contents. Useful for inspecting local variables and parameters. Only callable when state is "paused".');
+  ToolStackMem.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolStackMem);
+
+  var ToolReadGlobal := TJSONObject.Create;
+  ToolReadGlobal.AddPair('name', 'read_global_variable');
+  ToolReadGlobal.AddPair('description', 'Reads raw bytes of a global variable by its qualified name (e.g. "UnitName.VarName"). Returns a hex dump. You must specify the expected size in bytes (e.g. 4 for Integer/Pointer, 8 for Int64/Double, 256 for ShortString). Interpret the hex result according to the variable''s Delphi type and little-endian byte order. Only callable when state is "paused".');
+  var SchemaReadGlobal := TJSONObject.Create;
+  SchemaReadGlobal.AddPair('type', 'object');
+  var PropReadGlobal := TJSONObject.Create;
+  PropReadGlobal.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
+  PropReadGlobal.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
+  SchemaReadGlobal.AddPair('properties', PropReadGlobal);
+  var ReqReadGlobal := TJSONArray.Create;
+  ReqReadGlobal.Add('name');
+  ReqReadGlobal.Add('size');
+  SchemaReadGlobal.AddPair('required', ReqReadGlobal);
+  ToolReadGlobal.AddPair('inputSchema', SchemaReadGlobal);
+  ToolsArr.Add(ToolReadGlobal);
+
+  var ToolRegs := TJSONObject.Create;
+  ToolRegs.AddPair('name', 'get_registers');
+  ToolRegs.AddPair('description', 'Returns the current x86 CPU register values (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP, EIP, EFLAGS). Only callable when state is "paused".');
+  ToolRegs.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolRegs);
+
+  var ToolSlots := TJSONObject.Create;
+  ToolSlots.AddPair('name', 'get_stack_slots');
+  ToolSlots.AddPair('description', 'Returns a structured list of stack slots from the current stack frame, with heuristic type interpretation (pointer, string, integer, etc.). Useful for quickly understanding local variables and parameters without manual hex interpretation. Only callable when state is "paused".');
+  ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolSlots);
+
+  var ToolAsm := TJSONObject.Create;
+  ToolAsm.AddPair('name', 'get_proc_asm');
+  ToolAsm.AddPair('description', 'Returns the raw assembly bytes (machine code) of the current procedure from its entry point to the return instruction. Useful for low-level analysis when source-level debugging is insufficient. Only callable when state is "paused".');
+  ToolAsm.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolAsm);
+
+  var ToolStart := TJSONObject.Create;
+  ToolStart.AddPair('name', 'start_debug_session');
+  ToolStart.AddPair('description', 'Starts a new debug session for the specified Delphi executable. The process is launched and paused at the entry point (state becomes "paused"). Any breakpoints set before this call are applied automatically. After this, use continue or step_* to advance execution. Only callable when state is "no_session".');
+  var SchemaStart := TJSONObject.Create;
+  SchemaStart.AddPair('type', 'object');
+  var PropStart := TJSONObject.Create;
+  PropStart.AddPair('executable_path', TJSONObject.Create.AddPair('type', 'string'));
+  PropStart.AddPair('arguments', TJSONObject.Create.AddPair('type', 'string'));
+  SchemaStart.AddPair('properties', PropStart);
+  var ReqStart := TJSONArray.Create;
+  ReqStart.Add('executable_path');
+  SchemaStart.AddPair('required', ReqStart);
+  ToolStart.AddPair('inputSchema', SchemaStart);
+  ToolsArr.Add(ToolStart);
+
+  var ToolGetState := TJSONObject.Create;
+  ToolGetState.AddPair('name', 'get_state');
+  ToolGetState.AddPair('description', 'Returns the current debugger state as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit" and "line" indicating the current source location. Use this to poll after continue/step_into/step_over until state transitions from "running" to "paused" or "exited". Can be called at any time.');
+  ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolGetState);
+
+  var ToolStopSession := TJSONObject.Create;
+  ToolStopSession.AddPair('name', 'stop_debug_session');
+  ToolStopSession.AddPair('description', 'Detaches from the debugged process and ends the debug session. The process continues running normally with all hardware breakpoints removed. Use this when you want to release the process without killing it (e.g. after verifying behavior, or to let it finish naturally). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
+  ToolStopSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolStopSession);
+
+  var ToolTerminateSession := TJSONObject.Create;
+  ToolTerminateSession.AddPair('name', 'terminate_debug_session');
+  ToolTerminateSession.AddPair('description', 'Kills the debugged process and ends the debug session. Use this when the process should not continue running (e.g. after finding a bug, or when restarting with different breakpoints). State transitions to "no_session". A new session can be started afterwards with start_debug_session. Only callable when state is "paused" or "running".');
+  ToolTerminateSession.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolTerminateSession);
+
+  Result := TJSONObject.Create;
+  Result.AddPair('tools', ToolsArr);
+end;
+
 function TMcpServer.HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
 var
-  LUnit: string;
   LLine: Integer;
+  LUnit: String;
 begin
   LUnit := AParams.GetValue('unit').Value;
   LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
@@ -636,9 +639,9 @@ end;
 
 function TMcpServer.HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
 var
-  LUnit: string;
+  I    : Integer;
   LLine: Integer;
-  I: Integer;
+  LUnit: String;
 begin
   LUnit := AParams.GetValue('unit').Value;
   LLine := (AParams.GetValue('line') as TJSONNumber).AsInt;
@@ -668,7 +671,7 @@ function TMcpServer.HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
 var
   BPArr: TJSONArray;
   BPObj: TJSONObject;
-  I: Integer;
+  I    : Integer;
 begin
   BPArr := TJSONArray.Create;
   try
@@ -707,22 +710,24 @@ end;
 
 function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 var
-  LExePath, LArgs, MapFile: string;
-  I: Integer;
-  LUnresolved: string;
+  Args       : String;
+  ExePath    : String;
+  I          : Integer;
+  MapFile    : String;
+  Unresolved : String;
 begin
   if not RequireState([dsNoSession], Result) then
     Exit;
 
-  LExePath := AParams.GetValue('executable_path').Value;
-  if not FileExists(LExePath) then
-    Exit(MakeErrorResult('Error: Executable not found: ' + LExePath));
+  ExePath := AParams.GetValue('executable_path').Value;
+  if not FileExists(ExePath) then
+    Exit(MakeErrorResult('Error: Executable not found: ' + ExePath));
 
   var ArgsVal := AParams.GetValue('arguments');
   if ArgsVal <> nil then
-    LArgs := ArgsVal.Value
+    Args := ArgsVal.Value
   else
-    LArgs := '';
+    Args := '';
 
   FDebugger := TDebugger.Create;
   FDebugger.OnException := DebuggerExceptionHandler;
@@ -730,7 +735,7 @@ begin
   FDebugger.OnStepped := DebuggerSteppedHandler;
   FDebugger.OnProcessExit := DebuggerProcessExitHandler;
 
-  MapFile := ChangeFileExt(LExePath, '.map');
+  MapFile := ChangeFileExt(ExePath, '.map');
   if FileExists(MapFile) then
     FDebugger.LoadMapFile(MapFile);
 
@@ -738,35 +743,35 @@ begin
     FDebugger.SetBreakpoint(FPendingBreakpoints[I].UnitName, FPendingBreakpoints[I].LineNumber);
   FPendingBreakpoints.Clear;
 
-  TDebuggerThread.Create(FDebugger, Trim(LExePath + ' ' + LArgs));
+  TDebuggerThread.Create(FDebugger, Trim(ExePath + ' ' + Args));
 
   FDebugger.WaitForReady(5000);
   FState := dsPaused;
 
-  LUnresolved := '';
+  Unresolved := '';
   for I := 0 to FDebugger.Breakpoints.Count - 1 do
   begin
     if FDebugger.Breakpoints[I].Address = nil then
     begin
-      if LUnresolved <> '' then
-        LUnresolved := LUnresolved + ', ';
-      LUnresolved := LUnresolved + Format('%s:%d', [FDebugger.Breakpoints[I].UnitName, FDebugger.Breakpoints[I].LineNumber]);
+      if Unresolved <> '' then
+        Unresolved := Unresolved + ', ';
+      Unresolved := Unresolved + Format('%s:%d', [FDebugger.Breakpoints[I].UnitName, FDebugger.Breakpoints[I].LineNumber]);
     end;
   end;
 
-  if LUnresolved <> '' then
-    Result := MakeTextResult('Debug session started for ' + LExePath +
-      '. WARNING: Could not resolve address for breakpoint(s): ' + LUnresolved +
+  if Unresolved <> '' then
+    Result := MakeTextResult('Debug session started for ' + ExePath +
+      '. WARNING: Could not resolve address for breakpoint(s): ' + Unresolved +
       '. These breakpoints will not trigger. Verify unit names and line numbers.')
   else
   begin
     if not FileExists(MapFile) then
-      Result := MakeTextResult('Debug session started for ' + LExePath +
+      Result := MakeTextResult('Debug session started for ' + ExePath +
         '. WARNING: No .map file found! Source-level debugging (setting breakpoints by line, stack trace with lines) will NOT work. ' +
         'You can rebuild the project with DPT to generate the map file using the following parameter: /p:DCC_MapFile=3 ' +
         '(e.g., DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"). Alternatively, terminate this session, rebuild, and restart.')
     else
-      Result := MakeTextResult('Debug session started for ' + LExePath);
+      Result := MakeTextResult('Debug session started for ' + ExePath);
   end;
 end;
 
@@ -802,9 +807,9 @@ end;
 
 function TMcpServer.HandleGetState(AParams: TJSONObject): TJSONObject;
 var
-  StateObj: TJSONObject;
-  Stack: TArray<TStackFrame>;
-  StateNames: array[TDebugState] of string;
+  Stack     : TArray<TStackFrame>;
+  StateNames: Array[TDebugState] of String;
+  StateObj  : TJSONObject;
 begin
   StateNames[dsNoSession] := 'no_session';
   StateNames[dsPaused] := 'paused';
@@ -864,9 +869,9 @@ end;
 
 function TMcpServer.HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
 var
-  Stack: TArray<TStackFrame>;
+  Frame    : TStackFrame;
   FramesArr: TJSONArray;
-  Frame: TStackFrame;
+  Stack    : TArray<TStackFrame>;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
@@ -891,20 +896,20 @@ end;
 
 function TMcpServer.HandleReadMemory(AParams: TJSONObject): TJSONObject;
 var
-  LAddrStr: string;
-  LAddr: UIntPtr;
-  LSize: Integer;
-  Data: TBytes;
-  Hex: string;
+  Addr    : UIntPtr;
+  AddrStr : String;
+  Data    : TBytes;
+  Hex     : String;
+  Size    : Integer;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
-  LAddrStr := AParams.GetValue('address').Value;
-  LAddr := UIntPtr(StrToInt64Def('$' + LAddrStr, 0));
-  LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
+  AddrStr := AParams.GetValue('address').Value;
+  Addr := UIntPtr(StrToInt64Def('$' + AddrStr, 0));
+  Size := (AParams.GetValue('size') as TJSONNumber).AsInt;
 
-  Data := FDebugger.ReadProcessMemory(Pointer(LAddr), LSize);
+  Data := FDebugger.ReadProcessMemory(Pointer(Addr), Size);
 
   if Length(Data) > 0 then
   begin
@@ -918,10 +923,10 @@ end;
 
 function TMcpServer.HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
 var
-  Regs: TRegisters;
-  Data: TBytes;
-  Hex: string;
+  Data : TBytes;
+  Hex  : String;
   LSize: NativeUInt;
+  Regs : TRegisters;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
@@ -949,23 +954,23 @@ end;
 
 function TMcpServer.HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
 var
-  LName: string;
-  LSize: Integer;
   Addr: Pointer;
   Data: TBytes;
-  Hex: string;
+  Hex : String;
+  Name: String;
+  Size: Integer;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
-  LName := AParams.GetValue('name').Value;
-  LSize := (AParams.GetValue('size') as TJSONNumber).AsInt;
+  Name := AParams.GetValue('name').Value;
+  Size := (AParams.GetValue('size') as TJSONNumber).AsInt;
 
-  Addr := FDebugger.GetAddressFromSymbol(LName);
+  Addr := FDebugger.GetAddressFromSymbol(Name);
 
   if Addr <> nil then
   begin
-    Data := FDebugger.ReadProcessMemory(Addr, LSize);
+    Data := FDebugger.ReadProcessMemory(Addr, Size);
     if Length(Data) > 0 then
     begin
       Hex := '';
@@ -976,13 +981,13 @@ begin
       Result := MakeErrorResult('Failed to read memory at ' + Format('%p', [Addr]));
   end
   else
-    Result := MakeErrorResult('Symbol not found: ' + LName);
+    Result := MakeErrorResult('Symbol not found: ' + Name);
 end;
 
 function TMcpServer.HandleGetRegisters(AParams: TJSONObject): TJSONObject;
 var
-  Regs: TRegisters;
   RegObj: TJSONObject;
+  Regs  : TRegisters;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
@@ -1005,11 +1010,11 @@ end;
 
 function TMcpServer.HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
 var
-  Slots: TArray<TStackSlot>;
-  Slot: TStackSlot;
-  SlotsArr: TJSONArray;
   FrameInfo: TStackFrameInfo;
-  MetaObj: TJSONObject;
+  MetaObj  : TJSONObject;
+  Slot     : TStackSlot;
+  Slots    : TArray<TStackSlot>;
+  SlotsArr : TJSONArray;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
@@ -1043,9 +1048,9 @@ end;
 
 function TMcpServer.HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
 var
+  Data     : TBytes;
   FrameInfo: TStackFrameInfo;
-  Data: TBytes;
-  Hex: string;
+  Hex      : String;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
@@ -1064,7 +1069,7 @@ end;
 
 procedure TMcpServer.RunOnce;
 var
-  Line: string;
+  Line: String;
 begin
   if Assigned(FInputReader) then
     Line := FInputReader.ReadLine
@@ -1081,9 +1086,11 @@ begin
   begin
     if Assigned(FInputReader) then
     begin
-      if FInputReader.Peek = -1 then Break;
+      if FInputReader.Peek = -1 then
+        Break;
     end
-    else if System.EOF(System.Input) then Break;
+    else if System.EOF(System.Input) then
+      Break;
 
     RunOnce;
   end;
