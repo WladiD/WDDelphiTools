@@ -41,6 +41,8 @@ type
     procedure TestMcpTerminateDebugSession;
     [Test]
     procedure TestMcpStartSessionWithoutMapFile;
+    [Test]
+    procedure TestMcpWaitUntilPaused;
   end;
 
 implementation
@@ -925,6 +927,100 @@ begin
         // ignore errors
       end;
     end;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpWaitUntilPaused;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // continue (async)
+
+      // Wait for breakpoint notification at line 22
+      WaitForOutput(OutputWriter, 5);
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification after continue');
+
+      // step_into (async)
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(5).Contains('Stepping into'), 'Step into should return immediately');
+
+      // Call wait_until_paused. It should block until the step finishes.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 5000}}}');
+      Server.RunOnce;
+      
+      // We expect the debugger notification(s) and the wait_until_paused response.
+      WaitForOutput(OutputWriter, 8);
+      
+      // Verify wait_until_paused returns paused state.
+      // Since notifications and sampling requests can vary in count, scan the output 
+      // from the end to find the actual response to the wait_until_paused (id=5) call.
+      // We must avoid matching sampling requests which also might contain an "id" property.
+      
+      Writeln('=== DEBUG OUTPUT WRITER LINES ===');
+      for var I := 0 to OutputWriter.GetCount - 1 do
+        Writeln(Format('[%d]: %s', [I, OutputWriter.GetLine(I)]));
+      Writeln('=================================');
+      
+      var WaitResponse := '';
+      var LJSON: TJSONObject;
+      for var I := OutputWriter.GetCount - 1 downto 0 do
+      begin
+        var Line := OutputWriter.GetLine(I);
+        // Only consider lines that look like a valid response to id=5
+        if (Line.Contains('"id":"5"') or Line.Contains('"id": 5') or Line.Contains('"id":5')) then
+        begin
+          LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+          if Assigned(LJSON) then
+          begin
+            try
+              // Responses to tools/call contain a 'result' object for successful calls
+              if Assigned(LJSON.GetValue('result')) and not Assigned(LJSON.GetValue('method')) then
+              begin
+                WaitResponse := Line;
+                Break;
+              end;
+            finally
+              LJSON.Free;
+            end;
+          end;
+        end;
+      end;
+      
+      Assert.IsNotEmpty(WaitResponse, 'Could not find wait_until_paused response in output');
+      Assert.IsTrue(WaitResponse.Contains('\"paused\"') or WaitResponse.Contains('"paused"'), 'wait_until_paused should return paused state: ' + WaitResponse);
+      Assert.IsTrue(WaitResponse.Contains('DebugTarget'), 'wait_until_paused should contain unit name');
+
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
   end;
 end;
 

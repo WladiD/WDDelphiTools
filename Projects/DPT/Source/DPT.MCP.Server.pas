@@ -68,6 +68,7 @@ type
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleWaitUntilPaused(AParams: TJSONObject): TJSONObject;
   private // Event handler
     procedure DebuggerBreakpointHandler(ASender: TObject; ABreakpoint: TBreakpoint);
     procedure DebuggerExceptionHandler(ASender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
@@ -455,6 +456,8 @@ begin
           SendResponse(ID, HandleStopDebugSession(ToolParams))
         else if ToolName = 'terminate_debug_session' then
           SendResponse(ID, HandleTerminateDebugSession(ToolParams))
+        else if ToolName = 'wait_until_paused' then
+          SendResponse(ID, HandleWaitUntilPaused(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -608,9 +611,20 @@ begin
 
   var ToolGetState := TJSONObject.Create;
   ToolGetState.AddPair('name', 'get_state');
-  ToolGetState.AddPair('description', 'Returns the current debugger state as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit" and "line" indicating the current source location. Use this to poll after continue/step_into/step_over until state transitions from "running" to "paused" or "exited". Can be called at any time.');
+  ToolGetState.AddPair('description', 'Returns the current debugger state instantly as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit" and "line" indicating the current source location. Use wait_until_paused instead if you intend to poll after an execution movement command. Can be called at any time.');
   ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolGetState);
+
+  var ToolWaitPaused := TJSONObject.Create;
+  ToolWaitPaused.AddPair('name', 'wait_until_paused');
+  ToolWaitPaused.AddPair('description', 'Waits for the debug session to reach a "paused" or "exited" state, then returns the same state object as get_state. Call this immediately after continue, step_into, or step_over. Eliminates the need for aggressive get_state polling. If the timeout expires before pausing, it returns the current state (e.g., "running").');
+  var SchemaWaitPaused := TJSONObject.Create;
+  SchemaWaitPaused.AddPair('type', 'object');
+  var PropWaitPaused := TJSONObject.Create;
+  PropWaitPaused.AddPair('timeout_ms', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'Maximum time to wait in milliseconds. Defaults to 5000.'));
+  SchemaWaitPaused.AddPair('properties', PropWaitPaused);
+  ToolWaitPaused.AddPair('inputSchema', SchemaWaitPaused);
+  ToolsArr.Add(ToolWaitPaused);
 
   var ToolStopSession := TJSONObject.Create;
   ToolStopSession.AddPair('name', 'stop_debug_session');
@@ -831,7 +845,6 @@ var
   Stack   : TArray<TStackFrame>;
   StateObj: TJSONObject;
 begin
-
   StateObj := TJSONObject.Create;
   try
     StateObj.AddPair('state', DEBUG_STATE_NAMES[FState]);
@@ -851,6 +864,27 @@ begin
   finally
     StateObj.Free;
   end;
+end;
+
+function TMcpServer.HandleWaitUntilPaused(AParams: TJSONObject): TJSONObject;
+var
+  TimeoutMs: Int64;
+  StartTick: Int64;
+begin
+  TimeoutMs := 5000;
+  if (AParams <> nil) and (AParams.GetValue('timeout_ms') <> nil) then
+    TimeoutMs := (AParams.GetValue('timeout_ms') as TJSONNumber).AsInt64;
+
+  StartTick := GetTickCount64;
+
+  while (FState <> dsPaused) and (FState <> dsExited) do
+  begin
+    if (GetTickCount64 - StartTick) >= TimeoutMs then
+      Break;
+    Sleep(50);
+  end;
+
+  Result := HandleGetState(nil);
 end;
 
 function TMcpServer.HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
