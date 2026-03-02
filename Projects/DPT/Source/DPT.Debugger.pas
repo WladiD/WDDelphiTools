@@ -599,21 +599,21 @@ end;
 
 procedure TDebugger.ApplyBreakpointsToThread(AThreadHandle: THandle);
 var
-  Context: TContext;
-  I: Integer;
   BPCount: Integer;
+  Context: TContext;
 begin
   Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-  if not GetThreadContext(AThreadHandle, Context) then Exit;
+  if not GetThreadContext(AThreadHandle, Context) then
+    Exit;
 
   Context.Dr7 := Context.Dr7 and not $FF;
 
   FBreakpointLock.Enter;
   try
     BPCount := 0;
-    for I := 0 to FBreakpoints.Count - 1 do
+    for var I: Integer := 0 to FBreakpoints.Count - 1 do
     begin
-      if (FBreakpoints[I].Address <> nil) and (BPCount < 4) then
+      if Assigned(FBreakpoints[I].Address) and (BPCount < 4) then
       begin
         FBreakpoints[I].Slot := BPCount;
         SetHardwareBreakpointInContext(Context, FBreakpoints[I].Address, BPCount);
@@ -635,7 +635,7 @@ end;
 function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean;
 var
   Addr: Pointer;
-  BP: TBreakpoint;
+  BP  : TBreakpoint;
 begin
   FBreakpointLock.Enter;
   try
@@ -659,12 +659,10 @@ begin
 end;
 
 procedure TDebugger.RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
-var
-  I: Integer;
 begin
   FBreakpointLock.Enter;
   try
-    for I := FBreakpoints.Count - 1 downto 0 do
+    for var I: Integer := FBreakpoints.Count - 1 downto 0 do
     begin
       if SameText(FBreakpoints[I].UnitName, AUnitName) and (FBreakpoints[I].LineNumber = ALineNumber) then
         FBreakpoints.Delete(I);
@@ -680,8 +678,6 @@ begin
 end;
 
 procedure TDebugger.HandleCreateProcess(const ADebugEvent: TDebugEvent);
-var
-  I: Integer;
 begin
   FBaseAddress := UIntPtr(ADebugEvent.CreateProcessInfo.lpBaseOfImage);
   FProcessHandle := ADebugEvent.CreateProcessInfo.hProcess;
@@ -692,9 +688,9 @@ begin
 
   FActiveThreads.Add(ADebugEvent.CreateProcessInfo.hThread);
 
-  for I := 0 to FBreakpoints.Count - 1 do
+  for var I: Integer := 0 to FBreakpoints.Count - 1 do
   begin
-    if FBreakpoints[I].Address = nil then
+    if not Assigned(FBreakpoints[I].Address) then
       FBreakpoints[I].Address := GetAddressFromUnitLine(FBreakpoints[I].UnitName, FBreakpoints[I].LineNumber);
   end;
 end;
@@ -710,11 +706,10 @@ end;
 
 procedure TDebugger.HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
 var
-  I: Integer;
-  BP: TBreakpoint;
-  Context: TContext;
+  BP           : TBreakpoint;
+  Context      : TContext;
   CurrentThread: THandle;
-  Handled: Boolean;
+  Handled      : Boolean;
 begin
   AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
 
@@ -738,7 +733,7 @@ begin
       if GetThreadContext(CurrentThread, Context) then
       begin
         BP := nil;
-        for I := 0 to FBreakpoints.Count - 1 do
+        for var I: Integer := 0 to FBreakpoints.Count - 1 do
         begin
           if (FBreakpoints[I].Slot >= 0) and ((Context.Dr6 and (1 shl FBreakpoints[I].Slot)) <> 0) then
           begin
@@ -915,14 +910,14 @@ end;
 
 procedure TDebugger.StartDebugging(const AExecutablePath: string);
 var
-  StartupInfo: TStartupInfo;
-  ProcessInfo: TProcessInformation;
-  DebugEvent: TDebugEvent;
   ContinueStatus: DWORD;
-  LRunning: Boolean;
-  SA: TSecurityAttributes;
-  hDevNull: THandle;
-  I: Integer;
+  DebugEvent    : TDebugEvent;
+  hDevNull      : THandle;
+  I             : Integer;
+  ProcessInfo   : TProcessInformation;
+  Running       : Boolean;
+  SA            : TSecurityAttributes;
+  StartupInfo   : TStartupInfo;
 begin
   SA.nLength := SizeOf(SA);
   SA.lpSecurityDescriptor := nil;
@@ -947,7 +942,8 @@ begin
   if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, True, // True to inherit handles
     DEBUG_ONLY_THIS_PROCESS or NORMAL_PRIORITY_CLASS, nil, nil, StartupInfo, ProcessInfo) then
   begin
-    if hDevNull <> INVALID_HANDLE_VALUE then CloseHandle(hDevNull);
+    if hDevNull <> INVALID_HANDLE_VALUE then
+      CloseHandle(hDevNull);
     raise Exception.Create('Failed to create process: ' + IntToStr(GetLastError));
   end;
 
@@ -956,22 +952,26 @@ begin
   FProcessHandle := ProcessInfo.hProcess;
   FThreadHandle := ProcessInfo.hThread;
 
-  if hDevNull <> INVALID_HANDLE_VALUE then CloseHandle(hDevNull); // Process has its own copy now
+  if hDevNull <> INVALID_HANDLE_VALUE then
+    CloseHandle(hDevNull); // Process has its own copy now
 
-  LRunning := True;
-  while LRunning do
+  Running := True;
+  while Running do
   begin
-    if not WaitForDebugEvent(DebugEvent, INFINITE) then Break;
+    if not WaitForDebugEvent(DebugEvent, INFINITE) then
+      Break;
     ContinueStatus := DBG_CONTINUE;
     case DebugEvent.dwDebugEventCode of
       CREATE_PROCESS_DEBUG_EVENT: HandleCreateProcess(DebugEvent);
       CREATE_THREAD_DEBUG_EVENT: HandleCreateThread(DebugEvent);
       EXIT_THREAD_DEBUG_EVENT: HandleExitThread(DebugEvent);
       EXCEPTION_DEBUG_EVENT: HandleException(DebugEvent, ContinueStatus);
-      LOAD_DLL_DEBUG_EVENT: if DebugEvent.LoadDll.hFile <> 0 then CloseHandle(DebugEvent.LoadDll.hFile);
+      LOAD_DLL_DEBUG_EVENT:
+        if DebugEvent.LoadDll.hFile <> 0 then
+          CloseHandle(DebugEvent.LoadDll.hFile);
       EXIT_PROCESS_DEBUG_EVENT: 
       begin
-        LRunning := False;
+        Running := False;
         FLastBreakpointHit := nil;
         FLastException.ExceptionCode := 0;
         if Assigned(FOnProcessExit) then
@@ -979,13 +979,14 @@ begin
       end;
     end;
 
-    if LRunning then
+    if Running then
     begin
       for I := 0 to FActiveThreads.Count - 1 do
         ApplyBreakpointsToThread(FActiveThreads[I]);
     end;
 
-    if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then Break;
+    if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then
+      Break;
   end;
   FBreakpointHitEvent.SetEvent;
   FFinishedEvent.SetEvent;
