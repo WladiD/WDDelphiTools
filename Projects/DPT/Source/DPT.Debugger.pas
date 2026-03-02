@@ -18,6 +18,7 @@ uses
   System.SysUtils,
 
   JclDebug,
+  mormot.core.collections,
 
   DPT.Logger;
 
@@ -379,50 +380,46 @@ function TDebugger.GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer): TA
 var
   Regs      : TRegisters;
   RelativeVA: DWORD;
-  ResultList: TList<TStackSlot>;
+  ResultList: IList<TStackSlot>; 
   Slot      : TStackSlot;
   SymbolName: String;
   Val       : UIntPtr;
 begin
   Regs := GetRegisters(AThreadHandle);
-  ResultList := TList<TStackSlot>.Create;
-  try
-    for var I: Integer := 0 to AMaxSlots - 1 do
+  ResultList := Collections.NewPlainList<TStackSlot>;
+  for var I: Integer := 0 to AMaxSlots - 1 do
+  begin
+    Slot.Offset := -(I * SizeOf(Pointer));
+    Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
+
+    if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then Break;
+
+    Val := UIntPtr(ReadProcessMemoryPtr(Slot.Address));
+    Slot.Value := Val;
+    Slot.Interpretation := '';
+
+    if Val <> 0 then
     begin
-      Slot.Offset := -(I * SizeOf(Pointer));
-      Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
-
-      if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then Break;
-
-      Val := UIntPtr(ReadProcessMemoryPtr(Slot.Address));
-      Slot.Value := Val;
-      Slot.Interpretation := '';
-
-      if Val <> 0 then
+      if (Val > FBaseAddress) and (Val < FBaseAddress + $1000000) then
       begin
-        if (Val > FBaseAddress) and (Val < FBaseAddress + $1000000) then
-        begin
-          RelativeVA := Val - FBaseAddress - $1000;
-          SymbolName := FMapScanner.ProcNameFromAddr(RelativeVA);
-          if SymbolName <> '' then
-            Slot.Interpretation := 'Points to ' + SymbolName;
-        end;
+        RelativeVA := Val - FBaseAddress - $1000;
+        SymbolName := FMapScanner.ProcNameFromAddr(RelativeVA);
+        if SymbolName <> '' then
+          Slot.Interpretation := 'Points to ' + SymbolName;
+      end;
 
-        if (Slot.Interpretation = '') and (Val < $10000) then
-          Slot.Interpretation := IntToStr(Val);
+      if (Slot.Interpretation = '') and (Val < $10000) then
+        Slot.Interpretation := IntToStr(Val);
 
-        if Slot.Interpretation = '' then
-          Slot.Interpretation := '$' + IntToHex(Val, SizeOf(Pointer) * 2);
-      end
-      else
-        Slot.Interpretation := '0';
+      if Slot.Interpretation = '' then
+        Slot.Interpretation := '$' + IntToHex(Val, SizeOf(Pointer) * 2);
+    end
+    else
+      Slot.Interpretation := '0';
 
-      ResultList.Add(Slot);
-    end;
-    Result := ResultList.ToArray;
-  finally
-    ResultList.Free;
+    ResultList.Add(Slot);
   end;
+  Result := ResultList.AsArray;
 end;
 
 function TDebugger.GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
