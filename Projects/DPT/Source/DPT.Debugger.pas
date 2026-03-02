@@ -13,7 +13,6 @@ uses
   Winapi.Windows,
 
   System.Classes,
-  System.Generics.Collections,
   System.SyncObjs,
   System.SysUtils,
 
@@ -85,11 +84,11 @@ type
 
   TDebugger = class
   private
-    FActiveThreads           : TList<THandle>;
+    FActiveThreads           : IList<THandle>;
     FBaseAddress             : UIntPtr;
     FBreakpointHitEvent      : TEvent;
     FBreakpointLock          : TCriticalSection;
-    FBreakpoints             : TObjectList<TBreakpoint>;
+    FBreakpoints             : IList<TBreakpoint>;
     FContinueEvent           : TEvent;
     FFinishedEvent           : TEvent;
     FFirstBreak              : Boolean;
@@ -144,7 +143,7 @@ type
     function  WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     procedure WaitForReady(Timeout: DWORD = INFINITE);
     property  BreakpointLock: TCriticalSection read FBreakpointLock;
-    property  Breakpoints: TObjectList<TBreakpoint> read FBreakpoints;
+    property  Breakpoints: IList<TBreakpoint> read FBreakpoints;
     property  LastException: TExceptionRecord read FLastException;
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;
@@ -205,8 +204,8 @@ end;
 constructor TDebugger.Create;
 begin
   inherited Create;
-  FBreakpoints := TObjectList<TBreakpoint>.Create(True);
-  FActiveThreads := TList<THandle>.Create;
+  FBreakpoints := Collections.NewList<TBreakpoint>;
+  FActiveThreads := Collections.NewPlainList<THandle>;
   FBreakpointLock := TCriticalSection.Create;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
@@ -224,9 +223,7 @@ begin
   FReadyEvent.Free;
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
-  FActiveThreads.Free;
   FBreakpointLock.Free;
-  FBreakpoints.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then
     CloseHandle(FProcessHandle);
@@ -478,51 +475,47 @@ var
   Context   : TContext;
   Frame     : TStackFrame;
   FramePtr  : Pointer;
-  Frames    : TList<TStackFrame>;
+  Frames    : IList<TStackFrame>;
   RelativeVA: DWORD;
   ReturnAddr: Pointer;
 begin
-  Frames := TList<TStackFrame>.Create;
-  try
-    Context.ContextFlags := CONTEXT_CONTROL or CONTEXT_INTEGER;
-    if not GetThreadContext(AThreadHandle, Context) then
-      Exit(nil);
+  Frames := Collections.NewPlainList<TStackFrame>;
+  Context.ContextFlags := CONTEXT_CONTROL or CONTEXT_INTEGER;
+  if not GetThreadContext(AThreadHandle, Context) then
+    Exit(nil);
 
-    {$IFDEF CPUX64}
-    FramePtr := Pointer(Context.Rbp);
-    ReturnAddr := Pointer(Context.Rip);
-    {$ELSE}
-    FramePtr := Pointer(Context.Ebp);
-    ReturnAddr := Pointer(Context.Eip);
-    {$ENDIF}
+  {$IFDEF CPUX64}
+  FramePtr := Pointer(Context.Rbp);
+  ReturnAddr := Pointer(Context.Rip);
+  {$ELSE}
+  FramePtr := Pointer(Context.Ebp);
+  ReturnAddr := Pointer(Context.Eip);
+  {$ENDIF}
 
-    while (Frames.Count < 50) and (UIntPtr(ReturnAddr) > FBaseAddress) do
+  while (Frames.Count < 50) and (UIntPtr(ReturnAddr) > FBaseAddress) do
+  begin
+    Frame.Address := ReturnAddr;
+    Frame.UnitName := '';
+    Frame.ProcedureName := '';
+    Frame.LineNumber := 0;
+
+    if Assigned(FMapScanner) and (UIntPtr(ReturnAddr) >= FBaseAddress + $1000) then
     begin
-      Frame.Address := ReturnAddr;
-      Frame.UnitName := '';
-      Frame.ProcedureName := '';
-      Frame.LineNumber := 0;
-
-      if Assigned(FMapScanner) and (UIntPtr(ReturnAddr) >= FBaseAddress + $1000) then
-      begin
-        RelativeVA := UIntPtr(ReturnAddr) - FBaseAddress - $1000;
-        Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
-        Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
-        Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
-      end;
-
-      Frames.Add(Frame);
-
-      if FramePtr = nil then Break;
-      ReturnAddr := ReadProcessMemoryPtr(PByte(FramePtr) + SizeOf(Pointer));
-      FramePtr := ReadProcessMemoryPtr(FramePtr);
-      if ReturnAddr = nil then Break;
+      RelativeVA := UIntPtr(ReturnAddr) - FBaseAddress - $1000;
+      Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
+      Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
+      Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
     end;
 
-    Result := Frames.ToArray;
-  finally
-    Frames.Free;
+    Frames.Add(Frame);
+
+    if FramePtr = nil then Break;
+    ReturnAddr := ReadProcessMemoryPtr(PByte(FramePtr) + SizeOf(Pointer));
+    FramePtr := ReadProcessMemoryPtr(FramePtr);
+    if ReturnAddr = nil then Break;
   end;
+
+  Result := Frames.AsArray;
 end;
 
 procedure TDebugger.LoadMapFile(const AMapFileName: string);
@@ -741,8 +734,8 @@ begin
 
         if (BP <> nil) and (BP = FStepReturnBP) then
         begin
-          FBreakpoints.Extract(FStepReturnBP);
-          FreeAndNil(FStepReturnBP);
+          FBreakpoints.Remove(FStepReturnBP);
+          FStepReturnBP := nil;
 
           var Stack := GetStackTrace(CurrentThread);
           var CurLine := 0;
