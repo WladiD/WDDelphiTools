@@ -14,12 +14,12 @@ uses
 
   Winapi.Windows,
 
-  System.SysUtils,
   System.Classes,
   System.JSON,
   System.SyncObjs,
-  System.Generics.Collections,
+  System.SysUtils,
 
+  mormot.core.collections,
   mormot.core.json,
 
   DPT.Debugger;
@@ -35,7 +35,7 @@ type
     FInputReader       : TTextReader;
     FOutputLock        : TCriticalSection;
     FOutputWriter      : TTextWriter;
-    FPendingBreakpoints: TObjectList<TBreakpoint>;
+    FPendingBreakpoints: IList<TBreakpoint>;
     FState             : TDebugState;
     procedure ConnectDebuggerEvents;
     procedure DisconnectDebuggerEvents;
@@ -103,7 +103,7 @@ begin
   FInputReader := AInput;
   FOutputWriter := AOutput;
   FOutputLock := TCriticalSection.Create;
-  FPendingBreakpoints := TObjectList<TBreakpoint>.Create(True);
+  FPendingBreakpoints := Collections.NewList<TBreakpoint>;
 
   if Assigned(FDebugger) then
   begin
@@ -117,7 +117,6 @@ end;
 destructor TMcpServer.Destroy;
 begin
   DisconnectDebuggerEvents;
-  FPendingBreakpoints.Free;
   FOutputLock.Free;
   inherited Destroy;
 end;
