@@ -868,16 +868,15 @@ end;
 
 function TMcpServer.HandleWaitUntilPaused(AParams: TJSONObject): TJSONObject;
 var
-  TimeoutMs: Int64;
-  StartTick: Int64;
+  StartTick: UInt64;
+  TimeoutMs: UInt64;
 begin
-  TimeoutMs := 5000;
-  if (AParams <> nil) and (AParams.GetValue('timeout_ms') <> nil) then
-    TimeoutMs := (AParams.GetValue('timeout_ms') as TJSONNumber).AsInt64;
+  if not (Assigned(AParams) and AParams.TryGetValue<UInt64>('timeout_ms', TimeoutMs)) then
+    TimeoutMs := 5000;
 
   StartTick := GetTickCount64;
 
-  while (FState <> dsPaused) and (FState <> dsExited) do
+  while not (FState in [dsPaused, dsExited]) do
   begin
     if (GetTickCount64 - StartTick) >= TimeoutMs then
       Break;
