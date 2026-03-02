@@ -83,6 +83,15 @@ type
 
 implementation
 
+const
+
+  DEBUG_STATE_NAMES: Array[TDebugState] of String = (
+    'no_session', // dsNoSession
+    'paused',     // dsPaused
+    'running',    // dsRunning
+    'exited'      // dsExited
+  );
+
 { TMcpServer }
 
 constructor TMcpServer.Create(ADebugger: TDebugger; AInput: TTextReader; AOutput: TTextWriter);
@@ -244,19 +253,13 @@ end;
 
 function TMcpServer.RequireState(const AAllowed: Array of TDebugState; out AResult: TJSONObject): Boolean;
 var
-  S         : TDebugState;
-  StateNames: Array[TDebugState] of String;
+  S: TDebugState;
 begin
-  StateNames[dsNoSession] := 'no_session';
-  StateNames[dsPaused] := 'paused';
-  StateNames[dsRunning] := 'running';
-  StateNames[dsExited] := 'exited';
-
   for S in AAllowed do
     if FState = S then
       Exit(True);
 
-  AResult := MakeErrorResult(Format('Error: Invalid state "%s" for this operation.', [StateNames[FState]]));
+  AResult := MakeErrorResult(Format('Error: Invalid state "%s" for this operation.', [DEBUG_STATE_NAMES[FState]]));
   Result := False;
 end;
 
@@ -825,18 +828,13 @@ end;
 
 function TMcpServer.HandleGetState(AParams: TJSONObject): TJSONObject;
 var
-  Stack     : TArray<TStackFrame>;
-  StateNames: Array[TDebugState] of String;
-  StateObj  : TJSONObject;
+  Stack   : TArray<TStackFrame>;
+  StateObj: TJSONObject;
 begin
-  StateNames[dsNoSession] := 'no_session';
-  StateNames[dsPaused] := 'paused';
-  StateNames[dsRunning] := 'running';
-  StateNames[dsExited] := 'exited';
 
   StateObj := TJSONObject.Create;
   try
-    StateObj.AddPair('state', StateNames[FState]);
+    StateObj.AddPair('state', DEBUG_STATE_NAMES[FState]);
 
     if (FState = dsPaused) and Assigned(FDebugger) then
     begin
