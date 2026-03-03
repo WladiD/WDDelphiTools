@@ -10,8 +10,6 @@ interface
 
 uses
 
-  System.SyncObjs,
-
   mormot.core.collections;
 
 type
@@ -38,6 +36,10 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SyncObjs;
 
 { TDptLintContext }
 

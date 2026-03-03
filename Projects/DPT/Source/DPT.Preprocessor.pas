@@ -10,18 +10,8 @@ interface
 
 uses
 
-  System.Classes,
-  System.IOUtils,
-  System.RegularExpressions,
-  System.SysUtils,
-  System.Types,
-
-  System.Collections.Factory,
   System.Collections.Interfaces,
 
-  TmplCodeGen.Common,
-  TmplCodeGen.Generator,
-  TmplCodeGen.Includer,
   TmplCodeGen.Logger;
 
 type
@@ -38,9 +28,23 @@ type
 
 implementation
 
+uses
+
+  System.Classes,
+  System.IOUtils,
+  System.RegularExpressions,
+  System.SysUtils,
+  System.Types,
+
+  System.Collections.Factory,
+
+  TmplCodeGen.Common,
+  TmplCodeGen.Generator,
+  TmplCodeGen.Includer;
+
 { TDptPreprocessor }
 
-constructor TDptPreprocessor.Create(const ALogger: ILogger = nil);
+constructor TDptPreprocessor.Create(const ALogger: ILogger);
 begin
   if Assigned(ALogger) then
     FLogger := ALogger

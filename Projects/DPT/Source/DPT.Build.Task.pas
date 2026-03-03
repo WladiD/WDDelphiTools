@@ -10,22 +10,8 @@ interface
 
 uses
 
-  Winapi.Windows,
-
-  System.Classes,
-  System.IOUtils,
-  System.RegularExpressions,
-  System.SysUtils,
-  System.Types,
-
-  JclIDEUtils,
-
-  System.Collections.Factory,
-  System.Collections.Interfaces,
-
   DPT.Task,
-  DPT.Types,
-  DPT.Utils;
+  DPT.Types;
 
 type
 
@@ -55,6 +41,21 @@ type
 implementation
 
 uses
+
+  Winapi.Windows,
+
+  System.Classes,
+  System.IOUtils,
+  System.RegularExpressions,
+  System.SysUtils,
+  System.Types,
+
+  JclIDEUtils,
+
+  System.Collections.Factory,
+  System.Collections.Interfaces,
+
+  DPT.Utils,
 
   DPT.DProjAnalyzer,
   DPT.Workflow;

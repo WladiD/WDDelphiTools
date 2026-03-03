@@ -17,9 +17,7 @@ uses
   System.SysUtils,
 
   JclDebug,
-  mormot.core.collections,
-
-  DPT.Logger;
+  mormot.core.collections;
 
 function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL; dwThreadId: DWORD): THandle; stdcall; external kernel32;
 
@@ -164,6 +162,10 @@ type
   end;
 
 implementation
+
+uses
+
+  DPT.Logger;
 
 { TDebuggerThread }
 

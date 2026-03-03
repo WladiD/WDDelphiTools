@@ -10,10 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-
-  JclIDEUtils,
-
   DPT.Task,
   DPT.Types;
 
@@ -34,6 +30,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  JclIDEUtils;
 
 { TDptRegisterPackageTask }
 

@@ -10,10 +10,6 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
-  System.IOUtils,
-
   DPT.Task,
   DPT.Types;
 
@@ -33,6 +29,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+  System.IOUtils;
 
 { TDptLintSetupTask }
 

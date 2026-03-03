@@ -10,15 +10,7 @@ interface
 
 uses
 
-  Winapi.Windows,
-
-  System.SysUtils,
-
-  JclIDEUtils,
-
-  DPT.IdeManager,
-  DPT.Task,
-  DPT.Types;
+  DPT.Task;
 
 type
 
@@ -33,6 +25,17 @@ type
   end;
 
 implementation
+
+uses
+
+  Winapi.Windows,
+
+  System.SysUtils,
+
+  JclIDEUtils,
+
+  DPT.IdeManager,
+  DPT.Types;
 
 { TDptStartTask }
 

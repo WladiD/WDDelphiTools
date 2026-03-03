@@ -10,12 +10,6 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
-  System.RegularExpressions,
-  System.IOUtils,
-
-  System.Collections.Factory,
   System.Collections.Interfaces;
 
 type
@@ -39,6 +33,15 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+  System.RegularExpressions,
+  System.IOUtils,
+
+  System.Collections.Factory;
 
 { TDProjAnalyzer }
 

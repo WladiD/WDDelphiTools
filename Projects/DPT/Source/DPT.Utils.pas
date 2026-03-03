@@ -8,14 +8,14 @@ unit DPT.Utils;
 
 interface
 
-uses
-  System.SysUtils;
-
 procedure CheckAndExecutePreProcessor(var AProjectFile: String);
 
 implementation
 
 uses
+
+  System.SysUtils,
+
   DPT.Preprocessor;
 
 procedure CheckAndExecutePreProcessor(var AProjectFile: String);

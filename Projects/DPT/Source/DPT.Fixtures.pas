@@ -11,15 +11,8 @@ interface
 uses
 
   System.SyncObjs,
-  System.SysUtils,
 
-  Slim.Fixture,
-
-  DPT.Detection,
-  DPT.IdeControl.Task,
-  DPT.OpenUnitTask,
-  DPT.PrintPath.Task,
-  DPT.Types;
+  Slim.Fixture;
 
 type
 
@@ -73,6 +66,16 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  DPT.Detection,
+  DPT.IdeControl.Task,
+  DPT.OpenUnitTask,
+  DPT.PrintPath.Task,
+  DPT.Types;
 
 { TDptOpenUnitFixture }
 

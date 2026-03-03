@@ -10,12 +10,7 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
-
-  JclIDEUtils,
-
-  DPT.Logger;
+  System.SysUtils;
 
 type
 
@@ -59,6 +54,14 @@ const
     { dvD12     } 29);
 
 implementation
+
+uses
+
+  System.Classes,
+
+  JclIDEUtils,
+
+  DPT.Logger;
 
 { TCmdLineConsumer }
 

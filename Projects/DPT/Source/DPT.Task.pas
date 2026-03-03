@@ -10,12 +10,8 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
-
   JclIDEUtils,
 
-  DPT.Detection,
   DPT.Logger,
   DPT.Types;
 
@@ -45,6 +41,13 @@ type
   TDptTaskClass = class of TDptTaskBase;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+
+  DPT.Detection;
 
 { TDptTaskBase }
 

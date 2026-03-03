@@ -13,11 +13,6 @@ uses
   Winapi.Windows,
 
   System.Classes,
-  System.Contnrs,
-  System.Hash,
-  System.IOUtils,
-  System.NetEncoding,
-  System.SysUtils,
 
   mormot.core.collections,
 
@@ -48,6 +43,12 @@ type
 implementation
 
 uses
+
+  System.Contnrs,
+  System.Hash,
+  System.IOUtils,
+  System.NetEncoding,
+  System.SysUtils,
 
   DPT.Build.Task,
   DPT.BuildEnvironment.Task,

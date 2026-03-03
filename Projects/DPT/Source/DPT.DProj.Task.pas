@@ -10,14 +10,9 @@ interface
 
 uses
 
-  System.SysUtils,
-
-  JclIDEUtils,
-
   DPT.DProjAnalyzer,
   DPT.Task,
-  DPT.Types,
-  DPT.Utils;
+  DPT.Types;
 
 type
 
@@ -58,6 +53,14 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  JclIDEUtils,
+
+  DPT.Utils;
 
 { TDptDProjTaskBase }
 

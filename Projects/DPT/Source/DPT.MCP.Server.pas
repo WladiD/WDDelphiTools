@@ -17,7 +17,6 @@ uses
   System.Classes,
   System.JSON,
   System.SyncObjs,
-  System.SysUtils,
 
   mormot.core.collections,
   mormot.core.json,
@@ -83,6 +82,10 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils;
 
 const
 

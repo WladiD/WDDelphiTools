@@ -10,13 +10,7 @@ interface
 
 uses
 
-  Winapi.Messages,
-  Winapi.PsAPI,
-  Winapi.TlHelp32,
-  Winapi.Windows,
-
-  System.Classes,
-  System.SysUtils;
+  Winapi.Windows;
 
 type
 
@@ -33,6 +27,15 @@ type
   end;
 
 implementation
+
+uses
+
+  Winapi.Messages,
+  Winapi.PsAPI,
+  Winapi.TlHelp32,
+
+  System.Classes,
+  System.SysUtils;
 
 type
 

@@ -13,11 +13,6 @@ uses
   Winapi.TlHelp32,
   Winapi.Windows,
 
-  System.StrUtils,
-  System.SysUtils,
-
-  JclIDEUtils,
-
   DPT.Types;
 
 function FindMostRecentDelphiVersion: TDelphiVersion;
@@ -42,6 +37,13 @@ function DetectAIMode(out AHostPID: DWORD): TAIMode; overload;
 function DetectAIMode: TAIMode; overload;
 
 implementation
+
+uses
+
+  System.StrUtils,
+  System.SysUtils,
+
+  JclIDEUtils;
 
 function DetectAIMode(out AHostPID: DWORD): TAIMode;
 var

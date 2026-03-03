@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -11,19 +11,15 @@ interface
 uses
 
   mormot.core.collections,
+
   Winapi.Windows,
 
   System.Classes,
-  System.IOUtils,
-  System.Math,
-  System.StrUtils,
   System.SysUtils,
   System.Variants,
 
   ExprParser,
-  ExprParserTools,
 
-  DPT.Detection,
   DPT.Types,
   DPT.Workflow.Session;
 
@@ -103,6 +99,16 @@ type
   end;
 
 implementation
+
+uses
+
+  System.IOUtils,
+  System.Math,
+  System.StrUtils,
+
+  ExprParserTools,
+
+  DPT.Detection;
 
 const
   WorkflowFileName = '.DptAiWorkflow';

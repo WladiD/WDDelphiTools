@@ -10,14 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-  System.Classes,
-
-  IdTCPClient,
-
-  Slim.List,
-
-  DPT.Detection,
   DPT.Types;
 
 type
@@ -33,6 +25,17 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+
+  IdTCPClient,
+
+  Slim.List,
+
+  DPT.Detection;
 
 { TDptIdeClient }
 

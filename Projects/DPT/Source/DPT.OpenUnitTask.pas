@@ -10,19 +10,8 @@ interface
 
 uses
 
-  Winapi.Messages,
-  Winapi.PsAPI,
-  Winapi.ShellAPI,
-  Winapi.TlHelp32,
   Winapi.Windows,
-  Winapi.Winsock,
 
-  System.Classes,
-  System.SysUtils,
-  System.RegularExpressions,
-
-  DPT.IdeClient,
-  DPT.IdeManager,
   DPT.Task,
   DPT.Types;
 
@@ -40,6 +29,21 @@ type
   end;
 
 implementation
+
+uses
+
+  Winapi.Messages,
+  Winapi.PsAPI,
+  Winapi.ShellAPI,
+  Winapi.TlHelp32,
+  Winapi.Winsock,
+
+  System.Classes,
+  System.RegularExpressions,
+  System.SysUtils,
+
+  DPT.IdeClient,
+  DPT.IdeManager;
 
 const
 

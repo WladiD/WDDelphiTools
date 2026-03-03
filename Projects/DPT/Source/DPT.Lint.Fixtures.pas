@@ -10,18 +10,11 @@ interface
 
 uses
 
-  mormot.core.base,
   mormot.core.collections,
 
   System.Classes,
-  System.IOUtils,
-  System.RegularExpressions,
-  System.SysUtils,
-  System.Types,
 
   Slim.Fixture,
-  Slim.CmdUtils,
-  WDDT.StringTools,
 
   DPT.Lint.Context;
 
@@ -245,6 +238,19 @@ type
   end;
 
 implementation
+
+uses
+
+  mormot.core.base,
+
+  System.IOUtils,
+  System.RegularExpressions,
+  System.SysUtils,
+  System.Types,
+
+  Slim.CmdUtils,
+
+  WDDT.StringTools;
 
 { TDptLintUnitContextFixture }
 

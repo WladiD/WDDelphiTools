@@ -10,23 +10,10 @@ interface
 
 uses
 
-  System.Classes,
-  System.Generics.Collections,
-  System.IniFiles,
-  System.IOUtils,
-  System.SysUtils,
-
-  IdTCPClient,
-  JclSysUtils,
   mormot.core.collections,
 
-  Slim.Server,
-
-  DPT.Lint.Context,
-  DPT.Lint.StyleValidator,
   DPT.Task,
-  DPT.Types,
-  DPT.Workflow;
+  DPT.Types;
 
 type
 
@@ -56,6 +43,24 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.Generics.Collections,
+  System.IniFiles,
+  System.IOUtils,
+  System.SysUtils,
+
+  IdTCPClient,
+  JclSysUtils,
+
+  Slim.CmdUtils,
+  Slim.Server,
+
+  DPT.Lint.Context,
+  DPT.Lint.StyleValidator,
+  DPT.Workflow;
 
 { TDptLintTask }
 

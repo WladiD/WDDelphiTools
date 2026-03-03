@@ -8,12 +8,6 @@ unit DPT.Lint.StyleValidator;
 
 interface
 
-uses
-
-  System.Classes,
-  System.SysUtils,
-  System.IOUtils;
-
 type
 
   TDptLintStyleValidator = class
@@ -22,6 +16,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+  System.IOUtils;
 
 { TDptLintStyleValidator }
 

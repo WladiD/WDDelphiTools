@@ -10,12 +10,7 @@ interface
 
 uses
 
-  System.SysUtils,
-
-  DPT.Debugger,
-  DPT.MCP.Server,
-  DPT.Task,
-  DPT.Types;
+  DPT.Task;
 
 type
 
@@ -25,6 +20,14 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  DPT.Debugger,
+  DPT.MCP.Server,
+  DPT.Types;
 
 { TDptMcpDebuggerTask }
 

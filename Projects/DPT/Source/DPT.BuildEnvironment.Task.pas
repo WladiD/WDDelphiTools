@@ -10,15 +10,6 @@ interface
 
 uses
 
-  Winapi.Windows,
-
-  System.Classes,
-  System.IOUtils,
-  System.SysUtils,
-
-  JclIDEUtils,
-
-  DPT.Detection,
   DPT.Task,
   DPT.Types;
 
@@ -45,6 +36,18 @@ type
   end;
 
 implementation
+
+uses
+
+  Winapi.Windows,
+
+  System.Classes,
+  System.IOUtils,
+  System.SysUtils,
+
+  JclIDEUtils,
+
+  DPT.Detection;
 
 { TDptExportBuildEnvironmentTask }
 

@@ -12,13 +12,7 @@ uses
 
   Winapi.Windows,
 
-  System.Classes,
-  System.DateUtils,
-  System.Generics.Collections,
-  System.IOUtils,
-  System.JSON,
   System.SysUtils,
-  System.Variants,
 
   mormot.core.collections;
 
@@ -49,6 +43,15 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.DateUtils,
+  System.Generics.Collections,
+  System.IOUtils,
+  System.JSON,
+  System.Variants;
 
 { TDptSessionData }
 

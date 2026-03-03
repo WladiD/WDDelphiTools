@@ -10,11 +10,6 @@ interface
 
 uses
 
-  System.Classes,
-  System.SysUtils,
-
-  JclIDEUtils,
-
   DPT.Task,
   DPT.Types;
 
@@ -46,6 +41,13 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils,
+
+  JclIDEUtils;
 
 { TDptRemovePackageTaskBase }
 

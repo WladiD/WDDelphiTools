@@ -8,11 +8,6 @@ unit DPT.Logger;
 
 interface
 
-uses
-
-  System.Classes,
-  System.SysUtils;
-
 type
 
   ILogger = interface
@@ -34,6 +29,11 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils;
 
 { TConsoleLogger }
 

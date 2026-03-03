@@ -10,10 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-
-  JclIDEUtils,
-
   DPT.Task,
   DPT.Types;
 
@@ -44,6 +40,12 @@ const
     ValidPathDcpOutputWin64;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  JclIDEUtils;
 
 { TDptPrintPathTask }
 

@@ -8,14 +8,6 @@ unit DPT.InstructionScreen;
 
 interface
 
-uses
-
-  System.SysUtils,
-
-  DPT.Detection,
-  DPT.PrintPath.Task,
-  DPT.Types;
-
 type
 
   TDptInstructionScreen = class
@@ -38,6 +30,14 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  DPT.Detection,
+  DPT.PrintPath.Task,
+  DPT.Types;
 
 { TDptInstructionScreen.TActionInfo }
 
