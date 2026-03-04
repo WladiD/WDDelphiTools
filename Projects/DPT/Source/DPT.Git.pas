@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -9,46 +9,45 @@ unit DPT.Git;
 interface
 
 uses
+
   System.Classes,
   System.SysUtils;
 
 type
-  TDptMockRunCommandFunc = reference to function(const ACommand, ADirectory: string; out AOutput: string): Integer;
+
+  TDptMockRunCommandFunc = reference to function(const ACommand, ADirectory: String; out AOutput: String): Integer;
 
   TDptGit = class
   public
-    // For testing purposes
-    class var MockRunCommand: TDptMockRunCommandFunc;
-    
-    /// <summary>
-    /// Returns a list of absolute file paths for files that are modified or newly added
-    /// to the git repository starting from the specified directory.
-    /// This includes unstaged, staged, and untracked files.
-    /// </summary>
-    class function GetModifiedFiles(const ADirectory: string): TArray<string>;
-    class function RunCommand(const ACommand, ADirectory: string; out AOutput: string): Integer;
+    class var MockRunCommand: TDptMockRunCommandFunc; // For testing purposes
+    class function GetModifiedFiles(const ADirectory: String): TArray<String>;
+    class function RunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
   end;
 
 implementation
 
 uses
+
   Winapi.Windows,
+
   System.IOUtils,
+
   DPT.Detection;
 
 { TDptGit }
 
-class function TDptGit.RunCommand(const ACommand, ADirectory: string; out AOutput: string): Integer;
+class function TDptGit.RunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
 var
-  SA: TSecurityAttributes;
-  SI: TStartupInfo;
-  PI: TProcessInformation;
-  StdOutPipeRead, StdOutPipeWrite: THandle;
-  WasOK: Boolean;
-  Buffer: array[0..255] of AnsiChar;
-  BytesRead: DWORD;
-  Cmd: string;
-  CurrDir: PChar;
+  Buffer         : Array[0..255] of AnsiChar;
+  BytesRead      : DWORD;
+  Cmd            : String;
+  CurrDir        : PChar;
+  PI             : TProcessInformation;
+  SA             : TSecurityAttributes;
+  SI             : TStartupInfo;
+  StdOutPipeRead : THandle;
+  StdOutPipeWrite: THandle;
+  WasOK          : Boolean;
 begin
   Result := -1;
   AOutput := '';
@@ -111,52 +110,54 @@ begin
   end;
 end;
 
-class function TDptGit.GetModifiedFiles(const ADirectory: string): TArray<string>;
+/// <summary>
+/// Returns a list of absolute file paths for files that are modified or newly added
+/// to the git repository starting from the specified directory.
+/// This includes unstaged, staged, and untracked files.
+/// </summary>
+class function TDptGit.GetModifiedFiles(const ADirectory: String): TArray<String>;
 var
-  LOutputStr: string;
-  LOutputLines: TStringList;
-  I: Integer;
-  LStatusLine: string;
-  LFilePathShort: string;
-  LAbsolutePath: string;
-  LResultList: TStringList;
+  OutputStr    : String;
+  OutputLines  : TStringList;
+  I            : Integer;
+  StatusLine   : String;
+  FilePathShort: String;
+  AbsolutePath : String;
+  ResultList   : TStringList;
 begin
   SetLength(Result, 0);
   
-  LOutputStr := '';
+  OutputStr := '';
   if Assigned(MockRunCommand) then
   begin
-    if MockRunCommand('git status --porcelain -uall', ADirectory, LOutputStr) <> 0 then
+    if MockRunCommand('git status --porcelain -uall', ADirectory, OutputStr) <> 0 then
       Exit;
   end
   else
   begin
-    if RunCommand('git status --porcelain -uall', ADirectory, LOutputStr) <> 0 then
+    if RunCommand('git status --porcelain -uall', ADirectory, OutputStr) <> 0 then
       Exit; // Not a git repository or git not available
   end;
 
-  if Trim(LOutputStr) = '' then
+  if Trim(OutputStr) = '' then
     Exit;
 
-  LOutputLines := TStringList.Create;
-  LResultList := TStringList.Create;
+  OutputLines := TStringList.Create;
+  ResultList := TStringList.Create;
   try
-    LOutputLines.Text := LOutputStr;
-    for I := 0 to LOutputLines.Count - 1 do
+    OutputLines.Text := OutputStr;
+    for I := 0 to OutputLines.Count - 1 do
     begin
-      LStatusLine := LOutputLines[I];
-      if Length(LStatusLine) < 4 then
+      StatusLine := OutputLines[I];
+      if Length(StatusLine) < 4 then
         Continue;
 
-      // Porcelain status lines are typically "XY filename"
-      // Wait, there are cases where quotes are used if there are spaces.
-
       // Quick parsing: Remove the first three characters (status codes + space)
-      LFilePathShort := Copy(LStatusLine, 4, MaxInt);
+      FilePathShort := Copy(StatusLine, 4, MaxInt);
       
       // Remove quotes if present
-      if (Length(LFilePathShort) > 0) and (LFilePathShort[1] = '"') and (LFilePathShort[Length(LFilePathShort)] = '"') then
-        LFilePathShort := Copy(LFilePathShort, 2, Length(LFilePathShort) - 2);
+      if (Length(FilePathShort) > 0) and (FilePathShort[1] = '"') and (FilePathShort[Length(FilePathShort)] = '"') then
+        FilePathShort := Copy(FilePathShort, 2, Length(FilePathShort) - 2);
 
       // Path is relative to the root of the repo. 
       // To correctly build the full path, it's safer to use git rev-parse to get the root dir, 
@@ -177,24 +178,24 @@ begin
         // Replace forward slashes with system specific if necessary
         LRootDirStr := StringReplace(LRootDirStr, '/', '\', [rfReplaceAll]);
         
-        LAbsolutePath := TPath.Combine(LRootDirStr, LFilePathShort);
+        AbsolutePath := TPath.Combine(LRootDirStr, FilePathShort);
         
         // Let's normalize it to have consistent cases and slashes
-        LAbsolutePath := StringReplace(LAbsolutePath, '/', '\', [rfReplaceAll]);
+        AbsolutePath := StringReplace(AbsolutePath, '/', '\', [rfReplaceAll]);
         
         // Add only files, skip directories if they somehow sneak in
-        if TFile.Exists(LAbsolutePath) then
-          LResultList.Add(LAbsolutePath);
+        if TFile.Exists(AbsolutePath) then
+          ResultList.Add(AbsolutePath);
       end;
     end;
     
-    SetLength(Result, LResultList.Count);
-    for I := 0 to LResultList.Count - 1 do
-      Result[I] := LResultList[I];
+    SetLength(Result, ResultList.Count);
+    for I := 0 to ResultList.Count - 1 do
+      Result[I] := ResultList[I];
       
   finally
-    LResultList.Free;
-    LOutputLines.Free;
+    ResultList.Free;
+    OutputLines.Free;
   end;
 end;
 
