@@ -21,7 +21,8 @@ uses
   ExprParser,
 
   DPT.Types,
-  DPT.Workflow.Session;
+  DPT.Workflow.Session,
+  DPT.Git;
 
 type
 
@@ -68,7 +69,6 @@ type
     function  ExprParserIsCurrentAction(const Args: Variant): Variant;
     function  ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
     function  ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
-    function  ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
     function  ExprParserRequestDptExit: Variant;
     function  ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
     function  FindWorkflowFile: String;
@@ -80,7 +80,6 @@ type
   public
     constructor Create(const AAction, AAiSessionAction: string);
     destructor  Destroy; override;
-    procedure AddFilesToSession(const AFiles: TArray<string>);
     function  CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
     procedure RegisterRunResult(const ATarget: string; AExitCode: Integer);
     procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
@@ -321,8 +320,6 @@ begin
     ResVal := ExprParserIsCurrentBuildProjectFile(Args)
   else if SameText(FuncName, 'GetCurrentLintTargetFile') then
     ResVal := ExprParserGetCurrentLintTargetFile
-  else if SameText(FuncName, 'IsFileRegisteredInAiSession') then
-    ResVal := ExprParserIsFileRegisteredInAiSession(Args)
   else if SameText(FuncName, 'GetCurrentProjectFiles') then
     ResVal := ExprParserGetCurrentProjectFiles
   else if SameText(FuncName, 'HasValidLintResult') then
@@ -399,26 +396,6 @@ begin
   Result := FCurrentLintTargetFile;
 end;
 
-function TDptWorkflowEngine.ExprParserIsFileRegisteredInAiSession(const Args: Variant): Variant;
-var
-  FileName: string;
-  Entry: TDptSessionFileEntry;
-begin
-  Result := False;
-  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-  begin
-    FileName := ExpandFileName(VarToStr(Args[0]));
-    for Entry in FSession.Files do
-    begin
-      if SameText(Entry.Path, FileName) then
-      begin
-        Result := True;
-        Break;
-      end;
-    end;
-  end;
-end;
-
 function TDptWorkflowEngine.ExprParserGetCurrentProjectFiles: Variant;
 var
   I: Integer;
@@ -441,6 +418,8 @@ var
   Found: Boolean;
   Entry: TDptSessionFileEntry;
   AllValid: Boolean;
+  LGitModifiedFiles: TArray<string>;
+  LGitModifiedMatch: Boolean;
 begin
   Result := True; // Default to valid if no session or no files
   if Assigned(FSession) then
@@ -451,6 +430,8 @@ begin
       FilesVar := ExprParserGetCurrentProjectFiles;
 
     AllValid := True;
+    LGitModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+
     if VarIsArray(FilesVar) then
     begin
       for I := 0 to VarArrayHighBound(FilesVar, 1) do
@@ -459,11 +440,20 @@ begin
         if not TFile.Exists(FileName) then Continue;
         FileName := ExpandFileName(FileName);
         
-        // Only require lint results for files modified or created since session start
+        // Prüfen, ob die Datei im Git-Status (modified/untracked) auftaucht
+        LGitModifiedMatch := False;
+        for var LModifiedFile in LGitModifiedFiles do
+        begin
+          if SameText(LModifiedFile, FileName) then
+          begin
+            LGitModifiedMatch := True;
+            Break;
+          end;
+        end;
+
+        // Wenn nicht in Git und auch nicht nach Sessionstart geändert, dann OK (kein Lint nötig)
         var FileTime := TFile.GetLastWriteTime(FileName);
-        
-        // Use a small tolerance (1 second) to account for file system precision and timing
-        if FileTime < (FSession.StartTime - EncodeTime(0, 0, 1, 0)) then
+        if not LGitModifiedMatch and (FileTime < (FSession.StartTime - EncodeTime(0, 0, 1, 0))) then
           Continue;
 
         Found := False;
@@ -472,7 +462,7 @@ begin
           if SameText(Entry.Path, FileName) then
           begin
             // Check if lint was successful and file hasn't changed since lint
-            if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
+            if Entry.LintSuccess and (Entry.LastLintTime >= FileTime) then
               Found := True;
             Break;
           end;
@@ -585,6 +575,8 @@ var
   Found: Boolean;
   Entry: TDptSessionFileEntry;
   I: Integer;
+  LGitModifiedFiles: TArray<string>;
+  LGitModifiedMatch: Boolean;
 begin
   Result := '';
   if Assigned(FSession) then
@@ -594,6 +586,7 @@ begin
     else
       FilesVar := ExprParserGetCurrentProjectFiles;
 
+    LGitModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
     InvalidFiles := TStringList.Create;
     try
       if VarIsArray(FilesVar) then
@@ -604,8 +597,19 @@ begin
           if not TFile.Exists(FileName) then Continue;
           FileName := ExpandFileName(FileName);
           
-          // Only check files modified or created since session start
-          if TFile.GetLastWriteTime(FileName) < FSession.StartTime then
+          LGitModifiedMatch := False;
+          for var LModifiedFile in LGitModifiedFiles do
+          begin
+            if SameText(LModifiedFile, FileName) then
+            begin
+              LGitModifiedMatch := True;
+              Break;
+            end;
+          end;
+
+          var FileTime := TFile.GetLastWriteTime(FileName);
+          // Only check files modified or created since session start OR present in git status
+          if not LGitModifiedMatch and (FileTime < FSession.StartTime) then
             Continue;
 
           Found := False;
@@ -613,7 +617,7 @@ begin
           begin
             if SameText(Entry.Path, FileName) then
             begin
-              if Entry.LintSuccess and (Entry.LastLintTime >= TFile.GetLastWriteTime(FileName)) then
+              if Entry.LintSuccess and (Entry.LastLintTime >= FileTime) then
                 Found := True;
               Break;
             end;
@@ -932,49 +936,6 @@ begin
   end;
 end;
 
-procedure TDptWorkflowEngine.AddFilesToSession(const AFiles: TArray<string>);
-var
-  FileName: string;
-  Entry: TDptSessionFileEntry;
-  FullFileName: string;
-  ExistingEntry: TDptSessionFileEntry;
-  AlreadyRegistered: Boolean;
-begin
-  for FileName in AFiles do
-  begin
-    FullFileName := ExpandFileName(FileName);
-    if not TFile.Exists(FullFileName) then
-    begin
-      Writeln('ERROR: File not found: ', FileName);
-      raise Exception.Create('Cannot register non-existent file: ' + FileName);
-    end;
-
-    AlreadyRegistered := False;
-    for ExistingEntry in FSession.Files do
-    begin
-      if SameText(ExistingEntry.Path, FullFileName) then
-      begin
-        AlreadyRegistered := True;
-        Break;
-      end;
-    end;
-
-    if AlreadyRegistered then
-    begin
-      Writeln('File already registered in AI session: ', FileName);
-      Continue;
-    end;
-
-    Entry.Path := FullFileName;
-    Entry.Hash := ''; 
-    Entry.LastLintTime := 0;
-    Entry.LintSuccess := False;
-    FSession.Files.Add(Entry);
-    Writeln('Registered file in AI session: ', FileName);
-  end;
-  FSession.SaveToFile(FSessionFile);
-end;
-
 procedure TDptWorkflowEngine.ShowStatus;
 var
   I: Integer;
@@ -988,7 +949,7 @@ begin
   Writeln('AI Session Status:');
   Writeln('  Host PID:   ', FSession.HostPID);
   Writeln('  Started:    ', DateTimeToStr(FSession.StartTime));
-  Writeln('  Files:      ', FSession.Files.Count);
+  Writeln('  Recorded lint results: ', FSession.Files.Count);
   for I := 0 to FSession.Files.Count - 1 do
     Writeln('    - ', FSession.Files[I].Path, ' [Lint: ', IfThen(FSession.Files[I].LintSuccess, 'OK', 'FAILED'), ']');
 end;
@@ -998,10 +959,12 @@ var
   I: Integer;
   Entry: TDptSessionFileEntry;
   FullName: string;
+  Found: Boolean;
 begin
   if not Assigned(FSession) or (FSessionFile = '') then Exit;
   
   FullName := ExpandFileName(AFileName);
+  Found := False;
   for I := 0 to FSession.Files.Count - 1 do
   begin
     Entry := FSession.Files[I];
@@ -1010,10 +973,21 @@ begin
       Entry.LintSuccess := ASuccess;
       Entry.LastLintTime := Now;
       FSession.Files[I] := Entry;
-      FSession.SaveToFile(FSessionFile);
+      Found := True;
       Break;
     end;
   end;
+
+  if not Found then
+  begin
+    Entry.Path := FullName;
+    Entry.LintSuccess := ASuccess;
+    Entry.LastLintTime := Now;
+    Entry.Hash := '';
+    FSession.Files.Add(Entry);
+  end;
+
+  FSession.SaveToFile(FSessionFile);
 end;
 
 procedure TDptWorkflowEngine.SetLintTarget(const AFile: string);

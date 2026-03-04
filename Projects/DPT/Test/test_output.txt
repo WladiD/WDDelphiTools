@@ -1,0 +1,716 @@
+﻿Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
+PRODUCTVERSION: 23.0
+BuildinMicrosoft (R)-Buildmodul, Version 4.8.9221.0
+[Microsoft .NET Framework, Version 4.0.30319.42000]
+Copyright (C) Microsoft Corporation. Alle Rechte vorbehalten.
+
+Der Buildvorgang wurde am 03.03.2026 15:59:12 gestartet.
+Projekt "c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" auf Knoten "1", Build Ziel(e).
+BuildVersionResource:
+  C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\cgrc.exe -c65001 Test.DPT.vrc -foTest.DPT.res 
+  CodeGear Resource Compiler/Binder
+  Version 1.2.2 Copyright (c) 2008-2012 Embarcadero Technologies Inc.
+  
+  Microsoft (R) Windows (R) Resource Compiler Version 6.0.5724.0
+  
+  Copyright (C) Microsoft Corporation.  All rights reserved.
+  
+  
+  Die Datei Test.DPT.vrc wird gelÃ¶scht.
+  del "Test.DPT.vrc"
+PreBuildEvent:
+  "C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe" -GD -O- -V "c:\WDC\WDDelphiTools\Projects\DPT\Test\DebugTarget.dpr"
+  "C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe" -GD -O- -V "c:\WDC\WDDelphiTools\Projects\DPT\Test\ExceptionTarget.dpr"
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+  DebugTarget.dpr(8) Warnung: W1012 Konstantenausdruck verletzt untere Grenzen
+  DebugTarget.dpr(12) Hinweis: H2077 Auf 'LocalInt' zugewiesener Wert wird niemals benutzt
+  25 Zeilen, 0.06 Sekunden, 130408 Byte-Code, 29724 Byte-Daten.
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+  31 Zeilen, 0.06 Sekunden, 131412 Byte-Code, 29724 Byte-Daten.
+_PasCoreCompile:
+  C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe -$O- -$W+ -$R+ -$Q+ --no-config -B -Q -TX.exe -AGenerics.Collections=System.Generics.Collections;Generics.Defaults=System.Generics.Defaults;WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE -DDEBUG -E.\Win32\Debug -I"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug\DE";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Debug\Studio29";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -LEC:\Users\Public\Documents\Embarcadero\Studio\23.0\Bpl -LNC:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp -NU.\Win32\Debug -NSWinapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;System;Xml;Data;Datasnap;Web;Soap; -O..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -R"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -U"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug\DE";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Debug\Studio29";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -V -VN -NBC:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp -NHC:\Users\Public\Documents\Embarcadero\Studio\23.0\hpp\Win32 -NO.\Win32\Debug  Test.DPT.dpr   
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+Test.DPT.Debugger.pas(67): Hinweis warning H2077: Auf 'Thread' zugewiesener Wert wird niemals benutzt [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+Test.DPT.Debugger.pas(102): Hinweis warning H2077: Auf 'Thread' zugewiesener Wert wird niemals benutzt [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\Program Files (x86)\Embarcadero\Studio\23.0\Bin\CodeGear.Delphi.Targets(427,5): warning W1029: constructor 'TFileStreamEx.CreateWrite' doppelt mit identischen Parametern; Zugriff von C++ nicht mÃ¶glich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  432724 Zeilen, 1.28 Sekunden, 5547620 Byte-Code, 820376 Byte-Daten.
+Die Erstellung des Projekts "c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" ist abgeschlossen, Build Ziel(e).
+
+Der Buildvorgang wurde erfolgreich ausgefÃ¼hrt.
+
+"c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" (Build Ziel) (1) ->
+(_PasCoreCompile Ziel) -> 
+  Test.DPT.Debugger.pas(67): Hinweis warning H2077: Auf 'Thread' zugewiesener Wert wird niemals benutzt [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  Test.DPT.Debugger.pas(102): Hinweis warning H2077: Auf 'Thread' zugewiesener Wert wird niemals benutzt [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\Program Files (x86)\Embarcadero\Studio\23.0\Bin\CodeGear.Delphi.Targets(427,5): warning W1029: constructor 'TFileStreamEx.CreateWrite' doppelt mit identischen Parametern; Zugriff von C++ nicht mÃ¶glich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+
+    3 Warnung(en)
+    0 Fehler
+
+Verstrichene Zeit 00:00:02.04
+g c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj...
+Build successful.
+Running c:\WDC\WDDelphiTools\Projects\DPT\Test\Wi**********************************************************************
+*        DUnitX - (c) 2015-2020 Vincent Parrett & Contributors       *
+*                                                                    *
+*        License - http://www.apache.org/licenses/LICENSE-2.0        *
+**********************************************************************
+
+  Gruppe: Test
+  -------------------------------------------------
+     Gruppe: Test.DPT
+     -------------------------------------------------
+        Gruppe: Test.DPT.DProjAnalyzer
+        -------------------------------------------------
+           Gruppe: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer
+           -------------------------------------------------
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetConfigs
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetConfigs
+             
+             Test wird ausgeführt: GetConfigs
+             
+             
+              Teardown wird ausgeführt für Test: GetConfigs
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetDefaultConfig
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetDefaultConfig
+             
+             Test wird ausgeführt: GetDefaultConfig
+             
+             
+              Teardown wird ausgeführt für Test: GetDefaultConfig
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectSearchPath_Inheritance
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectSearchPath_Inheritance
+             
+             Test wird ausgeführt: GetProjectSearchPath_Inheritance
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectSearchPath_Inheritance
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectSearchPath_Overwrite
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectSearchPath_Overwrite
+             
+             Test wird ausgeführt: GetProjectSearchPath_Overwrite
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectSearchPath_Overwrite
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectFiles
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectFiles
+             
+             Test wird ausgeführt: GetProjectFiles
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectFiles
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_Default
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_Default
+             
+             Test wird ausgeführt: GetProjectOutputFile_Default
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_Default
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_SimpleOutput
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_SimpleOutput
+             
+             Test wird ausgeführt: GetProjectOutputFile_SimpleOutput
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_SimpleOutput
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_ConfigCondition
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_ConfigCondition
+             
+             Test wird ausgeführt: GetProjectOutputFile_ConfigCondition
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_ConfigCondition
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_PlatformCondition
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_PlatformCondition
+             
+             Test wird ausgeführt: GetProjectOutputFile_PlatformCondition
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_PlatformCondition
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_Variables
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_Variables
+             
+             Test wird ausgeführt: GetProjectOutputFile_Variables
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_Variables
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_MultipleGroups
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_MultipleGroups
+             
+             Test wird ausgeführt: GetProjectOutputFile_MultipleGroups
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_MultipleGroups
+              
+               Erfolg.
+            
+             Test: Test.DPT.DProjAnalyzer.TTestDProjAnalyzer.GetProjectOutputFile_ComplexConditions
+             -------------------------------------------------
+             Setup wird ausgeführt für: GetProjectOutputFile_ComplexConditions
+             
+             Test wird ausgeführt: GetProjectOutputFile_ComplexConditions
+             
+             
+              Teardown wird ausgeführt für Test: GetProjectOutputFile_ComplexConditions
+              
+               Erfolg.
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+        Gruppe: Test.DPT.Debugger
+        -------------------------------------------------
+           Gruppe: Test.DPT.Debugger.TDebuggerTests
+           -------------------------------------------------
+             Test: Test.DPT.Debugger.TDebuggerTests.TestBreakpointInTarget
+             -------------------------------------------------
+             Test wird ausgeführt: TestBreakpointInTarget
+             
+               Erfolg.
+            
+             Test: Test.DPT.Debugger.TDebuggerTests.TestStackTrace
+             -------------------------------------------------
+             Test wird ausgeführt: TestStackTrace
+             
+               Erfolg.
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+        Gruppe: Test.DPT.Lint
+        -------------------------------------------------
+           Gruppe: Test.DPT.Lint.Setup
+           -------------------------------------------------
+              Gruppe: Test.DPT.Lint.Setup.Task
+              -------------------------------------------------
+                 Gruppe: Test.DPT.Lint.Setup.Task.TDptLintSetupTaskTests
+                 -------------------------------------------------
+                   Test: Test.DPT.Lint.Setup.Task.TDptLintSetupTaskTests.SplitAndJoin_RoundTrip
+                   -------------------------------------------------
+                   Setup wird ausgeführt für: SplitAndJoin_RoundTrip
+                   
+                   Test wird ausgeführt: SplitAndJoin_RoundTrip
+                   
+                   
+                    Teardown wird ausgeführt für Test: SplitAndJoin_RoundTrip
+                    
+                     Erfolg.
+                  
+                   Test: Test.DPT.Lint.Setup.Task.TDptLintSetupTaskTests.Join_PadsShortLines
+                   -------------------------------------------------
+                   Setup wird ausgeführt für: Join_PadsShortLines
+                   
+                   Test wird ausgeführt: Join_PadsShortLines
+                   
+                   
+                    Teardown wird ausgeführt für Test: Join_PadsShortLines
+                    
+                     Erfolg.
+                  
+                   Test: Test.DPT.Lint.Setup.Task.TDptLintSetupTaskTests.Join_ThrowsOnTemplateLineTooLong
+                   -------------------------------------------------
+                   Setup wird ausgeführt für: Join_ThrowsOnTemplateLineTooLong
+                   
+                   Test wird ausgeführt: Join_ThrowsOnTemplateLineTooLong
+                   
+                   
+                    Teardown wird ausgeführt für Test: Join_ThrowsOnTemplateLineTooLong
+                    
+                     Erfolg.
+                  
+                   Test: Test.DPT.Lint.Setup.Task.TDptLintSetupTaskTests.SplitAndJoin_PreservesColumnWidthWithSpaces
+                   -------------------------------------------------
+                   Setup wird ausgeführt für: SplitAndJoin_PreservesColumnWidthWithSpaces
+                   
+                   Test wird ausgeführt: SplitAndJoin_PreservesColumnWidthWithSpaces
+                   
+                   
+                    Teardown wird ausgeführt für Test: SplitAndJoin_PreservesColumnWidthWithSpaces
+                    
+                     Erfolg.
+                  
+                  Teardown-Methode für Gruppen wird ausgeführt: Destroy
+                  
+               
+            
+         
+      
+        Gruppe: Test.DPT.LintFixtures
+        -------------------------------------------------
+           Gruppe: Test.DPT.LintFixtures.TTestDptLintFixtures
+           -------------------------------------------------
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.DestructorsMustCallInherited_FailsOnNestedBlocks
+             -------------------------------------------------
+             Setup wird ausgeführt für: DestructorsMustCallInherited_FailsOnNestedBlocks
+             
+             Test wird ausgeführt: DestructorsMustCallInherited_FailsOnNestedBlocks
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.DestructorsMustCallInherited_SucceedsOnSimpleDestructor
+             -------------------------------------------------
+             Setup wird ausgeführt für: DestructorsMustCallInherited_SucceedsOnSimpleDestructor
+             
+             Test wird ausgeführt: DestructorsMustCallInherited_SucceedsOnSimpleDestructor
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.DestructorsMustCallInherited_FailsOnCommentedInherited
+             -------------------------------------------------
+             Setup wird ausgeführt für: DestructorsMustCallInherited_FailsOnCommentedInherited
+             
+             Test wird ausgeführt: DestructorsMustCallInherited_FailsOnCommentedInherited
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassBanners_ReportsCorrectLine
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassBanners_ReportsCorrectLine
+             
+             Test wird ausgeführt: ValidateClassBanners_ReportsCorrectLine
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassBanners_HandlesMisleadingSeparators
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassBanners_HandlesMisleadingSeparators
+             
+             Test wird ausgeführt: ValidateClassBanners_HandlesMisleadingSeparators
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassBanners_DebugRegex
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassBanners_DebugRegex
+             
+             Test wird ausgeführt: ValidateClassBanners_DebugRegex
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassBanners_SeparatorFollowedByMethod
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassBanners_SeparatorFollowedByMethod
+             
+             Test wird ausgeführt: ValidateClassBanners_SeparatorFollowedByMethod
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateMethodOrderAndSeparators_FailsOnTooShortSeparator
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateMethodOrderAndSeparators_FailsOnTooShortSeparator
+             
+             Test wird ausgeführt: ValidateMethodOrderAndSeparators_FailsOnTooShortSeparator
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator
+             
+             Test wird ausgeführt: ValidateMethodOrderAndSeparators_SucceedsOnDoubleSeparator
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateMethodOrderAndSeparators_IgnoresNestedProcedures
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateMethodOrderAndSeparators_IgnoresNestedProcedures
+             
+             Test wird ausgeführt: ValidateMethodOrderAndSeparators_IgnoresNestedProcedures
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner
+             
+             Test wird ausgeführt: ValidateMethodOrderAndSeparators_AllowsXmlCommentsAfterBanner
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassDeclaration_EventPropertiesAtEnd
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassDeclaration_EventPropertiesAtEnd
+             
+             Test wird ausgeführt: ValidateClassDeclaration_EventPropertiesAtEnd
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ColonsInRecordsAreAligned_IgnoresMethods
+             -------------------------------------------------
+             Setup wird ausgeführt für: ColonsInRecordsAreAligned_IgnoresMethods
+             
+             Test wird ausgeführt: ColonsInRecordsAreAligned_IgnoresMethods
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.ValidateClassDeclaration_AllowsExceptionPrefix
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateClassDeclaration_AllowsExceptionPrefix
+             
+             Test wird ausgeführt: ValidateClassDeclaration_AllowsExceptionPrefix
+             
+               Erfolg.
+            
+             Test: Test.DPT.LintFixtures.TTestDptLintFixtures.UsesFixture_HandlesConditionalDirectives
+             -------------------------------------------------
+             Setup wird ausgeführt für: UsesFixture_HandlesConditionalDirectives
+             
+             Test wird ausgeführt: UsesFixture_HandlesConditionalDirectives
+             
+               Erfolg.
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+        Gruppe: Test.DPT.LintTask
+        -------------------------------------------------
+           Gruppe: Test.DPT.LintTask.TDptLintStyleValidatorTests
+           -------------------------------------------------
+             Test: Test.DPT.LintTask.TDptLintStyleValidatorTests.ValidateStyle_Valid
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateStyle_Valid
+             
+             Test wird ausgeführt: ValidateStyle_Valid
+             
+             
+              Teardown wird ausgeführt für Test: ValidateStyle_Valid
+              
+               Erfolg.
+            
+             Test: Test.DPT.LintTask.TDptLintStyleValidatorTests.ValidateStyle_InvalidAlignment_Col2
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateStyle_InvalidAlignment_Col2
+             
+             Test wird ausgeführt: ValidateStyle_InvalidAlignment_Col2
+             
+             
+              Teardown wird ausgeführt für Test: ValidateStyle_InvalidAlignment_Col2
+              
+               Erfolg.
+            
+             Test: Test.DPT.LintTask.TDptLintStyleValidatorTests.ValidateStyle_IgnoreCodeComments
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateStyle_IgnoreCodeComments
+             
+             Test wird ausgeführt: ValidateStyle_IgnoreCodeComments
+             
+             
+              Teardown wird ausgeführt für Test: ValidateStyle_IgnoreCodeComments
+              
+               Erfolg.
+            
+             Test: Test.DPT.LintTask.TDptLintStyleValidatorTests.ValidateStyle_MissingAnchor
+             -------------------------------------------------
+             Setup wird ausgeführt für: ValidateStyle_MissingAnchor
+             
+             Test wird ausgeführt: ValidateStyle_MissingAnchor
+             
+             
+              Teardown wird ausgeführt für Test: ValidateStyle_MissingAnchor
+              
+               Erfolg.
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+        Gruppe: Test.DPT.MCP
+        -------------------------------------------------
+           Gruppe: Test.DPT.MCP.Server
+           -------------------------------------------------
+              Gruppe: Test.DPT.MCP.Server.TMcpServerTests
+              -------------------------------------------------
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpProtocolFlow
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpProtocolFlow
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpExceptionFlow
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpExceptionFlow
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpSteppingFlow
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpSteppingFlow
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpStackFrameInfo
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpStackFrameInfo
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpBreakpointManagement
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpBreakpointManagement
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpPendingBreakpoints
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpPendingBreakpoints
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpBreakpointLimit
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpBreakpointLimit
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpGetState
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpGetState
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpBreakpointUnresolvable
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpBreakpointUnresolvable
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpStopDebugSession
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpStopDebugSession
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpTerminateDebugSession
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpTerminateDebugSession
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpStartSessionWithoutMapFile
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpStartSessionWithoutMapFile
+                
+                  Erfolg.
+               
+                Test: Test.DPT.MCP.Server.TMcpServerTests.TestMcpWaitUntilPaused
+                -------------------------------------------------
+                Test wird ausgeführt: TestMcpWaitUntilPaused
+                
+                  === DEBUG OUTPUT WRITER LINES ===
+                  [0]: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"DPT-Debugger","version":"1.0.0"}}}
+                  [1]: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Breakpoint set at DebugTarget.dpr:22"}]}}
+                  [2]: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"Execution resumed. Waiting for breakpoint or process exit."}]}}
+                  [3]: {"jsonrpc":"2.0","method":"notifications/stopped","params":{"reason":"breakpoint","unit":"DebugTarget.dpr","line":22}}
+                  [4]: {"jsonrpc":"2.0","id":"smpl_31171015","method":"sampling/createMessage","params":{"messages":[{"role":"user","content":{"type":"text","text":"The debugger stopped at a breakpoint in DebugTarget.dpr line 22."}}],"maxTokens":1000}}
+                  [5]: {"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"Stepping into. Waiting for step to complete."}]}}
+                  [6]: {"jsonrpc":"2.0","method":"notifications/stopped","params":{"reason":"step","unit":"DebugTarget","line":16}}
+                  [7]: {"jsonrpc":"2.0","id":"smpl_31171015","method":"sampling/createMessage","params":{"messages":[{"role":"user","content":{"type":"text","text":"The debugger stopped after a step in DebugTarget line 16."}}],"maxTokens":1000}}
+                  [8]: {"jsonrpc":"2.0","id":5,"result":{"content":[{"type":"text","text":"{\"state\":\"paused\",\"unit\":\"DebugTarget\",\"line\":16,\"procedure\":\"DebugTarget.TargetProcedure\"}"}]}}
+                  =================================
+                  Erfolg : === DEBUG OUTPUT WRITER LINES ===
+                  [0]: {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"DPT-Debugger","version":"1.0.0"}}}
+                  [1]: {"jsonrpc":"2.0","id":2,"result":{"content":[{"type":"text","text":"Breakpoint set at DebugTarget.dpr:22"}]}}
+                  [2]: {"jsonrpc":"2.0","id":3,"result":{"content":[{"type":"text","text":"Execution resumed. Waiting for breakpoint or process exit."}]}}
+                  [3]: {"jsonrpc":"2.0","method":"notifications/stopped","params":{"reason":"breakpoint","unit":"DebugTarget.dpr","line":22}}
+                  [4]: {"jsonrpc":"2.0","id":"smpl_31171015","method":"sampling/createMessage","params":{"messages":[{"role":"user","content":{"type":"text","text":"The debugger stopped at a breakpoint in DebugTarget.dpr line 22."}}],"maxTokens":1000}}
+                  [5]: {"jsonrpc":"2.0","id":4,"result":{"content":[{"type":"text","text":"Stepping into. Waiting for step to complete."}]}}
+                  [6]: {"jsonrpc":"2.0","method":"notifications/stopped","params":{"reason":"step","unit":"DebugTarget","line":16}}
+                  [7]: {"jsonrpc":"2.0","id":"smpl_31171015","method":"sampling/createMessage","params":{"messages":[{"role":"user","content":{"type":"text","text":"The debugger stopped after a step in DebugTarget line 16."}}],"maxTokens":1000}}
+                  [8]: {"jsonrpc":"2.0","id":5,"result":{"content":[{"type":"text","text":"{\"state\":\"paused\",\"unit\":\"DebugTarget\",\"line\":16,\"procedure\":\"DebugTarget.TargetProcedure\"}"}]}}
+                  =================================
+               
+               Teardown-Methode für Gruppen wird ausgeführt: Destroy
+               
+            
+         
+      
+        Gruppe: Test.DPT.Preprocessor
+        -------------------------------------------------
+           Gruppe: Test.DPT.Preprocessor.TTestDptPreprocessor
+           -------------------------------------------------
+             Test: Test.DPT.Preprocessor.TTestDptPreprocessor.SimpleConfig
+             -------------------------------------------------
+             Setup wird ausgeführt für: SimpleConfig
+             
+             Test wird ausgeführt: SimpleConfig
+             
+             
+              Teardown wird ausgeführt für Test: SimpleConfig
+              
+               Erfolg.
+            
+             Test: Test.DPT.Preprocessor.TTestDptPreprocessor.MultipleConfigs
+             -------------------------------------------------
+             Setup wird ausgeführt für: MultipleConfigs
+             
+             Test wird ausgeführt: MultipleConfigs
+             
+             
+              Teardown wird ausgeführt für Test: MultipleConfigs
+              
+               Erfolg.
+            
+             Test: Test.DPT.Preprocessor.TTestDptPreprocessor.IncludePartials
+             -------------------------------------------------
+             Setup wird ausgeführt für: IncludePartials
+             
+             Test wird ausgeführt: IncludePartials
+             
+             
+              Teardown wird ausgeführt für Test: IncludePartials
+              
+               Erfolg.
+            
+             Test: Test.DPT.Preprocessor.TTestDptPreprocessor.EmbeddedConfig
+             -------------------------------------------------
+             Setup wird ausgeführt für: EmbeddedConfig
+             
+             Test wird ausgeführt: EmbeddedConfig
+             
+             
+              Teardown wird ausgeführt für Test: EmbeddedConfig
+              
+               Erfolg.
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+        Gruppe: Test.DPT.Workflow
+        -------------------------------------------------
+           Gruppe: Test.DPT.Workflow.TTestDptWorkflow
+           -------------------------------------------------
+             Test: Test.DPT.Workflow.TTestDptWorkflow.FixLineEndings
+             -------------------------------------------------
+             Setup wird ausgeführt für: FixLineEndings
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{4910B48E-CEDF-4FED-B871-65E8074AAAAA}\.DptAiWorkflow
+             
+             Test wird ausgeführt: FixLineEndings
+             
+AI session started for PID 0
+Session file: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{4910B48E-CEDF-4FED-B871-65E8074AAAAA}\.DptAiWorkflow.Session0.json
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{4910B48E-CEDF-4FED-B871-65E8074AAAAA}\.DptAiWorkflow
+             
+              Teardown wird ausgeführt für Test: FixLineEndings
+              
+               Test fehlgeschlagen:FixLineEndings : [Line1
+               Line2
+               Line3] erwartet, aber [Line1
+               Line2
+               Line3] Mixed should be CRLF erhalten
+            
+             Test: Test.DPT.Workflow.TTestDptWorkflow.FixUtf8Bom
+             -------------------------------------------------
+             Setup wird ausgeführt für: FixUtf8Bom
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{3733748D-91AF-464D-967E-5FF143C4F78F}\.DptAiWorkflow
+             
+             Test wird ausgeführt: FixUtf8Bom
+             
+AI session started for PID 0
+Session file: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{3733748D-91AF-464D-967E-5FF143C4F78F}\.DptAiWorkflow.Session0.json
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{3733748D-91AF-464D-967E-5FF143C4F78F}\.DptAiWorkflow
+             
+              Teardown wird ausgeführt für Test: FixUtf8Bom
+              
+               Test fehlgeschlagen:FixUtf8Bom : Bedingung ist False, wo True erwartet wird. [NoBom should now have BOM]
+            
+             Test: Test.DPT.Workflow.TTestDptWorkflow.FixBothLineEndingsAndBom
+             -------------------------------------------------
+             Setup wird ausgeführt für: FixBothLineEndingsAndBom
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{D1370F39-101D-4ACC-A0B4-F975E3E18BFD}\.DptAiWorkflow
+             
+             Test wird ausgeführt: FixBothLineEndingsAndBom
+             
+AI session started for PID 0
+Session file: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{D1370F39-101D-4ACC-A0B4-F975E3E18BFD}\.DptAiWorkflow.Session0.json
+AI Workflow file FOUND: C:\Users\wderr\AppData\Local\Temp\DptWorkflowTest_{D1370F39-101D-4ACC-A0B4-F975E3E18BFD}\.DptAiWorkflow
+             
+              Teardown wird ausgeführt für Test: FixBothLineEndingsAndBom
+              
+               Test fehlgeschlagen:FixBothLineEndingsAndBom : [Line1
+               Line2] erwartet, aber [Line1
+               Line2] BadLines should be CRLF erhalten
+            
+            Teardown-Methode für Gruppen wird ausgeführt: Destroy
+            
+         
+      
+   
+
+Test abgeschlossen.
+Gefundene Tests: 57
+Ignorierte Tests: 0
+Bestandene Tests: 54
+Lecktests: 0
+Fehlgeschlagene Tests: 3
+Fehlerhafte Tests: 0
+
+Fehlgeschlagene Tests
+
+  Test.DPT.Workflow.TTestDptWorkflow.FixLineEndings
+  Meldung: [Line1
+Line2
+Line3] erwartet, aber [Line1
+Line2
+Line3] Mixed should be CRLF erhalten
+
+  Test.DPT.Workflow.TTestDptWorkflow.FixUtf8Bom
+  Meldung: Bedingung ist False, wo True erwartet wird. [NoBom should now have BOM]
+
+  Test.DPT.Workflow.TTestDptWorkflow.FixBothLineEndingsAndBom
+  Meldung: [Line1
+Line2] erwartet, aber [Line1
+Line2] BadLines should be CRLF erhalten
+
+
+n32\Debug\Test.DPT.exe ...
+--------------------------------------------------
+Application exited with code 1
+Build or Run failed.

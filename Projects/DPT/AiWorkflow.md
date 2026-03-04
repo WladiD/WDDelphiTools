@@ -114,8 +114,6 @@ AfterDptGuard: IsCurrentAction("Lint") and
 To persist state (e.g., lint results) across multiple DPT calls, a session file (`.DptAiWorkflow.Session<PID>.json`) is used. This is controlled via the `AiSession` action:
 
 1. `DPT LATEST AiSession Start`: Initializes the session and sets the baseline time for change detection.
-2. `DPT LATEST AiSession RegisterFiles <Files>`: Registers files for tracking.
-3. `DPT LATEST AiSession Status`: Displays the current status, including registration and lint results.
-4. `DPT LATEST AiSession Reset`: Clears all success results (Lint/Run) but keeps the session start time.
-5. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.
-
+2. `DPT LATEST AiSession Reset`: Reset session without changing the baseline point (Useful if testing goes wrong)
+3. `DPT LATEST AiSession Status`: Show current session details
+4. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.

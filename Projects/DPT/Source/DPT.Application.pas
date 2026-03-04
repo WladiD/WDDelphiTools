@@ -385,14 +385,6 @@ begin
             else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
             else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
             else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
-            else if SameText(LAiSessionAction, 'RegisterFiles') then
-            begin
-              var LFiles: TArray<string>;
-              SetLength(LFiles, ParamCount - 3);
-              for var I := 4 to ParamCount do
-                LFiles[I-4] := ParamStr(I);
-              WorkflowEngine.AddFilesToSession(LFiles);
-            end
             else
               Writeln('Unknown AiSession action: ', LAiSessionAction);
             Exit;

@@ -20,7 +20,8 @@ uses
   DUnitX.TestFramework,
 
   DPT.Types,
-  DPT.Workflow;
+  DPT.Workflow,
+  DPT.Workflow.Session;
 
 type
 
@@ -97,9 +98,16 @@ begin
   FileUnix := CreateTestFile('Unix.txt', 'Line1'#10'Line2'#10'Line3');
   FileWin := CreateTestFile('Windows.txt', 'Line1'#13#10'Line2'#13#10'Line3');
 
-  // 2. Register files in session manually
+  // 2. Add files directly to Session instance for dummy purposes, as AddFilesToSession is removed
   FEngine.StartSession; // Creates session file
-  FEngine.AddFilesToSession([FileMixed, FileUnix, FileWin]);
+  var LEntry: TDptSessionFileEntry;
+  LEntry.Path := FileMixed;
+  FEngine.Session.Files.Add(LEntry);
+  LEntry.Path := FileUnix;
+  FEngine.Session.Files.Add(LEntry);
+  LEntry.Path := FileWin;
+  FEngine.Session.Files.Add(LEntry);
+  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
 
   // 3. Inject a workflow block that calls the fix function
   TFile.WriteAllText(FWorkflowFile, 
@@ -145,9 +153,14 @@ begin
   
   FileWithBom := CreateTestFile('WithBom.txt', 'Content', TEncoding.UTF8);
 
-  // 2. Register files
+  // 2. Add files directly to Session instance for dummy purposes
   FEngine.StartSession;
-  FEngine.AddFilesToSession([FileNoBom, FileWithBom]);
+  var LEntry: TDptSessionFileEntry;
+  LEntry.Path := FileNoBom;
+  FEngine.Session.Files.Add(LEntry);
+  LEntry.Path := FileWithBom;
+  FEngine.Session.Files.Add(LEntry);
+  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
 
   // 3. Workflow
   TFile.WriteAllText(FWorkflowFile, 
@@ -203,7 +216,14 @@ begin
 
   // 4. Register files
   FEngine.StartSession;
-  FEngine.AddFilesToSession([FileBadLines, FileBadBom, FileBadBoth]);
+  var LEntry: TDptSessionFileEntry;
+  LEntry.Path := FileBadLines;
+  FEngine.Session.Files.Add(LEntry);
+  LEntry.Path := FileBadBom;
+  FEngine.Session.Files.Add(LEntry);
+  LEntry.Path := FileBadBoth;
+  FEngine.Session.Files.Add(LEntry);
+  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
 
   // 5. Workflow
   TFile.WriteAllText(FWorkflowFile, 
