@@ -154,10 +154,6 @@ begin
 
       // Quick parsing: Remove the first three characters (status codes + space)
       FilePathShort := Copy(StatusLine, 4, MaxInt);
-      
-      // Remove quotes if present
-      if (Length(FilePathShort) > 0) and (FilePathShort[1] = '"') and (FilePathShort[Length(FilePathShort)] = '"') then
-        FilePathShort := Copy(FilePathShort, 2, Length(FilePathShort) - 2);
 
       // Path is relative to the root of the repo. 
       // To correctly build the full path, it's safer to use git rev-parse to get the root dir, 

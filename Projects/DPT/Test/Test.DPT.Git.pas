@@ -39,8 +39,6 @@ type
     [Test]
     procedure TestModifiedFilesWithoutQuotes;
     [Test]
-    procedure TestModifiedFilesWithQuotes;
-    [Test]
     procedure TestFilesDoNotExist;
   end;
 
@@ -134,19 +132,6 @@ begin
   // They should be resolved to absolute paths and exist check should pass
   Assert.AreEqual(TPath.Combine(FTestDir, 'file1.pas'), Res[0], 'Path 1 mismatch');
   Assert.AreEqual(TPath.Combine(FTestDir, 'subdir\file2.pas'), Res[1], 'Path 2 mismatch');
-end;
-
-procedure TTestDptGit.TestModifiedFilesWithQuotes;
-begin
-  CreateDummyFile('dir with space\file.pas');
-
-  FGitStatusExitCode := 0;
-  FGitStatusOutput := ' M "dir with space/file.pas"' + sLineBreak;
-
-  var Res := TDptGit.GetModifiedFiles(FTestDir);
-
-  Assert.AreEqual(1, Length(Res), 'Should find 1 file');
-  Assert.AreEqual(TPath.Combine(FTestDir, 'dir with space\file.pas'), Res[0], 'Quoted path mismatch');
 end;
 
 procedure TTestDptGit.TestFilesDoNotExist;
