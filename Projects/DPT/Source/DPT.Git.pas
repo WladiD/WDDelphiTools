@@ -13,8 +13,13 @@ uses
   System.SysUtils;
 
 type
+  TDptMockRunCommandFunc = reference to function(const ACommand, ADirectory: string; out AOutput: string): Integer;
+
   TDptGit = class
   public
+    // For testing purposes
+    class var MockRunCommand: TDptMockRunCommandFunc;
+    
     /// <summary>
     /// Returns a list of absolute file paths for files that are modified or newly added
     /// to the git repository starting from the specified directory.
@@ -119,8 +124,16 @@ begin
   SetLength(Result, 0);
   
   LOutputStr := '';
-  if RunCommand('git status --porcelain -uall', ADirectory, LOutputStr) <> 0 then
-    Exit; // Not a git repository or git not available
+  if Assigned(MockRunCommand) then
+  begin
+    if MockRunCommand('git status --porcelain -uall', ADirectory, LOutputStr) <> 0 then
+      Exit;
+  end
+  else
+  begin
+    if RunCommand('git status --porcelain -uall', ADirectory, LOutputStr) <> 0 then
+      Exit; // Not a git repository or git not available
+  end;
 
   if Trim(LOutputStr) = '' then
     Exit;
@@ -152,7 +165,13 @@ begin
       
       var LRootDirStr: string;
       LRootDirStr := '';
-      if RunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr) = 0 then
+      var LCmdRet: Integer;
+      if Assigned(MockRunCommand) then
+        LCmdRet := MockRunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr)
+      else
+        LCmdRet := RunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr);
+        
+      if LCmdRet = 0 then
       begin
         LRootDirStr := Trim(LRootDirStr);
         // Replace forward slashes with system specific if necessary
