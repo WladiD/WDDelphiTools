@@ -442,11 +442,13 @@ begin
       begin
         // Silent exit
       end
+      else if E is EInvalidParameter then
+      begin
+        TDptInstructionScreen.ShowCompact;
+      end
       else
       begin
-        if not (E is EInvalidParameter) then
-          Writeln(E.Classname, ': ', E.Message);
-        TDptInstructionScreen.ShowCompact;
+        Writeln(E.Classname, ': ', E.Message);
       end;
       System.ExitCode := 1;
     end;
