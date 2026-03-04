@@ -50,12 +50,12 @@ implementation
 
 function TTestDptGit.MockRunCommand(const ACommand, ADirectory: string; out AOutput: string): Integer;
 begin
-  if Pos('git status', ACommand) > 0 then
+  if Pos('status', ACommand) > 0 then
   begin
     AOutput := FGitStatusOutput;
     Result := FGitStatusExitCode;
   end
-  else if Pos('git rev-parse', ACommand) > 0 then
+  else if Pos('rev-parse', ACommand) > 0 then
   begin
     AOutput := FGitRevParseOutput;
     Result := FGitRevParseExitCode;

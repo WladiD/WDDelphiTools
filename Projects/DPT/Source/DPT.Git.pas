@@ -130,12 +130,12 @@ begin
   OutputStr := '';
   if Assigned(MockRunCommand) then
   begin
-    if MockRunCommand('git status --porcelain -uall', ADirectory, OutputStr) <> 0 then
+    if MockRunCommand('git -c core.quotePath=false status --porcelain -uall', ADirectory, OutputStr) <> 0 then
       Exit;
   end
   else
   begin
-    if RunCommand('git status --porcelain -uall', ADirectory, OutputStr) <> 0 then
+    if RunCommand('git -c core.quotePath=false status --porcelain -uall', ADirectory, OutputStr) <> 0 then
       Exit; // Not a git repository or git not available
   end;
 
