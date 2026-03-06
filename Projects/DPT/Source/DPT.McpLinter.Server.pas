@@ -551,7 +551,7 @@ begin
       begin
         ViolationObj := TJSONObject.Create;
         ViolationObj.AddPair('line', TJSONNumber.Create(V.Line));
-        ViolationObj.AddPair('message', V.Message);
+        ViolationObj.AddPair('message', StringReplace(V.Message, #13, '', [rfReplaceAll]));
         ViolationArr.Add(ViolationObj);
       end;
     end;
