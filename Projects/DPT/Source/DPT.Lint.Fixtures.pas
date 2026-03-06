@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -1279,6 +1279,7 @@ var
   LClassIndents             : IList<Integer>;
   LClassName                : String;
   LCurrentBlock             : TMemberBlock;
+  LCurrentSectionType       : String;
   LCurrentVisibility        : String;
   LLines                    : TArray<string>;
   LNestedDepth              : Integer;
@@ -1307,6 +1308,7 @@ begin
   LPrevMemberType := mtUnknown;
   LVisibilitySinceLastMember := False;
   LCurrentVisibility := '';
+  LCurrentSectionType := '';
 
   try
     for I := 0 to High(LLines) do
@@ -1335,6 +1337,7 @@ begin
         LPrevMemberType := mtUnknown;
         LVisibilitySinceLastMember := True;
         LCurrentVisibility := 'published';
+        LCurrentSectionType := '';
 
         var LPrefixes := FClassNamePrefixes.Split([',']);
         var LPrefixOk := False;
@@ -1387,12 +1390,16 @@ begin
           Continue;
         end;
 
-        var LVisMatch := TRegEx.Match(LLine, '^(\s*)(strict\s+)?(private|protected|public|published)', [roIgnoreCase]);
+        var LVisMatch := TRegEx.Match(LLine, '^(\s*)(strict\s+)?(private|protected|public|published)(?:\s+(const|type|var|class\s+var))?', [roIgnoreCase]);
         if LVisMatch.Success then
         begin
           FlushBlock;
           LVisibilitySinceLastMember := True;
           LCurrentVisibility := LVisMatch.Groups[3].Value.ToLower;
+          if LVisMatch.Groups.Count >= 5 then
+            LCurrentSectionType := LVisMatch.Groups[4].Value.ToLower
+          else
+            LCurrentSectionType := '';
           var LVisIndent := LVisMatch.Groups[1].Length;
           if LVisIndent <> (LClassIndent + FVisibilityExtraIndent) then
           begin
@@ -1402,9 +1409,24 @@ begin
           Continue;
         end;
 
+        var LSectionMatch := TRegEx.Match(LLine, '^\s*(const|type|var|class\s+var)\s*$', [roIgnoreCase]);
+        if LSectionMatch.Success then
+        begin
+          FlushBlock;
+          LCurrentSectionType := LSectionMatch.Groups[1].Value.ToLower;
+          Continue;
+        end;
+
         var LMember := ParseMember(LLine, I);
+
+        if LMember.MemberType in [mtMethod, mtProperty, mtConstructor, mtClassMethod] then
+          LCurrentSectionType := '';
+
         if LMember.MemberType <> mtUnknown then
         begin
+          if (LMember.MemberType = mtField) and ((LCurrentSectionType = 'const') or (LCurrentSectionType = 'type')) then
+            Continue;
+
           if not Assigned(LCurrentBlock) then
           begin
             LCurrentBlock := TMemberBlock.Create;

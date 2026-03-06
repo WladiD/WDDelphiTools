@@ -45,6 +45,8 @@ type
     [Test]
     procedure ValidateClassDeclaration_AllowsExceptionPrefix;
     [Test]
+    procedure ValidateClassDeclaration_IgnoresConstants;
+    [Test]
     procedure UsesFixture_HandlesConditionalDirectives;
   end;
 
@@ -685,6 +687,49 @@ begin
       Fixture.SetContent(Code);
       Fixture.LintClassDeclarations;
       Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should allow standard C and T prefixes');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateClassDeclaration_IgnoresConstants;
+var
+  Fixture: TDptLintClassDeclarationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintClassDeclarationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      Fixture.FieldNamePrefix := 'F';
+
+      // Ensure that constants in classes (which have colons for typed constants)
+      // are not falsely identified as fields and reported for missing 'F' prefix.
+      Code := '''
+        type
+          TMyClass = class
+           public const
+            DefaultBlockSize: Cardinal = 67108864; // Should be ignored
+           strict private const
+            AnotherConst: Integer = 42;            // Should be ignored
+           public
+            procedure Foo;
+           private
+            const
+              NestedConst: string = 'Test';        // Should be ignored
+           private
+            FRealField: Integer;                   // Valid field
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore constants inside class declarations');
     finally
       Fixture.Free;
     end;
