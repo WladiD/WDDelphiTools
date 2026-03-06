@@ -897,6 +897,12 @@ begin
       var ReadResponse := OutputWriter.GetLine(2);
       Assert.IsTrue(ReadResponse.Contains('Line07'), 'Should read Line07 (offset applied): ' + ReadResponse);
       Assert.IsTrue(ReadResponse.Contains('Line08'), 'Should read Line08 (offset applied): ' + ReadResponse);
+      // Line numbers displayed must be ORIGINAL (7, 8) not actual (11, 12)
+      // to prevent double-translation when the agent uses them with replace_code_lines
+      Assert.IsTrue(ReadResponse.Contains('7|'), 'Should display original line number 7: ' + ReadResponse);
+      Assert.IsTrue(ReadResponse.Contains('8|'), 'Should display original line number 8: ' + ReadResponse);
+      Assert.IsFalse(ReadResponse.Contains('11|'), 'Must NOT display actual line number 11: ' + ReadResponse);
+      Assert.IsFalse(ReadResponse.Contains('12|'), 'Must NOT display actual line number 12: ' + ReadResponse);
     finally
       Server.Free;
       InputReader.Free;

@@ -331,10 +331,9 @@ begin
   var ToolLint := TJSONObject.Create;
   ToolLint.AddPair('name', 'get_linter_results');
   ToolLint.AddPair('description',
-    'Runs the linting pipeline for a Delphi source file against a style definition and returns all style violations. ' +
-    'Each violation includes the line number and a descriptive message. ' +
-    'This resets the line offset tracker for the file, so subsequent read_code_lines and replace_code_lines calls use the line numbers from this result. ' +
-    'After fixing violations, call this again to verify all issues are resolved.');
+    'Runs the linter for a Delphi source file against a style definition. Returns violations with line numbers and messages. ' +
+    'This resets line tracking -- all line numbers in subsequent tool calls refer to positions from this result. ' +
+    'Call again after fixing violations to verify.');
   var SchemaLint := TJSONObject.Create;
   SchemaLint.AddPair('type', 'object');
   var PropLint := TJSONObject.Create;
@@ -352,9 +351,8 @@ begin
   var ToolRead := TJSONObject.Create;
   ToolRead.AddPair('name', 'read_code_lines');
   ToolRead.AddPair('description',
-    'Reads a range of lines from a file. Each line is returned with its line number in the format "NNN| content". ' +
-    'Line numbers are automatically adjusted if previous replace_code_lines calls shifted lines since the last get_linter_results. ' +
-    'The response includes total_lines (total line count of the file).');
+    'Reads lines from a file, returned as "NNN| content" with total_lines. ' +
+    'Use line numbers from get_linter_results; the server handles shifts from prior edits.');
   var SchemaRead := TJSONObject.Create;
   SchemaRead.AddPair('type', 'object');
   var PropRead := TJSONObject.Create;
@@ -374,21 +372,17 @@ begin
   var ToolReplace := TJSONObject.Create;
   ToolReplace.AddPair('name', 'replace_code_lines');
   ToolReplace.AddPair('description',
-    'Replaces a range of lines in a file with new content. Line numbers refer to the original positions from the last get_linter_results call; ' +
-    'the server automatically adjusts for any shifts caused by previous replacements. ' +
-    'Line endings in new_content are automatically normalized to Windows format (CRLF). The file encoding (UTF-8 with BOM) is preserved. ' +
-    'IMPORTANT: new_content must contain ONLY the replacement for the specified line range. ' +
-    'Do NOT include lines that are outside the range (before start_line or after end_line) -- they will be duplicated otherwise. ' +
-    'The server validates this and returns a warning if the last lines of new_content duplicate the lines immediately following the replaced range. ' +
-    'To INSERT lines: replace_code_lines(file, N, N, "original_line\nnew_line") replaces line N with itself plus new lines. ' +
-    'To DELETE lines: use the delete_lines tool instead.');
+    'Replaces lines start_line through end_line with new_content. Use line numbers from get_linter_results; the server handles shifts. ' +
+    'IMPORTANT: new_content must contain ONLY the replacement for the specified range -- do NOT include surrounding lines or they will be duplicated. ' +
+    'To insert additional lines, set start_line = end_line and include the original line plus new lines. ' +
+    'To delete lines, use delete_lines instead.');
   var SchemaReplace := TJSONObject.Create;
   SchemaReplace.AddPair('type', 'object');
   var PropReplace := TJSONObject.Create;
   PropReplace.AddPair('file', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Absolute path to the file to modify'));
   PropReplace.AddPair('start_line', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'First line to replace (1-based, from get_linter_results)'));
   PropReplace.AddPair('end_line', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'Last line to replace (1-based, inclusive)'));
-  PropReplace.AddPair('new_content', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Replacement text (can be multiline with \n). Line endings are normalized to CRLF automatically.'));
+  PropReplace.AddPair('new_content', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Replacement text (use \n for multiple lines)'));
   SchemaReplace.AddPair('properties', PropReplace);
   var ReqReplace := TJSONArray.Create;
   ReqReplace.Add('file');
@@ -403,10 +397,7 @@ begin
   var ToolDelete := TJSONObject.Create;
   ToolDelete.AddPair('name', 'delete_lines');
   ToolDelete.AddPair('description',
-    'Deletes one or more lines from a file. Use this to remove blank lines, unused declarations, or other unwanted lines. ' +
-    'Line numbers refer to the original positions from the last get_linter_results call; ' +
-    'the server automatically adjusts for any shifts caused by previous operations. ' +
-    'To delete a single line: delete_lines(file, N, N). To delete a range: delete_lines(file, N, M).');
+    'Deletes lines start_line through end_line from a file. Use line numbers from get_linter_results; the server handles shifts.');
   var SchemaDelete := TJSONObject.Create;
   SchemaDelete.AddPair('type', 'object');
   var PropDelete := TJSONObject.Create;
@@ -610,8 +601,8 @@ begin
 
     Output := TStringBuilder.Create;
     try
-      for var I: Integer := ActualStart to ActualEnd do
-        Output.AppendLine(Format('%4d| %s', [I, Lines[I - 1]]));
+      for var I: Integer := 0 to ActualEnd - ActualStart do
+        Output.Append(Format('%4d| %s', [StartLine + I, Lines[ActualStart - 1 + I]]) + #10);
 
       var ResultObj := TJSONObject.Create;
       try
