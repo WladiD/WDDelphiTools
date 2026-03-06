@@ -1,4 +1,4 @@
-﻿program Test.DPT;
+program Test.DPT;
 
 {$IFNDEF TESTINSIGHT}
 {$APPTYPE CONSOLE}
@@ -22,7 +22,8 @@ uses
   Test.DPT.DProjAnalyzer,
   Test.DPT.Workflow,
   Test.DPT.Debugger,
-  Test.DPT.MCP.Server;
+  Test.DPT.MCP.Server,
+  Test.DPT.McpLinter.Server;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

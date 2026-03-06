@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -172,6 +172,23 @@ begin
         '  - read_global_variable:    Reads the value of a global variable by name',
         '  - get_proc_asm:            Returns the assembly bytes of the current procedure',
         'Example: DPT LATEST McpDebugger'
+      ]),
+      TActionInfo.Create('McpLinter', '', [
+        'Starts a standalone Model Context Protocol (MCP) server for linting and fixing Delphi source files.',
+        'Communicates via JSON-RPC 2.0 over stdin/stdout. Provides the following tools for AI agents:',
+        '  - get_linter_results:  Runs the linting pipeline for a file against a style definition.',
+        '                         Returns all violations with line numbers. Resets the line offset tracker.',
+        '  - read_code_lines:     Reads a range of lines from a file with line numbers (NNN| content).',
+        '                         Line numbers are automatically adjusted for previous replacements.',
+        '  - replace_code_lines:  Replaces a range of lines in a file with new content.',
+        '                         Line numbers refer to the original positions from get_linter_results.',
+        '                         Line endings are normalized to CRLF. File encoding (UTF-8 BOM) is preserved.',
+        'Typical workflow:',
+        '  1. get_linter_results to obtain violations',
+        '  2. read_code_lines to inspect the relevant code around each violation',
+        '  3. replace_code_lines to fix the violation',
+        '  4. Repeat for each violation, then get_linter_results again to verify',
+        'Example: DPT LATEST McpLinter'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
         'Opens a source file in the Delphi IDE via the Slim Server plugin.',

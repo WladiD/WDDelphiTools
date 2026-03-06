@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -56,6 +56,7 @@ uses
   DPT.DProj.Task,
   DPT.DProjAnalyzer,
   DPT.McpDebugger.Task,
+  DPT.McpLinter.Task,
   DPT.Fixtures,
   DPT.IdeControl.Task,
   DPT.InstructionScreen,
@@ -96,6 +97,7 @@ begin
   RegisterTask('Start', TDptStartTask);
   RegisterTask('Stop', TDptStopTask);
   RegisterTask('McpDebugger', TDptMcpDebuggerTask);
+  RegisterTask('McpLinter', TDptMcpLinterTask);
 end;
 
 procedure TDptTaskDispatcher.RegisterTask(const ActionName: string; TaskClass: TDptTaskClass);
@@ -234,14 +236,15 @@ begin
   SetTextCodePage(Input, CP_UTF8);
 
   try
-    var IsMcpDebugger := False;
+    var IsMcpServer := False;
     for var i := 1 to ParamCount do
-      if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
+      if SameText(ParamStr(i), 'McpDebugger') or SameText(ParamStr(i), 'McpLinter') then
+        IsMcpServer := True;
 
     var LHostPID: DWORD;
     case DetectAIMode(LHostPID) of
-      amCursor: if not IsMcpDebugger then Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
-      amGemini: if not IsMcpDebugger then Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
+      amCursor: if not IsMcpServer then Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
+      amGemini: if not IsMcpServer then Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
     end;
 
     var LPort: Integer;
