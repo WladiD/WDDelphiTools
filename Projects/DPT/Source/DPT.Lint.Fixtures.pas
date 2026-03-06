@@ -139,6 +139,7 @@ type
       TMemberType = (mtField, mtMethod, mtProperty, mtClassMethod, mtConstructor, mtUnknown);
       TMemberInfo = record
         FullLine    : String;
+        Indent      : Integer;
         LineIdx     : Integer;
         MemberType  : TMemberType;
         Name        : String;
@@ -153,9 +154,11 @@ type
     FAlignMemberNames      : Boolean;
     FClassNamePrefixes     : String;
     FContent               : String;
+    FEnforceEvenMemberIndent: Boolean;
     FEventPropertiesAtEnd  : Boolean;
     FFieldNamePrefix       : String;
     FFieldsMustBeSorted    : Boolean;
+    FIndentSize            : Integer;
     FLineOffset            : Integer;
     FMethodsMustBeSorted   : Boolean;
     FPropertiesMustBeSorted: Boolean;
@@ -169,9 +172,11 @@ type
     procedure SetLineOffset(const AValue: String);
     property AlignMemberNames: Boolean read FAlignMemberNames write FAlignMemberNames;
     property ClassNamePrefixes: String read FClassNamePrefixes write FClassNamePrefixes;
+    property EnforceEvenMemberIndent: Boolean read FEnforceEvenMemberIndent write FEnforceEvenMemberIndent;
     property EventPropertiesAtEnd: Boolean read FEventPropertiesAtEnd write FEventPropertiesAtEnd;
     property FieldNamePrefix: String read FFieldNamePrefix write FFieldNamePrefix;
     property FieldsMustBeSorted: Boolean read FFieldsMustBeSorted write FFieldsMustBeSorted;
+    property IndentSize: Integer read FIndentSize write FIndentSize;
     property MethodsMustBeSorted: Boolean read FMethodsMustBeSorted write FMethodsMustBeSorted;
     property PropertiesMustBeSorted: Boolean read FPropertiesMustBeSorted write FPropertiesMustBeSorted;
     property VisibilityExtraIndent: Integer read FVisibilityExtraIndent write FVisibilityExtraIndent;
@@ -1130,6 +1135,8 @@ begin
   FMethodsMustBeSorted := True;
   FPropertiesMustBeSorted := True;
   FAlignMemberNames := True;
+  FEnforceEvenMemberIndent := False;
+  FIndentSize := 2;
 end;
 
 procedure TDptLintClassDeclarationFixture.SetContent(const AValue: String);
@@ -1147,12 +1154,14 @@ var
   LMatch: TMatch;
 begin
   Result.MemberType := mtUnknown;
+  Result.Indent := 0;
   Result.LineIdx := ALineIdx;
   Result.FullLine := ALine;
 
   LMatch := TRegEx.Match(ALine, '^(\s*)class\s+(procedure|function|constructor|destructor|var)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
+    Result.Indent := LMatch.Groups[1].Length;
     Result.MemberType := mtClassMethod;
     Result.Name := LMatch.Groups[3].Value;
     Result.NameStartPos := LMatch.Groups[3].Index;
@@ -1162,6 +1171,7 @@ begin
   LMatch := TRegEx.Match(ALine, '^(\s*)property\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
+    Result.Indent := LMatch.Groups[1].Length;
     Result.MemberType := mtProperty;
     Result.Name := LMatch.Groups[2].Value;
     Result.NameStartPos := LMatch.Groups[2].Index;
@@ -1171,6 +1181,7 @@ begin
   LMatch := TRegEx.Match(ALine, '^(\s*)(constructor|destructor)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
+    Result.Indent := LMatch.Groups[1].Length;
     Result.MemberType := mtConstructor;
     Result.Name := LMatch.Groups[3].Value;
     Result.NameStartPos := LMatch.Groups[3].Index;
@@ -1180,6 +1191,7 @@ begin
   LMatch := TRegEx.Match(ALine, '^(\s*)(procedure|function)\s+(\w+)', [roIgnoreCase]);
   if LMatch.Success then
   begin
+    Result.Indent := LMatch.Groups[1].Length;
     Result.MemberType := mtMethod;
     Result.Name := LMatch.Groups[3].Value;
     Result.NameStartPos := LMatch.Groups[3].Index;
@@ -1189,6 +1201,7 @@ begin
   LMatch := TRegEx.Match(ALine, '^(\s*)(\w+)\s*:', [roIgnoreCase]);
   if LMatch.Success then
   begin
+    Result.Indent := LMatch.Groups[1].Length;
     Result.MemberType := mtField;
     Result.Name := LMatch.Groups[2].Value;
     Result.NameStartPos := LMatch.Groups[2].Index;
@@ -1208,6 +1221,12 @@ begin
   begin
     var Curr: TMemberInfo := ABlock.Members[I];
     
+    if FEnforceEvenMemberIndent and (FIndentSize > 0) and ((Curr.Indent mod FIndentSize) <> 0) then
+    begin
+      ReportViolation(Curr.LineIdx + 1 + FLineOffset, Format('Member "%s" has an invalid indentation of %d spaces. It must be a multiple of %d.', [Curr.Name, Curr.Indent, FIndentSize]));
+      AResult := False;
+    end;
+
     LMustBeSorted := False;
     case Curr.MemberType of
       mtField: LMustBeSorted := FFieldsMustBeSorted;

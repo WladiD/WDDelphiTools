@@ -47,6 +47,8 @@ type
     [Test]
     procedure ValidateClassDeclaration_IgnoresConstants;
     [Test]
+    procedure ValidateClassDeclaration_EnforcesEvenMemberIndent;
+    [Test]
     procedure UsesFixture_HandlesConditionalDirectives;
   end;
 
@@ -730,6 +732,88 @@ begin
       Fixture.LintClassDeclarations;
       
       Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should ignore constants inside class declarations');
+    finally
+      Fixture.Free;
+    end;
+  finally
+    Context.Free;
+  end;
+end;
+
+procedure TTestDptLintFixtures.ValidateClassDeclaration_EnforcesEvenMemberIndent;
+var
+  Fixture: TDptLintClassDeclarationFixture;
+  Context: TDptLintUnitContextFixture;
+  Code: string;
+begin
+  Context := TDptLintUnitContextFixture.Create('Test.pas');
+  try
+    Fixture := TDptLintClassDeclarationFixture.Create;
+    try
+      Fixture.SetContext(Context);
+      Fixture.EnforceEvenMemberIndent := True;
+      Fixture.IndentSize := 2;
+
+      // 1. Valid: All members are indented with a multiple of 2 spaces
+      // Using VisibilityExtraIndent = 1 (default)
+      TDptLintContext.Clear;
+      Fixture.VisibilityExtraIndent := 1;
+      Code := '''
+        type
+          TMyClass = class
+           public
+            FMyField: Integer;
+            procedure MyMethod;
+            property MyProp: Integer read FMyField;
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should accept even-indented members (4 spaces) with VisibilityExtraIndent=1');
+
+      // 2. Invalid: Member is indented with an odd number of spaces (e.g., 3 or 5)
+      TDptLintContext.Clear;
+      Code := '''
+        type
+          TMyClass = class
+           public
+             FMyField: Integer; // 5 spaces indent -> fails
+            procedure MyMethod; // 4 spaces indent -> passes
+           end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(1, TDptLintContext.Violations.Count, 'Should report member with odd indentation (5 spaces)');
+
+      // 3. Valid: Members indented with a multiple of 2 spaces but VisibilityExtraIndent is 0
+      TDptLintContext.Clear;
+      Fixture.VisibilityExtraIndent := 0;
+      Code := '''
+        type
+          TMyClass = class
+          public
+            FMyField: Integer;  // 4 spaces -> passes
+            procedure MyMethod; // 4 spaces -> passes
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(0, TDptLintContext.Violations.Count, 'Should accept even-indented members with VisibilityExtraIndent=0');
+
+      // 4. Invalid: Members indented with an odd number of spaces and VisibilityExtraIndent is 0
+      TDptLintContext.Clear;
+      Fixture.VisibilityExtraIndent := 0;
+      Code := '''
+        type
+          TMyClass = class
+          public
+           FMyField: Integer;  // 3 spaces -> fails
+           procedure MyMethod; // 3 spaces -> fails
+          end;
+        ''';
+      Fixture.SetContent(Code);
+      Fixture.LintClassDeclarations;
+      Assert.AreEqual(2, TDptLintContext.Violations.Count, 'Should report members with odd indentation (3 spaces) with VisibilityExtraIndent=0');
     finally
       Fixture.Free;
     end;

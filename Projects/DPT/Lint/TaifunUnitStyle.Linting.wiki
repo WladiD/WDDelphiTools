@@ -1,4 +1,4 @@
-﻿|script|Dpt Lint Unit Context Fixture|${TargetFile}|
+|script|Dpt Lint Unit Context Fixture|${TargetFile}|
 |Ensure No Multiple Blanklines|
 |Define Single Separator Line|!-{ ----------------------------------------------------------------------- }-!|
 |Define Double Separator Line|!-{ ======================================================================= }-!|
@@ -55,6 +55,7 @@
 |Set Line Offset|$InterfaceOffset|
 |Set Class Name Prefixes|C,T|
 |Set Visibility Extra Indent|1|
+|Set Enforce Even Member Indent|true|
 |Set Field Name Prefix|F|
 |Set Fields Must Be Sorted|true|
 |Set Methods Must Be Sorted|true|
