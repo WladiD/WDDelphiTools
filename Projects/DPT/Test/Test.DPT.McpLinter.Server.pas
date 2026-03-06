@@ -61,6 +61,14 @@ type
     [Test]
     procedure TestReplaceCodeLinesSequentialWithOffset;
     [Test]
+    procedure TestDeleteLinesBasic;
+    [Test]
+    procedure TestDeleteLinesMultiple;
+    [Test]
+    procedure TestDeleteLinesWithOffset;
+    [Test]
+    procedure TestDeleteLinesFileNotFound;
+    [Test]
     procedure TestGetLinterResultsFileNotFound;
     [Test]
     procedure TestMcpLinterFullWorkflow;
@@ -420,7 +428,7 @@ begin
     try
       var ResultObj := LJSON.GetValue('result') as TJSONObject;
       var ToolsArr := ResultObj.GetValue('tools') as TJSONArray;
-      Assert.AreEqual(3, ToolsArr.Count, 'Expected 3 tools');
+      Assert.AreEqual(4, ToolsArr.Count, 'Expected 4 tools');
 
       var ToolNames: String := '';
       for var I := 0 to ToolsArr.Count - 1 do
@@ -429,6 +437,7 @@ begin
       Assert.IsTrue(ToolNames.Contains('get_linter_results'), 'Missing get_linter_results');
       Assert.IsTrue(ToolNames.Contains('read_code_lines'), 'Missing read_code_lines');
       Assert.IsTrue(ToolNames.Contains('replace_code_lines'), 'Missing replace_code_lines');
+      Assert.IsTrue(ToolNames.Contains('delete_lines'), 'Missing delete_lines');
     finally
       LJSON.Free;
     end;
@@ -889,6 +898,173 @@ begin
     end;
   finally
     if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestDeleteLinesBasic;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+  ResultLines : TStringList;
+begin
+  TempFile := CreateTempFileWithLines(['AAA', 'BBB', 'CCC', 'DDD', 'EEE']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "delete_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 3, "end_line": 3}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce;
+      Server.RunOnce;
+
+      Assert.AreEqual(2, OutputWriter.GetCount);
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('Deleted 1 line'), 'Expected single line deletion: ' + OutputWriter.GetLine(1));
+
+      ResultLines := TStringList.Create;
+      try
+        ResultLines.LoadFromFile(TempFile, TEncoding.UTF8);
+        Assert.AreEqual(4, ResultLines.Count);
+        Assert.AreEqual('AAA', ResultLines[0]);
+        Assert.AreEqual('BBB', ResultLines[1]);
+        Assert.AreEqual('DDD', ResultLines[2]);
+        Assert.AreEqual('EEE', ResultLines[3]);
+      finally
+        ResultLines.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestDeleteLinesMultiple;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+  ResultLines : TStringList;
+begin
+  TempFile := CreateTempFileWithLines(['AAA', 'BBB', 'CCC', 'DDD', 'EEE']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "delete_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 2, "end_line": 4}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce;
+      Server.RunOnce;
+
+      Assert.AreEqual(2, OutputWriter.GetCount);
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('Deleted 3 line'), 'Expected 3 lines deleted: ' + OutputWriter.GetLine(1));
+
+      ResultLines := TStringList.Create;
+      try
+        ResultLines.LoadFromFile(TempFile, TEncoding.UTF8);
+        Assert.AreEqual(2, ResultLines.Count);
+        Assert.AreEqual('AAA', ResultLines[0]);
+        Assert.AreEqual('EEE', ResultLines[1]);
+      finally
+        ResultLines.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestDeleteLinesWithOffset;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+  ResultLines : TStringList;
+begin
+  TempFile := CreateTempFileWithLines([
+    'Line01', 'Line02', 'Line03', 'Line04', 'Line05',
+    'Line06', 'Line07', 'Line08', 'Line09', 'Line10']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      // Replace lines 3-4 (2 lines) with 4 lines -> Delta = +2
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "replace_code_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 3, "end_line": 4, "new_content": "New3a\nNew3b\nNew3c\nNew3d"}}}' + sLineBreak +
+      // Delete original line 7 (should be actual line 9 due to +2 offset)
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "delete_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 7, "end_line": 7}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // replace
+      Server.RunOnce; // delete
+
+      Assert.AreEqual(3, OutputWriter.GetCount);
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('Deleted 1 line'), 'Expected single line deletion');
+
+      ResultLines := TStringList.Create;
+      try
+        ResultLines.LoadFromFile(TempFile, TEncoding.UTF8);
+        Assert.AreEqual(11, ResultLines.Count, 'File should have 11 lines (10 + 2 - 1)');
+        Assert.AreEqual('Line01', ResultLines[0]);
+        Assert.AreEqual('Line02', ResultLines[1]);
+        Assert.AreEqual('New3a', ResultLines[2]);
+        Assert.AreEqual('New3d', ResultLines[5]);
+        Assert.AreEqual('Line05', ResultLines[6]);
+        Assert.AreEqual('Line06', ResultLines[7]);
+        Assert.AreEqual('Line08', ResultLines[8]);
+        Assert.AreEqual('Line09', ResultLines[9]);
+        Assert.AreEqual('Line10', ResultLines[10]);
+      finally
+        ResultLines.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestDeleteLinesFileNotFound;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+begin
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "delete_lines", "arguments": {"file": "C:\\\\nonexistent\\\\file.pas", "start_line": 1, "end_line": 1}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+  try
+    Server.RunOnce;
+    Server.RunOnce;
+
+    Assert.AreEqual(2, OutputWriter.GetCount);
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('File not found'),
+      'Expected file not found: ' + OutputWriter.GetLine(1));
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
   end;
 end;
 

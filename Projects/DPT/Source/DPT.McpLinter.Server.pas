@@ -50,6 +50,7 @@ type
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure WriteOutput(const AJSON: String);
   private
+    function HandleDeleteLines(AParams: TJSONObject): TJSONObject;
     function HandleGetLinterResults(AParams: TJSONObject): TJSONObject;
     function HandleListTools(AParams: TJSONObject): TJSONObject;
     function HandleReadCodeLines(AParams: TJSONObject): TJSONObject;
@@ -306,6 +307,8 @@ begin
           SendResponse(ID, HandleReadCodeLines(ToolParams))
         else if ToolName = 'replace_code_lines' then
           SendResponse(ID, HandleReplaceCodeLines(ToolParams))
+        else if ToolName = 'delete_lines' then
+          SendResponse(ID, HandleDeleteLines(ToolParams))
         else
           SendError(ID, -32601, 'Tool not found');
       end
@@ -393,8 +396,94 @@ begin
   ToolReplace.AddPair('inputSchema', SchemaReplace);
   ToolsArr.Add(ToolReplace);
 
+  // delete_lines
+  var ToolDelete := TJSONObject.Create;
+  ToolDelete.AddPair('name', 'delete_lines');
+  ToolDelete.AddPair('description',
+    'Deletes one or more lines from a file. Use this to remove blank lines, unused declarations, or other unwanted lines. ' +
+    'Line numbers refer to the original positions from the last get_linter_results call; ' +
+    'the server automatically adjusts for any shifts caused by previous operations. ' +
+    'To delete a single line: delete_lines(file, N, N). To delete a range: delete_lines(file, N, M).');
+  var SchemaDelete := TJSONObject.Create;
+  SchemaDelete.AddPair('type', 'object');
+  var PropDelete := TJSONObject.Create;
+  PropDelete.AddPair('file', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Absolute path to the file to modify'));
+  PropDelete.AddPair('start_line', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'First line to delete (1-based, from get_linter_results)'));
+  PropDelete.AddPair('end_line', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'Last line to delete (1-based, inclusive)'));
+  SchemaDelete.AddPair('properties', PropDelete);
+  var ReqDelete := TJSONArray.Create;
+  ReqDelete.Add('file');
+  ReqDelete.Add('start_line');
+  ReqDelete.Add('end_line');
+  SchemaDelete.AddPair('required', ReqDelete);
+  ToolDelete.AddPair('inputSchema', SchemaDelete);
+  ToolsArr.Add(ToolDelete);
+
   Result := TJSONObject.Create;
   Result.AddPair('tools', ToolsArr);
+end;
+
+function TMcpLinterServer.HandleDeleteLines(AParams: TJSONObject): TJSONObject;
+var
+  ActualEnd  : Integer;
+  ActualStart: Integer;
+  DeleteCount: Integer;
+  EndLine    : Integer;
+  FilePath   : String;
+  Lines      : TStringList;
+  StartLine  : Integer;
+  Tracker    : TLineOffsetTracker;
+begin
+  FilePath := AParams.GetValue('file').Value;
+  StartLine := (AParams.GetValue('start_line') as TJSONNumber).AsInt;
+  EndLine := (AParams.GetValue('end_line') as TJSONNumber).AsInt;
+
+  if not FileExists(FilePath) then
+    Exit(MakeErrorResult('File not found: ' + FilePath));
+
+  Tracker := GetOrCreateTracker(FilePath);
+  ActualStart := Tracker.TranslateLine(StartLine);
+  ActualEnd := Tracker.TranslateLine(EndLine);
+
+  Lines := TStringList.Create;
+  try
+    Lines.LoadFromFile(FilePath, TEncoding.UTF8);
+
+    if (ActualStart < 1) or (ActualEnd > Lines.Count) or (ActualStart > ActualEnd) then
+      Exit(MakeErrorResult(Format('Line range %d-%d (actual %d-%d) is out of bounds (file has %d lines)',
+        [StartLine, EndLine, ActualStart, ActualEnd, Lines.Count])));
+
+    DeleteCount := ActualEnd - ActualStart + 1;
+
+    for var I: Integer := ActualEnd downto ActualStart do
+      Lines.Delete(I - 1);
+
+    var Encoding: TEncoding;
+    var Preamble: TBytes;
+    var RawBytes: TBytes := TFile.ReadAllBytes(FilePath);
+    Preamble := TEncoding.UTF8.GetPreamble;
+    if (Length(RawBytes) >= Length(Preamble)) and
+       (Length(Preamble) > 0) and
+       CompareMem(@RawBytes[0], @Preamble[0], Length(Preamble)) then
+      Encoding := TEncoding.UTF8
+    else
+      Encoding := TUTF8Encoding.Create(False);
+
+    try
+      Lines.WriteBOM := Encoding = TEncoding.UTF8;
+      Lines.SaveToFile(FilePath, Encoding);
+    finally
+      if Encoding <> TEncoding.UTF8 then
+        Encoding.Free;
+    end;
+
+    Tracker.RecordReplacement(StartLine, EndLine, 0);
+
+    Result := MakeTextResult(Format('Deleted %d line(s) %d-%d. File now has %d lines.',
+      [DeleteCount, StartLine, EndLine, Lines.Count]));
+  finally
+    Lines.Free;
+  end;
 end;
 
 function TMcpLinterServer.HandleGetLinterResults(AParams: TJSONObject): TJSONObject;

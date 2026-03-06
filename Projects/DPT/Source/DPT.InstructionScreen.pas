@@ -183,6 +183,8 @@ begin
         '  - replace_code_lines:  Replaces a range of lines in a file with new content.',
         '                         Line numbers refer to the original positions from get_linter_results.',
         '                         Line endings are normalized to CRLF. File encoding (UTF-8 BOM) is preserved.',
+        '  - delete_lines:        Deletes one or more lines from a file. Use to remove blank lines,',
+        '                         unused declarations, or other unwanted lines.',
         'Typical workflow:',
         '  1. get_linter_results to obtain violations',
         '  2. read_code_lines to inspect the relevant code around each violation',
