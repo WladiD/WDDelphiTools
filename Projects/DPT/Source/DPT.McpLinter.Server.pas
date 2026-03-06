@@ -377,8 +377,11 @@ begin
     'Replaces a range of lines in a file with new content. Line numbers refer to the original positions from the last get_linter_results call; ' +
     'the server automatically adjusts for any shifts caused by previous replacements. ' +
     'Line endings in new_content are automatically normalized to Windows format (CRLF). The file encoding (UTF-8 with BOM) is preserved. ' +
+    'IMPORTANT: new_content must contain ONLY the replacement for the specified line range. ' +
+    'Do NOT include lines that are outside the range (before start_line or after end_line) -- they will be duplicated otherwise. ' +
+    'The server validates this and returns a warning if the last lines of new_content duplicate the lines immediately following the replaced range. ' +
     'To INSERT lines: replace_code_lines(file, N, N, "original_line\nnew_line") replaces line N with itself plus new lines. ' +
-    'To DELETE lines: replace_code_lines(file, N, M, "") removes lines N through M.');
+    'To DELETE lines: use the delete_lines tool instead.');
   var SchemaReplace := TJSONObject.Create;
   SchemaReplace.AddPair('type', 'object');
   var PropReplace := TJSONObject.Create;
@@ -638,6 +641,7 @@ var
   NewLineCount: Integer;
   StartLine   : Integer;
   Tracker     : TLineOffsetTracker;
+  Warning     : String;
 begin
   FilePath := AParams.GetValue('file').Value;
   StartLine := (AParams.GetValue('start_line') as TJSONNumber).AsInt;
@@ -651,6 +655,7 @@ begin
   ActualStart := Tracker.TranslateLine(StartLine);
   ActualEnd := Tracker.TranslateLine(EndLine);
 
+  Warning := '';
   Lines := TStringList.Create;
   try
     Lines.LoadFromFile(FilePath, TEncoding.UTF8);
@@ -659,7 +664,6 @@ begin
       Exit(MakeErrorResult(Format('Line range %d-%d (actual %d-%d) is out of bounds (file has %d lines)',
         [StartLine, EndLine, ActualStart, ActualEnd, Lines.Count])));
 
-    // Normalize line endings and split into lines
     NewContent := NormalizeLineEndings(NewContent);
 
     if NewContent = '' then
@@ -673,15 +677,48 @@ begin
       NewLineCount := Length(NewLines);
     end;
 
-    // Remove old lines (from end to start to maintain indices)
+    // Detect trailing overlap: check if the last K lines of new_content duplicate
+    // the first K lines immediately after the replaced range in the file.
+    // The agent sometimes accidentally includes context lines beyond end_line.
+    if (NewLineCount > 0) and (ActualEnd < Lines.Count) then
+    begin
+      var OverlapCount: Integer := 0;
+      var MaxCheck: Integer := NewLineCount;
+      var AvailableAfter: Integer := Lines.Count - ActualEnd;
+      if MaxCheck > AvailableAfter then
+        MaxCheck := AvailableAfter;
+      if MaxCheck > 10 then
+        MaxCheck := 10;
+
+      for var K: Integer := 1 to MaxCheck do
+      begin
+        var AllMatch: Boolean := True;
+        for var J: Integer := 0 to K - 1 do
+        begin
+          if Trim(NewLines[NewLineCount - K + J]) <> Trim(Lines[ActualEnd + J]) then
+          begin
+            AllMatch := False;
+            Break;
+          end;
+        end;
+        if AllMatch then
+          OverlapCount := K;
+      end;
+
+      if OverlapCount > 0 then
+        Warning := Format(' WARNING: The last %d line(s) of new_content appear to duplicate ' +
+          'the lines immediately after the replaced range (lines %d-%d). ' +
+          'This likely means new_content contains lines that should not be part of the replacement. ' +
+          'Please verify the result with read_code_lines and use replace_code_lines or delete_lines to fix if needed.',
+          [OverlapCount, ActualEnd + 1, ActualEnd + OverlapCount]);
+    end;
+
     for var I: Integer := ActualEnd downto ActualStart do
       Lines.Delete(I - 1);
 
-    // Insert new lines
     for var I: Integer := 0 to NewLineCount - 1 do
       Lines.Insert(ActualStart - 1 + I, NewLines[I]);
 
-    // Detect and preserve BOM encoding
     var Encoding: TEncoding;
     var Preamble: TBytes;
     var RawBytes: TBytes := TFile.ReadAllBytes(FilePath);
@@ -704,8 +741,8 @@ begin
     Tracker.RecordReplacement(StartLine, EndLine, NewLineCount);
 
     var Delta: Integer := NewLineCount - (EndLine - StartLine + 1);
-    Result := MakeTextResult(Format('Replaced lines %d-%d with %d line(s). Delta: %d. File now has %d lines.',
-      [StartLine, EndLine, NewLineCount, Delta, Lines.Count]));
+    Result := MakeTextResult(Format('Replaced lines %d-%d with %d line(s). Delta: %d. File now has %d lines.%s',
+      [StartLine, EndLine, NewLineCount, Delta, Lines.Count, Warning]));
   finally
     Lines.Free;
   end;

@@ -61,6 +61,12 @@ type
     [Test]
     procedure TestReplaceCodeLinesSequentialWithOffset;
     [Test]
+    procedure TestReplaceCodeLinesOverlapWarning;
+    [Test]
+    procedure TestReplaceCodeLinesMultiLineOverlapWarning;
+    [Test]
+    procedure TestReplaceCodeLinesNoOverlapWarning;
+    [Test]
     procedure TestDeleteLinesBasic;
     [Test]
     procedure TestDeleteLinesMultiple;
@@ -891,6 +897,110 @@ begin
       var ReadResponse := OutputWriter.GetLine(2);
       Assert.IsTrue(ReadResponse.Contains('Line07'), 'Should read Line07 (offset applied): ' + ReadResponse);
       Assert.IsTrue(ReadResponse.Contains('Line08'), 'Should read Line08 (offset applied): ' + ReadResponse);
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestReplaceCodeLinesOverlapWarning;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+begin
+  // File: AAA, BBB, CCC, DDD, EEE
+  // Agent replaces lines 2-3 with "XXX\nYYY\nDDD" -- accidentally including line 4 "DDD"
+  TempFile := CreateTempFileWithLines(['AAA', 'BBB', 'CCC', 'DDD', 'EEE']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "replace_code_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 2, "end_line": 3, "new_content": "XXX\nYYY\nDDD"}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce;
+      Server.RunOnce;
+
+      Assert.AreEqual(2, OutputWriter.GetCount);
+      var Response := OutputWriter.GetLine(1);
+      Assert.IsTrue(Response.Contains('WARNING'), 'Expected overlap WARNING: ' + Response);
+      Assert.IsTrue(Response.Contains('last 1 line'), 'Expected 1 line overlap: ' + Response);
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestReplaceCodeLinesMultiLineOverlapWarning;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+begin
+  // File: AAA, BBB, CCC, DDD, EEE, FFF
+  // Agent replaces lines 2-3 with "XXX\nDDD\nEEE" -- accidentally including lines 4-5
+  TempFile := CreateTempFileWithLines(['AAA', 'BBB', 'CCC', 'DDD', 'EEE', 'FFF']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "replace_code_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 2, "end_line": 3, "new_content": "XXX\nDDD\nEEE"}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce;
+      Server.RunOnce;
+
+      Assert.AreEqual(2, OutputWriter.GetCount);
+      var Response := OutputWriter.GetLine(1);
+      Assert.IsTrue(Response.Contains('WARNING'), 'Expected overlap WARNING: ' + Response);
+      Assert.IsTrue(Response.Contains('last 2 line'), 'Expected 2 line overlap: ' + Response);
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempFile) then TFile.Delete(TempFile);
+  end;
+end;
+
+procedure TMcpLinterServerTests.TestReplaceCodeLinesNoOverlapWarning;
+var
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  Server      : TMcpLinterServer;
+  TempFile    : String;
+begin
+  // File: AAA, BBB, CCC, DDD, EEE
+  // Agent replaces lines 2-3 with "XXX\nYYY" -- no overlap with line 4 "DDD"
+  TempFile := CreateTempFileWithLines(['AAA', 'BBB', 'CCC', 'DDD', 'EEE']);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "replace_code_lines", "arguments": {"file": "' + EscapePath(TempFile) + '", "start_line": 2, "end_line": 3, "new_content": "XXX\nYYY"}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpLinterServer.Create(InputReader, OutputWriter);
+    try
+      Server.RunOnce;
+      Server.RunOnce;
+
+      Assert.AreEqual(2, OutputWriter.GetCount);
+      var Response := OutputWriter.GetLine(1);
+      Assert.IsFalse(Response.Contains('WARNING'), 'Should NOT contain WARNING: ' + Response);
     finally
       Server.Free;
       InputReader.Free;
