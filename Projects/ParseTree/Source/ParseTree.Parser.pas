@@ -119,6 +119,12 @@ begin
   Result := TConstDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
   
+  if (Current <> nil) and (Current.Kind = tkColon) then
+  begin
+    Result.ColonToken := MatchToken(tkColon);
+    Result.TypeIdentifier := MatchToken(tkIdentifier);
+  end;
+  
   if (Current <> nil) and (Current.Kind = tkEquals) then
   begin
     Result.EqualsToken := MatchToken(tkEquals);

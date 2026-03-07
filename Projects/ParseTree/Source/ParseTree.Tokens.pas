@@ -16,6 +16,7 @@ type
     tkVarKeyword,
     tkInKeyword,
     tkIdentifier,
+    tkNumericLiteral,
     tkStringLiteral,
     tkSemicolon,
     tkDot,

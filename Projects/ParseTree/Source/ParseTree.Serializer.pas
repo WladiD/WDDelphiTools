@@ -210,6 +210,10 @@ begin
   Result.AddPair('NodeType', 'ConstDeclaration');
   if Assigned(ADecl.Identifier) then
     Result.AddPair('Identifier', SerializeToken(ADecl.Identifier));
+  if Assigned(ADecl.ColonToken) then
+    Result.AddPair('ColonToken', SerializeToken(ADecl.ColonToken));
+  if Assigned(ADecl.TypeIdentifier) then
+    Result.AddPair('TypeIdentifier', SerializeToken(ADecl.TypeIdentifier));
   if Assigned(ADecl.EqualsToken) then
     Result.AddPair('EqualsToken', SerializeToken(ADecl.EqualsToken));
   if Assigned(ADecl.ValueToken) then

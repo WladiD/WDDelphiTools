@@ -58,6 +58,8 @@ type
   TConstDeclarationSyntax = class(TSyntaxNode)
   private
     FIdentifier: TSyntaxToken;
+    FColonToken: TSyntaxToken;
+    FTypeIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
     FValueToken: TSyntaxToken; // Basic value for now
     FSemicolon: TSyntaxToken;
@@ -66,6 +68,8 @@ type
     destructor Destroy; override;
     
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property ColonToken: TSyntaxToken read FColonToken write FColonToken;
+    property TypeIdentifier: TSyntaxToken read FTypeIdentifier write FTypeIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property ValueToken: TSyntaxToken read FValueToken write FValueToken;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
@@ -233,6 +237,8 @@ end;
 destructor TConstDeclarationSyntax.Destroy;
 begin
   FIdentifier.Free;
+  FColonToken.Free;
+  FTypeIdentifier.Free;
   FEqualsToken.Free;
   FValueToken.Free;
   FSemicolon.Free;

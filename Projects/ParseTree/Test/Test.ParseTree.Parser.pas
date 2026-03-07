@@ -32,6 +32,10 @@ type
 
     [Test]
     procedure TestParserSerialization;
+    [Test]
+    procedure TestParseVarDeclarations;
+    [Test]
+    procedure TestParseConstDeclarations;
   end;
 
 implementation
@@ -240,6 +244,78 @@ begin
     finally
       LSerializer.Free;
     end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeParserTest.TestParseVarDeclarations;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    
+    var
+      PlainVar: string;
+      MultiVar1, MultiVar2: Integer;
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LVarSec: TVarSectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
+    Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
+    Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TVarSectionSyntax);
+    
+    LVarSec := TVarSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(2, LVarSec.Declarations.Count, 'Should parse 2 variable blocks (including comma separated)');
+    
+    // First: PlainVar: string;
+    Assert.AreEqual('PlainVar', LVarSec.Declarations[0].Identifier.Text);
+    Assert.AreEqual('string', LVarSec.Declarations[0].TypeIdentifier.Text);
+    
+    // Second: MultiVar1, MultiVar2: Integer; => The parser right now just groups by identifier. 
+    // We expect it to parse MultiVar1 correctly until the colon, even if commas exist.
+    Assert.AreEqual('MultiVar1', LVarSec.Declarations[1].Identifier.Text);
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeParserTest.TestParseConstDeclarations;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    
+    const
+      SimpleConst = 100;
+      TypedConst: string = 'Hello World';
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LConstSec: TConstSectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
+    Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
+    Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TConstSectionSyntax);
+    
+    LConstSec := TConstSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(2, LConstSec.Declarations.Count, 'Should parse 2 const lines');
+    
+    // SimpleConst = 100;
+    Assert.AreEqual('SimpleConst', LConstSec.Declarations[0].Identifier.Text);
+    Assert.AreEqual('100', LConstSec.Declarations[0].ValueToken.Text);
+    
+    // TypedConst: string = 'Hello World';
+    Assert.AreEqual('TypedConst', LConstSec.Declarations[1].Identifier.Text);
+    Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueToken.Text);
   finally
     LTree.Free;
   end;

@@ -17,6 +17,7 @@ type
     function Current: Char;
     procedure Next;
     function ScanIdentifierOrKeyword: TSyntaxToken;
+    function ScanNumericLiteral: TSyntaxToken;
     function ScanStringLiteral: TSyntaxToken;
     function ScanWhitespace: TSyntaxTrivia;
     function ScanComment: TSyntaxTrivia;
@@ -119,6 +120,43 @@ begin
   Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
 end;
 
+function TParseTreeLexer.ScanNumericLiteral: TSyntaxToken;
+var
+  LStartPos: Integer;
+begin
+  LStartPos := FPosition;
+  if Current = '$' then
+  begin
+    Next;
+    while ((Current >= '0') and (Current <= '9')) or
+          ((Current >= 'A') and (Current <= 'F')) or
+          ((Current >= 'a') and (Current <= 'f')) do
+      Next;
+  end
+  else
+  begin
+    while (Current >= '0') and (Current <= '9') do
+      Next;
+    if Current = '.' then
+    begin
+      if Peek(1) <> '.' then
+      begin
+        Next;
+        while (Current >= '0') and (Current <= '9') do
+          Next;
+      end;
+    end;
+    if (Current = 'E') or (Current = 'e') then
+    begin
+      Next;
+      if (Current = '+') or (Current = '-') then Next;
+      while (Current >= '0') and (Current <= '9') do
+        Next;
+    end;
+  end;
+  Result := TSyntaxToken.Create(tkNumericLiteral, Copy(FText, LStartPos, FPosition - LStartPos));
+end;
+
 function TParseTreeLexer.ScanStringLiteral: TSyntaxToken;
 var
   LStartPos: Integer;
@@ -212,6 +250,10 @@ begin
        (Current = '_') then
     begin
       Result := ScanIdentifierOrKeyword;
+    end
+    else if ((Current >= '0') and (Current <= '9')) or (Current = '$') then
+    begin
+      Result := ScanNumericLiteral;
     end
     else if Current = '''' then // String literal start
     begin
