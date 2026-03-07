@@ -18,10 +18,12 @@ uses
   ParseTree.Tokens in '..\Source\ParseTree.Tokens.pas',
   ParseTree.Nodes in '..\Source\ParseTree.Nodes.pas',
   ParseTree.Serializer in '..\Source\ParseTree.Serializer.pas',
+  ParseTree.Writer in '..\Source\ParseTree.Writer.pas',
   ParseTree.Parser in '..\Source\ParseTree.Parser.pas',
   ParseTree.Lexer in '..\Source\ParseTree.Lexer.pas',
   Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
   Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas',
+  Test.ParseTree.Roundtrip in 'Test.ParseTree.Roundtrip.pas',
   Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas';
 
 {$IFNDEF TESTINSIGHT}

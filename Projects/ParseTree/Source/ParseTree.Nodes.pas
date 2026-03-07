@@ -124,6 +124,7 @@ type
     FIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
     FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
+    FBaseListTokens: TObjectList<TSyntaxToken>; // Holds '(' 'TObject' ')'
     FVisibilitySections: TObjectList<TVisibilitySectionSyntax>;
     FEndKeyword: TSyntaxToken;
     FSemicolon: TSyntaxToken;
@@ -134,6 +135,7 @@ type
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
+    property BaseListTokens: TObjectList<TSyntaxToken> read FBaseListTokens;
     property VisibilitySections: TObjectList<TVisibilitySectionSyntax> read FVisibilitySections;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
@@ -190,11 +192,12 @@ type
     property Declarations: TObjectList<TDeclarationSectionSyntax> read FDeclarations;
   end;
 
-  { unit Unit1; interface ... }
+  { unit Unit1.Foo.Bar; }
   TCompilationUnitSyntax = class(TSyntaxNode)
   private
     FUnitKeyword: TSyntaxToken;
-    FIdentifier: TSyntaxToken;
+    FNamespaces: TObjectList<TSyntaxToken>;
+    FDots: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
     FInterfaceSection: TInterfaceSectionSyntax;
   public
@@ -202,7 +205,8 @@ type
     destructor Destroy; override;
 
     property UnitKeyword: TSyntaxToken read FUnitKeyword write FUnitKeyword;
-    property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property Namespaces: TObjectList<TSyntaxToken> read FNamespaces;
+    property Dots: TObjectList<TSyntaxToken> read FDots;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
     property InterfaceSection: TInterfaceSectionSyntax read FInterfaceSection write FInterfaceSection;
   end;
@@ -299,6 +303,7 @@ end;
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
+  FBaseListTokens := TObjectList<TSyntaxToken>.Create;
   FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
 end;
 
@@ -307,6 +312,7 @@ begin
   FIdentifier.Free;
   FEqualsToken.Free;
   FTypeTypeToken.Free;
+  FBaseListTokens.Free;
   FVisibilitySections.Free;
   FEndKeyword.Free;
   FSemicolon.Free;
@@ -413,12 +419,15 @@ end;
 constructor TCompilationUnitSyntax.Create;
 begin
   inherited Create;
+  FNamespaces := TObjectList<TSyntaxToken>.Create;
+  FDots := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TCompilationUnitSyntax.Destroy;
 begin
   FUnitKeyword.Free;
-  FIdentifier.Free;
+  FNamespaces.Free;
+  FDots.Free;
   FSemicolon.Free;
   FInterfaceSection.Free;
   inherited;

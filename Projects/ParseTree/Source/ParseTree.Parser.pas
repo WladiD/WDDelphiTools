@@ -215,6 +215,16 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
       if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) and (LClassNestLevel <= 0) then
       begin
         LMember.Tokens.Add(NextToken); // consume semicolon
+        
+        // Loop to consume method modifiers like `override;`, `stdcall;`, `overload;`
+        while (Current <> nil) and 
+              (((Current.Kind = tkIdentifier) or (Current.Kind = tkOverrideKeyword)) and 
+               (Peek(1) <> nil) and (Peek(1).Kind = tkSemicolon)) do
+        begin
+          LMember.Tokens.Add(NextToken); // consume modifier
+          LMember.Tokens.Add(NextToken); // consume semicolon
+        end;
+        
         Break;
       end;
       
@@ -294,6 +304,15 @@ begin
       
     if (Result.TypeTypeToken <> nil) and (Result.TypeTypeToken.Kind = tkClassKeyword) then
     begin
+      // Parse base classes / interfaces: class(TObject, IInterface)
+      if (Current <> nil) and (Current.Kind = tkOpenParen) then
+      begin
+        Result.BaseListTokens.Add(MatchToken(tkOpenParen)); // (
+        while (Current <> nil) and (Current.Kind <> tkCloseParen) and (Current.Kind <> tkEOF) do
+          Result.BaseListTokens.Add(NextToken); // Add identifiers and commas
+        if (Current <> nil) and (Current.Kind = tkCloseParen) then
+          Result.BaseListTokens.Add(MatchToken(tkCloseParen)); // )
+      end;
       if (Current <> nil) and (Current.Kind = tkSemicolon) then
       begin
         // Forward declaration, no body
@@ -420,7 +439,12 @@ begin
       if (Current <> nil) and (Current.Kind = tkUnitKeyword) then
       begin
         Result.UnitKeyword := MatchToken(tkUnitKeyword);
-        Result.Identifier := MatchToken(tkIdentifier);
+        Result.Namespaces.Add(MatchToken(tkIdentifier));
+        while (Current <> nil) and (Current.Kind = tkDot) do
+        begin
+          Result.Dots.Add(MatchToken(tkDot));
+          Result.Namespaces.Add(MatchToken(tkIdentifier));
+        end;
         Result.Semicolon := MatchToken(tkSemicolon);
       end;
       

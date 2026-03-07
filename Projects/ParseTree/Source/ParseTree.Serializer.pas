@@ -305,13 +305,34 @@ begin
 end;
 
 function TSyntaxTreeSerializer.SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
-begin
-  if ANode = nil then Exit(nil);
-  Result := TJSONObject.Create;
-  Result.AddPair('NodeType', 'CompilationUnit');
-  Result.AddPair('UnitKeyword', SerializeToken(ANode.UnitKeyword));
-  Result.AddPair('Identifier', SerializeToken(ANode.Identifier));
-  Result.AddPair('Semicolon', SerializeToken(ANode.Semicolon));
+  var
+    LArray: TJSONArray;
+    LToken: TSyntaxToken;
+  begin
+    if ANode = nil then Exit(nil);
+    Result := TJSONObject.Create;
+    Result.AddPair('NodeType', 'CompilationUnit');
+    if Assigned(ANode.UnitKeyword) then
+      Result.AddPair('UnitKeyword', SerializeToken(ANode.UnitKeyword));
+      
+    if ANode.Namespaces.Count > 0 then
+    begin
+      LArray := TJSONArray.Create;
+      for LToken in ANode.Namespaces do
+        LArray.AddElement(SerializeToken(LToken));
+      Result.AddPair('Namespaces', LArray);
+    end;
+
+    if ANode.Dots.Count > 0 then
+    begin
+      LArray := TJSONArray.Create;
+      for LToken in ANode.Dots do
+        LArray.AddElement(SerializeToken(LToken));
+      Result.AddPair('Dots', LArray);
+    end;
+    
+    if Assigned(ANode.Semicolon) then
+      Result.AddPair('Semicolon', SerializeToken(ANode.Semicolon));
   
   if Assigned(ANode.InterfaceSection) then
     Result.AddPair('InterfaceSection', SerializeInterfaceSection(ANode.InterfaceSection));

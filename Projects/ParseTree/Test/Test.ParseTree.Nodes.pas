@@ -35,7 +35,7 @@ begin
   try
     LTree.UnitKeyword := TSyntaxToken.Create(tkUnitKeyword, 'unit');
     LTree.UnitKeyword.TrailingTrivia.Add(TSyntaxTrivia.Create(' '));
-    LTree.Identifier := TSyntaxToken.Create(tkIdentifier, 'Unit1');
+    LTree.Namespaces.Add(TSyntaxToken.Create(tkIdentifier, 'Unit1'));
     LTree.Semicolon := TSyntaxToken.Create(tkSemicolon, ';');
     LTree.Semicolon.TrailingTrivia.Add(TSyntaxTrivia.Create(#13#10));
     LTree.Semicolon.TrailingTrivia.Add(TSyntaxTrivia.Create(#13#10));
