@@ -58,30 +58,53 @@ end;
 
 function TParseTreeParser.MatchToken(AKind: TTokenKind): TSyntaxToken;
 begin
-  if (Current <> nil) and (Current.Kind = Integer(AKind)) then
+  if (Current <> nil) and (Current.Kind = AKind) then
     Result := NextToken
   else
     Result := nil; // In a full parser, we'd add a diagnostic here (e.g. "Expected X")
 end;
 
 function TParseTreeParser.ParseUsesClause: TUsesClauseSyntax;
+var
+  LUnitRef: TUnitReferenceSyntax;
 begin
   Result := nil;
-  if (Current = nil) or (Current.Kind <> Integer(tkUsesKeyword)) then
+  if (Current = nil) or (Current.Kind <> tkUsesKeyword) then
     Exit;
     
   Result := TUsesClauseSyntax.Create;
   Result.UsesKeyword := MatchToken(tkUsesKeyword);
   
-  while (Current <> nil) and (Current.Kind <> Integer(tkSemicolon)) and (Current.Kind <> Integer(tkEOF)) do
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
   begin
-    // Simple comma-separated identifier list. We ignore commas for now and just collect identifiers.
-    if Current.Kind = Integer(tkIdentifier) then
-      Result.Identifiers.Add(NextToken)
-    else if Current.Kind = Integer(tkDot) then // e.g. System.SysUtils
-      Result.Identifiers.Add(NextToken)
+    LUnitRef := TUnitReferenceSyntax.Create;
+    
+    // Parse the unit identifier(s) and dots (e.g. System.SysUtils)
+    while (Current <> nil) and 
+          ((Current.Kind = tkIdentifier) or (Current.Kind = tkDot)) do
+    begin
+      if Current.Kind = tkIdentifier then
+        LUnitRef.Namespaces.Add(NextToken)
+      else if Current.Kind = tkDot then
+        LUnitRef.Dots.Add(NextToken);
+    end;
+    
+    // Parse optional 'in' clause (e.g. in '..\Unit1.pas')
+    if (Current <> nil) and (Current.Kind = tkInKeyword) then
+    begin
+      LUnitRef.InKeyword := MatchToken(tkInKeyword);
+      
+      if (Current <> nil) and (Current.Kind = tkStringLiteral) then
+        LUnitRef.StringLiteral := MatchToken(tkStringLiteral);
+    end;
+    
+    Result.UnitReferences.Add(LUnitRef);
+    
+    // Look for comma separating units
+    if (Current <> nil) and (Current.Kind = tkComma) then
+      Result.Commas.Add(MatchToken(tkComma))
     else
-      NextToken; // skip unknown or commas
+      Break; // If no comma, we should be at a semicolon (or syntax error)
   end;
   
   Result.Semicolon := MatchToken(tkSemicolon);
@@ -90,14 +113,14 @@ end;
 function TParseTreeParser.ParseInterfaceSection: TInterfaceSectionSyntax;
 begin
   Result := nil;
-  if (Current = nil) or (Current.Kind <> Integer(tkInterfaceKeyword)) then
+  if (Current = nil) or (Current.Kind <> tkInterfaceKeyword) then
     Exit;
     
   Result := TInterfaceSectionSyntax.Create;
   Result.InterfaceKeyword := MatchToken(tkInterfaceKeyword);
   
   // Look for uses clause right after interface
-  if (Current <> nil) and (Current.Kind = Integer(tkUsesKeyword)) then
+  if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
     Result.UsesClause := ParseUsesClause();
 end;
 
@@ -113,7 +136,7 @@ begin
       FPosition := 0;
       
       // Parse unit declaration
-      if (Current <> nil) and (Current.Kind = Integer(tkUnitKeyword)) then
+      if (Current <> nil) and (Current.Kind = tkUnitKeyword) then
       begin
         Result.UnitKeyword := MatchToken(tkUnitKeyword);
         Result.Identifier := MatchToken(tkIdentifier);
@@ -121,10 +144,10 @@ begin
       end;
       
       // Fast-forward to interface section just in case there are comments
-      while (Current <> nil) and (Current.Kind <> Integer(tkInterfaceKeyword)) and (Current.Kind <> Integer(tkEOF)) do
+      while (Current <> nil) and (Current.Kind <> tkInterfaceKeyword) and (Current.Kind <> tkEOF) do
         NextToken;
         
-      if (Current <> nil) and (Current.Kind = Integer(tkInterfaceKeyword)) then
+      if (Current <> nil) and (Current.Kind = tkInterfaceKeyword) then
         Result.InterfaceSection := ParseInterfaceSection();
         
     finally

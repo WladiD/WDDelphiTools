@@ -17,6 +17,7 @@ type
     function Current: Char;
     procedure Next;
     function ScanIdentifierOrKeyword: TSyntaxToken;
+    function ScanStringLiteral: TSyntaxToken;
     function ScanWhitespace: TSyntaxTrivia;
     function ScanComment: TSyntaxTrivia;
   public
@@ -118,6 +119,28 @@ begin
   Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
 end;
 
+function TParseTreeLexer.ScanStringLiteral: TSyntaxToken;
+var
+  LStartPos: Integer;
+begin
+  LStartPos := FPosition;
+  Next; // consume opening quote
+  while (Current <> #0) do
+  begin
+    if Current = '''' then
+    begin
+      Next; // consume quote
+      if Current = '''' then
+        Next // escaped quote, keep going
+      else
+        Break; // end of string
+    end
+    else
+      Next;
+  end;
+  Result := TSyntaxToken.Create(tkStringLiteral, Copy(FText, LStartPos, FPosition - LStartPos));
+end;
+
 function TParseTreeLexer.ScanIdentifierOrKeyword: TSyntaxToken;
 var
   LStartPos: Integer;
@@ -143,9 +166,10 @@ begin
   else if LUpper = 'INTERFACE' then LKind := tkInterfaceKeyword
   else if LUpper = 'IMPLEMENTATION' then LKind := tkImplementationKeyword
   else if LUpper = 'USES' then LKind := tkUsesKeyword
+  else if LUpper = 'IN' then LKind := tkInKeyword
   else LKind := tkIdentifier;
 
-  Result := TSyntaxToken.Create(Integer(LKind), LText);
+  Result := TSyntaxToken.Create(LKind, LText);
 end;
 
 function TParseTreeLexer.NextToken: TSyntaxToken;
@@ -155,7 +179,7 @@ var
   LTokenText: string;
 begin
   if Current = #0 then
-    Exit(TSyntaxToken.Create(Integer(tkEOF), ''));
+    Exit(TSyntaxToken.Create(tkEOF, ''));
 
   LLeadingTrivia := TList<TSyntaxTrivia>.Create;
   try
@@ -174,7 +198,7 @@ begin
 
     if Current = #0 then
     begin
-      Result := TSyntaxToken.Create(Integer(tkEOF), '');
+      Result := TSyntaxToken.Create(tkEOF, '');
       Result.LeadingTrivia.AddRange(LLeadingTrivia);
       Exit;
     end;
@@ -186,6 +210,10 @@ begin
     begin
       Result := ScanIdentifierOrKeyword;
     end
+    else if Current = '''' then // String literal start
+    begin
+      Result := ScanStringLiteral;
+    end
     else
     begin
       // Fallback: Just consume one char as some punctuation
@@ -193,11 +221,13 @@ begin
       Next;
       
       if LTokenText = ';' then
-        Result := TSyntaxToken.Create(Integer(tkSemicolon), LTokenText)
+        Result := TSyntaxToken.Create(tkSemicolon, LTokenText)
       else if LTokenText = '.' then
-        Result := TSyntaxToken.Create(Integer(tkDot), LTokenText)
+        Result := TSyntaxToken.Create(tkDot, LTokenText)
+      else if LTokenText = ',' then
+        Result := TSyntaxToken.Create(tkComma, LTokenText)
       else
-        Result := TSyntaxToken.Create(Integer(tkUnknown), LTokenText);
+        Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;
 
     Result.LeadingTrivia.AddRange(LLeadingTrivia);
@@ -205,9 +235,6 @@ begin
   finally
     LLeadingTrivia.Free;
   end;
-  
-  // Scan trailing trivia? Typically we don't need to do complex trailing trivia unless it's on the same line
-  // Let's keep it simple: everything before a token is leading trivia of the *next* token
 end;
 
 function TParseTreeLexer.TokenizeAll: TList<TSyntaxToken>;
@@ -218,7 +245,7 @@ begin
   repeat
     LToken := NextToken;
     Result.Add(LToken);
-  until LToken.Kind = Integer(tkEOF);
+  until LToken.Kind = tkEOF;
 end;
 
 end.

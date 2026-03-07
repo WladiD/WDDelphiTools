@@ -62,8 +62,6 @@ begin
 
   LFiles := TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories);
   
-  System.Writeln(Format('Found %d .pas files to parse recursively.', [Length(LFiles)]));
-
   if Length(LFiles) = 0 then
     Assert.Pass('No .pas files found to test.');
 

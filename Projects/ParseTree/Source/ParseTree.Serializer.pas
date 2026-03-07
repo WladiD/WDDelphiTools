@@ -11,6 +11,7 @@ type
   private
     function SerializeTrivia(ATrivia: TSyntaxTrivia): TJSONObject;
     function SerializeToken(AToken: TSyntaxToken): TJSONObject;
+    function SerializeUnitReference(ANode: TUnitReferenceSyntax): TJSONObject;
     function SerializeUsesClause(ANode: TUsesClauseSyntax): TJSONObject;
     function SerializeInterfaceSection(ANode: TInterfaceSectionSyntax): TJSONObject;
     function SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
@@ -41,7 +42,7 @@ begin
   if AToken = nil then Exit(nil);
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'Token');
-  Result.AddPair('Kind', TTokenKind(AToken.Kind).ToString);
+  Result.AddPair('Kind', AToken.Kind.ToString);
   Result.AddPair('Text', TJSONString.Create(AToken.Text));
 
   if AToken.LeadingTrivia.Count > 0 then
@@ -61,22 +62,63 @@ begin
   end;
 end;
 
-function TSyntaxTreeSerializer.SerializeUsesClause(ANode: TUsesClauseSyntax): TJSONObject;
+function TSyntaxTreeSerializer.SerializeUnitReference(ANode: TUnitReferenceSyntax): TJSONObject;
 var
   LArray: TJSONArray;
   LToken: TSyntaxToken;
 begin
   if ANode = nil then Exit(nil);
   Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'UnitReference');
+  
+  if ANode.Namespaces.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ANode.Namespaces do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('Namespaces', LArray);
+  end;
+
+  if ANode.Dots.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ANode.Dots do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('Dots', LArray);
+  end;
+
+  if Assigned(ANode.InKeyword) then
+    Result.AddPair('InKeyword', SerializeToken(ANode.InKeyword));
+
+  if Assigned(ANode.StringLiteral) then
+    Result.AddPair('StringLiteral', SerializeToken(ANode.StringLiteral));
+end;
+
+function TSyntaxTreeSerializer.SerializeUsesClause(ANode: TUsesClauseSyntax): TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+  LRef: TUnitReferenceSyntax;
+begin
+  if ANode = nil then Exit(nil);
+  Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'UsesClause');
   Result.AddPair('UsesKeyword', SerializeToken(ANode.UsesKeyword));
   
-  if ANode.Identifiers.Count > 0 then
+  if ANode.UnitReferences.Count > 0 then
   begin
     LArray := TJSONArray.Create;
-    for LToken in ANode.Identifiers do
+    for LRef in ANode.UnitReferences do
+      LArray.AddElement(SerializeUnitReference(LRef));
+    Result.AddPair('UnitReferences', LArray);
+  end;
+
+  if ANode.Commas.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ANode.Commas do
       LArray.AddElement(SerializeToken(LToken));
-    Result.AddPair('Identifiers', LArray);
+    Result.AddPair('Commas', LArray);
   end;
   
   Result.AddPair('Semicolon', SerializeToken(ANode.Semicolon));
@@ -113,6 +155,8 @@ begin
     Result := SerializeCompilationUnit(TCompilationUnitSyntax(ANode))
   else if ANode is TInterfaceSectionSyntax then
     Result := SerializeInterfaceSection(TInterfaceSectionSyntax(ANode))
+  else if ANode is TUnitReferenceSyntax then
+    Result := SerializeUnitReference(TUnitReferenceSyntax(ANode))
   else if ANode is TUsesClauseSyntax then
     Result := SerializeUsesClause(TUsesClauseSyntax(ANode))
   else

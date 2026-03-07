@@ -16,18 +16,37 @@ type
     property Token: TSyntaxToken read FToken;
   end;
 
+  { e.g. System.SysUtils or Unit1 in '..\Unit1.pas' }
+  TUnitReferenceSyntax = class(TSyntaxNode)
+  private
+    FNamespaces: TList<TSyntaxToken>;
+    FDots: TList<TSyntaxToken>;
+    FInKeyword: TSyntaxToken;
+    FStringLiteral: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property Namespaces: TList<TSyntaxToken> read FNamespaces;
+    property Dots: TList<TSyntaxToken> read FDots;
+    property InKeyword: TSyntaxToken read FInKeyword write FInKeyword;
+    property StringLiteral: TSyntaxToken read FStringLiteral write FStringLiteral;
+  end;
+
   { uses ...; }
   TUsesClauseSyntax = class(TSyntaxNode)
   private
     FUsesKeyword: TSyntaxToken;
-    FIdentifiers: TList<TSyntaxToken>;
+    FUnitReferences: TList<TUnitReferenceSyntax>;
+    FCommas: TList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
   public
     constructor Create;
     destructor Destroy; override;
 
     property UsesKeyword: TSyntaxToken read FUsesKeyword write FUsesKeyword;
-    property Identifiers: TList<TSyntaxToken> read FIdentifiers;
+    property UnitReferences: TList<TUnitReferenceSyntax> read FUnitReferences;
+    property Commas: TList<TSyntaxToken> read FCommas;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
@@ -77,18 +96,42 @@ begin
   inherited;
 end;
 
+{ TUnitReferenceSyntax }
+
+constructor TUnitReferenceSyntax.Create;
+begin
+  inherited Create;
+  FNamespaces := TList<TSyntaxToken>.Create;
+  FDots := TList<TSyntaxToken>.Create;
+end;
+
+destructor TUnitReferenceSyntax.Destroy;
+begin
+  FNamespaces.Free;
+  FDots.Free;
+  FInKeyword.Free;
+  FStringLiteral.Free;
+  inherited;
+end;
+
 { TUsesClauseSyntax }
 
 constructor TUsesClauseSyntax.Create;
 begin
   inherited Create;
-  FIdentifiers := TList<TSyntaxToken>.Create;
+  FUnitReferences := TList<TUnitReferenceSyntax>.Create;
+  FCommas := TList<TSyntaxToken>.Create;
 end;
 
 destructor TUsesClauseSyntax.Destroy;
+var
+  LRef: TUnitReferenceSyntax;
 begin
   FUsesKeyword.Free;
-  FIdentifiers.Free;
+  for LRef in FUnitReferences do
+    LRef.Free;
+  FUnitReferences.Free;
+  FCommas.Free;
   FSemicolon.Free;
   inherited;
 end;

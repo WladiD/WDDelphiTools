@@ -11,8 +11,11 @@ type
     tkInterfaceKeyword,
     tkImplementationKeyword,
     tkUsesKeyword,
+    tkInKeyword,
     tkIdentifier,
+    tkStringLiteral,
     tkSemicolon,
+    tkComma,
     tkDot
   );
 

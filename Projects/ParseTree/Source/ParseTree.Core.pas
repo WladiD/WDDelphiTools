@@ -3,7 +3,7 @@ unit ParseTree.Core;
 interface
 
 uses
-  System.Generics.Collections;
+  System.Generics.Collections, ParseTree.Tokens;
 
 type
   { Base class for all syntax nodes, tokens, and trivia }
@@ -29,15 +29,15 @@ type
   { Base class for tokens (keywords, identifiers, punctuation) }
   TSyntaxToken = class(TSyntaxElement)
   private
-    FKind: Integer; // Will map to TTokenKind
+    FKind: TTokenKind;
     FText: string;
     FLeadingTrivia: TObjectList<TSyntaxTrivia>;
     FTrailingTrivia: TObjectList<TSyntaxTrivia>;
   public
-    constructor Create(AKind: Integer; const AText: string);
+    constructor Create(AKind: TTokenKind; const AText: string);
     destructor Destroy; override;
 
-    property Kind: Integer read FKind;
+    property Kind: TTokenKind read FKind;
     property Text: string read FText;
     property LeadingTrivia: TObjectList<TSyntaxTrivia> read FLeadingTrivia;
     property TrailingTrivia: TObjectList<TSyntaxTrivia> read FTrailingTrivia;
@@ -71,7 +71,7 @@ end;
 
 { TSyntaxToken }
 
-constructor TSyntaxToken.Create(AKind: Integer; const AText: string);
+constructor TSyntaxToken.Create(AKind: TTokenKind; const AText: string);
 begin
   inherited Create;
   FKind := AKind;
