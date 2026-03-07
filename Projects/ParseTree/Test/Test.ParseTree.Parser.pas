@@ -57,6 +57,7 @@ var
   LFiles: TArray<string>;
   LFile: string;
   LProjectsDir: string;
+  LOutputDir: string;
   LTasks: TArray<ITask>;
   LFailedFiles: TStringList;
   LLock: TCriticalSection;
@@ -65,6 +66,11 @@ begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   if not TDirectory.Exists(LProjectsDir) then
     Assert.Pass('Projects directory not found, skipping integration test.');
+
+  LOutputDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'ProjectParseTrees');
+  if TDirectory.Exists(LOutputDir) then
+    TDirectory.Delete(LOutputDir, True);
+  TDirectory.CreateDirectory(LOutputDir);
 
   LFiles := TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories);
   
@@ -85,20 +91,47 @@ begin
         procedure
         var
           LLocalParser: TParseTreeParser;
+          LLocalSerializer: TSyntaxTreeSerializer;
           LLocalTree: TCompilationUnitSyntax;
           LLocalContent: string;
           LLocalFile: string;
+          LLocalJson: TJSONObject;
+          LRelPath: string;
+          LTargetFile: string;
         begin
           LLocalFile := LFile;
           try
             LLocalContent := TFile.ReadAllText(LLocalFile, TEncoding.UTF8);
             
-            // Each thread MUST instantiate its own parser to avoid race conditions!
+            // Each thread MUST instantiate its own parser/serializer to avoid race conditions!
             LLocalParser := TParseTreeParser.Create;
+            LLocalSerializer := TSyntaxTreeSerializer.Create;
             try
               LLocalTree := LLocalParser.Parse(LLocalContent);
-              LLocalTree.Free;
+              try
+                // Serialize to JSON
+                LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
+                try
+                  // Mirrored path in OutputDir
+                  LRelPath := ExtractRelativePath(LProjectsDir, LLocalFile);
+                  LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+                  
+                  // Ensure directory exists and write file (locked to avoid race conditions)
+                  LLock.Enter;
+                  try
+                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
+                    TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
+                  finally
+                    LLock.Leave;
+                  end;
+                finally
+                  LLocalJson.Free;
+                end;
+              finally
+                LLocalTree.Free;
+              end;
             finally
+              LLocalSerializer.Free;
               LLocalParser.Free;
             end;
             
