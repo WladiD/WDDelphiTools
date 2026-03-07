@@ -355,16 +355,34 @@ const
       public
         /// <summary>Creates a new instance</summary>
         constructor Create;
+        /// <summary>Creates from name and value</summary>
+        constructor CreateWith(const AName: string; AValue: Integer);
         /// <summary>Releases all resources</summary>
         destructor Destroy; override;
         /// <summary>Performs the main action</summary>
         procedure DoSomething;
+        /// <summary>Sets a single value</summary>
+        procedure SetValue(AValue: Integer);
+        /// <summary>Copies from another instance</summary>
+        procedure CopyFrom(const ASource: TMyClass);
+        /// <summary>Applies multiple changes at once</summary>
+        procedure ApplyChanges(var ACounter: Integer; out AResult: string; const AFactor: Double);
+        /// <summary>Initializes with optional count</summary>
+        procedure Init(ACount: Integer = 10);
         /// <summary>Returns the current value</summary>
         function GetValue: Integer;
+        /// <summary>Compares two strings with optional case sensitivity</summary>
+        function Compare(const ALeft, ARight: string; AIgnoreCase: Boolean = False): Integer;
+        /// <summary>Tries to retrieve an item by key</summary>
+        function TryGetItem(const AKey: string; out AValue: Integer): Boolean;
         /// <summary>Factory method for creating instances</summary>
         class function CreateInstance: TMyClass;
         /// <summary>Frees all existing instances</summary>
         class procedure FreeAll;
+        /// <summary>Initializes the class</summary>
+        class constructor ClassCreate;
+        /// <summary>Finalizes the class</summary>
+        class destructor ClassDestroy;
         /// <summary>The current value</summary>
         property Value: Integer read GetValue;
       published
@@ -460,20 +478,54 @@ begin
     // === Section 4: public ===
     LVisSec := LTypeDecl.VisibilitySections[4];
     Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
-    Assert.AreEqual(7, LVisSec.Members.Count, 'public should have 7 members');
+    Assert.AreEqual(16, LVisSec.Members.Count, 'public should have 16 members');
+    // 0: constructor Create;
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Creates a new instance'),
       'constructor Create should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Releases all resources'),
+    // 1: constructor CreateWith(const AName: string; AValue: Integer);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Creates from name and value'),
+      'constructor CreateWith should have XML-Doc');
+    // 2: destructor Destroy; override;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Releases all resources'),
       'destructor Destroy should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Performs the main action'),
+    // 3: procedure DoSomething;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), 'Performs the main action'),
       'DoSomething should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), 'Returns the current value'),
+    // 4: procedure SetValue(AValue: Integer);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 4), 'Sets a single value'),
+      'SetValue should have XML-Doc');
+    // 5: procedure CopyFrom(const ASource: TMyClass);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 5), 'Copies from another instance'),
+      'CopyFrom should have XML-Doc');
+    // 6: procedure ApplyChanges(var ACounter: Integer; out AResult: string; const AFactor: Double);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 6), 'Applies multiple changes at once'),
+      'ApplyChanges should have XML-Doc');
+    // 7: procedure Init(ACount: Integer = 10);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 7), 'Initializes with optional count'),
+      'Init should have XML-Doc');
+    // 8: function GetValue: Integer;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 8), 'Returns the current value'),
       'GetValue should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 4), 'Factory method for creating instances'),
+    // 9: function Compare(const ALeft, ARight: string; AIgnoreCase: Boolean = False): Integer;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 9), 'Compares two strings with optional case sensitivity'),
+      'Compare should have XML-Doc');
+    // 10: function TryGetItem(const AKey: string; out AValue: Integer): Boolean;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 10), 'Tries to retrieve an item by key'),
+      'TryGetItem should have XML-Doc');
+    // 11: class function CreateInstance: TMyClass;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 11), 'Factory method for creating instances'),
       'CreateInstance should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 5), 'Frees all existing instances'),
+    // 12: class procedure FreeAll;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 12), 'Frees all existing instances'),
       'FreeAll should have XML-Doc');
-    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 6), 'The current value'),
+    // 13: class constructor ClassCreate;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 13), 'Initializes the class'),
+      'class constructor ClassCreate should have XML-Doc');
+    // 14: class destructor ClassDestroy;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 14), 'Finalizes the class'),
+      'class destructor ClassDestroy should have XML-Doc');
+    // 15: property Value: Integer read GetValue;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 15), 'The current value'),
       'property Value should have XML-Doc');
 
     // === Section 5: published ===
