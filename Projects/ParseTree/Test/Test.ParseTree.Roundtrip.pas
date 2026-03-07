@@ -33,6 +33,8 @@ type
     procedure TestDPTWorkflowSession;
     [Test]
     procedure TestDPTBuildEnvironmentTask;
+    [Test]
+    procedure TestDPTDebugger;
   end;
 
 implementation
@@ -58,6 +60,10 @@ var
   LBaseDir: string;
   LOutputFolder: string;
   LOutputFile: string;
+  LOriLines: TArray<string>;
+  LNewLines: TArray<string>;
+  I: Integer;
+  LMsg: string;
 begin
   Assert.IsTrue(TFile.Exists(AFilePath), 'Source file does not exist: ' + AFilePath);
   
@@ -83,10 +89,32 @@ begin
   LOutputFile := TPath.Combine(LOutputFolder, ExtractFileName(AFilePath));
   TFile.WriteAllText(LOutputFile, LNewContent, TEncoding.UTF8);
 
-  // Assert Exact Match
-  Assert.AreEqual(LOriContent, LNewContent, 
-    'Roundtrip parsing failed for ' + ExtractFileName(AFilePath) + 
-    '. Check file ' + LOutputFile + ' for the generated output.');
+  // Find and report first difference
+  if LOriContent <> LNewContent then
+  begin
+    LOriLines := LOriContent.Split([#13#10]);
+    LNewLines := LNewContent.Split([#13#10]);
+    LMsg := 'Roundtrip failed for ' + ExtractFileName(AFilePath) + '. Output: ' + LOutputFile;
+    for I := 0 to Length(LOriLines) - 1 do
+    begin
+      if (I >= Length(LNewLines)) then
+      begin
+        LMsg := LMsg + sLineBreak + Format('Line %d missing in roundtrip (original has %d lines, roundtrip has %d)',
+          [I + 1, Length(LOriLines), Length(LNewLines)]);
+        Break;
+      end;
+      if LOriLines[I] <> LNewLines[I] then
+      begin
+        LMsg := LMsg + sLineBreak + Format('First diff at line %d:', [I + 1])
+          + sLineBreak + '  ORI: [' + LOriLines[I] + ']'
+          + sLineBreak + '  RT:  [' + LNewLines[I] + ']';
+        Break;
+      end;
+    end;
+    if (Length(LNewLines) > Length(LOriLines)) then
+      LMsg := LMsg + sLineBreak + Format('Roundtrip has %d extra lines', [Length(LNewLines) - Length(LOriLines)]);
+    Assert.Fail(LMsg);
+  end;
 end;
 
 procedure TParseTreeRoundtripTest.TestDPTMcpDebuggerTask;
@@ -130,6 +158,17 @@ var
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.BuildEnvironment.Task.pas');
+
+  DoRoundtripTest(LTargetFile);
+end;
+
+procedure TParseTreeRoundtripTest.TestDPTDebugger;
+var
+  LProjectsDir: string;
+  LTargetFile: string;
+begin
+  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
+  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Debugger.pas');
 
   DoRoundtripTest(LTargetFile);
 end;

@@ -121,6 +121,8 @@ begin
   WriteToken(ADecl.Identifier);
   WriteToken(ADecl.EqualsToken);
   WriteToken(ADecl.TypeTypeToken);
+  for LToken in ADecl.TypeExtraTokens do
+    WriteToken(LToken);
   
   if Assigned(ADecl.BaseListTokens) then
   begin

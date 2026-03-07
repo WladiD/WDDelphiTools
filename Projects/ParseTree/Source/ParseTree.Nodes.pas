@@ -126,6 +126,7 @@ type
     FIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
     FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
+    FTypeExtraTokens: TObjectList<TSyntaxToken>; // e.g. (stNone, stInto) for enums
     FBaseListTokens: TObjectList<TSyntaxToken>; // Holds '(' 'TObject' ')'
     FVisibilitySections: TObjectList<TVisibilitySectionSyntax>;
     FEndKeyword: TSyntaxToken;
@@ -137,6 +138,7 @@ type
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
+    property TypeExtraTokens: TObjectList<TSyntaxToken> read FTypeExtraTokens;
     property BaseListTokens: TObjectList<TSyntaxToken> read FBaseListTokens;
     property VisibilitySections: TObjectList<TVisibilitySectionSyntax> read FVisibilitySections;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
@@ -363,6 +365,7 @@ end;
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
+  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
   FBaseListTokens := TObjectList<TSyntaxToken>.Create;
   FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
 end;
@@ -372,6 +375,7 @@ begin
   FIdentifier.Free;
   FEqualsToken.Free;
   FTypeTypeToken.Free;
+  FTypeExtraTokens.Free;
   FBaseListTokens.Free;
   FVisibilitySections.Free;
   FEndKeyword.Free;

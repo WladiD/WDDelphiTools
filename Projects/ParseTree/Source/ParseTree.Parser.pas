@@ -304,6 +304,8 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
       ATypeDecl.EndKeyword := MatchToken(tkEndKeyword);
   end;
 
+var
+  LNestLevel: Integer;
 begin
   Result := TTypeDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
@@ -349,15 +351,34 @@ begin
     end
     else
     begin
-      // simple type aliases (e.g. Type1 = Type2;) fast-forward to semicolon
-      while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
-        NextToken;
+      // simple type aliases, enums, procedure types, etc. - collect tokens for roundtrip fidelity
+      // Track paren nesting so ';' inside '()' doesn't end the type prematurely
+      LNestLevel := 0;
+      while (Current <> nil) and (Current.Kind <> tkEOF) do
+      begin
+        if Current.Kind = tkOpenParen then
+          Inc(LNestLevel)
+        else if Current.Kind = tkCloseParen then
+          Dec(LNestLevel)
+        else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+          Break;
+        Result.TypeExtraTokens.Add(NextToken);
+      end;
     end;
   end;
   
-  // fast forward to semicolon
-  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
-    NextToken;
+  // Collect any remaining tokens before semicolon (track nesting)
+  LNestLevel := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind = tkOpenParen then
+      Inc(LNestLevel)
+    else if Current.Kind = tkCloseParen then
+      Dec(LNestLevel)
+    else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+      Break;
+    Result.TypeExtraTokens.Add(NextToken);
+  end;
     
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
@@ -415,6 +436,7 @@ end;
 function TParseTreeParser.ParseInterfaceSection: TInterfaceSectionSyntax;
 var
   LDecl: TDeclarationSectionSyntax;
+  LUnparsed: TUnparsedDeclarationSyntax;
 begin
   Result := nil;
   if (Current = nil) or (Current.Kind <> tkInterfaceKeyword) then
@@ -427,7 +449,8 @@ begin
   if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
     Result.UsesClause := ParseUsesClause();
 
-  // Parse interface declarations: type, const, var
+  LUnparsed := nil;
+  // Parse interface declarations: type, const, var, and other constructs
   while (Current <> nil) and 
         (Current.Kind <> tkImplementationKeyword) and 
         (Current.Kind <> tkEOF) do
@@ -436,15 +459,21 @@ begin
        (Current.Kind = tkConstKeyword) or 
        (Current.Kind = tkVarKeyword) then
     begin
+      LUnparsed := nil;
       LDecl := ParseDeclarationSection;
       if Assigned(LDecl) then
         Result.Declarations.Add(LDecl);
     end
     else
     begin
-      // Skip token if it's not a known declaration keyword block for Phase 3
-      // We will refine this in later phases as we drill down into declarations.
-      NextToken;
+      // Collect unrecognized tokens (e.g. standalone function/procedure declarations)
+      // into TUnparsedDeclarationSyntax to preserve them for roundtrip fidelity
+      if LUnparsed = nil then
+      begin
+        LUnparsed := TUnparsedDeclarationSyntax.Create;
+        Result.Declarations.Add(LUnparsed);
+      end;
+      LUnparsed.Tokens.Add(NextToken);
     end;
   end;
 end;
