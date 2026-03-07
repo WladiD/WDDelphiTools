@@ -21,7 +21,8 @@ uses
   ParseTree.Parser in '..\Source\ParseTree.Parser.pas',
   ParseTree.Lexer in '..\Source\ParseTree.Lexer.pas',
   Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
-  Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas';
+  Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas',
+  Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas';
 
 {$IFNDEF TESTINSIGHT}
 var
