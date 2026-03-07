@@ -202,6 +202,31 @@ type
     property Tokens: TObjectList<TSyntaxToken> read FTokens;
   end;
 
+  { procedure TClass.Method; var ... begin ... end; }
+  TMethodImplementationSyntax = class(TDeclarationSectionSyntax)
+  private
+    FMethodTypeKeyword: TSyntaxToken; // e.g. procedure
+    FSignatureTokens: TObjectList<TSyntaxToken>; // TDptMcpDebuggerTask.Execute
+    FSignatureSemicolon: TSyntaxToken;
+    FLocalDeclarations: TObjectList<TDeclarationSectionSyntax>; // var, const, etc
+    FBeginKeyword: TSyntaxToken;
+    FBodyTokens: TObjectList<TSyntaxToken>; // inner statements
+    FEndKeyword: TSyntaxToken;
+    FFinalSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property MethodTypeKeyword: TSyntaxToken read FMethodTypeKeyword write FMethodTypeKeyword;
+    property SignatureTokens: TObjectList<TSyntaxToken> read FSignatureTokens;
+    property SignatureSemicolon: TSyntaxToken read FSignatureSemicolon write FSignatureSemicolon;
+    property LocalDeclarations: TObjectList<TDeclarationSectionSyntax> read FLocalDeclarations;
+    property BeginKeyword: TSyntaxToken read FBeginKeyword write FBeginKeyword;
+    property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
+    property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property FinalSemicolon: TSyntaxToken read FFinalSemicolon write FFinalSemicolon;
+  end;
+
   { implementation ... }
   TImplementationSectionSyntax = class(TSyntaxNode)
   private
@@ -458,6 +483,29 @@ end;
 destructor TUnparsedDeclarationSyntax.Destroy;
 begin
   FTokens.Free;
+  inherited;
+end;
+
+{ TMethodImplementationSyntax }
+
+constructor TMethodImplementationSyntax.Create;
+begin
+  inherited Create;
+  FSignatureTokens := TObjectList<TSyntaxToken>.Create;
+  FLocalDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
+  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TMethodImplementationSyntax.Destroy;
+begin
+  FMethodTypeKeyword.Free;
+  FSignatureTokens.Free;
+  FSignatureSemicolon.Free;
+  FLocalDeclarations.Free;
+  FBeginKeyword.Free;
+  FBodyTokens.Free;
+  FEndKeyword.Free;
+  FFinalSemicolon.Free;
   inherited;
 end;
 

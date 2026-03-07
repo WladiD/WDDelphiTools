@@ -29,6 +29,7 @@ type
     function ParseConstDeclaration: TConstDeclarationSyntax;
     function ParseVarDeclaration: TVarDeclarationSyntax;
     function ParseInterfaceSection: TInterfaceSectionSyntax;
+    function ParseMethodImplementation: TMethodImplementationSyntax;
     function ParseImplementationSection: TImplementationSectionSyntax;
   end;
 
@@ -425,9 +426,92 @@ begin
   end;
 end;
 
+function TParseTreeParser.ParseMethodImplementation: TMethodImplementationSyntax;
+var
+  LNestLevel: Integer;
+  LDecl: TDeclarationSectionSyntax;
+begin
+  Result := TMethodImplementationSyntax.Create;
+  
+  if (Current <> nil) and (Current.Kind = tkClassKeyword) then
+  begin
+    Result.SignatureTokens.Add(NextToken); // class keyword
+  end;
+  
+  Result.MethodTypeKeyword := NextToken; // procedure, function, etc.
+  
+  // consume signature until semicolon
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+    Result.SignatureTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.SignatureSemicolon := MatchToken(tkSemicolon);
+    
+  // Local declarations (var, const, type)
+  while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
+    begin
+      LDecl := ParseDeclarationSection;
+      if Assigned(LDecl) then
+        Result.LocalDeclarations.Add(LDecl);
+    end
+    else
+    begin
+      LDecl := ParseDeclarationSection; 
+      if Assigned(LDecl) then
+        Result.LocalDeclarations.Add(LDecl)
+      else
+      begin
+        // If we can't parse it, we must break to avoid infinite loop
+        Break;
+      end;
+    end;
+  end;
+  
+  if (Current <> nil) and (Current.Kind = tkBeginKeyword) then
+    Result.BeginKeyword := MatchToken(tkBeginKeyword);
+    
+  // Body until matched end
+  // Need to track begin/end nesting level!
+  LNestLevel := 1;
+  while (Current <> nil) and (LNestLevel > 0) and (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or 
+       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+      Inc(LNestLevel)
+    else if (Current.Kind = tkEndKeyword) then
+    begin
+      Dec(LNestLevel);
+      if LNestLevel = 0 then
+      begin
+        Result.EndKeyword := MatchToken(tkEndKeyword);
+        Break;
+      end;
+    end;
+    
+    Result.BodyTokens.Add(NextToken);
+  end;
+  
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.FinalSemicolon := MatchToken(tkSemicolon);
+end;
+
 function TParseTreeParser.ParseImplementationSection: TImplementationSectionSyntax;
 var
   LUnparsed: TUnparsedDeclarationSyntax;
+  
+  function IsMethodStartToken(AToken: TSyntaxToken): Boolean;
+  begin
+    Result := (AToken <> nil) and (
+      (AToken.Kind = tkProcedureKeyword) or
+      (AToken.Kind = tkFunctionKeyword) or
+      (AToken.Kind = tkConstructorKeyword) or
+      (AToken.Kind = tkDestructorKeyword) or
+      ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and 
+       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword))));
+  end;
+
 begin
   Result := TImplementationSectionSyntax.Create;
   Result.ImplementationKeyword := MatchToken(tkImplementationKeyword);
@@ -437,19 +521,27 @@ begin
     Result.UsesClause := ParseUsesClause();
   end;
   
-  // Consume all remaining tokens until `end.` into an unparsed block
-  LUnparsed := TUnparsedDeclarationSyntax.Create;
+  LUnparsed := nil;
+  // Parse methods and other declarations
   while (Current <> nil) and 
         not ((Current.Kind = tkEndKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkDot)) and 
         (Current.Kind <> tkEOF) do
   begin
-    LUnparsed.Tokens.Add(NextToken);
+    if IsMethodStartToken(Current) then
+    begin
+      LUnparsed := nil; // Reset unparsed stream
+      Result.Declarations.Add(ParseMethodImplementation);
+    end
+    else
+    begin
+      if LUnparsed = nil then
+      begin
+        LUnparsed := TUnparsedDeclarationSyntax.Create;
+        Result.Declarations.Add(LUnparsed); // Add instantly to maintain order
+      end;
+      LUnparsed.Tokens.Add(NextToken);
+    end;
   end;
-  
-  if LUnparsed.Tokens.Count > 0 then
-    Result.Declarations.Add(LUnparsed)
-  else
-    LUnparsed.Free;
 end;
 
 function TParseTreeParser.Parse(const AText: string): TCompilationUnitSyntax;

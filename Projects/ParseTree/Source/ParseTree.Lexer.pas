@@ -209,6 +209,10 @@ begin
   else if LUpper = 'CONST' then LKind := tkConstKeyword
   else if LUpper = 'VAR' then LKind := tkVarKeyword
   else if LUpper = 'CLASS' then LKind := tkClassKeyword
+  else if LUpper = 'BEGIN' then LKind := tkBeginKeyword
+  else if LUpper = 'TRY' then LKind := tkTryKeyword
+  else if LUpper = 'CASE' then LKind := tkCaseKeyword
+  else if LUpper = 'ASM' then LKind := tkAsmKeyword
   else if LUpper = 'END' then LKind := tkEndKeyword
   else if LUpper = 'PRIVATE' then LKind := tkPrivateKeyword
   else if LUpper = 'PROTECTED' then LKind := tkProtectedKeyword

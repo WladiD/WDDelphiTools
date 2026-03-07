@@ -20,6 +20,7 @@ type
     procedure WriteUsesClause(AClause: TUsesClauseSyntax);
     procedure WriteInterfaceSection(ASection: TInterfaceSectionSyntax);
     procedure WriteImplementationSection(ASection: TImplementationSectionSyntax);
+    procedure WriteMethodImplementation(ADecl: TMethodImplementationSyntax);
     
     // Declarations
     procedure WriteTypeDeclaration(ADecl: TTypeDeclarationSyntax);
@@ -237,6 +238,28 @@ begin
   end;
 end;
 
+procedure TSyntaxTreeWriter.WriteMethodImplementation(ADecl: TMethodImplementationSyntax);
+var
+  LToken: TSyntaxToken;
+  LDeclLocal: TDeclarationSectionSyntax;
+begin
+  if ADecl = nil then Exit;
+  
+  WriteToken(ADecl.MethodTypeKeyword);
+  for LToken in ADecl.SignatureTokens do
+    WriteToken(LToken);
+  WriteToken(ADecl.SignatureSemicolon);
+  
+  for LDeclLocal in ADecl.LocalDeclarations do
+    WriteNode(LDeclLocal);
+    
+  WriteToken(ADecl.BeginKeyword);
+  for LToken in ADecl.BodyTokens do
+    WriteToken(LToken);
+  WriteToken(ADecl.EndKeyword);
+  WriteToken(ADecl.FinalSemicolon);
+end;
+
 procedure TSyntaxTreeWriter.WriteCompilationUnit(ANode: TCompilationUnitSyntax);
 var
   I: Integer;
@@ -286,6 +309,8 @@ begin
     WriteConstDeclaration(TConstDeclarationSyntax(ANode))
   else if ANode is TVarDeclarationSyntax then
     WriteVarDeclaration(TVarDeclarationSyntax(ANode))
+  else if ANode is TMethodImplementationSyntax then
+    WriteMethodImplementation(TMethodImplementationSyntax(ANode))
   else if ANode is TUnparsedDeclarationSyntax then
     WriteUnparsedDeclaration(TUnparsedDeclarationSyntax(ANode));
 end;
