@@ -81,12 +81,14 @@ begin
     
     // Parse the unit identifier(s) and dots (e.g. System.SysUtils)
     while (Current <> nil) and 
-          ((Current.Kind = tkIdentifier) or (Current.Kind = tkDot)) do
+          ((Current.Kind = tkIdentifier) or (Current.Kind = tkDot) or 
+           (Current.Kind = tkUnitKeyword) or (Current.Kind = tkInterfaceKeyword) or
+           (Current.Kind = tkImplementationKeyword) or (Current.Kind = tkUsesKeyword)) do
     begin
-      if Current.Kind = tkIdentifier then
-        LUnitRef.Namespaces.Add(NextToken)
-      else if Current.Kind = tkDot then
-        LUnitRef.Dots.Add(NextToken);
+      if Current.Kind = tkDot then
+        LUnitRef.Dots.Add(NextToken)
+      else
+        LUnitRef.Namespaces.Add(NextToken);
     end;
     
     // Parse optional 'in' clause (e.g. in '..\Unit1.pas')

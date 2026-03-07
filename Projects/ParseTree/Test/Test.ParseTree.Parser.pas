@@ -10,6 +10,8 @@ uses
   System.Threading,
   System.SyncObjs,
   DUnitX.TestFramework,
+  ParseTree.Core,
+  ParseTree.Tokens,
   ParseTree.Parser,
   ParseTree.Nodes,
   ParseTree.Serializer;
@@ -126,15 +128,26 @@ end;
 
 procedure TParseTreeParserTest.TestParserSerialization;
 const
-  LSourceCode = 'unit Unit1;' + #13#10 +
-                'interface' + #13#10 +
-                'uses' + #13#10 +
-                '  System.SysUtils;' + #13#10;
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    uses
+      System.SysUtils,
+      {$IFDEF MSWINDOWS}
+      Winapi.Windows,
+      {$ENDIF}
+      {$IF CompilerVersion >= 35.0}
+      System.Generics.Collections,
+      {$IFEND}
+      My.Custom.Unit in '..\Path\My.Custom.Unit.pas';
+  ''';
 var
   LTree: TCompilationUnitSyntax;
   LSerializer: TSyntaxTreeSerializer;
   LJsonObj: System.JSON.TJSONObject;
   LJsonString: string;
+  LHasIfDef, LHasIf: Boolean;
+  LTrivia: TSyntaxTrivia;
 begin
   LTree := FParser.Parse(LSourceCode);
   try
@@ -150,10 +163,44 @@ begin
         Assert.IsTrue(LJsonString.Contains('"NodeType":"CompilationUnit"'));
         Assert.IsTrue(LJsonString.Contains('"Text":"Unit1"'));
         
-        // The parser returns each part of the uses clause separately
-        Assert.IsTrue(LJsonString.Contains('"Text":"System"'));
-        Assert.IsTrue(LJsonString.Contains('"Kind":"tkDot"'));
-        Assert.IsTrue(LJsonString.Contains('"Text":"SysUtils"'));
+        // Extensive AST Structure checks
+        Assert.IsNotNull(LTree.InterfaceSection, 'Interface section should exist');
+        Assert.IsNotNull(LTree.InterfaceSection.UsesClause, 'Uses clause should exist');
+        Assert.AreEqual(4, LTree.InterfaceSection.UsesClause.UnitReferences.Count, 'Should find 4 unit references');
+        
+        // Check 1: System.SysUtils
+        Assert.AreEqual(2, LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces.Count, 'System.SysUtils has 2 namespaces');
+        Assert.AreEqual('System', LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces[0].Text);
+        Assert.AreEqual('SysUtils', LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces[1].Text);
+        
+        // Check 2: Winapi.Windows (with $IFDEF MSWINDOWS)
+        Assert.AreEqual(2, LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces.Count);
+        Assert.AreEqual('Winapi', LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces[0].Text);
+        
+        LHasIfDef := False;
+        for LTrivia in LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces[0].LeadingTrivia do
+          if LTrivia.Text.Contains('{$IFDEF MSWINDOWS}') then LHasIfDef := True;
+        Assert.IsTrue(LHasIfDef, 'Should capture {$IFDEF MSWINDOWS} as leading trivia');
+
+        // Check 3: System.Generics.Collections (with $IF CompilerVersion)
+        Assert.AreEqual(3, LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces.Count);
+        Assert.AreEqual('System', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[0].Text);
+        Assert.AreEqual('Generics', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[1].Text);
+        Assert.AreEqual('Collections', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[2].Text);
+        
+        LHasIf := False;
+        for LTrivia in LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[0].LeadingTrivia do
+          if LTrivia.Text.Contains('{$IF CompilerVersion >= 35.0}') then LHasIf := True;
+        Assert.IsTrue(LHasIf, 'Should capture {$IF CompilerVersion} as leading trivia');
+
+        // Check 4: My.Custom.Unit in '...'
+        Assert.AreEqual(3, LTree.InterfaceSection.UsesClause.UnitReferences[3].Namespaces.Count);
+        Assert.AreEqual('My', LTree.InterfaceSection.UsesClause.UnitReferences[3].Namespaces[0].Text);
+        Assert.AreEqual('Custom', LTree.InterfaceSection.UsesClause.UnitReferences[3].Namespaces[1].Text);
+        Assert.AreEqual('Unit', LTree.InterfaceSection.UsesClause.UnitReferences[3].Namespaces[2].Text);
+        Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].InKeyword, 'Should have "in" keyword');
+        Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral, 'Should have string literal');
+        Assert.AreEqual('''..\Path\My.Custom.Unit.pas''', LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral.Text);
       finally
         LJsonObj.Free;
       end;
