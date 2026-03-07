@@ -36,6 +36,8 @@ type
     procedure TestParseVarDeclarations;
     [Test]
     procedure TestParseConstDeclarations;
+    [Test]
+    procedure TestParseClassDeclaration;
   end;
 
 implementation
@@ -316,6 +318,40 @@ begin
     // TypedConst: string = 'Hello World';
     Assert.AreEqual('TypedConst', LConstSec.Declarations[1].Identifier.Text);
     Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueToken.Text);
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeParserTest.TestParseClassDeclaration;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TMyClass = class
+      private
+        FField: Integer;
+      public
+        procedure DoSomething;
+      end;
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
+    Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
+    Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
+    
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(1, LTypeSec.Declarations.Count, 'Should parse one class declaration');
+    // We expect the first type declaration to be TMyClass
+    // Since we don't have TTypeDeclarationSyntax yet, we will just assume it gets added.
+    Assert.AreEqual('TMyClass', LTypeSec.Declarations[0].Identifier.Text);
   finally
     LTree.Free;
   end;

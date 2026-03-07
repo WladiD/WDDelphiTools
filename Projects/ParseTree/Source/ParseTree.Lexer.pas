@@ -208,6 +208,14 @@ begin
   else if LUpper = 'TYPE' then LKind := tkTypeKeyword
   else if LUpper = 'CONST' then LKind := tkConstKeyword
   else if LUpper = 'VAR' then LKind := tkVarKeyword
+  else if LUpper = 'CLASS' then LKind := tkClassKeyword
+  else if LUpper = 'END' then LKind := tkEndKeyword
+  else if LUpper = 'PRIVATE' then LKind := tkPrivateKeyword
+  else if LUpper = 'PROTECTED' then LKind := tkProtectedKeyword
+  else if LUpper = 'PUBLIC' then LKind := tkPublicKeyword
+  else if LUpper = 'PUBLISHED' then LKind := tkPublishedKeyword
+  else if LUpper = 'PROCEDURE' then LKind := tkProcedureKeyword
+  else if LUpper = 'FUNCTION' then LKind := tkFunctionKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);

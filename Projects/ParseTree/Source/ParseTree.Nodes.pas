@@ -92,14 +92,37 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { e.g. TMyClass = class ... end; }
+  TTypeDeclarationSyntax = class(TSyntaxNode)
+  private
+    FIdentifier: TSyntaxToken;
+    FEqualsToken: TSyntaxToken;
+    FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
+    FMembers: TList<TSyntaxToken>; // Temporary placeholder for fully parsing members
+    FEndKeyword: TSyntaxToken;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    
+    property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
+    property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
+    property Members: TList<TSyntaxToken> read FMembers;
+    property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { type ... }
   TTypeSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FTypeKeyword: TSyntaxToken;
+    FDeclarations: TList<TTypeDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property TypeKeyword: TSyntaxToken read FTypeKeyword write FTypeKeyword;
+    property Declarations: TList<TTypeDeclarationSyntax> read FDeclarations;
   end;
 
   { const ... }
@@ -214,16 +237,45 @@ begin
   inherited;
 end;
 
+{ TTypeDeclarationSyntax }
+
+constructor TTypeDeclarationSyntax.Create;
+begin
+  inherited Create;
+  FMembers := TList<TSyntaxToken>.Create;
+end;
+
+destructor TTypeDeclarationSyntax.Destroy;
+var
+  LTok: TSyntaxToken;
+begin
+  FIdentifier.Free;
+  FEqualsToken.Free;
+  FTypeTypeToken.Free;
+  for LTok in FMembers do
+    LTok.Free;
+  FMembers.Free;
+  FEndKeyword.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
 { TTypeSectionSyntax }
 
 constructor TTypeSectionSyntax.Create;
 begin
   inherited Create;
+  FDeclarations := TList<TTypeDeclarationSyntax>.Create;
 end;
 
 destructor TTypeSectionSyntax.Destroy;
+var
+  LDecl: TTypeDeclarationSyntax;
 begin
   FTypeKeyword.Free;
+  for LDecl in FDeclarations do
+    LDecl.Free;
+  FDeclarations.Free;
   inherited;
 end;
 

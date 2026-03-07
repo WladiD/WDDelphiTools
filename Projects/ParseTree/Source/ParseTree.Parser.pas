@@ -25,6 +25,7 @@ type
     function Parse(const AText: string): TCompilationUnitSyntax;
     function ParseUsesClause: TUsesClauseSyntax;
     function ParseDeclarationSection: TDeclarationSectionSyntax;
+    function ParseTypeDeclaration: TTypeDeclarationSyntax;
     function ParseConstDeclaration: TConstDeclarationSyntax;
     function ParseVarDeclaration: TVarDeclarationSyntax;
     function ParseInterfaceSection: TInterfaceSectionSyntax;
@@ -160,6 +161,51 @@ begin
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
+function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
+begin
+  Result := TTypeDeclarationSyntax.Create;
+  Result.Identifier := MatchToken(tkIdentifier);
+  
+  if (Current <> nil) and (Current.Kind = tkEquals) then
+  begin
+    Result.EqualsToken := MatchToken(tkEquals);
+    
+    // Parse what kind of type it is (like class, interface, record)
+    if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkIdentifier)) then
+      Result.TypeTypeToken := NextToken;
+      
+    if (Result.TypeTypeToken <> nil) and (Result.TypeTypeToken.Kind = tkClassKeyword) then
+    begin
+      if (Current <> nil) and (Current.Kind = tkSemicolon) then
+      begin
+        // Forward declaration, no body
+      end
+      else
+      begin
+        // consume up to end (rudimentary skipping of class body)
+        while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+        begin
+          Result.Members.Add(NextToken);
+        end;
+        if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+          Result.EndKeyword := MatchToken(tkEndKeyword);
+      end;
+    end
+    else
+    begin
+      // simple type aliases (e.g. Type1 = Type2;) fast-forward to semicolon
+      while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+        Result.Members.Add(NextToken);
+    end;
+  end;
+  
+  // fast forward to semicolon
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+    NextToken;
+    
+  Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
 function TParseTreeParser.ParseDeclarationSection: TDeclarationSectionSyntax;
 var
   LTypeSec: TTypeSectionSyntax;
@@ -173,7 +219,13 @@ begin
   begin
     LTypeSec := TTypeSectionSyntax.Create;
     LTypeSec.TypeKeyword := MatchToken(tkTypeKeyword);
-    // Future Phase: Parse inside type block
+    
+    while (Current <> nil) and 
+          (Current.Kind = tkIdentifier) do
+    begin
+      LTypeSec.Declarations.Add(ParseTypeDeclaration);
+    end;
+    
     Result := LTypeSec;
   end
   else if Current.Kind = tkConstKeyword then
