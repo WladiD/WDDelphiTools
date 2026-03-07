@@ -3,8 +3,8 @@ unit Test.ParseTree.Parser;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.IOUtils,
-  DUnitX.TestFramework, ParseTree.Parser, ParseTree.Nodes;
+  System.SysUtils, System.Classes, System.IOUtils, System.JSON,
+  DUnitX.TestFramework, ParseTree.Parser, ParseTree.Nodes, ParseTree.Serializer;
 
 type
   [TestFixture]
@@ -19,6 +19,9 @@ type
 
     [Test]
     procedure TestParseAllProjectFiles;
+
+    [Test]
+    procedure TestParserSerialization;
   end;
 
 implementation
@@ -76,6 +79,47 @@ begin
         
   finally
     LFailedFiles.Free;
+  end;
+end;
+
+procedure TParseTreeParserTest.TestParserSerialization;
+const
+  LSourceCode = 'unit Unit1;' + #13#10 +
+                'interface' + #13#10 +
+                'uses' + #13#10 +
+                '  System.SysUtils;' + #13#10;
+var
+  LTree: TCompilationUnitSyntax;
+  LSerializer: TSyntaxTreeSerializer;
+  LJsonObj: System.JSON.TJSONObject;
+  LJsonString: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LSerializer := TSyntaxTreeSerializer.Create;
+    try
+      LJsonObj := LSerializer.SerializeNode(LTree);
+      try
+        LJsonString := LJsonObj.ToString;
+
+        System.Writeln('PARSED JSON:');
+        System.Writeln(LJsonString);
+
+        Assert.IsTrue(LJsonString.Contains('"NodeType":"CompilationUnit"'));
+        Assert.IsTrue(LJsonString.Contains('"Text":"Unit1"'));
+        
+        // The parser returns each part of the uses clause separately
+        Assert.IsTrue(LJsonString.Contains('"Text":"System"'));
+        Assert.IsTrue(LJsonString.Contains('"Kind":"tkDot"'));
+        Assert.IsTrue(LJsonString.Contains('"Text":"SysUtils"'));
+      finally
+        LJsonObj.Free;
+      end;
+    finally
+      LSerializer.Free;
+    end;
+  finally
+    LTree.Free;
   end;
 end;
 
