@@ -340,7 +340,11 @@ const
           FInternalFlag: Boolean;
         /// <summary>Maximum number of items</summary>
         const
+          {$IFDEF DEBUG}
           CMaxItems = 100;
+          {$ELSE}
+          CMaxItems = 200;
+          {$ENDIF}
       strict private
         /// <summary>Strict private field for name storage</summary>
         FStrictField: string;
@@ -440,7 +444,7 @@ begin
     LVisSec := LTypeDecl.VisibilitySections[0];
     Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
     Assert.IsFalse(LVisSec.IsStrict, 'private should not be strict');
-    Assert.AreEqual(3, LVisSec.Members.Count, 'private should have 3 members (type, var, const)');
+    Assert.AreEqual(4, LVisSec.Members.Count, 'private should have 4 members (type, var, const+IFDEF, const+ELSE)');
     // Check XML-Doc on private members
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Internal enumeration'),
       'type TInnerEnum should have XML-Doc');
@@ -448,6 +452,12 @@ begin
       'var FInternalFlag should have XML-Doc');
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Maximum number of items'),
       'const CMaxItems should have XML-Doc');
+    // The {$IFDEF DEBUG} should be leading trivia of the first CMaxItems identifier (inside the const member)
+    Assert.IsTrue(HasTriviaContaining(LVisSec.Members[2].Tokens[1], '{$IFDEF DEBUG}'),
+      'CMaxItems should have {$IFDEF DEBUG} in trivia');
+    // The {$ELSE} + second CMaxItems is parsed as a separate member (index 3)
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), '{$ELSE}'),
+      'Second CMaxItems should have {$ELSE} in trivia');
     
     // === Section 1: strict private ===
     LVisSec := LTypeDecl.VisibilitySections[1];
