@@ -31,6 +31,8 @@ type
     procedure TestDPTLogger;
     [Test]
     procedure TestDPTWorkflowSession;
+    [Test]
+    procedure TestDPTBuildEnvironmentTask;
   end;
 
 implementation
@@ -118,6 +120,17 @@ begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Workflow.Session.pas');
   
+  DoRoundtripTest(LTargetFile);
+end;
+
+procedure TParseTreeRoundtripTest.TestDPTBuildEnvironmentTask;
+var
+  LProjectsDir: string;
+  LTargetFile: string;
+begin
+  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
+  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.BuildEnvironment.Task.pas');
+
   DoRoundtripTest(LTargetFile);
 end;
 

@@ -153,12 +153,12 @@ begin
   if (Current <> nil) and (Current.Kind = tkColon) then
   begin
     Result.ColonToken := MatchToken(tkColon);
-    Result.TypeIdentifier := MatchToken(tkIdentifier); // Basic support for now
+    Result.TypeIdentifier := MatchToken(tkIdentifier);
   end;
   
-  // fast forward to semicolon
+  // Collect remaining type tokens (e.g. <String> for TArray<String>)
   while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
-    NextToken;
+    Result.TypeExtraTokens.Add(NextToken);
     
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
@@ -479,7 +479,7 @@ begin
   if (Current <> nil) and (Current.Kind = tkSemicolon) then
     Result.SignatureSemicolon := MatchToken(tkSemicolon);
     
-  // Local declarations (var, const, type)
+  // Local declarations (var, const, type, nested procedures/functions)
   while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkEOF) do
   begin
     if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
@@ -488,9 +488,14 @@ begin
       if Assigned(LDecl) then
         Result.LocalDeclarations.Add(LDecl);
     end
+    else if (Current.Kind = tkProcedureKeyword) or (Current.Kind = tkFunctionKeyword) then
+    begin
+      // Nested procedure/function - parse recursively
+      Result.LocalDeclarations.Add(ParseMethodImplementation);
+    end
     else
     begin
-      LDecl := ParseDeclarationSection; 
+      LDecl := ParseDeclarationSection;
       if Assigned(LDecl) then
         Result.LocalDeclarations.Add(LDecl)
       else

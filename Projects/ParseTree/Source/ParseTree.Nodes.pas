@@ -80,7 +80,8 @@ type
   private
     FIdentifier: TSyntaxToken;
     FColonToken: TSyntaxToken;
-    FTypeIdentifier: TSyntaxToken; // Basic type for now
+    FTypeIdentifier: TSyntaxToken;
+    FTypeExtraTokens: TObjectList<TSyntaxToken>; // e.g. <String> for TArray<String>
     FSemicolon: TSyntaxToken;
   public
     constructor Create;
@@ -89,6 +90,7 @@ type
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
     property ColonToken: TSyntaxToken read FColonToken write FColonToken;
     property TypeIdentifier: TSyntaxToken read FTypeIdentifier write FTypeIdentifier;
+    property TypeExtraTokens: TObjectList<TSyntaxToken> read FTypeExtraTokens;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
@@ -415,6 +417,7 @@ end;
 constructor TVarDeclarationSyntax.Create;
 begin
   inherited Create;
+  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TVarDeclarationSyntax.Destroy;
@@ -422,6 +425,7 @@ begin
   FIdentifier.Free;
   FColonToken.Free;
   FTypeIdentifier.Free;
+  FTypeExtraTokens.Free;
   FSemicolon.Free;
   inherited;
 end;

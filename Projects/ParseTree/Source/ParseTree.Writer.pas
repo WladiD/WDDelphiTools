@@ -158,11 +158,15 @@ begin
 end;
 
 procedure TSyntaxTreeWriter.WriteVarDeclaration(ADecl: TVarDeclarationSyntax);
+var
+  LToken: TSyntaxToken;
 begin
   if ADecl = nil then Exit;
   WriteToken(ADecl.Identifier);
   WriteToken(ADecl.ColonToken);
   WriteToken(ADecl.TypeIdentifier);
+  for LToken in ADecl.TypeExtraTokens do
+    WriteToken(LToken);
   WriteToken(ADecl.Semicolon);
 end;
 

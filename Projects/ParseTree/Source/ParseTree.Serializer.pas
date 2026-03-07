@@ -293,6 +293,9 @@ begin
 end;
 
 function TSyntaxTreeSerializer.SerializeVarDeclaration(ADecl: TVarDeclarationSyntax): System.JSON.TJSONObject;
+var
+  LToken: TSyntaxToken;
+  LArray: TJSONArray;
 begin
   if ADecl = nil then Exit(nil);
   Result := TJSONObject.Create;
@@ -303,6 +306,13 @@ begin
     Result.AddPair('ColonToken', SerializeToken(ADecl.ColonToken));
   if Assigned(ADecl.TypeIdentifier) then
     Result.AddPair('TypeIdentifier', SerializeToken(ADecl.TypeIdentifier));
+  if ADecl.TypeExtraTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ADecl.TypeExtraTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('TypeExtraTokens', LArray);
+  end;
   if Assigned(ADecl.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(ADecl.Semicolon));
 end;
