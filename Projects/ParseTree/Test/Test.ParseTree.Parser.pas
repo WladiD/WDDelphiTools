@@ -97,8 +97,7 @@ begin
             LLocalParser := TParseTreeParser.Create;
             try
               LLocalTree := LLocalParser.Parse(LLocalContent);
-              if Assigned(LLocalTree) then
-                LLocalTree.Free;
+              LLocalTree.Free;
             finally
               LLocalParser.Free;
             end;
