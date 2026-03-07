@@ -145,7 +145,7 @@ const
       My.Custom.Unit in '..\Path\My.Custom.Unit.pas';
       
     type
-      TTest = class;
+      TTest = class; // forward
       
     const
       MyConst = 42;
@@ -222,6 +222,13 @@ begin
         
         Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
         Assert.AreEqual('type', TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]).TypeKeyword.Text);
+
+        // Check that '// forward' comment is captured as leading trivia on the const keyword
+        Assert.IsTrue(LTree.InterfaceSection.Declarations[1] is TConstSectionSyntax);
+        LHasIfDef := False;
+        for LTrivia in TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).ConstKeyword.LeadingTrivia do
+          if LTrivia.Text.Contains('// forward') then LHasIfDef := True;
+        Assert.IsTrue(LHasIfDef, 'Should capture // forward as leading trivia on const keyword');
 
         Assert.IsTrue(LTree.InterfaceSection.Declarations[1] is TConstSectionSyntax);
         Assert.AreEqual('const', TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).ConstKeyword.Text);
