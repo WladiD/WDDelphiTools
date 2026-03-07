@@ -167,6 +167,9 @@ begin
   else if LUpper = 'IMPLEMENTATION' then LKind := tkImplementationKeyword
   else if LUpper = 'USES' then LKind := tkUsesKeyword
   else if LUpper = 'IN' then LKind := tkInKeyword
+  else if LUpper = 'TYPE' then LKind := tkTypeKeyword
+  else if LUpper = 'CONST' then LKind := tkConstKeyword
+  else if LUpper = 'VAR' then LKind := tkVarKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);

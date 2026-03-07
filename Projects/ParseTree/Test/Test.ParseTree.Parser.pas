@@ -140,6 +140,17 @@ const
       System.Generics.Collections,
       {$IFEND}
       My.Custom.Unit in '..\Path\My.Custom.Unit.pas';
+      
+    type
+      TTest = class;
+      
+    const
+      MyConst = 42;
+      
+    var
+      MyVar: Integer;
+      
+    implementation
   ''';
 var
   LTree: TCompilationUnitSyntax;
@@ -201,6 +212,20 @@ begin
         Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].InKeyword, 'Should have "in" keyword');
         Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral, 'Should have string literal');
         Assert.AreEqual('''..\Path\My.Custom.Unit.pas''', LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral.Text);
+        
+        // Check Declarations (type, const, var)
+        Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations property must exist');
+        Assert.AreEqual(3, LTree.InterfaceSection.Declarations.Count, 'Should find 3 declaration blocks');
+        
+        Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
+        Assert.AreEqual('type', TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]).TypeKeyword.Text);
+
+        Assert.IsTrue(LTree.InterfaceSection.Declarations[1] is TConstSectionSyntax);
+        Assert.AreEqual('const', TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).ConstKeyword.Text);
+
+        Assert.IsTrue(LTree.InterfaceSection.Declarations[2] is TVarSectionSyntax);
+        Assert.AreEqual('var', TVarSectionSyntax(LTree.InterfaceSection.Declarations[2]).VarKeyword.Text);
+        
       finally
         LJsonObj.Free;
       end;

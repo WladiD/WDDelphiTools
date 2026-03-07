@@ -12,8 +12,13 @@ type
     function SerializeTrivia(ATrivia: TSyntaxTrivia): TJSONObject;
     function SerializeToken(AToken: TSyntaxToken): TJSONObject;
     function SerializeUnitReference(ANode: TUnitReferenceSyntax): TJSONObject;
-    function SerializeUsesClause(ANode: TUsesClauseSyntax): TJSONObject;
-    function SerializeInterfaceSection(ANode: TInterfaceSectionSyntax): TJSONObject;
+    function SerializeUsesClause(AClause: TUsesClauseSyntax): System.JSON.TJSONObject;
+    function SerializeInterfaceSection(ASection: TInterfaceSectionSyntax): System.JSON.TJSONObject;
+    
+    // Declaration Sections
+    function SerializeTypeSection(ASection: TTypeSectionSyntax): System.JSON.TJSONObject;
+    function SerializeConstSection(ASection: TConstSectionSyntax): System.JSON.TJSONObject;
+    function SerializeVarSection(ASection: TVarSectionSyntax): System.JSON.TJSONObject;
     function SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -94,44 +99,83 @@ begin
     Result.AddPair('StringLiteral', SerializeToken(ANode.StringLiteral));
 end;
 
-function TSyntaxTreeSerializer.SerializeUsesClause(ANode: TUsesClauseSyntax): TJSONObject;
+function TSyntaxTreeSerializer.SerializeUsesClause(AClause: TUsesClauseSyntax): System.JSON.TJSONObject;
 var
   LArray: TJSONArray;
   LToken: TSyntaxToken;
   LRef: TUnitReferenceSyntax;
 begin
-  if ANode = nil then Exit(nil);
+  if AClause = nil then Exit(nil);
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'UsesClause');
-  Result.AddPair('UsesKeyword', SerializeToken(ANode.UsesKeyword));
+  Result.AddPair('UsesKeyword', SerializeToken(AClause.UsesKeyword));
   
-  if ANode.UnitReferences.Count > 0 then
+  if AClause.UnitReferences.Count > 0 then
   begin
     LArray := TJSONArray.Create;
-    for LRef in ANode.UnitReferences do
+    for LRef in AClause.UnitReferences do
       LArray.AddElement(SerializeUnitReference(LRef));
     Result.AddPair('UnitReferences', LArray);
   end;
 
-  if ANode.Commas.Count > 0 then
+  if AClause.Commas.Count > 0 then
   begin
     LArray := TJSONArray.Create;
-    for LToken in ANode.Commas do
+    for LToken in AClause.Commas do
       LArray.AddElement(SerializeToken(LToken));
     Result.AddPair('Commas', LArray);
   end;
   
-  Result.AddPair('Semicolon', SerializeToken(ANode.Semicolon));
+  Result.AddPair('Semicolon', SerializeToken(AClause.Semicolon));
 end;
 
-function TSyntaxTreeSerializer.SerializeInterfaceSection(ANode: TInterfaceSectionSyntax): TJSONObject;
+function TSyntaxTreeSerializer.SerializeInterfaceSection(ASection: TInterfaceSectionSyntax): System.JSON.TJSONObject;
+var
+  LDecl: TDeclarationSectionSyntax;
+  LDeclArray: TJSONArray;
 begin
-  if ANode = nil then Exit(nil);
+  if ASection = nil then Exit(nil);
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'InterfaceSection');
-  Result.AddPair('InterfaceKeyword', SerializeToken(ANode.InterfaceKeyword));
-  if Assigned(ANode.UsesClause) then
-    Result.AddPair('UsesClause', SerializeUsesClause(ANode.UsesClause));
+  if Assigned(ASection.InterfaceKeyword) then
+    Result.AddPair('InterfaceKeyword', SerializeToken(ASection.InterfaceKeyword));
+  if Assigned(ASection.UsesClause) then
+    Result.AddPair('UsesClause', SerializeUsesClause(ASection.UsesClause));
+    
+  if Assigned(ASection.Declarations) and (ASection.Declarations.Count > 0) then
+  begin
+    LDeclArray := TJSONArray.Create;
+    for LDecl in ASection.Declarations do
+      LDeclArray.AddElement(SerializeNode(LDecl));
+    Result.AddPair('Declarations', LDeclArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeTypeSection(ASection: TTypeSectionSyntax): System.JSON.TJSONObject;
+begin
+  if ASection = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'TypeSection');
+  if Assigned(ASection.TypeKeyword) then
+    Result.AddPair('TypeKeyword', SerializeToken(ASection.TypeKeyword));
+end;
+
+function TSyntaxTreeSerializer.SerializeConstSection(ASection: TConstSectionSyntax): System.JSON.TJSONObject;
+begin
+  if ASection = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'ConstSection');
+  if Assigned(ASection.ConstKeyword) then
+    Result.AddPair('ConstKeyword', SerializeToken(ASection.ConstKeyword));
+end;
+
+function TSyntaxTreeSerializer.SerializeVarSection(ASection: TVarSectionSyntax): System.JSON.TJSONObject;
+begin
+  if ASection = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'VarSection');
+  if Assigned(ASection.VarKeyword) then
+    Result.AddPair('VarKeyword', SerializeToken(ASection.VarKeyword));
 end;
 
 function TSyntaxTreeSerializer.SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
@@ -159,6 +203,12 @@ begin
     Result := SerializeUnitReference(TUnitReferenceSyntax(ANode))
   else if ANode is TUsesClauseSyntax then
     Result := SerializeUsesClause(TUsesClauseSyntax(ANode))
+  else if ANode is TTypeSectionSyntax then
+    Result := SerializeTypeSection(TTypeSectionSyntax(ANode))
+  else if ANode is TConstSectionSyntax then
+    Result := SerializeConstSection(TConstSectionSyntax(ANode))
+  else if ANode is TVarSectionSyntax then
+    Result := SerializeVarSection(TVarSectionSyntax(ANode))
   else
   begin
     Result := TJSONObject.Create;

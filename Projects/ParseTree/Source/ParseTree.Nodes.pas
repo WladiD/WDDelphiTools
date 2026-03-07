@@ -50,17 +50,53 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { Base class for Declaration Sections in Interface/Implementation }
+  TDeclarationSectionSyntax = class abstract(TSyntaxNode)
+  end;
+
+  { type ... }
+  TTypeSectionSyntax = class(TDeclarationSectionSyntax)
+  private
+    FTypeKeyword: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property TypeKeyword: TSyntaxToken read FTypeKeyword write FTypeKeyword;
+  end;
+
+  { const ... }
+  TConstSectionSyntax = class(TDeclarationSectionSyntax)
+  private
+    FConstKeyword: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property ConstKeyword: TSyntaxToken read FConstKeyword write FConstKeyword;
+  end;
+
+  { var ... }
+  TVarSectionSyntax = class(TDeclarationSectionSyntax)
+  private
+    FVarKeyword: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property VarKeyword: TSyntaxToken read FVarKeyword write FVarKeyword;
+  end;
+
   { interface ... }
   TInterfaceSectionSyntax = class(TSyntaxNode)
   private
     FInterfaceKeyword: TSyntaxToken;
     FUsesClause: TUsesClauseSyntax;
+    FDeclarations: TList<TDeclarationSectionSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
 
     property InterfaceKeyword: TSyntaxToken read FInterfaceKeyword write FInterfaceKeyword;
     property UsesClause: TUsesClauseSyntax read FUsesClause write FUsesClause;
+    property Declarations: TList<TDeclarationSectionSyntax> read FDeclarations;
   end;
 
   { unit Unit1; interface ... }
@@ -136,17 +172,62 @@ begin
   inherited;
 end;
 
+{ TTypeSectionSyntax }
+
+constructor TTypeSectionSyntax.Create;
+begin
+  inherited Create;
+end;
+
+destructor TTypeSectionSyntax.Destroy;
+begin
+  FTypeKeyword.Free;
+  inherited;
+end;
+
+{ TConstSectionSyntax }
+
+constructor TConstSectionSyntax.Create;
+begin
+  inherited Create;
+end;
+
+destructor TConstSectionSyntax.Destroy;
+begin
+  FConstKeyword.Free;
+  inherited;
+end;
+
+{ TVarSectionSyntax }
+
+constructor TVarSectionSyntax.Create;
+begin
+  inherited Create;
+end;
+
+destructor TVarSectionSyntax.Destroy;
+begin
+  FVarKeyword.Free;
+  inherited;
+end;
+
 { TInterfaceSectionSyntax }
 
 constructor TInterfaceSectionSyntax.Create;
 begin
   inherited Create;
+  FDeclarations := TList<TDeclarationSectionSyntax>.Create;
 end;
 
 destructor TInterfaceSectionSyntax.Destroy;
+var
+  LDecl: TDeclarationSectionSyntax;
 begin
   FInterfaceKeyword.Free;
   FUsesClause.Free;
+  for LDecl in FDeclarations do
+    LDecl.Free;
+  FDeclarations.Free;
   inherited;
 end;
 

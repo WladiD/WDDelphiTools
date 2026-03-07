@@ -21,11 +21,11 @@ type
     function Current: TSyntaxToken;
     function NextToken: TSyntaxToken;
     function MatchToken(AKind: TTokenKind): TSyntaxToken;
-    
-    function ParseUsesClause: TUsesClauseSyntax;
-    function ParseInterfaceSection: TInterfaceSectionSyntax;
   public
     function Parse(const AText: string): TCompilationUnitSyntax;
+    function ParseUsesClause: TUsesClauseSyntax;
+    function ParseDeclarationSection: TDeclarationSectionSyntax;
+    function ParseInterfaceSection: TInterfaceSectionSyntax;
   end;
 
 implementation
@@ -112,7 +112,41 @@ begin
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
+function TParseTreeParser.ParseDeclarationSection: TDeclarationSectionSyntax;
+var
+  LTypeSec: TTypeSectionSyntax;
+  LConstSec: TConstSectionSyntax;
+  LVarSec: TVarSectionSyntax;
+begin
+  Result := nil;
+  if Current = nil then Exit;
+
+  if Current.Kind = tkTypeKeyword then
+  begin
+    LTypeSec := TTypeSectionSyntax.Create;
+    LTypeSec.TypeKeyword := MatchToken(tkTypeKeyword);
+    // Future Phase: Parse inside type block
+    Result := LTypeSec;
+  end
+  else if Current.Kind = tkConstKeyword then
+  begin
+    LConstSec := TConstSectionSyntax.Create;
+    LConstSec.ConstKeyword := MatchToken(tkConstKeyword);
+    // Future Phase: Parse inside const block
+    Result := LConstSec;
+  end
+  else if Current.Kind = tkVarKeyword then
+  begin
+    LVarSec := TVarSectionSyntax.Create;
+    LVarSec.VarKeyword := MatchToken(tkVarKeyword);
+    // Future Phase: Parse inside var block
+    Result := LVarSec;
+  end;
+end;
+
 function TParseTreeParser.ParseInterfaceSection: TInterfaceSectionSyntax;
+var
+  LDecl: TDeclarationSectionSyntax;
 begin
   Result := nil;
   if (Current = nil) or (Current.Kind <> tkInterfaceKeyword) then
@@ -124,6 +158,27 @@ begin
   // Look for uses clause right after interface
   if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
     Result.UsesClause := ParseUsesClause();
+
+  // Parse interface declarations: type, const, var
+  while (Current <> nil) and 
+        (Current.Kind <> tkImplementationKeyword) and 
+        (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkTypeKeyword) or 
+       (Current.Kind = tkConstKeyword) or 
+       (Current.Kind = tkVarKeyword) then
+    begin
+      LDecl := ParseDeclarationSection;
+      if Assigned(LDecl) then
+        Result.Declarations.Add(LDecl);
+    end
+    else
+    begin
+      // Skip token if it's not a known declaration keyword block for Phase 3
+      // We will refine this in later phases as we drill down into declarations.
+      NextToken;
+    end;
+  end;
 end;
 
 function TParseTreeParser.Parse(const AText: string): TCompilationUnitSyntax;
