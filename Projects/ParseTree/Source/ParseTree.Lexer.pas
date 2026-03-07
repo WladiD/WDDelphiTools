@@ -294,6 +294,10 @@ begin
         Result := TSyntaxToken.Create(tkOpenParen, LTokenText)
       else if LTokenText = ')' then
         Result := TSyntaxToken.Create(tkCloseParen, LTokenText)
+      else if LTokenText = '<' then
+        Result := TSyntaxToken.Create(tkLessThan, LTokenText)
+      else if LTokenText = '>' then
+        Result := TSyntaxToken.Create(tkGreaterThan, LTokenText)
       else
         Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;

@@ -23,6 +23,8 @@ type
 
     [Test]
     procedure TestParseClassDeclaration;
+    [Test]
+    procedure TestParseGenericClassDeclaration;
   end;
 
 implementation
@@ -260,6 +262,126 @@ begin
     Assert.AreEqual(1, LVisSec.Members.Count, 'published should have 1 property');
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Display name of this object'),
       'property Name should have XML-Doc');
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestParseGenericClassDeclaration;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      /// <summary>Generic container class</summary>
+      TMyClass<T> = class
+      private
+        /// <summary>Stored value of generic type</summary>
+        FValue: T;
+        /// <summary>Internal list of items</summary>
+        FItems: TList<T>;
+      public
+        /// <summary>Creates with initial value</summary>
+        constructor Create(const AValue: T);
+        /// <summary>Sets the stored value</summary>
+        procedure SetValue(const AValue: T);
+        /// <summary>Processes two items</summary>
+        procedure Process(const AFirst, ASecond: T);
+        /// <summary>Returns the stored value</summary>
+        function GetValue: T;
+        /// <summary>Transforms the value</summary>
+        function Transform(const AInput: T): T;
+        /// <summary>Tries to extract a value</summary>
+        function TryExtract(out AResult: T): Boolean;
+        /// <summary>The stored value property</summary>
+        property Value: T read GetValue write SetValue;
+        /// <summary>Read-only access to the items list</summary>
+        property Items: TList<T> read FItems;
+      end;
+  ''';
+
+  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
+  var
+    LTrivia: TSyntaxTrivia;
+  begin
+    Result := False;
+    if AToken = nil then Exit;
+    for LTrivia in AToken.LeadingTrivia do
+      if LTrivia.Text.Contains(AText) then
+        Exit(True);
+  end;
+
+  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
+  begin
+    Result := nil;
+    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
+      Result := ASection.Members[AMemberIndex].Tokens[0];
+  end;
+
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
+
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(1, LTypeSec.Declarations.Count, 'Should parse one type declaration');
+
+    LTypeDecl := LTypeSec.Declarations[0];
+    // Identifier should be TMyClass (the generic params <T> come after)
+    Assert.AreEqual('TMyClass', LTypeDecl.Identifier.Text);
+    Assert.AreEqual('class', LTypeDecl.TypeTypeToken.Text);
+    Assert.IsNotNull(LTypeDecl.EndKeyword, 'Should have end keyword');
+
+    // XML-Doc on class
+    Assert.IsTrue(HasTriviaContaining(LTypeDecl.Identifier, 'Generic container class'),
+      'TMyClass<T> should have XML-Doc trivia');
+
+    // Should have 2 visibility sections: private + public
+    Assert.AreEqual(2, LTypeDecl.VisibilitySections.Count, 'Should have 2 visibility sections');
+
+    // === Section 0: private ===
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(2, LVisSec.Members.Count, 'private should have 2 field members');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Stored value of generic type'),
+      'FValue should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Internal list of items'),
+      'FItems should have XML-Doc');
+
+    // === Section 1: public ===
+    LVisSec := LTypeDecl.VisibilitySections[1];
+    Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(8, LVisSec.Members.Count, 'public should have 8 members');
+    // 0: constructor Create(const AValue: T);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Creates with initial value'),
+      'Create should have XML-Doc');
+    // 1: procedure SetValue(const AValue: T);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Sets the stored value'),
+      'SetValue should have XML-Doc');
+    // 2: procedure Process(const AFirst, ASecond: T);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Processes two items'),
+      'Process should have XML-Doc');
+    // 3: function GetValue: T;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), 'Returns the stored value'),
+      'GetValue should have XML-Doc');
+    // 4: function Transform(const AInput: T): T;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 4), 'Transforms the value'),
+      'Transform should have XML-Doc');
+    // 5: function TryExtract(out AResult: T): Boolean;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 5), 'Tries to extract a value'),
+      'TryExtract should have XML-Doc');
+    // 6: property Value: T read GetValue write SetValue;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 6), 'The stored value property'),
+      'property Value should have XML-Doc');
+    // 7: property Items: TList<T> read FItems;
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 7), 'Read-only access to the items list'),
+      'property Items should have XML-Doc');
   finally
     LTree.Free;
   end;

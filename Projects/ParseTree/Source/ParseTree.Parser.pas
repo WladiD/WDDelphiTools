@@ -198,9 +198,9 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
     // Parse tokens until semicolon at nesting level 0
     while (Current <> nil) and (Current.Kind <> tkEOF) do
     begin
-      if Current.Kind = tkOpenParen then
+      if (Current.Kind = tkOpenParen) or (Current.Kind = tkLessThan) then
         Inc(LNestLevel)
-      else if Current.Kind = tkCloseParen then
+      else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) then
         Dec(LNestLevel);
       
       if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
@@ -263,6 +263,16 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
 begin
   Result := TTypeDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
+
+  // Skip generic type parameters <T> or <T1, T2>
+  if (Current <> nil) and (Current.Kind = tkLessThan) then
+  begin
+    NextToken; // consume '<'
+    while (Current <> nil) and (Current.Kind <> tkGreaterThan) and (Current.Kind <> tkEOF) do
+      NextToken; // consume type params and commas
+    if (Current <> nil) and (Current.Kind = tkGreaterThan) then
+      NextToken; // consume '>'
+  end;
   
   if (Current <> nil) and (Current.Kind = tkEquals) then
   begin

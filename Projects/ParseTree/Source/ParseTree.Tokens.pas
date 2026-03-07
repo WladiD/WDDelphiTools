@@ -39,7 +39,9 @@ type
     tkColon,
     tkEquals,
     tkOpenParen,
-    tkCloseParen
+    tkCloseParen,
+    tkLessThan,
+    tkGreaterThan
   );
 
   TTokenKindHelper = record helper for TTokenKind
