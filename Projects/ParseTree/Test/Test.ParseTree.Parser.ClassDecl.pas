@@ -15,6 +15,8 @@ type
   TParseTreeClassDeclTest = class
   private
     FParser: TParseTreeParser;
+    function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
+    function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
   public
     [Setup]
     procedure Setup;
@@ -41,6 +43,24 @@ end;
 procedure TParseTreeClassDeclTest.TearDown;
 begin
   FParser.Free;
+end;
+
+function TParseTreeClassDeclTest.HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
+var
+  LTrivia: TSyntaxTrivia;
+begin
+  Result := False;
+  if AToken = nil then Exit;
+  for LTrivia in AToken.LeadingTrivia do
+    if LTrivia.Text.Contains(AText) then
+      Exit(True);
+end;
+
+function TParseTreeClassDeclTest.GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
+begin
+  Result := nil;
+  if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
+    Result := ASection.Members[AMemberIndex].Tokens[0];
 end;
 
 procedure TParseTreeClassDeclTest.TestParseClassDeclaration;
@@ -114,24 +134,6 @@ const
         property Name: string read FStrictField;
       end;
   ''';
-
-  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
-  var
-    LTrivia: TSyntaxTrivia;
-  begin
-    Result := False;
-    if AToken = nil then Exit;
-    for LTrivia in AToken.LeadingTrivia do
-      if LTrivia.Text.Contains(AText) then
-        Exit(True);
-  end;
-
-  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
-  begin
-    Result := nil;
-    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
-      Result := ASection.Members[AMemberIndex].Tokens[0];
-  end;
 
 var
   LTree: TCompilationUnitSyntax;
@@ -302,24 +304,6 @@ const
       end;
   ''';
 
-  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
-  var
-    LTrivia: TSyntaxTrivia;
-  begin
-    Result := False;
-    if AToken = nil then Exit;
-    for LTrivia in AToken.LeadingTrivia do
-      if LTrivia.Text.Contains(AText) then
-        Exit(True);
-  end;
-
-  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
-  begin
-    Result := nil;
-    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
-      Result := ASection.Members[AMemberIndex].Tokens[0];
-  end;
-
 var
   LTree: TCompilationUnitSyntax;
   LTypeSec: TTypeSectionSyntax;
@@ -426,24 +410,6 @@ const
         procedure DoWork;
       end;
   ''';
-
-  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
-  var
-    LTrivia: TSyntaxTrivia;
-  begin
-    Result := False;
-    if AToken = nil then Exit;
-    for LTrivia in AToken.LeadingTrivia do
-      if LTrivia.Text.Contains(AText) then
-        Exit(True);
-  end;
-
-  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
-  begin
-    Result := nil;
-    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
-      Result := ASection.Members[AMemberIndex].Tokens[0];
-  end;
 
 var
   LTree: TCompilationUnitSyntax;
