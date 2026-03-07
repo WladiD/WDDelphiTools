@@ -29,6 +29,7 @@ type
     function ParseConstDeclaration: TConstDeclarationSyntax;
     function ParseVarDeclaration: TVarDeclarationSyntax;
     function ParseInterfaceSection: TInterfaceSectionSyntax;
+    function ParseImplementationSection: TImplementationSectionSyntax;
   end;
 
 implementation
@@ -424,6 +425,33 @@ begin
   end;
 end;
 
+function TParseTreeParser.ParseImplementationSection: TImplementationSectionSyntax;
+var
+  LUnparsed: TUnparsedDeclarationSyntax;
+begin
+  Result := TImplementationSectionSyntax.Create;
+  Result.ImplementationKeyword := MatchToken(tkImplementationKeyword);
+  
+  if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
+  begin
+    Result.UsesClause := ParseUsesClause();
+  end;
+  
+  // Consume all remaining tokens until `end.` into an unparsed block
+  LUnparsed := TUnparsedDeclarationSyntax.Create;
+  while (Current <> nil) and 
+        not ((Current.Kind = tkEndKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkDot)) and 
+        (Current.Kind <> tkEOF) do
+  begin
+    LUnparsed.Tokens.Add(NextToken);
+  end;
+  
+  if LUnparsed.Tokens.Count > 0 then
+    Result.Declarations.Add(LUnparsed)
+  else
+    LUnparsed.Free;
+end;
+
 function TParseTreeParser.Parse(const AText: string): TCompilationUnitSyntax;
 var
   LLexer: TParseTreeLexer;
@@ -455,6 +483,29 @@ begin
       if (Current <> nil) and (Current.Kind = tkInterfaceKeyword) then
         Result.InterfaceSection := ParseInterfaceSection();
         
+      // Fast-forward to implementation section
+      while (Current <> nil) and (Current.Kind <> tkImplementationKeyword) and (Current.Kind <> tkEOF) do
+        NextToken;
+        
+      if (Current <> nil) and (Current.Kind = tkImplementationKeyword) then
+        Result.ImplementationSection := ParseImplementationSection();
+        
+      // Fast-forward to final end.
+      while (Current <> nil) and 
+            not ((Current.Kind = tkEndKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkDot)) and 
+            (Current.Kind <> tkEOF) do
+        NextToken;
+        
+      if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+      begin
+        Result.FinalEndKeyword := MatchToken(tkEndKeyword);
+        if (Current <> nil) and (Current.Kind = tkDot) then
+          Result.FinalDotToken := MatchToken(tkDot);
+          
+        if (Current <> nil) and (Current.Kind = tkEOF) then
+          Result.EndOfFileToken := MatchToken(tkEOF);
+      end;
+      
     finally
       FTokens.Free;
       FTokens := nil;

@@ -19,11 +19,13 @@ type
     procedure WriteUnitReference(ANode: TUnitReferenceSyntax);
     procedure WriteUsesClause(AClause: TUsesClauseSyntax);
     procedure WriteInterfaceSection(ASection: TInterfaceSectionSyntax);
+    procedure WriteImplementationSection(ASection: TImplementationSectionSyntax);
     
     // Declarations
     procedure WriteTypeDeclaration(ADecl: TTypeDeclarationSyntax);
     procedure WriteConstDeclaration(ADecl: TConstDeclarationSyntax);
     procedure WriteVarDeclaration(ADecl: TVarDeclarationSyntax);
+    procedure WriteUnparsedDeclaration(ADecl: TUnparsedDeclarationSyntax);
     
     // Sections
     procedure WriteTypeSection(ASection: TTypeSectionSyntax);
@@ -208,6 +210,33 @@ begin
   end;
 end;
 
+procedure TSyntaxTreeWriter.WriteImplementationSection(ASection: TImplementationSectionSyntax);
+var
+  LDecl: TDeclarationSectionSyntax;
+begin
+  if ASection = nil then Exit;
+  WriteToken(ASection.ImplementationKeyword);
+  WriteUsesClause(ASection.UsesClause);
+  
+  if Assigned(ASection.Declarations) then
+  begin
+    for LDecl in ASection.Declarations do
+      WriteNode(LDecl);
+  end;
+end;
+
+procedure TSyntaxTreeWriter.WriteUnparsedDeclaration(ADecl: TUnparsedDeclarationSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  if ADecl = nil then Exit;
+  if Assigned(ADecl.Tokens) then
+  begin
+    for LToken in ADecl.Tokens do
+      WriteToken(LToken);
+  end;
+end;
+
 procedure TSyntaxTreeWriter.WriteCompilationUnit(ANode: TCompilationUnitSyntax);
 var
   I: Integer;
@@ -224,6 +253,11 @@ begin
 
   WriteToken(ANode.Semicolon);
   WriteInterfaceSection(ANode.InterfaceSection);
+  WriteImplementationSection(ANode.ImplementationSection);
+
+  WriteToken(ANode.FinalEndKeyword);
+  WriteToken(ANode.FinalDotToken);
+  WriteToken(ANode.EndOfFileToken);
 end;
 
 procedure TSyntaxTreeWriter.WriteNode(ANode: TSyntaxNode);
@@ -234,6 +268,8 @@ begin
     WriteCompilationUnit(TCompilationUnitSyntax(ANode))
   else if ANode is TInterfaceSectionSyntax then
     WriteInterfaceSection(TInterfaceSectionSyntax(ANode))
+  else if ANode is TImplementationSectionSyntax then
+    WriteImplementationSection(TImplementationSectionSyntax(ANode))
   else if ANode is TUnitReferenceSyntax then
     WriteUnitReference(TUnitReferenceSyntax(ANode))
   else if ANode is TUsesClauseSyntax then
@@ -249,7 +285,9 @@ begin
   else if ANode is TConstDeclarationSyntax then
     WriteConstDeclaration(TConstDeclarationSyntax(ANode))
   else if ANode is TVarDeclarationSyntax then
-    WriteVarDeclaration(TVarDeclarationSyntax(ANode));
+    WriteVarDeclaration(TVarDeclarationSyntax(ANode))
+  else if ANode is TUnparsedDeclarationSyntax then
+    WriteUnparsedDeclaration(TUnparsedDeclarationSyntax(ANode));
 end;
 
 function TSyntaxTreeWriter.GenerateSource(ANode: TSyntaxNode): string;

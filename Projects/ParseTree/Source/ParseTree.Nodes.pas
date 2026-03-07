@@ -192,6 +192,31 @@ type
     property Declarations: TObjectList<TDeclarationSectionSyntax> read FDeclarations;
   end;
 
+  { Represents a generic unparsed block of tokens }
+  TUnparsedDeclarationSyntax = class(TDeclarationSectionSyntax)
+  private
+    FTokens: TObjectList<TSyntaxToken>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property Tokens: TObjectList<TSyntaxToken> read FTokens;
+  end;
+
+  { implementation ... }
+  TImplementationSectionSyntax = class(TSyntaxNode)
+  private
+    FImplementationKeyword: TSyntaxToken;
+    FUsesClause: TUsesClauseSyntax;
+    FDeclarations: TObjectList<TDeclarationSectionSyntax>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    property ImplementationKeyword: TSyntaxToken read FImplementationKeyword write FImplementationKeyword;
+    property UsesClause: TUsesClauseSyntax read FUsesClause write FUsesClause;
+    property Declarations: TObjectList<TDeclarationSectionSyntax> read FDeclarations;
+  end;
+
   { unit Unit1.Foo.Bar; }
   TCompilationUnitSyntax = class(TSyntaxNode)
   private
@@ -200,6 +225,10 @@ type
     FDots: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
     FInterfaceSection: TInterfaceSectionSyntax;
+    FImplementationSection: TImplementationSectionSyntax;
+    FFinalEndKeyword: TSyntaxToken;
+    FFinalDotToken: TSyntaxToken;
+    FEndOfFileToken: TSyntaxToken;
   public
     constructor Create;
     destructor Destroy; override;
@@ -209,6 +238,10 @@ type
     property Dots: TObjectList<TSyntaxToken> read FDots;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
     property InterfaceSection: TInterfaceSectionSyntax read FInterfaceSection write FInterfaceSection;
+    property ImplementationSection: TImplementationSectionSyntax read FImplementationSection write FImplementationSection;
+    property FinalEndKeyword: TSyntaxToken read FFinalEndKeyword write FFinalEndKeyword;
+    property FinalDotToken: TSyntaxToken read FFinalDotToken write FFinalDotToken;
+    property EndOfFileToken: TSyntaxToken read FEndOfFileToken write FEndOfFileToken;
   end;
 
 implementation
@@ -414,6 +447,36 @@ begin
   inherited;
 end;
 
+{ TUnparsedDeclarationSyntax }
+
+constructor TUnparsedDeclarationSyntax.Create;
+begin
+  inherited Create;
+  FTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TUnparsedDeclarationSyntax.Destroy;
+begin
+  FTokens.Free;
+  inherited;
+end;
+
+{ TImplementationSectionSyntax }
+
+constructor TImplementationSectionSyntax.Create;
+begin
+  inherited Create;
+  FDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
+end;
+
+destructor TImplementationSectionSyntax.Destroy;
+begin
+  FImplementationKeyword.Free;
+  FUsesClause.Free;
+  FDeclarations.Free;
+  inherited;
+end;
+
 { TCompilationUnitSyntax }
 
 constructor TCompilationUnitSyntax.Create;
@@ -430,6 +493,10 @@ begin
   FDots.Free;
   FSemicolon.Free;
   FInterfaceSection.Free;
+  FImplementationSection.Free;
+  FFinalEndKeyword.Free;
+  FFinalDotToken.Free;
+  FEndOfFileToken.Free;
   inherited;
 end;
 
