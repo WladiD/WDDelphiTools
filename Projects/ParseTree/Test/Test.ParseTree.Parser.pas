@@ -329,33 +329,68 @@ const
     unit Unit1;
     interface
     type
+      /// <summary>Main application class</summary>
       TMyClass = class
       private
+        /// <summary>Internal enumeration</summary>
         type
           TInnerEnum = (ieOne, ieTwo);
+        /// <summary>Internal state flag</summary>
         var
           FInternalFlag: Boolean;
+        /// <summary>Maximum number of items</summary>
         const
           CMaxItems = 100;
       strict private
+        /// <summary>Strict private field for name storage</summary>
         FStrictField: string;
       protected
+        /// <summary>Protected floating point field</summary>
         FProtField: Double;
+        /// <summary>Updates internal state</summary>
         procedure InternalUpdate;
       strict protected
+        /// <summary>Strict protected helper routine</summary>
         procedure StrictHelper;
       public
+        /// <summary>Creates a new instance</summary>
         constructor Create;
+        /// <summary>Releases all resources</summary>
         destructor Destroy; override;
+        /// <summary>Performs the main action</summary>
         procedure DoSomething;
+        /// <summary>Returns the current value</summary>
         function GetValue: Integer;
+        /// <summary>Factory method for creating instances</summary>
         class function CreateInstance: TMyClass;
+        /// <summary>Frees all existing instances</summary>
         class procedure FreeAll;
+        /// <summary>The current value</summary>
         property Value: Integer read GetValue;
       published
+        /// <summary>Display name of this object</summary>
         property Name: string read FStrictField;
       end;
   ''';
+
+  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
+  var
+    LTrivia: TSyntaxTrivia;
+  begin
+    Result := False;
+    if AToken = nil then Exit;
+    for LTrivia in AToken.LeadingTrivia do
+      if LTrivia.Text.Contains(AText) then
+        Exit(True);
+  end;
+
+  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
+  begin
+    Result := nil;
+    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
+      Result := ASection.Members[AMemberIndex].Tokens[0];
+  end;
+
 var
   LTree: TCompilationUnitSyntax;
   LTypeSec: TTypeSectionSyntax;
@@ -376,43 +411,77 @@ begin
     Assert.AreEqual('class', LTypeDecl.TypeTypeToken.Text);
     Assert.IsNotNull(LTypeDecl.EndKeyword, 'Should have end keyword');
     
-    // Should have 6 visibility sections: private, strict private, protected, strict protected, public, published
+    // Verify XML-Doc on class itself
+    Assert.IsTrue(HasTriviaContaining(LTypeDecl.Identifier, '/// <summary>Main application class</summary>'),
+      'TMyClass should have XML-Doc trivia');
+    
+    // Should have 6 visibility sections
     Assert.AreEqual(6, LTypeDecl.VisibilitySections.Count, 'Should have 6 visibility sections');
     
-    // Section 0: private
+    // === Section 0: private ===
     LVisSec := LTypeDecl.VisibilitySections[0];
     Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
     Assert.IsFalse(LVisSec.IsStrict, 'private should not be strict');
-    // private has: type section, var section, const section
     Assert.AreEqual(3, LVisSec.Members.Count, 'private should have 3 members (type, var, const)');
+    // Check XML-Doc on private members
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Internal enumeration'),
+      'type TInnerEnum should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Internal state flag'),
+      'var FInternalFlag should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Maximum number of items'),
+      'const CMaxItems should have XML-Doc');
     
-    // Section 1: strict private
+    // === Section 1: strict private ===
     LVisSec := LTypeDecl.VisibilitySections[1];
     Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
     Assert.IsTrue(LVisSec.IsStrict, 'strict private should be strict');
-    Assert.AreEqual(1, LVisSec.Members.Count, 'strict private should have 1 member (field)');
+    Assert.AreEqual(1, LVisSec.Members.Count, 'strict private should have 1 member');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Strict private field for name storage'),
+      'FStrictField should have XML-Doc');
     
-    // Section 2: protected
+    // === Section 2: protected ===
     LVisSec := LTypeDecl.VisibilitySections[2];
     Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
-    Assert.IsFalse(LVisSec.IsStrict, 'protected should not be strict');
-    Assert.AreEqual(2, LVisSec.Members.Count, 'protected should have 2 members (field + method)');
+    Assert.IsFalse(LVisSec.IsStrict);
+    Assert.AreEqual(2, LVisSec.Members.Count, 'protected should have 2 members');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Protected floating point field'),
+      'FProtField should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Updates internal state'),
+      'InternalUpdate should have XML-Doc');
     
-    // Section 3: strict protected
+    // === Section 3: strict protected ===
     LVisSec := LTypeDecl.VisibilitySections[3];
     Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
-    Assert.IsTrue(LVisSec.IsStrict, 'strict protected should be strict');
-    Assert.AreEqual(1, LVisSec.Members.Count, 'strict protected should have 1 member');
+    Assert.IsTrue(LVisSec.IsStrict);
+    Assert.AreEqual(1, LVisSec.Members.Count);
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Strict protected helper routine'),
+      'StrictHelper should have XML-Doc');
     
-    // Section 4: public
+    // === Section 4: public ===
     LVisSec := LTypeDecl.VisibilitySections[4];
     Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
     Assert.AreEqual(7, LVisSec.Members.Count, 'public should have 7 members');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Creates a new instance'),
+      'constructor Create should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Releases all resources'),
+      'destructor Destroy should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 2), 'Performs the main action'),
+      'DoSomething should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), 'Returns the current value'),
+      'GetValue should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 4), 'Factory method for creating instances'),
+      'CreateInstance should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 5), 'Frees all existing instances'),
+      'FreeAll should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 6), 'The current value'),
+      'property Value should have XML-Doc');
 
-    // Section 5: published
+    // === Section 5: published ===
     LVisSec := LTypeDecl.VisibilitySections[5];
     Assert.AreEqual('published', LVisSec.VisibilityKeyword.Text);
     Assert.AreEqual(1, LVisSec.Members.Count, 'published should have 1 property');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Display name of this object'),
+      'property Name should have XML-Doc');
   finally
     LTree.Free;
   end;
