@@ -14,6 +14,9 @@ type
     function SerializeUnitReference(ANode: TUnitReferenceSyntax): TJSONObject;
     function SerializeUsesClause(AClause: TUsesClauseSyntax): System.JSON.TJSONObject;
     function SerializeInterfaceSection(ASection: TInterfaceSectionSyntax): System.JSON.TJSONObject;
+    function SerializeImplementationSection(ASection: TImplementationSectionSyntax): System.JSON.TJSONObject;
+    function SerializeMethodImplementation(AMethod: TMethodImplementationSyntax): System.JSON.TJSONObject;
+    function SerializeUnparsedDeclaration(ADecl: TUnparsedDeclarationSyntax): System.JSON.TJSONObject;
     
     // Declaration Sections
     function SerializeTypeDeclaration(ADecl: TTypeDeclarationSyntax): System.JSON.TJSONObject;
@@ -336,6 +339,105 @@ function TSyntaxTreeSerializer.SerializeCompilationUnit(ANode: TCompilationUnitS
   
   if Assigned(ANode.InterfaceSection) then
     Result.AddPair('InterfaceSection', SerializeInterfaceSection(ANode.InterfaceSection));
+
+  if Assigned(ANode.ImplementationSection) then
+    Result.AddPair('ImplementationSection', SerializeImplementationSection(ANode.ImplementationSection));
+
+  if Assigned(ANode.FinalEndKeyword) then
+    Result.AddPair('FinalEndKeyword', SerializeToken(ANode.FinalEndKeyword));
+  if Assigned(ANode.FinalDotToken) then
+    Result.AddPair('FinalDotToken', SerializeToken(ANode.FinalDotToken));
+  if Assigned(ANode.EndOfFileToken) then
+    Result.AddPair('EndOfFileToken', SerializeToken(ANode.EndOfFileToken));
+end;
+
+function TSyntaxTreeSerializer.SerializeImplementationSection(ASection: TImplementationSectionSyntax): System.JSON.TJSONObject;
+var
+  LDecl: TDeclarationSectionSyntax;
+  LDeclArray: TJSONArray;
+begin
+  if ASection = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'ImplementationSection');
+  if Assigned(ASection.ImplementationKeyword) then
+    Result.AddPair('ImplementationKeyword', SerializeToken(ASection.ImplementationKeyword));
+  if Assigned(ASection.UsesClause) then
+    Result.AddPair('UsesClause', SerializeUsesClause(ASection.UsesClause));
+
+  if Assigned(ASection.Declarations) and (ASection.Declarations.Count > 0) then
+  begin
+    LDeclArray := TJSONArray.Create;
+    for LDecl in ASection.Declarations do
+      LDeclArray.AddElement(SerializeNode(LDecl));
+    Result.AddPair('Declarations', LDeclArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeMethodImplementation(AMethod: TMethodImplementationSyntax): System.JSON.TJSONObject;
+var
+  LToken: TSyntaxToken;
+  LDecl: TDeclarationSectionSyntax;
+  LArray: TJSONArray;
+begin
+  if AMethod = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'MethodImplementation');
+
+  if Assigned(AMethod.MethodTypeKeyword) then
+    Result.AddPair('MethodTypeKeyword', SerializeToken(AMethod.MethodTypeKeyword));
+
+  if AMethod.SignatureTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AMethod.SignatureTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('SignatureTokens', LArray);
+  end;
+
+  if Assigned(AMethod.SignatureSemicolon) then
+    Result.AddPair('SignatureSemicolon', SerializeToken(AMethod.SignatureSemicolon));
+
+  if AMethod.LocalDeclarations.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LDecl in AMethod.LocalDeclarations do
+      LArray.AddElement(SerializeNode(LDecl));
+    Result.AddPair('LocalDeclarations', LArray);
+  end;
+
+  if Assigned(AMethod.BeginKeyword) then
+    Result.AddPair('BeginKeyword', SerializeToken(AMethod.BeginKeyword));
+
+  if AMethod.BodyTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AMethod.BodyTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('BodyTokens', LArray);
+  end;
+
+  if Assigned(AMethod.EndKeyword) then
+    Result.AddPair('EndKeyword', SerializeToken(AMethod.EndKeyword));
+  if Assigned(AMethod.FinalSemicolon) then
+    Result.AddPair('FinalSemicolon', SerializeToken(AMethod.FinalSemicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeUnparsedDeclaration(ADecl: TUnparsedDeclarationSyntax): System.JSON.TJSONObject;
+var
+  LToken: TSyntaxToken;
+  LArray: TJSONArray;
+begin
+  if ADecl = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'UnparsedDeclaration');
+
+  if ADecl.Tokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ADecl.Tokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('Tokens', LArray);
+  end;
 end;
 
 function TSyntaxTreeSerializer.SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -362,6 +464,12 @@ begin
     Result := SerializeConstDeclaration(TConstDeclarationSyntax(ANode))
   else if ANode is TVarDeclarationSyntax then
     Result := SerializeVarDeclaration(TVarDeclarationSyntax(ANode))
+  else if ANode is TImplementationSectionSyntax then
+    Result := SerializeImplementationSection(TImplementationSectionSyntax(ANode))
+  else if ANode is TMethodImplementationSyntax then
+    Result := SerializeMethodImplementation(TMethodImplementationSyntax(ANode))
+  else if ANode is TUnparsedDeclarationSyntax then
+    Result := SerializeUnparsedDeclaration(TUnparsedDeclarationSyntax(ANode))
   else
   begin
     Result := TJSONObject.Create;
