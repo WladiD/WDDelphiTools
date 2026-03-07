@@ -286,8 +286,15 @@ begin
     Result.AddPair('TypeIdentifier', SerializeToken(ADecl.TypeIdentifier));
   if Assigned(ADecl.EqualsToken) then
     Result.AddPair('EqualsToken', SerializeToken(ADecl.EqualsToken));
-  if Assigned(ADecl.ValueToken) then
-    Result.AddPair('ValueToken', SerializeToken(ADecl.ValueToken));
+
+  if Assigned(ADecl.ValueTokens) and (ADecl.ValueTokens.Count > 0) then
+  begin
+    var LTokArr := TJSONArray.Create;
+    for var Tok in ADecl.ValueTokens do
+      LTokArr.AddElement(SerializeToken(Tok));
+    Result.AddPair('ValueTokens', LTokArr);
+  end;
+
   if Assigned(ADecl.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(ADecl.Semicolon));
 end;

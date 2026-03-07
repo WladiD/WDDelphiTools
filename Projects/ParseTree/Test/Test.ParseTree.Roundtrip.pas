@@ -76,9 +76,21 @@ begin
   // Find and report first difference
   if LOriContent <> LNewContent then
   begin
-    LOriLines := LOriContent.Split([#13#10]);
-    LNewLines := LNewContent.Split([#13#10]);
-    LMsg := 'Roundtrip failed for ' + ExtractFileName(AFilePath) + '. Output: ' + LOutputFile;
+    LOriLines := LOriContent.Split([#13#10, #13, #10]);
+    LNewLines := LNewContent.Split([#13#10, #13, #10]);
+    LMsg := Format('Roundtrip failed for %s. L_ORI=%d, L_RT=%d. Output: %s', 
+      [ExtractFileName(AFilePath), Length(LOriContent), Length(LNewContent), LOutputFile]);
+
+    var sOriHex := '';
+    var sRtHex := '';
+    for var k := 1 to 8 do
+    begin
+        if k <= Length(LOriContent) then sOriHex := sOriHex + IntToHex(Ord(LOriContent[k]), 2) + ' ' else sOriHex := sOriHex + '.. ';
+        if k <= Length(LNewContent) then sRtHex := sRtHex + IntToHex(Ord(LNewContent[k]), 2) + ' ' else sRtHex := sRtHex + '.. ';
+    end;
+    LMsg := LMsg + sLineBreak + 'HEX Start ORI: ' + sOriHex;
+    LMsg := LMsg + sLineBreak + 'HEX Start RT : ' + sRtHex;
+
     for I := 0 to Length(LOriLines) - 1 do
     begin
       if (I >= Length(LNewLines)) then
@@ -118,6 +130,7 @@ begin
   
   for I := 0 to Length(LFiles) - 1 do
   begin
+    Writeln('Testing: ' + ExtractFileName(LFiles[I]));
     DoRoundtripTest(LFiles[I]);
   end;
 end;

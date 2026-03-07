@@ -61,7 +61,7 @@ type
     FColonToken: TSyntaxToken;
     FTypeIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
-    FValueToken: TSyntaxToken; // Basic value for now
+    FValueTokens: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
   public
     constructor Create;
@@ -71,7 +71,7 @@ type
     property ColonToken: TSyntaxToken read FColonToken write FColonToken;
     property TypeIdentifier: TSyntaxToken read FTypeIdentifier write FTypeIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
-    property ValueToken: TSyntaxToken read FValueToken write FValueToken;
+    property ValueTokens: TObjectList<TSyntaxToken> read FValueTokens;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
@@ -256,7 +256,10 @@ type
     FDots: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
     FInterfaceSection: TInterfaceSectionSyntax;
+    FPreInterfaceDeclarations: TObjectList<TDeclarationSectionSyntax>;
     FImplementationSection: TImplementationSectionSyntax;
+    FIntfImplDeclarations: TObjectList<TDeclarationSectionSyntax>;
+    FPostImplementationDeclarations: TObjectList<TDeclarationSectionSyntax>;
     FFinalEndKeyword: TSyntaxToken;
     FFinalDotToken: TSyntaxToken;
     FEndOfFileToken: TSyntaxToken;
@@ -269,7 +272,10 @@ type
     property Dots: TObjectList<TSyntaxToken> read FDots;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
     property InterfaceSection: TInterfaceSectionSyntax read FInterfaceSection write FInterfaceSection;
+    property PreInterfaceDeclarations: TObjectList<TDeclarationSectionSyntax> read FPreInterfaceDeclarations;
     property ImplementationSection: TImplementationSectionSyntax read FImplementationSection write FImplementationSection;
+    property IntfImplDeclarations: TObjectList<TDeclarationSectionSyntax> read FIntfImplDeclarations;
+    property PostImplementationDeclarations: TObjectList<TDeclarationSectionSyntax> read FPostImplementationDeclarations;
     property FinalEndKeyword: TSyntaxToken read FFinalEndKeyword write FFinalEndKeyword;
     property FinalDotToken: TSyntaxToken read FFinalDotToken write FFinalDotToken;
     property EndOfFileToken: TSyntaxToken read FEndOfFileToken write FEndOfFileToken;
@@ -405,6 +411,7 @@ end;
 constructor TConstDeclarationSyntax.Create;
 begin
   inherited Create;
+  FValueTokens := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TConstDeclarationSyntax.Destroy;
@@ -413,7 +420,7 @@ begin
   FColonToken.Free;
   FTypeIdentifier.Free;
   FEqualsToken.Free;
-  FValueToken.Free;
+  FValueTokens.Free;
   FSemicolon.Free;
   inherited;
 end;
@@ -542,6 +549,9 @@ begin
   inherited Create;
   FNamespaces := TObjectList<TSyntaxToken>.Create;
   FDots := TObjectList<TSyntaxToken>.Create;
+  FPreInterfaceDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
+  FIntfImplDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
+  FPostImplementationDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
 end;
 
 destructor TCompilationUnitSyntax.Destroy;
@@ -551,7 +561,10 @@ begin
   FDots.Free;
   FSemicolon.Free;
   FInterfaceSection.Free;
+  FPreInterfaceDeclarations.Free;
   FImplementationSection.Free;
+  FIntfImplDeclarations.Free;
+  FPostImplementationDeclarations.Free;
   FFinalEndKeyword.Free;
   FFinalDotToken.Free;
   FEndOfFileToken.Free;

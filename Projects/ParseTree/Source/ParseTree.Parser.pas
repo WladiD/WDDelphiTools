@@ -44,8 +44,6 @@ begin
   LIndex := FPosition + AOffset;
   if (LIndex >= 0) and (LIndex < FTokens.Count) then
     Result := FTokens[LIndex]
-  else if FTokens.Count > 0 then
-    Result := FTokens[FTokens.Count - 1] // Return EOF token usually at the end
   else
     Result := nil;
 end;
@@ -57,8 +55,13 @@ end;
 
 function TParseTreeParser.NextToken: TSyntaxToken;
 begin
-  Result := Current;
-  Inc(FPosition);
+  if FPosition < FTokens.Count then
+  begin
+    Result := FTokens[FPosition];
+    Inc(FPosition);
+  end
+  else
+    Result := nil;
 end;
 
 function TParseTreeParser.MatchToken(AKind: TTokenKind): TSyntaxToken;
@@ -131,16 +134,10 @@ begin
   if (Current <> nil) and (Current.Kind = tkEquals) then
   begin
     Result.EqualsToken := MatchToken(tkEquals);
-    // Rough parsing for phase 4: assume the next token is the value
-    // In a full implementation, we need an expression parser here.
-    Result.ValueToken := NextToken;
+    // Read value tokens until semicolon
+    while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+      Result.ValueTokens.Add(NextToken);
   end;
-  
-  // Optional type annotation in const (e.g. const X: Integer = 5;) is skipped for now
-  
-  // fast forward to semicolon
-  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
-    NextToken;
     
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
@@ -490,8 +487,10 @@ function TParseTreeParser.ParseMethodImplementation: TMethodImplementationSyntax
 var
   LNestLevel: Integer;
   LDecl: TDeclarationSectionSyntax;
+  LUnparsed: TUnparsedDeclarationSyntax;
 begin
   Result := TMethodImplementationSyntax.Create;
+  LUnparsed := nil;
   
   if (Current <> nil) and (Current.Kind = tkClassKeyword) then
   begin
@@ -517,7 +516,7 @@ begin
     Result.SignatureSemicolon := MatchToken(tkSemicolon);
     
   // Local declarations (var, const, type, nested procedures/functions)
-  while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkAsmKeyword) and (Current.Kind <> tkEOF) do
   begin
     if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
     begin
@@ -532,23 +531,40 @@ begin
     end
     else
     begin
-      LDecl := ParseDeclarationSection;
-      if Assigned(LDecl) then
-        Result.LocalDeclarations.Add(LDecl)
-      else
+      if LUnparsed = nil then
       begin
-        // If we can't parse it, we must break to avoid infinite loop
-        Break;
+        LUnparsed := TUnparsedDeclarationSyntax.Create;
+        Result.LocalDeclarations.Add(LUnparsed);
+      end;
+      LUnparsed.Tokens.Add(NextToken);
+      
+      // Stop if it's external or forward since it won't have a body
+      if (LUnparsed.Tokens.Last.Kind = tkSemicolon) then
+      begin
+        var lident := False;
+        for var k := 0 to LUnparsed.Tokens.Count - 1 do
+        begin
+          if SameText(LUnparsed.Tokens[k].Text, 'external') or SameText(LUnparsed.Tokens[k].Text, 'forward') then
+          begin
+            lident := True;
+            Break;
+          end;
+        end;
+        if lident then Break;
       end;
     end;
   end;
   
-  if (Current <> nil) and (Current.Kind = tkBeginKeyword) then
-    Result.BeginKeyword := MatchToken(tkBeginKeyword);
+  if (Current <> nil) and ((Current.Kind = tkBeginKeyword) or (Current.Kind = tkAsmKeyword)) then
+  begin
+    Result.BeginKeyword := NextToken;
+    LNestLevel := 1;
+  end
+  else
+    LNestLevel := 0;
     
   // Body until matched end
   // Need to track begin/end nesting level!
-  LNestLevel := 1;
   while (Current <> nil) and (LNestLevel > 0) and (Current.Kind <> tkEOF) do
   begin
     if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or 
@@ -606,6 +622,11 @@ begin
       LUnparsed := nil; // Reset unparsed stream
       Result.Declarations.Add(ParseMethodImplementation);
     end
+    else if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
+    begin
+       LUnparsed := nil;
+       Result.Declarations.Add(ParseDeclarationSection);
+    end
     else
     begin
       if LUnparsed = nil then
@@ -642,35 +663,67 @@ begin
         Result.Semicolon := MatchToken(tkSemicolon);
       end;
       
-      // Fast-forward to interface section just in case there are comments
+      var LUnp: TUnparsedDeclarationSyntax := nil;
       while (Current <> nil) and (Current.Kind <> tkInterfaceKeyword) and (Current.Kind <> tkEOF) do
-        NextToken;
+      begin
+        if LUnp = nil then
+        begin
+          LUnp := TUnparsedDeclarationSyntax.Create;
+          Result.PreInterfaceDeclarations.Add(LUnp);
+        end;
+        LUnp.Tokens.Add(NextToken);
+      end;
         
       if (Current <> nil) and (Current.Kind = tkInterfaceKeyword) then
         Result.InterfaceSection := ParseInterfaceSection();
         
-      // Fast-forward to implementation section
+      LUnp := nil;
       while (Current <> nil) and (Current.Kind <> tkImplementationKeyword) and (Current.Kind <> tkEOF) do
-        NextToken;
+      begin
+        if LUnp = nil then
+        begin
+          LUnp := TUnparsedDeclarationSyntax.Create;
+          Result.IntfImplDeclarations.Add(LUnp);
+        end;
+        LUnp.Tokens.Add(NextToken);
+      end;
         
       if (Current <> nil) and (Current.Kind = tkImplementationKeyword) then
         Result.ImplementationSection := ParseImplementationSection();
         
-      // Fast-forward to final end.
+      LUnp := nil;
       while (Current <> nil) and 
             not ((Current.Kind = tkEndKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkDot)) and 
             (Current.Kind <> tkEOF) do
-        NextToken;
+      begin
+        if LUnp = nil then
+        begin
+          LUnp := TUnparsedDeclarationSyntax.Create;
+          Result.PostImplementationDeclarations.Add(LUnp);
+        end;
+        LUnp.Tokens.Add(NextToken);
+      end;
         
       if (Current <> nil) and (Current.Kind = tkEndKeyword) then
       begin
         Result.FinalEndKeyword := MatchToken(tkEndKeyword);
         if (Current <> nil) and (Current.Kind = tkDot) then
           Result.FinalDotToken := MatchToken(tkDot);
-          
-        if (Current <> nil) and (Current.Kind = tkEOF) then
-          Result.EndOfFileToken := MatchToken(tkEOF);
       end;
+          
+      LUnp := nil;
+      while (Current <> nil) and (Current.Kind <> tkEOF) do
+      begin
+        if LUnp = nil then
+        begin
+          LUnp := TUnparsedDeclarationSyntax.Create;
+          Result.PostImplementationDeclarations.Add(LUnp);
+        end;
+        LUnp.Tokens.Add(NextToken);
+      end;
+
+      if (Current <> nil) and (Current.Kind = tkEOF) then
+        Result.EndOfFileToken := MatchToken(tkEOF);
       
     finally
       FTokens.Free;

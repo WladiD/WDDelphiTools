@@ -149,13 +149,16 @@ begin
 end;
 
 procedure TSyntaxTreeWriter.WriteConstDeclaration(ADecl: TConstDeclarationSyntax);
+var
+  LToken: TSyntaxToken;
 begin
   if ADecl = nil then Exit;
   WriteToken(ADecl.Identifier);
   WriteToken(ADecl.ColonToken);
   WriteToken(ADecl.TypeIdentifier);
   WriteToken(ADecl.EqualsToken);
-  WriteToken(ADecl.ValueToken);
+  for LToken in ADecl.ValueTokens do
+    WriteToken(LToken);
   WriteToken(ADecl.Semicolon);
 end;
 
@@ -282,8 +285,19 @@ begin
   end;
 
   WriteToken(ANode.Semicolon);
+
+  for var LDecl1 in ANode.PreInterfaceDeclarations do
+    WriteNode(LDecl1);
+
   WriteInterfaceSection(ANode.InterfaceSection);
+
+  for var LDeclMid in ANode.IntfImplDeclarations do
+    WriteNode(LDeclMid);
+
   WriteImplementationSection(ANode.ImplementationSection);
+
+  for var LDecl2 in ANode.PostImplementationDeclarations do
+    WriteNode(LDecl2);
 
   WriteToken(ANode.FinalEndKeyword);
   WriteToken(ANode.FinalDotToken);

@@ -282,7 +282,7 @@ begin
         Assert.AreEqual(1, TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).Declarations.Count);
         Assert.AreEqual('MyConst', TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).Declarations[0].Identifier.Text);
         Assert.IsNotNull(TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).Declarations[0].EqualsToken);
-        Assert.IsNotNull(TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).Declarations[0].ValueToken);
+        Assert.IsNotNull(TConstSectionSyntax(LTree.InterfaceSection.Declarations[1]).Declarations[0].ValueTokens[0]);
 
         Assert.IsTrue(LTree.InterfaceSection.Declarations[2] is TVarSectionSyntax);
         Assert.AreEqual('var', TVarSectionSyntax(LTree.InterfaceSection.Declarations[2]).VarKeyword.Text);
@@ -364,11 +364,11 @@ begin
     
     // SimpleConst = 100;
     Assert.AreEqual('SimpleConst', LConstSec.Declarations[0].Identifier.Text);
-    Assert.AreEqual('100', LConstSec.Declarations[0].ValueToken.Text);
+    Assert.AreEqual('100', LConstSec.Declarations[0].ValueTokens[0].Text);
     
     // TypedConst: string = 'Hello World';
     Assert.AreEqual('TypedConst', LConstSec.Declarations[1].Identifier.Text);
-    Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueToken.Text);
+    Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueTokens[0].Text);
   finally
     LTree.Free;
   end;
