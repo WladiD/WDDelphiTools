@@ -92,13 +92,39 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { Base class for members inside a class body (fields, methods, properties, nested sections) }
+  TClassMemberSyntax = class(TSyntaxNode)
+  private
+    FTokens: TObjectList<TSyntaxToken>; // All tokens that make up this member
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property Tokens: TObjectList<TSyntaxToken> read FTokens;
+  end;
+
+  { A visibility section inside a class (private, public, protected, published, strict private, strict protected) }
+  TVisibilitySectionSyntax = class(TSyntaxNode)
+  private
+    FStrictKeyword: TSyntaxToken;
+    FVisibilityKeyword: TSyntaxToken;
+    FMembers: TObjectList<TClassMemberSyntax>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+
+    function IsStrict: Boolean;
+    property StrictKeyword: TSyntaxToken read FStrictKeyword write FStrictKeyword;
+    property VisibilityKeyword: TSyntaxToken read FVisibilityKeyword write FVisibilityKeyword;
+    property Members: TObjectList<TClassMemberSyntax> read FMembers;
+  end;
+
   { e.g. TMyClass = class ... end; }
   TTypeDeclarationSyntax = class(TSyntaxNode)
   private
     FIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
     FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
-    FMembers: TObjectList<TSyntaxToken>; // Temporary placeholder for fully parsing members
+    FVisibilitySections: TObjectList<TVisibilitySectionSyntax>;
     FEndKeyword: TSyntaxToken;
     FSemicolon: TSyntaxToken;
   public
@@ -108,7 +134,7 @@ type
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
-    property Members: TObjectList<TSyntaxToken> read FMembers;
+    property VisibilitySections: TObjectList<TVisibilitySectionSyntax> read FVisibilitySections;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
@@ -233,12 +259,47 @@ begin
   inherited;
 end;
 
+{ TClassMemberSyntax }
+
+constructor TClassMemberSyntax.Create;
+begin
+  inherited Create;
+  FTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TClassMemberSyntax.Destroy;
+begin
+  FTokens.Free;
+  inherited;
+end;
+
+{ TVisibilitySectionSyntax }
+
+constructor TVisibilitySectionSyntax.Create;
+begin
+  inherited Create;
+  FMembers := TObjectList<TClassMemberSyntax>.Create;
+end;
+
+destructor TVisibilitySectionSyntax.Destroy;
+begin
+  FStrictKeyword.Free;
+  FVisibilityKeyword.Free;
+  FMembers.Free;
+  inherited;
+end;
+
+function TVisibilitySectionSyntax.IsStrict: Boolean;
+begin
+  Result := Assigned(FStrictKeyword);
+end;
+
 { TTypeDeclarationSyntax }
 
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
-  FMembers := TObjectList<TSyntaxToken>.Create;
+  FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
 end;
 
 destructor TTypeDeclarationSyntax.Destroy;
@@ -246,7 +307,7 @@ begin
   FIdentifier.Free;
   FEqualsToken.Free;
   FTypeTypeToken.Free;
-  FMembers.Free;
+  FVisibilitySections.Free;
   FEndKeyword.Free;
   FSemicolon.Free;
   inherited;

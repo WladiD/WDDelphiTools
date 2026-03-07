@@ -214,8 +214,15 @@ begin
   else if LUpper = 'PROTECTED' then LKind := tkProtectedKeyword
   else if LUpper = 'PUBLIC' then LKind := tkPublicKeyword
   else if LUpper = 'PUBLISHED' then LKind := tkPublishedKeyword
+  else if LUpper = 'STRICT' then LKind := tkStrictKeyword
   else if LUpper = 'PROCEDURE' then LKind := tkProcedureKeyword
   else if LUpper = 'FUNCTION' then LKind := tkFunctionKeyword
+  else if LUpper = 'CONSTRUCTOR' then LKind := tkConstructorKeyword
+  else if LUpper = 'DESTRUCTOR' then LKind := tkDestructorKeyword
+  else if LUpper = 'PROPERTY' then LKind := tkPropertyKeyword
+  else if LUpper = 'READ' then LKind := tkReadKeyword
+  else if LUpper = 'WRITE' then LKind := tkWriteKeyword
+  else if LUpper = 'OVERRIDE' then LKind := tkOverrideKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);
@@ -283,6 +290,10 @@ begin
         Result := TSyntaxToken.Create(tkColon, LTokenText)
       else if LTokenText = '=' then
         Result := TSyntaxToken.Create(tkEquals, LTokenText)
+      else if LTokenText = '(' then
+        Result := TSyntaxToken.Create(tkOpenParen, LTokenText)
+      else if LTokenText = ')' then
+        Result := TSyntaxToken.Create(tkCloseParen, LTokenText)
       else
         Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;

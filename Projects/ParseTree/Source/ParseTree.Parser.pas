@@ -162,6 +162,104 @@ begin
 end;
 
 function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
+
+  function IsVisibilityKeyword(AToken: TSyntaxToken): Boolean;
+  begin
+    Result := (AToken <> nil) and (
+      (AToken.Kind = tkPrivateKeyword) or
+      (AToken.Kind = tkProtectedKeyword) or
+      (AToken.Kind = tkPublicKeyword) or
+      (AToken.Kind = tkPublishedKeyword));
+  end;
+
+  function IsMemberStartToken(AToken: TSyntaxToken): Boolean;
+  begin
+    Result := (AToken <> nil) and (
+      (AToken.Kind = tkIdentifier) or
+      (AToken.Kind = tkProcedureKeyword) or
+      (AToken.Kind = tkFunctionKeyword) or
+      (AToken.Kind = tkConstructorKeyword) or
+      (AToken.Kind = tkDestructorKeyword) or
+      (AToken.Kind = tkPropertyKeyword) or
+      (AToken.Kind = tkClassKeyword) or
+      (AToken.Kind = tkTypeKeyword) or
+      (AToken.Kind = tkVarKeyword) or
+      (AToken.Kind = tkConstKeyword));
+  end;
+
+  procedure ParseClassMember(ASection: TVisibilitySectionSyntax);
+  var
+    LMember: TClassMemberSyntax;
+    LNestLevel: Integer;
+  begin
+    LMember := TClassMemberSyntax.Create;
+    LNestLevel := 0;
+    
+    // Parse tokens until semicolon at nesting level 0
+    while (Current <> nil) and (Current.Kind <> tkEOF) do
+    begin
+      if Current.Kind = tkOpenParen then
+        Inc(LNestLevel)
+      else if Current.Kind = tkCloseParen then
+        Dec(LNestLevel);
+      
+      if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+      begin
+        LMember.Tokens.Add(NextToken); // consume semicolon
+        Break;
+      end;
+      
+      LMember.Tokens.Add(NextToken);
+    end;
+    
+    ASection.Members.Add(LMember);
+  end;
+
+  procedure ParseClassBody(ATypeDecl: TTypeDeclarationSyntax);
+  var
+    LVisSec: TVisibilitySectionSyntax;
+  begin
+    LVisSec := nil;
+    
+    while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+    begin
+      // Check for strict private / strict protected
+      if (Current.Kind = tkStrictKeyword) and (Peek(1) <> nil) and IsVisibilityKeyword(Peek(1)) then
+      begin
+        LVisSec := TVisibilitySectionSyntax.Create;
+        LVisSec.StrictKeyword := NextToken;
+        LVisSec.VisibilityKeyword := NextToken;
+        ATypeDecl.VisibilitySections.Add(LVisSec);
+      end
+      // Check for visibility keyword
+      else if IsVisibilityKeyword(Current) then
+      begin
+        LVisSec := TVisibilitySectionSyntax.Create;
+        LVisSec.VisibilityKeyword := NextToken;
+        ATypeDecl.VisibilitySections.Add(LVisSec);
+      end
+      // Member token — needs a visibility section
+      else if IsMemberStartToken(Current) then
+      begin
+        if LVisSec = nil then
+        begin
+          // Implicit default visibility (published for components or public)
+          LVisSec := TVisibilitySectionSyntax.Create;
+          ATypeDecl.VisibilitySections.Add(LVisSec);
+        end;
+        ParseClassMember(LVisSec);
+      end
+      else
+      begin
+        // Skip unexpected tokens
+        NextToken;
+      end;
+    end;
+    
+    if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+      ATypeDecl.EndKeyword := MatchToken(tkEndKeyword);
+  end;
+
 begin
   Result := TTypeDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
@@ -182,20 +280,14 @@ begin
       end
       else
       begin
-        // consume up to end (rudimentary skipping of class body)
-        while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
-        begin
-          Result.Members.Add(NextToken);
-        end;
-        if (Current <> nil) and (Current.Kind = tkEndKeyword) then
-          Result.EndKeyword := MatchToken(tkEndKeyword);
+        ParseClassBody(Result);
       end;
     end
     else
     begin
       // simple type aliases (e.g. Type1 = Type2;) fast-forward to semicolon
       while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
-        Result.Members.Add(NextToken);
+        NextToken;
     end;
   end;
   

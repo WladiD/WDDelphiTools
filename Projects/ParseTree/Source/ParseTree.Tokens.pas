@@ -21,8 +21,15 @@ type
     tkProtectedKeyword,
     tkPublicKeyword,
     tkPublishedKeyword,
+    tkStrictKeyword,
     tkProcedureKeyword,
     tkFunctionKeyword,
+    tkConstructorKeyword,
+    tkDestructorKeyword,
+    tkPropertyKeyword,
+    tkReadKeyword,
+    tkWriteKeyword,
+    tkOverrideKeyword,
     tkIdentifier,
     tkNumericLiteral,
     tkStringLiteral,
@@ -30,7 +37,9 @@ type
     tkDot,
     tkComma,
     tkColon,
-    tkEquals
+    tkEquals,
+    tkOpenParen,
+    tkCloseParen
   );
 
   TTokenKindHelper = record helper for TTokenKind

@@ -218,6 +218,10 @@ end;
 function TSyntaxTreeSerializer.SerializeTypeDeclaration(ADecl: TTypeDeclarationSyntax): System.JSON.TJSONObject;
 var
   LArray: TJSONArray;
+  LVisSec: TVisibilitySectionSyntax;
+  LMember: TClassMemberSyntax;
+  LVisObj, LMemberObj: TJSONObject;
+  LMemberArray, LTokenArray: TJSONArray;
   LToken: TSyntaxToken;
 begin
   if ADecl = nil then Exit(nil);
@@ -230,12 +234,34 @@ begin
   if Assigned(ADecl.TypeTypeToken) then
     Result.AddPair('TypeTypeToken', SerializeToken(ADecl.TypeTypeToken));
     
-  if Assigned(ADecl.Members) and (ADecl.Members.Count > 0) then
+  if Assigned(ADecl.VisibilitySections) and (ADecl.VisibilitySections.Count > 0) then
   begin
     LArray := TJSONArray.Create;
-    for LToken in ADecl.Members do
-      LArray.AddElement(SerializeToken(LToken));
-    Result.AddPair('Members', LArray);
+    for LVisSec in ADecl.VisibilitySections do
+    begin
+      LVisObj := TJSONObject.Create;
+      LVisObj.AddPair('NodeType', 'VisibilitySection');
+      if LVisSec.IsStrict then
+        LVisObj.AddPair('StrictKeyword', SerializeToken(LVisSec.StrictKeyword));
+      if Assigned(LVisSec.VisibilityKeyword) then
+        LVisObj.AddPair('VisibilityKeyword', SerializeToken(LVisSec.VisibilityKeyword));
+      
+      LMemberArray := TJSONArray.Create;
+      for LMember in LVisSec.Members do
+      begin
+        LMemberObj := TJSONObject.Create;
+        LMemberObj.AddPair('NodeType', 'ClassMember');
+        LTokenArray := TJSONArray.Create;
+        for LToken in LMember.Tokens do
+          LTokenArray.AddElement(SerializeToken(LToken));
+        LMemberObj.AddPair('Tokens', LTokenArray);
+        LMemberArray.AddElement(LMemberObj);
+      end;
+      LVisObj.AddPair('Members', LMemberArray);
+      
+      LArray.AddElement(LVisObj);
+    end;
+    Result.AddPair('VisibilitySections', LArray);
   end;
 
   if Assigned(ADecl.EndKeyword) then

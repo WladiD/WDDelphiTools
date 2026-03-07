@@ -331,27 +331,88 @@ const
     type
       TMyClass = class
       private
-        FField: Integer;
+        type
+          TInnerEnum = (ieOne, ieTwo);
+        var
+          FInternalFlag: Boolean;
+        const
+          CMaxItems = 100;
+      strict private
+        FStrictField: string;
+      protected
+        FProtField: Double;
+        procedure InternalUpdate;
+      strict protected
+        procedure StrictHelper;
       public
+        constructor Create;
+        destructor Destroy; override;
         procedure DoSomething;
+        function GetValue: Integer;
+        class function CreateInstance: TMyClass;
+        class procedure FreeAll;
+        property Value: Integer read GetValue;
+      published
+        property Name: string read FStrictField;
       end;
   ''';
 var
   LTree: TCompilationUnitSyntax;
   LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
 begin
   LTree := FParser.Parse(LSourceCode);
   try
     Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
-    Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
     Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
     Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
     
     LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
-    Assert.AreEqual(1, LTypeSec.Declarations.Count, 'Should parse one class declaration');
-    // We expect the first type declaration to be TMyClass
-    // Since we don't have TTypeDeclarationSyntax yet, we will just assume it gets added.
-    Assert.AreEqual('TMyClass', LTypeSec.Declarations[0].Identifier.Text);
+    Assert.AreEqual(1, LTypeSec.Declarations.Count, 'Should parse one type declaration');
+    
+    LTypeDecl := LTypeSec.Declarations[0];
+    Assert.AreEqual('TMyClass', LTypeDecl.Identifier.Text);
+    Assert.AreEqual('class', LTypeDecl.TypeTypeToken.Text);
+    Assert.IsNotNull(LTypeDecl.EndKeyword, 'Should have end keyword');
+    
+    // Should have 6 visibility sections: private, strict private, protected, strict protected, public, published
+    Assert.AreEqual(6, LTypeDecl.VisibilitySections.Count, 'Should have 6 visibility sections');
+    
+    // Section 0: private
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
+    Assert.IsFalse(LVisSec.IsStrict, 'private should not be strict');
+    // private has: type section, var section, const section
+    Assert.AreEqual(3, LVisSec.Members.Count, 'private should have 3 members (type, var, const)');
+    
+    // Section 1: strict private
+    LVisSec := LTypeDecl.VisibilitySections[1];
+    Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
+    Assert.IsTrue(LVisSec.IsStrict, 'strict private should be strict');
+    Assert.AreEqual(1, LVisSec.Members.Count, 'strict private should have 1 member (field)');
+    
+    // Section 2: protected
+    LVisSec := LTypeDecl.VisibilitySections[2];
+    Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
+    Assert.IsFalse(LVisSec.IsStrict, 'protected should not be strict');
+    Assert.AreEqual(2, LVisSec.Members.Count, 'protected should have 2 members (field + method)');
+    
+    // Section 3: strict protected
+    LVisSec := LTypeDecl.VisibilitySections[3];
+    Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
+    Assert.IsTrue(LVisSec.IsStrict, 'strict protected should be strict');
+    Assert.AreEqual(1, LVisSec.Members.Count, 'strict protected should have 1 member');
+    
+    // Section 4: public
+    LVisSec := LTypeDecl.VisibilitySections[4];
+    Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(7, LVisSec.Members.Count, 'public should have 7 members');
+
+    // Section 5: published
+    LVisSec := LTypeDecl.VisibilitySections[5];
+    Assert.AreEqual('published', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(1, LVisSec.Members.Count, 'published should have 1 property');
   finally
     LTree.Free;
   end;
