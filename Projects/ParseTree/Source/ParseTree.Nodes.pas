@@ -19,16 +19,16 @@ type
   { e.g. System.SysUtils or Unit1 in '..\Unit1.pas' }
   TUnitReferenceSyntax = class(TSyntaxNode)
   private
-    FNamespaces: TList<TSyntaxToken>;
-    FDots: TList<TSyntaxToken>;
+    FNamespaces: TObjectList<TSyntaxToken>;
+    FDots: TObjectList<TSyntaxToken>;
     FInKeyword: TSyntaxToken;
     FStringLiteral: TSyntaxToken;
   public
     constructor Create;
     destructor Destroy; override;
 
-    property Namespaces: TList<TSyntaxToken> read FNamespaces;
-    property Dots: TList<TSyntaxToken> read FDots;
+    property Namespaces: TObjectList<TSyntaxToken> read FNamespaces;
+    property Dots: TObjectList<TSyntaxToken> read FDots;
     property InKeyword: TSyntaxToken read FInKeyword write FInKeyword;
     property StringLiteral: TSyntaxToken read FStringLiteral write FStringLiteral;
   end;
@@ -37,16 +37,16 @@ type
   TUsesClauseSyntax = class(TSyntaxNode)
   private
     FUsesKeyword: TSyntaxToken;
-    FUnitReferences: TList<TUnitReferenceSyntax>;
-    FCommas: TList<TSyntaxToken>;
+    FUnitReferences: TObjectList<TUnitReferenceSyntax>;
+    FCommas: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
   public
     constructor Create;
     destructor Destroy; override;
 
     property UsesKeyword: TSyntaxToken read FUsesKeyword write FUsesKeyword;
-    property UnitReferences: TList<TUnitReferenceSyntax> read FUnitReferences;
-    property Commas: TList<TSyntaxToken> read FCommas;
+    property UnitReferences: TObjectList<TUnitReferenceSyntax> read FUnitReferences;
+    property Commas: TObjectList<TSyntaxToken> read FCommas;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
@@ -98,7 +98,7 @@ type
     FIdentifier: TSyntaxToken;
     FEqualsToken: TSyntaxToken;
     FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
-    FMembers: TList<TSyntaxToken>; // Temporary placeholder for fully parsing members
+    FMembers: TObjectList<TSyntaxToken>; // Temporary placeholder for fully parsing members
     FEndKeyword: TSyntaxToken;
     FSemicolon: TSyntaxToken;
   public
@@ -108,7 +108,7 @@ type
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
-    property Members: TList<TSyntaxToken> read FMembers;
+    property Members: TObjectList<TSyntaxToken> read FMembers;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
@@ -117,36 +117,36 @@ type
   TTypeSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FTypeKeyword: TSyntaxToken;
-    FDeclarations: TList<TTypeDeclarationSyntax>;
+    FDeclarations: TObjectList<TTypeDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property TypeKeyword: TSyntaxToken read FTypeKeyword write FTypeKeyword;
-    property Declarations: TList<TTypeDeclarationSyntax> read FDeclarations;
+    property Declarations: TObjectList<TTypeDeclarationSyntax> read FDeclarations;
   end;
 
   { const ... }
   TConstSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FConstKeyword: TSyntaxToken;
-    FDeclarations: TList<TConstDeclarationSyntax>;
+    FDeclarations: TObjectList<TConstDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property ConstKeyword: TSyntaxToken read FConstKeyword write FConstKeyword;
-    property Declarations: TList<TConstDeclarationSyntax> read FDeclarations;
+    property Declarations: TObjectList<TConstDeclarationSyntax> read FDeclarations;
   end;
 
   { var ... }
   TVarSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FVarKeyword: TSyntaxToken;
-    FDeclarations: TList<TVarDeclarationSyntax>;
+    FDeclarations: TObjectList<TVarDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property VarKeyword: TSyntaxToken read FVarKeyword write FVarKeyword;
-    property Declarations: TList<TVarDeclarationSyntax> read FDeclarations;
+    property Declarations: TObjectList<TVarDeclarationSyntax> read FDeclarations;
   end;
 
   { interface ... }
@@ -154,14 +154,14 @@ type
   private
     FInterfaceKeyword: TSyntaxToken;
     FUsesClause: TUsesClauseSyntax;
-    FDeclarations: TList<TDeclarationSectionSyntax>;
+    FDeclarations: TObjectList<TDeclarationSectionSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
 
     property InterfaceKeyword: TSyntaxToken read FInterfaceKeyword write FInterfaceKeyword;
     property UsesClause: TUsesClauseSyntax read FUsesClause write FUsesClause;
-    property Declarations: TList<TDeclarationSectionSyntax> read FDeclarations;
+    property Declarations: TObjectList<TDeclarationSectionSyntax> read FDeclarations;
   end;
 
   { unit Unit1; interface ... }
@@ -202,8 +202,8 @@ end;
 constructor TUnitReferenceSyntax.Create;
 begin
   inherited Create;
-  FNamespaces := TList<TSyntaxToken>.Create;
-  FDots := TList<TSyntaxToken>.Create;
+  FNamespaces := TObjectList<TSyntaxToken>.Create;
+  FDots := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TUnitReferenceSyntax.Destroy;
@@ -220,17 +220,13 @@ end;
 constructor TUsesClauseSyntax.Create;
 begin
   inherited Create;
-  FUnitReferences := TList<TUnitReferenceSyntax>.Create;
-  FCommas := TList<TSyntaxToken>.Create;
+  FUnitReferences := TObjectList<TUnitReferenceSyntax>.Create;
+  FCommas := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TUsesClauseSyntax.Destroy;
-var
-  LRef: TUnitReferenceSyntax;
 begin
   FUsesKeyword.Free;
-  for LRef in FUnitReferences do
-    LRef.Free;
   FUnitReferences.Free;
   FCommas.Free;
   FSemicolon.Free;
@@ -242,18 +238,14 @@ end;
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
-  FMembers := TList<TSyntaxToken>.Create;
+  FMembers := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TTypeDeclarationSyntax.Destroy;
-var
-  LTok: TSyntaxToken;
 begin
   FIdentifier.Free;
   FEqualsToken.Free;
   FTypeTypeToken.Free;
-  for LTok in FMembers do
-    LTok.Free;
   FMembers.Free;
   FEndKeyword.Free;
   FSemicolon.Free;
@@ -265,16 +257,12 @@ end;
 constructor TTypeSectionSyntax.Create;
 begin
   inherited Create;
-  FDeclarations := TList<TTypeDeclarationSyntax>.Create;
+  FDeclarations := TObjectList<TTypeDeclarationSyntax>.Create;
 end;
 
 destructor TTypeSectionSyntax.Destroy;
-var
-  LDecl: TTypeDeclarationSyntax;
 begin
   FTypeKeyword.Free;
-  for LDecl in FDeclarations do
-    LDecl.Free;
   FDeclarations.Free;
   inherited;
 end;
@@ -318,16 +306,12 @@ end;
 constructor TConstSectionSyntax.Create;
 begin
   inherited Create;
-  FDeclarations := TList<TConstDeclarationSyntax>.Create;
+  FDeclarations := TObjectList<TConstDeclarationSyntax>.Create;
 end;
 
 destructor TConstSectionSyntax.Destroy;
-var
-  LDecl: TConstDeclarationSyntax;
 begin
   FConstKeyword.Free;
-  for LDecl in FDeclarations do
-    LDecl.Free;
   FDeclarations.Free;
   inherited;
 end;
@@ -337,16 +321,12 @@ end;
 constructor TVarSectionSyntax.Create;
 begin
   inherited Create;
-  FDeclarations := TList<TVarDeclarationSyntax>.Create;
+  FDeclarations := TObjectList<TVarDeclarationSyntax>.Create;
 end;
 
 destructor TVarSectionSyntax.Destroy;
-var
-  LDecl: TVarDeclarationSyntax;
 begin
   FVarKeyword.Free;
-  for LDecl in FDeclarations do
-    LDecl.Free;
   FDeclarations.Free;
   inherited;
 end;
@@ -356,17 +336,13 @@ end;
 constructor TInterfaceSectionSyntax.Create;
 begin
   inherited Create;
-  FDeclarations := TList<TDeclarationSectionSyntax>.Create;
+  FDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
 end;
 
 destructor TInterfaceSectionSyntax.Destroy;
-var
-  LDecl: TDeclarationSectionSyntax;
 begin
   FInterfaceKeyword.Free;
   FUsesClause.Free;
-  for LDecl in FDeclarations do
-    LDecl.Free;
   FDeclarations.Free;
   inherited;
 end;
