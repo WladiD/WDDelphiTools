@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.Generics.Collections,
   System.IOUtils,
   System.JSON,
   System.Threading,
@@ -53,15 +54,81 @@ begin
 end;
 
 procedure TParseTreeParserTest.TestParseAllProjectFiles;
+
+  // Helper to create a closure that captures the file path by value (not by reference)
+  function CreateParseTask(const AFile, AProjectsDir, AOutputDir: string;
+    AFailedFiles: TStringList; ALock: TCriticalSection): ITask;
+  begin
+    Result := TTask.Run(
+      procedure
+      var
+        LLocalParser: TParseTreeParser;
+        LLocalSerializer: TSyntaxTreeSerializer;
+        LLocalTree: TCompilationUnitSyntax;
+        LLocalContent: string;
+        LLocalJson: TJSONObject;
+        LRelPath: string;
+        LTargetFile: string;
+      begin
+        try
+          LLocalContent := TFile.ReadAllText(AFile, TEncoding.UTF8);
+
+          // Each thread MUST instantiate its own parser/serializer to avoid race conditions!
+          LLocalParser := TParseTreeParser.Create;
+          LLocalSerializer := TSyntaxTreeSerializer.Create;
+          try
+            LLocalTree := LLocalParser.Parse(LLocalContent);
+            try
+              // Serialize to JSON
+              LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
+              try
+                // Mirrored path in OutputDir
+                LRelPath := ExtractRelativePath(AProjectsDir, AFile);
+                LTargetFile := TPath.Combine(AOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+
+                // Ensure directory exists and write file (locked to avoid race conditions)
+                ALock.Enter;
+                try
+                  TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
+                  TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
+                finally
+                  ALock.Leave;
+                end;
+              finally
+                LLocalJson.Free;
+              end;
+            finally
+              LLocalTree.Free;
+            end;
+          finally
+            LLocalSerializer.Free;
+            LLocalParser.Free;
+          end;
+
+        except
+          on E: Exception do
+          begin
+            ALock.Enter;
+            try
+              AFailedFiles.Add(Format('%s (Error: %s)', [AFile, E.Message]));
+            finally
+              ALock.Leave;
+            end;
+          end;
+        end;
+      end);
+  end;
+
 var
   LFiles: TArray<string>;
-  LFile: string;
   LProjectsDir: string;
   LOutputDir: string;
   LTasks: TArray<ITask>;
   LFailedFiles: TStringList;
   LLock: TCriticalSection;
   LTaskIndex: Integer;
+  LFilteredFiles: TList<string>;
+  LFile: string;
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   if not TDirectory.Exists(LProjectsDir) then
@@ -72,8 +139,17 @@ begin
     TDirectory.Delete(LOutputDir, True);
   TDirectory.CreateDirectory(LOutputDir);
 
-  LFiles := TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories);
-  
+  // Exclude TMPL files (template files containing non-standard Pascal syntax)
+  LFilteredFiles := TList<string>.Create;
+  try
+    for LFile in TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories) do
+      if not LFile.Contains('.TMPL.') then
+        LFilteredFiles.Add(LFile);
+    LFiles := LFilteredFiles.ToArray;
+  finally
+    LFilteredFiles.Free;
+  end;
+
   if Length(LFiles) = 0 then
     Assert.Pass('No .pas files found to test.');
 
@@ -81,81 +157,19 @@ begin
   LLock := TCriticalSection.Create;
   try
     SetLength(LTasks, Length(LFiles));
-    
-    // Create a future task for each file
+
+    // Create a task for each file using a helper function that captures the path by value
     for LTaskIndex := Low(LFiles) to High(LFiles) do
-    begin
-      LFile := LFiles[LTaskIndex];
-      
-      LTasks[LTaskIndex] := TTask.Run(
-        procedure
-        var
-          LLocalParser: TParseTreeParser;
-          LLocalSerializer: TSyntaxTreeSerializer;
-          LLocalTree: TCompilationUnitSyntax;
-          LLocalContent: string;
-          LLocalFile: string;
-          LLocalJson: TJSONObject;
-          LRelPath: string;
-          LTargetFile: string;
-        begin
-          LLocalFile := LFile;
-          try
-            LLocalContent := TFile.ReadAllText(LLocalFile, TEncoding.UTF8);
-            
-            // Each thread MUST instantiate its own parser/serializer to avoid race conditions!
-            LLocalParser := TParseTreeParser.Create;
-            LLocalSerializer := TSyntaxTreeSerializer.Create;
-            try
-              LLocalTree := LLocalParser.Parse(LLocalContent);
-              try
-                // Serialize to JSON
-                LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
-                try
-                  // Mirrored path in OutputDir
-                  LRelPath := ExtractRelativePath(LProjectsDir, LLocalFile);
-                  LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
-                  
-                  // Ensure directory exists and write file (locked to avoid race conditions)
-                  LLock.Enter;
-                  try
-                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
-                    TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
-                  finally
-                    LLock.Leave;
-                  end;
-                finally
-                  LLocalJson.Free;
-                end;
-              finally
-                LLocalTree.Free;
-              end;
-            finally
-              LLocalSerializer.Free;
-              LLocalParser.Free;
-            end;
-            
-          except
-            on E: Exception do
-            begin
-              LLock.Enter;
-              try
-                LFailedFiles.Add(Format('%s (Error: %s)', [LLocalFile, E.Message]));
-              finally
-                LLock.Leave;
-              end;
-            end;
-          end;
-        end);
-    end;
+      LTasks[LTaskIndex] := CreateParseTask(LFiles[LTaskIndex], LProjectsDir, LOutputDir,
+        LFailedFiles, LLock);
 
     // Wait for all tasks to complete
     TTask.WaitForAll(LTasks);
 
     if LFailedFiles.Count > 0 then
-      Assert.Fail(Format('Failed to parse %d files out of %d. First error: %s', 
+      Assert.Fail(Format('Failed to parse %d files out of %d. First error: %s',
         [LFailedFiles.Count, Length(LFiles), LFailedFiles[0]]));
-        
+
   finally
     LLock.Free;
     LFailedFiles.Free;
