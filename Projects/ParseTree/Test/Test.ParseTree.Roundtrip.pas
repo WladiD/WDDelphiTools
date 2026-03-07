@@ -6,6 +6,8 @@ uses
   System.SysUtils,
   System.Classes,
   System.IOUtils,
+  System.Threading,
+  System.Types,
   DUnitX.TestFramework,
   ParseTree.Core,
   ParseTree.Tokens,
@@ -17,42 +19,19 @@ type
   [TestFixture]
   TParseTreeRoundtripTest = class
   private
-    FParser: TParseTreeParser;
     procedure DoRoundtripTest(const AFilePath: string);
   public
-    [Setup]
-    procedure Setup;
-    [TearDown]
-    procedure TearDown;
-
     [Test]
-    procedure TestDPTMcpDebuggerTask;
-    [Test]
-    procedure TestDPTLogger;
-    [Test]
-    procedure TestDPTWorkflowSession;
-    [Test]
-    procedure TestDPTBuildEnvironmentTask;
-    [Test]
-    procedure TestDPTDebugger;
+    procedure TestAllDPTFilesParallel;
   end;
 
 implementation
 
 { TParseTreeRoundtripTest }
 
-procedure TParseTreeRoundtripTest.Setup;
-begin
-  FParser := TParseTreeParser.Create;
-end;
-
-procedure TParseTreeRoundtripTest.TearDown;
-begin
-  FParser.Free;
-end;
-
 procedure TParseTreeRoundtripTest.DoRoundtripTest(const AFilePath: string);
 var
+  LParser: TParseTreeParser;
   LOriContent: string;
   LTree: TCompilationUnitSyntax;
   LTreeWriter: TSyntaxTreeWriter;
@@ -68,16 +47,21 @@ begin
   Assert.IsTrue(TFile.Exists(AFilePath), 'Source file does not exist: ' + AFilePath);
   
   LOriContent := TFile.ReadAllText(AFilePath, TEncoding.UTF8);
-  LTree := FParser.Parse(LOriContent);
+  LParser := TParseTreeParser.Create;
   try
-    LTreeWriter := TSyntaxTreeWriter.Create;
+    LTree := LParser.Parse(LOriContent);
     try
-      LNewContent := LTreeWriter.GenerateSource(LTree);
+      LTreeWriter := TSyntaxTreeWriter.Create;
+      try
+        LNewContent := LTreeWriter.GenerateSource(LTree);
+      finally
+        LTreeWriter.Free;
+      end;
     finally
-      LTreeWriter.Free;
+      LTree.Free;
     end;
   finally
-    LTree.Free;
+    LParser.Free;
   end;
 
   // Save to RoundTripTest output folder
@@ -117,60 +101,25 @@ begin
   end;
 end;
 
-procedure TParseTreeRoundtripTest.TestDPTMcpDebuggerTask;
+procedure TParseTreeRoundtripTest.TestAllDPTFilesParallel;
 var
   LProjectsDir: string;
-  LTargetFile: string;
+  LSourceDir: string;
+  LFiles: TStringDynArray;
+  I: Integer;
 begin
-  // Calculate relative path to project dir
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.McpDebugger.Task.pas');
+  LSourceDir := TPath.Combine(LProjectsDir, 'DPT\Source');
   
-  DoRoundtripTest(LTargetFile);
-end;
+  if not TDirectory.Exists(LSourceDir) then
+    Assert.Fail('Source directory does not exist: ' + LSourceDir);
 
-procedure TParseTreeRoundtripTest.TestDPTLogger;
-var
-  LProjectsDir: string;
-  LTargetFile: string;
-begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Logger.pas');
+  LFiles := TDirectory.GetFiles(LSourceDir, '*.pas', TSearchOption.soTopDirectoryOnly);
   
-  DoRoundtripTest(LTargetFile);
-end;
-
-procedure TParseTreeRoundtripTest.TestDPTWorkflowSession;
-var
-  LProjectsDir: string;
-  LTargetFile: string;
-begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Workflow.Session.pas');
-  
-  DoRoundtripTest(LTargetFile);
-end;
-
-procedure TParseTreeRoundtripTest.TestDPTBuildEnvironmentTask;
-var
-  LProjectsDir: string;
-  LTargetFile: string;
-begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.BuildEnvironment.Task.pas');
-
-  DoRoundtripTest(LTargetFile);
-end;
-
-procedure TParseTreeRoundtripTest.TestDPTDebugger;
-var
-  LProjectsDir: string;
-  LTargetFile: string;
-begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Debugger.pas');
-
-  DoRoundtripTest(LTargetFile);
+  for I := 0 to Length(LFiles) - 1 do
+  begin
+    DoRoundtripTest(LFiles[I]);
+  end;
 end;
 
 initialization

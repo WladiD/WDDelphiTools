@@ -251,6 +251,7 @@ var
 begin
   if ADecl = nil then Exit;
   
+  WriteToken(ADecl.ClassKeyword);
   WriteToken(ADecl.MethodTypeKeyword);
   for LToken in ADecl.SignatureTokens do
     WriteToken(LToken);

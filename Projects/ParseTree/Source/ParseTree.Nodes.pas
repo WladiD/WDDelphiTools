@@ -209,6 +209,7 @@ type
   { procedure TClass.Method; var ... begin ... end; }
   TMethodImplementationSyntax = class(TDeclarationSectionSyntax)
   private
+    FClassKeyword: TSyntaxToken; // optional 'class' keyword
     FMethodTypeKeyword: TSyntaxToken; // e.g. procedure
     FSignatureTokens: TObjectList<TSyntaxToken>; // TDptMcpDebuggerTask.Execute
     FSignatureSemicolon: TSyntaxToken;
@@ -221,6 +222,7 @@ type
     constructor Create;
     destructor Destroy; override;
 
+    property ClassKeyword: TSyntaxToken read FClassKeyword write FClassKeyword;
     property MethodTypeKeyword: TSyntaxToken read FMethodTypeKeyword write FMethodTypeKeyword;
     property SignatureTokens: TObjectList<TSyntaxToken> read FSignatureTokens;
     property SignatureSemicolon: TSyntaxToken read FSignatureSemicolon write FSignatureSemicolon;

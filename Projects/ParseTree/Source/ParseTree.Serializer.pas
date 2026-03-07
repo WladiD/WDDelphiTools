@@ -393,6 +393,9 @@ begin
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'MethodImplementation');
 
+  if Assigned(AMethod.ClassKeyword) then
+    Result.AddPair('ClassKeyword', SerializeToken(AMethod.ClassKeyword));
+
   if Assigned(AMethod.MethodTypeKeyword) then
     Result.AddPair('MethodTypeKeyword', SerializeToken(AMethod.MethodTypeKeyword));
 

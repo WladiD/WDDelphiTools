@@ -437,6 +437,7 @@ function TParseTreeParser.ParseInterfaceSection: TInterfaceSectionSyntax;
 var
   LDecl: TDeclarationSectionSyntax;
   LUnparsed: TUnparsedDeclarationSyntax;
+  LNestLevel: Integer;
 begin
   Result := nil;
   if (Current = nil) or (Current.Kind <> tkInterfaceKeyword) then
@@ -450,14 +451,21 @@ begin
     Result.UsesClause := ParseUsesClause();
 
   LUnparsed := nil;
+  LNestLevel := 0; // Track paren nesting
   // Parse interface declarations: type, const, var, and other constructs
   while (Current <> nil) and 
         (Current.Kind <> tkImplementationKeyword) and 
         (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkTypeKeyword) or 
-       (Current.Kind = tkConstKeyword) or 
-       (Current.Kind = tkVarKeyword) then
+    if Current.Kind = tkOpenParen then
+      Inc(LNestLevel)
+    else if Current.Kind = tkCloseParen then
+      Dec(LNestLevel);
+      
+    if (LNestLevel <= 0) and 
+       ((Current.Kind = tkTypeKeyword) or 
+        (Current.Kind = tkConstKeyword) or 
+        (Current.Kind = tkVarKeyword)) then
     begin
       LUnparsed := nil;
       LDecl := ParseDeclarationSection;
@@ -487,7 +495,7 @@ begin
   
   if (Current <> nil) and (Current.Kind = tkClassKeyword) then
   begin
-    Result.SignatureTokens.Add(NextToken); // class keyword
+    Result.ClassKeyword := NextToken; // consume class
   end;
   
   Result.MethodTypeKeyword := NextToken; // procedure, function, etc.
