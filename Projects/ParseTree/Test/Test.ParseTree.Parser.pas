@@ -62,7 +62,7 @@ var
   LLock: TCriticalSection;
   LTaskIndex: Integer;
 begin
-  LProjectsDir := 'C:\WDC\WDDelphiTools\Projects\';
+  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   if not TDirectory.Exists(LProjectsDir) then
     Assert.Pass('Projects directory not found, skipping integration test.');
 
