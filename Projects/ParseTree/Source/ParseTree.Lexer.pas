@@ -298,6 +298,10 @@ begin
         Result := TSyntaxToken.Create(tkOpenParen, LTokenText)
       else if LTokenText = ')' then
         Result := TSyntaxToken.Create(tkCloseParen, LTokenText)
+      else if LTokenText = '[' then
+        Result := TSyntaxToken.Create(tkOpenBracket, LTokenText)
+      else if LTokenText = ']' then
+        Result := TSyntaxToken.Create(tkCloseBracket, LTokenText)
       else if LTokenText = '<' then
         Result := TSyntaxToken.Create(tkLessThan, LTokenText)
       else if LTokenText = '>' then

@@ -27,6 +27,8 @@ type
 
     [Test]
     procedure TestDPTMcpDebuggerTask;
+    [Test]
+    procedure TestDPTLogger;
   end;
 
 implementation
@@ -91,6 +93,17 @@ begin
   // Calculate relative path to project dir
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.McpDebugger.Task.pas');
+  
+  DoRoundtripTest(LTargetFile);
+end;
+
+procedure TParseTreeRoundtripTest.TestDPTLogger;
+var
+  LProjectsDir: string;
+  LTargetFile: string;
+begin
+  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
+  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Logger.pas');
   
   DoRoundtripTest(LTargetFile);
 end;

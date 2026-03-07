@@ -44,6 +44,8 @@ type
     tkEquals,
     tkOpenParen,
     tkCloseParen,
+    tkOpenBracket,
+    tkCloseBracket,
     tkLessThan,
     tkGreaterThan
   );

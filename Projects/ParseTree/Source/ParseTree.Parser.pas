@@ -271,10 +271,32 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
         end;
         ParseClassMember(LVisSec);
       end
+      else if Current.Kind = tkOpenBracket then
+      begin
+        if LVisSec = nil then
+        begin
+          LVisSec := TVisibilitySectionSyntax.Create;
+          ATypeDecl.VisibilitySections.Add(LVisSec);
+        end;
+        LVisSec.Members.Add(TClassMemberSyntax.Create);
+        LVisSec.Members.Last.Tokens.Add(NextToken); // [
+        while (Current <> nil) and (Current.Kind <> tkCloseBracket) and (Current.Kind <> tkEOF) do
+          LVisSec.Members.Last.Tokens.Add(NextToken);
+        if (Current <> nil) and (Current.Kind = tkCloseBracket) then
+          LVisSec.Members.Last.Tokens.Add(NextToken); // ]
+      end
       else
       begin
-        // Skip unexpected tokens
-        NextToken;
+        // If we really hit an unexpected token, maybe just add it to the last member or visibility section?
+        // Let's create an empty member for it to achieve roundtrip.
+        if LVisSec = nil then
+        begin
+          LVisSec := TVisibilitySectionSyntax.Create;
+          ATypeDecl.VisibilitySections.Add(LVisSec);
+        end;
+        if LVisSec.Members.Count = 0 then
+          LVisSec.Members.Add(TClassMemberSyntax.Create);
+        LVisSec.Members.Last.Tokens.Add(NextToken);
       end;
     end;
     
@@ -304,7 +326,8 @@ begin
     if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkIdentifier)) then
       Result.TypeTypeToken := NextToken;
       
-    if (Result.TypeTypeToken <> nil) and (Result.TypeTypeToken.Kind = tkClassKeyword) then
+    if (Result.TypeTypeToken <> nil) and 
+       ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword)) then
     begin
       // Parse base classes / interfaces: class(TObject, IInterface)
       if (Current <> nil) and (Current.Kind = tkOpenParen) then
@@ -441,8 +464,17 @@ begin
   Result.MethodTypeKeyword := NextToken; // procedure, function, etc.
   
   // consume signature until semicolon
-  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+  LNestLevel := 0; // Using LNestLevel to track parentheses
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind = tkOpenParen then Inc(LNestLevel)
+    else if Current.Kind = tkCloseParen then Dec(LNestLevel);
+    
+    if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+      Break;
+      
     Result.SignatureTokens.Add(NextToken);
+  end;
     
   if (Current <> nil) and (Current.Kind = tkSemicolon) then
     Result.SignatureSemicolon := MatchToken(tkSemicolon);
