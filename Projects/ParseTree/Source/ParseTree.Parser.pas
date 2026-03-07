@@ -3,8 +3,13 @@ unit ParseTree.Parser;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections, 
-  ParseTree.Core, ParseTree.Nodes, ParseTree.Tokens, ParseTree.Lexer;
+  System.SysUtils,
+  System.Classes,
+  System.Generics.Collections,
+  ParseTree.Core,
+  ParseTree.Nodes,
+  ParseTree.Tokens,
+  ParseTree.Lexer;
 
 type
   { TParseTreeParser is the main entry point to parse Pascal source code into a CST }

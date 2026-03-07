@@ -3,8 +3,16 @@ unit Test.ParseTree.Parser;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.IOUtils, System.JSON,
-  DUnitX.TestFramework, ParseTree.Parser, ParseTree.Nodes, ParseTree.Serializer;
+  System.SysUtils,
+  System.Classes,
+  System.IOUtils,
+  System.JSON,
+  System.Threading,
+  System.SyncObjs,
+  DUnitX.TestFramework,
+  ParseTree.Parser,
+  ParseTree.Nodes,
+  ParseTree.Serializer;
 
 type
   [TestFixture]
@@ -42,10 +50,11 @@ procedure TParseTreeParserTest.TestParseAllProjectFiles;
 var
   LFiles: TArray<string>;
   LFile: string;
-  LContent: string;
-  LTree: TCompilationUnitSyntax;
-  LFailedFiles: TStringList;
   LProjectsDir: string;
+  LTasks: TArray<ITask>;
+  LFailedFiles: TStringList;
+  LLock: TCriticalSection;
+  LTaskIndex: Integer;
 begin
   LProjectsDir := 'C:\WDC\WDDelphiTools\Projects\';
   if not TDirectory.Exists(LProjectsDir) then
@@ -53,31 +62,66 @@ begin
 
   LFiles := TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories);
   
+  System.Writeln(Format('Found %d .pas files to parse recursively.', [Length(LFiles)]));
+
   if Length(LFiles) = 0 then
     Assert.Pass('No .pas files found to test.');
 
   LFailedFiles := TStringList.Create;
+  LLock := TCriticalSection.Create;
   try
-    for LFile in LFiles do
+    SetLength(LTasks, Length(LFiles));
+    
+    // Create a future task for each file
+    for LTaskIndex := Low(LFiles) to High(LFiles) do
     begin
-      try
-        LContent := TFile.ReadAllText(LFile, TEncoding.UTF8); // Assuming UTF8, fallbacks could be needed
-        LTree := FParser.Parse(LContent);
-        if Assigned(LTree) then
-          LTree.Free;
-      except
-        on E: Exception do
+      LFile := LFiles[LTaskIndex];
+      
+      LTasks[LTaskIndex] := TTask.Run(
+        procedure
+        var
+          LLocalParser: TParseTreeParser;
+          LLocalTree: TCompilationUnitSyntax;
+          LLocalContent: string;
+          LLocalFile: string;
         begin
-          LFailedFiles.Add(Format('%s (Error: %s)', [LFile, E.Message]));
-        end;
-      end;
+          LLocalFile := LFile;
+          try
+            LLocalContent := TFile.ReadAllText(LLocalFile, TEncoding.UTF8);
+            
+            // Each thread MUST instantiate its own parser to avoid race conditions!
+            LLocalParser := TParseTreeParser.Create;
+            try
+              LLocalTree := LLocalParser.Parse(LLocalContent);
+              if Assigned(LLocalTree) then
+                LLocalTree.Free;
+            finally
+              LLocalParser.Free;
+            end;
+            
+          except
+            on E: Exception do
+            begin
+              LLock.Enter;
+              try
+                LFailedFiles.Add(Format('%s (Error: %s)', [LLocalFile, E.Message]));
+              finally
+                LLock.Leave;
+              end;
+            end;
+          end;
+        end);
     end;
+
+    // Wait for all tasks to complete
+    TTask.WaitForAll(LTasks);
 
     if LFailedFiles.Count > 0 then
       Assert.Fail(Format('Failed to parse %d files out of %d. First error: %s', 
         [LFailedFiles.Count, Length(LFiles), LFailedFiles[0]]));
         
   finally
+    LLock.Free;
     LFailedFiles.Free;
   end;
 end;
