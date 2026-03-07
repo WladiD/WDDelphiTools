@@ -25,6 +25,8 @@ type
     procedure TestParseClassDeclaration;
     [Test]
     procedure TestParseGenericClassDeclaration;
+    [Test]
+    procedure TestParseNestedClassDeclaration;
   end;
 
 implementation
@@ -382,6 +384,114 @@ begin
     // 7: property Items: TList<T> read FItems;
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 7), 'Read-only access to the items list'),
       'property Items should have XML-Doc');
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestParseNestedClassDeclaration;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      /// <summary>Outer class with nested types</summary>
+      TOuterClass = class
+      private
+        /// <summary>Private helper class</summary>
+        type
+          TPrivateHelper = class
+          private
+            FHelperValue: Integer;
+          public
+            /// <summary>Executes the helper action</summary>
+            procedure Execute;
+          end;
+        /// <summary>Private field</summary>
+        FData: string;
+      protected
+        /// <summary>Protected item class</summary>
+        type
+          TProtectedItem = class
+          private
+            FItemName: string;
+          public
+            /// <summary>Returns the item name</summary>
+            function GetName: string;
+          end;
+        /// <summary>Protected internal method</summary>
+        procedure InternalProcess;
+      public
+        /// <summary>Performs the main work</summary>
+        procedure DoWork;
+      end;
+  ''';
+
+  function HasTriviaContaining(AToken: TSyntaxToken; const AText: string): Boolean;
+  var
+    LTrivia: TSyntaxTrivia;
+  begin
+    Result := False;
+    if AToken = nil then Exit;
+    for LTrivia in AToken.LeadingTrivia do
+      if LTrivia.Text.Contains(AText) then
+        Exit(True);
+  end;
+
+  function GetFirstMemberToken(ASection: TVisibilitySectionSyntax; AMemberIndex: Integer): TSyntaxToken;
+  begin
+    Result := nil;
+    if (AMemberIndex < ASection.Members.Count) and (ASection.Members[AMemberIndex].Tokens.Count > 0) then
+      Result := ASection.Members[AMemberIndex].Tokens[0];
+  end;
+
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    LTypeDecl := LTypeSec.Declarations[0];
+    Assert.AreEqual('TOuterClass', LTypeDecl.Identifier.Text);
+    Assert.IsNotNull(LTypeDecl.EndKeyword, 'Should have end keyword');
+    Assert.IsTrue(HasTriviaContaining(LTypeDecl.Identifier, 'Outer class with nested types'),
+      'TOuterClass should have XML-Doc');
+
+    // Should have 3 visibility sections: private, protected, public
+    Assert.AreEqual(3, LTypeDecl.VisibilitySections.Count, 'Should have 3 visibility sections');
+
+    // === Section 0: private ===
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
+    // Member 0: type TPrivateHelper = class ... end;
+    // Member 1: FData: string;
+    Assert.AreEqual(2, LVisSec.Members.Count, 'private should have 2 members (nested type + field)');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Private helper class'),
+      'type TPrivateHelper should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Private field'),
+      'FData should have XML-Doc');
+
+    // === Section 1: protected ===
+    LVisSec := LTypeDecl.VisibilitySections[1];
+    Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
+    // Member 0: type TProtectedItem = class ... end;
+    // Member 1: procedure InternalProcess;
+    Assert.AreEqual(2, LVisSec.Members.Count, 'protected should have 2 members (nested type + method)');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Protected item class'),
+      'type TProtectedItem should have XML-Doc');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Protected internal method'),
+      'InternalProcess should have XML-Doc');
+
+    // === Section 2: public ===
+    LVisSec := LTypeDecl.VisibilitySections[2];
+    Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(1, LVisSec.Members.Count, 'public should have 1 member');
+    Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Performs the main work'),
+      'DoWork should have XML-Doc');
   finally
     LTree.Free;
   end;

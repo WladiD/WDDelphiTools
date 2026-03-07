@@ -191,9 +191,13 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
   var
     LMember: TClassMemberSyntax;
     LNestLevel: Integer;
+    LClassNestLevel: Integer;
+    LPrevKind: TTokenKind;
   begin
     LMember := TClassMemberSyntax.Create;
     LNestLevel := 0;
+    LClassNestLevel := 0;
+    LPrevKind := tkUnknown;
     
     // Parse tokens until semicolon at nesting level 0
     while (Current <> nil) and (Current.Kind <> tkEOF) do
@@ -201,14 +205,20 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
       if (Current.Kind = tkOpenParen) or (Current.Kind = tkLessThan) then
         Inc(LNestLevel)
       else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) then
-        Dec(LNestLevel);
+        Dec(LNestLevel)
+      // Track nested class/record declarations: "= class" pattern
+      else if (Current.Kind = tkClassKeyword) and (LPrevKind = tkEquals) then
+        Inc(LClassNestLevel)
+      else if (Current.Kind = tkEndKeyword) and (LClassNestLevel > 0) then
+        Dec(LClassNestLevel);
       
-      if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+      if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) and (LClassNestLevel <= 0) then
       begin
         LMember.Tokens.Add(NextToken); // consume semicolon
         Break;
       end;
       
+      LPrevKind := Current.Kind;
       LMember.Tokens.Add(NextToken);
     end;
     
