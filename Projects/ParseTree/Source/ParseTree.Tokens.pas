@@ -6,11 +6,14 @@ type
   { Defines the different types of tokens in the language }
   TTokenKind = (
     tkUnknown,
+    tkEOF,
     tkUnitKeyword,
     tkInterfaceKeyword,
+    tkImplementationKeyword,
     tkUsesKeyword,
     tkIdentifier,
-    tkSemicolon
+    tkSemicolon,
+    tkDot
   );
 
   TTokenKindHelper = record helper for TTokenKind

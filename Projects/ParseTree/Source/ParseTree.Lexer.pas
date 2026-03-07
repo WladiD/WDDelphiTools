@@ -1,0 +1,224 @@
+unit ParseTree.Lexer;
+
+interface
+
+uses
+  System.SysUtils, System.Classes, System.Generics.Collections, ParseTree.Core, ParseTree.Tokens;
+
+type
+  { Reads characters from source text and groups them into Tokens and Trivia }
+  TParseTreeLexer = class
+  private
+    FText: string;
+    FPosition: Integer;
+    FTextLength: Integer;
+
+    function Peek(AOffset: Integer = 0): Char;
+    function Current: Char;
+    procedure Next;
+    function ScanIdentifierOrKeyword: TSyntaxToken;
+    function ScanWhitespace: TSyntaxTrivia;
+    function ScanComment: TSyntaxTrivia;
+  public
+    constructor Create(const AText: string);
+    function NextToken: TSyntaxToken;
+    function TokenizeAll: TList<TSyntaxToken>;
+  end;
+
+implementation
+
+{ TParseTreeLexer }
+
+constructor TParseTreeLexer.Create(const AText: string);
+begin
+  FText := AText;
+  FTextLength := Length(FText);
+  // Delphi strings are 1-based, we'll use 1-based index
+  FPosition := 1;
+end;
+
+function TParseTreeLexer.Peek(AOffset: Integer): Char;
+var
+  LIndex: Integer;
+begin
+  LIndex := FPosition + AOffset;
+  if (LIndex >= 1) and (LIndex <= FTextLength) then
+    Result := FText[LIndex]
+  else
+    Result := #0;
+end;
+
+function TParseTreeLexer.Current: Char;
+begin
+  Result := Peek(0);
+end;
+
+procedure TParseTreeLexer.Next;
+begin
+  Inc(FPosition);
+end;
+
+function TParseTreeLexer.ScanWhitespace: TSyntaxTrivia;
+var
+  LStartPos: Integer;
+begin
+  LStartPos := FPosition;
+  while (Current = ' ') or (Current = #9) or (Current = #13) or (Current = #10) do
+    Next;
+
+  Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
+end;
+
+function TParseTreeLexer.ScanComment: TSyntaxTrivia;
+var
+  LStartPos: Integer;
+  LIsMultiLine: Boolean;
+begin
+  LStartPos := FPosition;
+  
+  if (Current = '/') and (Peek(1) = '/') then
+  begin
+    // Single-line comment
+    Next;
+    Next;
+    while (Current <> #0) and (Current <> #13) and (Current <> #10) do
+      Next;
+  end
+  else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then
+  begin
+    // Multi-line comment
+    LIsMultiLine := (Current = '(');
+    if LIsMultiLine then
+    begin
+      Next; // '('
+      Next; // '*'
+    end
+    else
+    begin
+      Next; // '{'
+    end;
+
+    while Current <> #0 do
+    begin
+      if LIsMultiLine and (Current = '*') and (Peek(1) = ')') then
+      begin
+        Next;
+        Next;
+        Break;
+      end
+      else if (not LIsMultiLine) and (Current = '}') then
+      begin
+        Next;
+        Break;
+      end;
+      Next;
+    end;
+  end;
+
+  Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
+end;
+
+function TParseTreeLexer.ScanIdentifierOrKeyword: TSyntaxToken;
+var
+  LStartPos: Integer;
+  LText: string;
+  LKind: TTokenKind;
+  LUpper: string;
+begin
+  LStartPos := FPosition;
+  // Advance past letters, digits, and underscores
+  while ((Current >= 'A') and (Current <= 'Z')) or
+        ((Current >= 'a') and (Current <= 'z')) or
+        ((Current >= '0') and (Current <= '9')) or
+        (Current = '_') do
+  begin
+    Next;
+  end;
+
+  LText := Copy(FText, LStartPos, FPosition - LStartPos);
+  LUpper := UpperCase(LText);
+  
+  // Very basic keyword check. This matches TTokenKind mapping
+  if LUpper = 'UNIT' then LKind := tkUnitKeyword
+  else if LUpper = 'INTERFACE' then LKind := tkInterfaceKeyword
+  else if LUpper = 'IMPLEMENTATION' then LKind := tkImplementationKeyword
+  else if LUpper = 'USES' then LKind := tkUsesKeyword
+  else LKind := tkIdentifier;
+
+  Result := TSyntaxToken.Create(Integer(LKind), LText);
+end;
+
+function TParseTreeLexer.NextToken: TSyntaxToken;
+var
+  LLeadingTrivia: TList<TSyntaxTrivia>;
+  LTrailingTrivia: TList<TSyntaxTrivia>;
+  LTokenText: string;
+begin
+  if Current = #0 then
+    Exit(TSyntaxToken.Create(Integer(tkEOF), ''));
+
+  LLeadingTrivia := TList<TSyntaxTrivia>.Create;
+  try
+    // Scan leading trivia (whitespace and comments)
+    while True do
+    begin
+      if (Current = ' ') or (Current = #9) or (Current = #13) or (Current = #10) then
+        LLeadingTrivia.Add(ScanWhitespace)
+      else if (Current = '/') and (Peek(1) = '/') then
+        LLeadingTrivia.Add(ScanComment)
+      else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then
+        LLeadingTrivia.Add(ScanComment)
+      else
+        Break;
+    end;
+
+    if Current = #0 then
+    begin
+      Result := TSyntaxToken.Create(Integer(tkEOF), '');
+      Result.LeadingTrivia.AddRange(LLeadingTrivia);
+      Exit;
+    end;
+
+    // Scan actual token
+    if ((Current >= 'A') and (Current <= 'Z')) or
+       ((Current >= 'a') and (Current <= 'z')) or
+       (Current = '_') then
+    begin
+      Result := ScanIdentifierOrKeyword;
+    end
+    else
+    begin
+      // Fallback: Just consume one char as some punctuation
+      LTokenText := Current;
+      Next;
+      
+      if LTokenText = ';' then
+        Result := TSyntaxToken.Create(Integer(tkSemicolon), LTokenText)
+      else if LTokenText = '.' then
+        Result := TSyntaxToken.Create(Integer(tkDot), LTokenText)
+      else
+        Result := TSyntaxToken.Create(Integer(tkUnknown), LTokenText);
+    end;
+
+    Result.LeadingTrivia.AddRange(LLeadingTrivia);
+
+  finally
+    LLeadingTrivia.Free;
+  end;
+  
+  // Scan trailing trivia? Typically we don't need to do complex trailing trivia unless it's on the same line
+  // Let's keep it simple: everything before a token is leading trivia of the *next* token
+end;
+
+function TParseTreeLexer.TokenizeAll: TList<TSyntaxToken>;
+var
+  LToken: TSyntaxToken;
+begin
+  Result := TList<TSyntaxToken>.Create;
+  repeat
+    LToken := NextToken;
+    Result.Add(LToken);
+  until LToken.Kind = Integer(tkEOF);
+end;
+
+end.

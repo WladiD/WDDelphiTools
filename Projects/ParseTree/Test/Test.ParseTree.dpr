@@ -18,7 +18,10 @@ uses
   ParseTree.Tokens in '..\Source\ParseTree.Tokens.pas',
   ParseTree.Nodes in '..\Source\ParseTree.Nodes.pas',
   ParseTree.Serializer in '..\Source\ParseTree.Serializer.pas',
-  Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas';
+  ParseTree.Parser in '..\Source\ParseTree.Parser.pas',
+  ParseTree.Lexer in '..\Source\ParseTree.Lexer.pas',
+  Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
+  Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

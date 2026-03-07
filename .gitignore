@@ -31,3 +31,5 @@ Win32
 /Projects/DPT/Lint/*.Tests.txt
 /Projects/DPT/Test/DebugTarget.exe
 /Projects/DPT/Test/ExceptionTarget.exe
+/Projects/ParseTree/Test/Test.ParseTree.exe
+/Projects/ParseTree/Test/Test.ParseTree.res
