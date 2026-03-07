@@ -54,6 +54,40 @@ type
   TDeclarationSectionSyntax = class abstract(TSyntaxNode)
   end;
 
+  { const Name = Value; }
+  TConstDeclarationSyntax = class(TSyntaxNode)
+  private
+    FIdentifier: TSyntaxToken;
+    FEqualsToken: TSyntaxToken;
+    FValueToken: TSyntaxToken; // Basic value for now
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    
+    property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
+    property ValueToken: TSyntaxToken read FValueToken write FValueToken;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
+  { var Name: Type; }
+  TVarDeclarationSyntax = class(TSyntaxNode)
+  private
+    FIdentifier: TSyntaxToken;
+    FColonToken: TSyntaxToken;
+    FTypeIdentifier: TSyntaxToken; // Basic type for now
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    
+    property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property ColonToken: TSyntaxToken read FColonToken write FColonToken;
+    property TypeIdentifier: TSyntaxToken read FTypeIdentifier write FTypeIdentifier;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { type ... }
   TTypeSectionSyntax = class(TDeclarationSectionSyntax)
   private
@@ -68,20 +102,24 @@ type
   TConstSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FConstKeyword: TSyntaxToken;
+    FDeclarations: TList<TConstDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property ConstKeyword: TSyntaxToken read FConstKeyword write FConstKeyword;
+    property Declarations: TList<TConstDeclarationSyntax> read FDeclarations;
   end;
 
   { var ... }
   TVarSectionSyntax = class(TDeclarationSectionSyntax)
   private
     FVarKeyword: TSyntaxToken;
+    FDeclarations: TList<TVarDeclarationSyntax>;
   public
     constructor Create;
     destructor Destroy; override;
     property VarKeyword: TSyntaxToken read FVarKeyword write FVarKeyword;
+    property Declarations: TList<TVarDeclarationSyntax> read FDeclarations;
   end;
 
   { interface ... }
@@ -185,16 +223,54 @@ begin
   inherited;
 end;
 
+{ TConstDeclarationSyntax }
+
+constructor TConstDeclarationSyntax.Create;
+begin
+  inherited Create;
+end;
+
+destructor TConstDeclarationSyntax.Destroy;
+begin
+  FIdentifier.Free;
+  FEqualsToken.Free;
+  FValueToken.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TVarDeclarationSyntax }
+
+constructor TVarDeclarationSyntax.Create;
+begin
+  inherited Create;
+end;
+
+destructor TVarDeclarationSyntax.Destroy;
+begin
+  FIdentifier.Free;
+  FColonToken.Free;
+  FTypeIdentifier.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
 { TConstSectionSyntax }
 
 constructor TConstSectionSyntax.Create;
 begin
   inherited Create;
+  FDeclarations := TList<TConstDeclarationSyntax>.Create;
 end;
 
 destructor TConstSectionSyntax.Destroy;
+var
+  LDecl: TConstDeclarationSyntax;
 begin
   FConstKeyword.Free;
+  for LDecl in FDeclarations do
+    LDecl.Free;
+  FDeclarations.Free;
   inherited;
 end;
 
@@ -203,11 +279,17 @@ end;
 constructor TVarSectionSyntax.Create;
 begin
   inherited Create;
+  FDeclarations := TList<TVarDeclarationSyntax>.Create;
 end;
 
 destructor TVarSectionSyntax.Destroy;
+var
+  LDecl: TVarDeclarationSyntax;
 begin
   FVarKeyword.Free;
+  for LDecl in FDeclarations do
+    LDecl.Free;
+  FDeclarations.Free;
   inherited;
 end;
 

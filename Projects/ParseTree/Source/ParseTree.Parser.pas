@@ -25,6 +25,8 @@ type
     function Parse(const AText: string): TCompilationUnitSyntax;
     function ParseUsesClause: TUsesClauseSyntax;
     function ParseDeclarationSection: TDeclarationSectionSyntax;
+    function ParseConstDeclaration: TConstDeclarationSyntax;
+    function ParseVarDeclaration: TVarDeclarationSyntax;
     function ParseInterfaceSection: TInterfaceSectionSyntax;
   end;
 
@@ -112,6 +114,46 @@ begin
   Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
+function TParseTreeParser.ParseConstDeclaration: TConstDeclarationSyntax;
+begin
+  Result := TConstDeclarationSyntax.Create;
+  Result.Identifier := MatchToken(tkIdentifier);
+  
+  if (Current <> nil) and (Current.Kind = tkEquals) then
+  begin
+    Result.EqualsToken := MatchToken(tkEquals);
+    // Rough parsing for phase 4: assume the next token is the value
+    // In a full implementation, we need an expression parser here.
+    Result.ValueToken := NextToken;
+  end;
+  
+  // Optional type annotation in const (e.g. const X: Integer = 5;) is skipped for now
+  
+  // fast forward to semicolon
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+    NextToken;
+    
+  Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
+function TParseTreeParser.ParseVarDeclaration: TVarDeclarationSyntax;
+begin
+  Result := TVarDeclarationSyntax.Create;
+  Result.Identifier := MatchToken(tkIdentifier);
+  
+  if (Current <> nil) and (Current.Kind = tkColon) then
+  begin
+    Result.ColonToken := MatchToken(tkColon);
+    Result.TypeIdentifier := MatchToken(tkIdentifier); // Basic support for now
+  end;
+  
+  // fast forward to semicolon
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+    NextToken;
+    
+  Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
 function TParseTreeParser.ParseDeclarationSection: TDeclarationSectionSyntax;
 var
   LTypeSec: TTypeSectionSyntax;
@@ -132,14 +174,26 @@ begin
   begin
     LConstSec := TConstSectionSyntax.Create;
     LConstSec.ConstKeyword := MatchToken(tkConstKeyword);
-    // Future Phase: Parse inside const block
+    
+    while (Current <> nil) and 
+          (Current.Kind = tkIdentifier) do
+    begin
+      LConstSec.Declarations.Add(ParseConstDeclaration);
+    end;
+    
     Result := LConstSec;
   end
   else if Current.Kind = tkVarKeyword then
   begin
     LVarSec := TVarSectionSyntax.Create;
     LVarSec.VarKeyword := MatchToken(tkVarKeyword);
-    // Future Phase: Parse inside var block
+
+    while (Current <> nil) and 
+          (Current.Kind = tkIdentifier) do
+    begin
+      LVarSec.Declarations.Add(ParseVarDeclaration);
+    end;
+    
     Result := LVarSec;
   end;
 end;

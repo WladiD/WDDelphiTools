@@ -18,8 +18,10 @@ type
     tkIdentifier,
     tkStringLiteral,
     tkSemicolon,
+    tkDot,
     tkComma,
-    tkDot
+    tkColon,
+    tkEquals
   );
 
   TTokenKindHelper = record helper for TTokenKind

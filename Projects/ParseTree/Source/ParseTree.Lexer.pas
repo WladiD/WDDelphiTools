@@ -229,6 +229,10 @@ begin
         Result := TSyntaxToken.Create(tkDot, LTokenText)
       else if LTokenText = ',' then
         Result := TSyntaxToken.Create(tkComma, LTokenText)
+      else if LTokenText = ':' then
+        Result := TSyntaxToken.Create(tkColon, LTokenText)
+      else if LTokenText = '=' then
+        Result := TSyntaxToken.Create(tkEquals, LTokenText)
       else
         Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;

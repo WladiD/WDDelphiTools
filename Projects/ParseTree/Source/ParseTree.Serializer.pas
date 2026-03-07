@@ -16,6 +16,9 @@ type
     function SerializeInterfaceSection(ASection: TInterfaceSectionSyntax): System.JSON.TJSONObject;
     
     // Declaration Sections
+    function SerializeConstDeclaration(ADecl: TConstDeclarationSyntax): System.JSON.TJSONObject;
+    function SerializeVarDeclaration(ADecl: TVarDeclarationSyntax): System.JSON.TJSONObject;
+    
     function SerializeTypeSection(ASection: TTypeSectionSyntax): System.JSON.TJSONObject;
     function SerializeConstSection(ASection: TConstSectionSyntax): System.JSON.TJSONObject;
     function SerializeVarSection(ASection: TVarSectionSyntax): System.JSON.TJSONObject;
@@ -161,21 +164,73 @@ begin
 end;
 
 function TSyntaxTreeSerializer.SerializeConstSection(ASection: TConstSectionSyntax): System.JSON.TJSONObject;
+var
+  LDecl: TConstDeclarationSyntax;
+  LDeclArray: TJSONArray;
 begin
   if ASection = nil then Exit(nil);
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'ConstSection');
   if Assigned(ASection.ConstKeyword) then
     Result.AddPair('ConstKeyword', SerializeToken(ASection.ConstKeyword));
+    
+  if Assigned(ASection.Declarations) and (ASection.Declarations.Count > 0) then
+  begin
+    LDeclArray := TJSONArray.Create;
+    for LDecl in ASection.Declarations do
+      LDeclArray.AddElement(SerializeNode(LDecl));
+    Result.AddPair('Declarations', LDeclArray);
+  end;
 end;
 
 function TSyntaxTreeSerializer.SerializeVarSection(ASection: TVarSectionSyntax): System.JSON.TJSONObject;
+var
+  LDecl: TVarDeclarationSyntax;
+  LDeclArray: TJSONArray;
 begin
   if ASection = nil then Exit(nil);
   Result := TJSONObject.Create;
   Result.AddPair('NodeType', 'VarSection');
   if Assigned(ASection.VarKeyword) then
     Result.AddPair('VarKeyword', SerializeToken(ASection.VarKeyword));
+    
+  if Assigned(ASection.Declarations) and (ASection.Declarations.Count > 0) then
+  begin
+    LDeclArray := TJSONArray.Create;
+    for LDecl in ASection.Declarations do
+      LDeclArray.AddElement(SerializeNode(LDecl));
+    Result.AddPair('Declarations', LDeclArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeConstDeclaration(ADecl: TConstDeclarationSyntax): System.JSON.TJSONObject;
+begin
+  if ADecl = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'ConstDeclaration');
+  if Assigned(ADecl.Identifier) then
+    Result.AddPair('Identifier', SerializeToken(ADecl.Identifier));
+  if Assigned(ADecl.EqualsToken) then
+    Result.AddPair('EqualsToken', SerializeToken(ADecl.EqualsToken));
+  if Assigned(ADecl.ValueToken) then
+    Result.AddPair('ValueToken', SerializeToken(ADecl.ValueToken));
+  if Assigned(ADecl.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(ADecl.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeVarDeclaration(ADecl: TVarDeclarationSyntax): System.JSON.TJSONObject;
+begin
+  if ADecl = nil then Exit(nil);
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'VarDeclaration');
+  if Assigned(ADecl.Identifier) then
+    Result.AddPair('Identifier', SerializeToken(ADecl.Identifier));
+  if Assigned(ADecl.ColonToken) then
+    Result.AddPair('ColonToken', SerializeToken(ADecl.ColonToken));
+  if Assigned(ADecl.TypeIdentifier) then
+    Result.AddPair('TypeIdentifier', SerializeToken(ADecl.TypeIdentifier));
+  if Assigned(ADecl.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(ADecl.Semicolon));
 end;
 
 function TSyntaxTreeSerializer.SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
@@ -209,6 +264,10 @@ begin
     Result := SerializeConstSection(TConstSectionSyntax(ANode))
   else if ANode is TVarSectionSyntax then
     Result := SerializeVarSection(TVarSectionSyntax(ANode))
+  else if ANode is TConstDeclarationSyntax then
+    Result := SerializeConstDeclaration(TConstDeclarationSyntax(ANode))
+  else if ANode is TVarDeclarationSyntax then
+    Result := SerializeVarDeclaration(TVarDeclarationSyntax(ANode))
   else
   begin
     Result := TJSONObject.Create;
