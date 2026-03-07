@@ -33,3 +33,7 @@ Win32
 /Projects/DPT/Test/ExceptionTarget.exe
 /Projects/ParseTree/Test/Test.ParseTree.exe
 /Projects/ParseTree/Test/Test.ParseTree.res
+/.DptAiWorkflow-Example
+/.gemini/settings.json
+/.vscode/settings.json
+/GEMINI.md
