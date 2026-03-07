@@ -29,6 +29,8 @@ type
     procedure TestDPTMcpDebuggerTask;
     [Test]
     procedure TestDPTLogger;
+    [Test]
+    procedure TestDPTWorkflowSession;
   end;
 
 implementation
@@ -104,6 +106,17 @@ var
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Logger.pas');
+  
+  DoRoundtripTest(LTargetFile);
+end;
+
+procedure TParseTreeRoundtripTest.TestDPTWorkflowSession;
+var
+  LProjectsDir: string;
+  LTargetFile: string;
+begin
+  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
+  LTargetFile := TPath.Combine(LProjectsDir, 'DPT\Source\DPT.Workflow.Session.pas');
   
   DoRoundtripTest(LTargetFile);
 end;

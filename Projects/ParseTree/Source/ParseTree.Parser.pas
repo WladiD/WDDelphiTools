@@ -323,11 +323,11 @@ begin
     Result.EqualsToken := MatchToken(tkEquals);
     
     // Parse what kind of type it is (like class, interface, record)
-    if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkIdentifier)) then
+    if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkRecordKeyword) or (Current.Kind = tkIdentifier)) then
       Result.TypeTypeToken := NextToken;
       
     if (Result.TypeTypeToken <> nil) and 
-       ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword)) then
+       ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword) or (Result.TypeTypeToken.Kind = tkRecordKeyword)) then
     begin
       // Parse base classes / interfaces: class(TObject, IInterface)
       if (Current <> nil) and (Current.Kind = tkOpenParen) then

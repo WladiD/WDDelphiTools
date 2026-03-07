@@ -16,6 +16,7 @@ type
     tkVarKeyword,
     tkInKeyword,
     tkClassKeyword,
+    tkRecordKeyword,
     tkBeginKeyword,
     tkTryKeyword,
     tkCaseKeyword,
