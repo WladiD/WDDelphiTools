@@ -22,6 +22,13 @@ type
     procedure WriteImplementationSection(ASection: TImplementationSectionSyntax);
     procedure WriteMethodImplementation(ADecl: TMethodImplementationSyntax);
     
+    // Statements
+    procedure WriteStatement(AStmt: TStatementSyntax);
+    procedure WriteWhileStatement(AStmt: TWhileStatementSyntax);
+    procedure WriteRepeatStatement(AStmt: TRepeatStatementSyntax);
+    procedure WriteForStatement(AStmt: TForStatementSyntax);
+    procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
+    
     // Declarations
     procedure WriteTypeDeclaration(ADecl: TTypeDeclarationSyntax);
     procedure WriteConstDeclaration(ADecl: TConstDeclarationSyntax);
@@ -251,6 +258,7 @@ procedure TSyntaxTreeWriter.WriteMethodImplementation(ADecl: TMethodImplementati
 var
   LToken: TSyntaxToken;
   LDeclLocal: TDeclarationSectionSyntax;
+  LStmt: TStatementSyntax;
 begin
   if ADecl = nil then Exit;
   
@@ -264,10 +272,84 @@ begin
     WriteNode(LDeclLocal);
     
   WriteToken(ADecl.BeginKeyword);
+  
+  for LStmt in ADecl.Statements do
+    WriteStatement(LStmt);
+
   for LToken in ADecl.BodyTokens do
     WriteToken(LToken);
+    
   WriteToken(ADecl.EndKeyword);
   WriteToken(ADecl.FinalSemicolon);
+end;
+
+procedure TSyntaxTreeWriter.WriteStatement(AStmt: TStatementSyntax);
+begin
+  if AStmt = nil then Exit;
+  
+  if AStmt is TWhileStatementSyntax then
+    WriteWhileStatement(TWhileStatementSyntax(AStmt))
+  else if AStmt is TRepeatStatementSyntax then
+    WriteRepeatStatement(TRepeatStatementSyntax(AStmt))
+  else if AStmt is TForStatementSyntax then
+    WriteForStatement(TForStatementSyntax(AStmt))
+  else if AStmt is TOpaqueStatementSyntax then
+    WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
+end;
+
+procedure TSyntaxTreeWriter.WriteWhileStatement(AStmt: TWhileStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  WriteToken(AStmt.WhileKeyword);
+  for LToken in AStmt.ConditionTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.DoKeyword);
+  WriteStatement(AStmt.Statement);
+  for LToken in AStmt.BodyTokens do
+    WriteToken(LToken);
+end;
+
+procedure TSyntaxTreeWriter.WriteRepeatStatement(AStmt: TRepeatStatementSyntax);
+var
+  LToken: TSyntaxToken;
+  LInnerStmt: TStatementSyntax;
+begin
+  WriteToken(AStmt.RepeatKeyword);
+  for LInnerStmt in AStmt.Statements do
+    WriteStatement(LInnerStmt);
+  WriteToken(AStmt.UntilKeyword);
+  for LToken in AStmt.ConditionTokens do
+    WriteToken(LToken);
+  for LToken in AStmt.BodyTokens do
+    WriteToken(LToken);
+end;
+
+procedure TSyntaxTreeWriter.WriteForStatement(AStmt: TForStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  WriteToken(AStmt.ForKeyword);
+  for LToken in AStmt.VariableTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.AssignmentToken);
+  for LToken in AStmt.StartTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.ToDowntoKeyword);
+  for LToken in AStmt.EndTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.DoKeyword);
+  WriteStatement(AStmt.Statement);
+  for LToken in AStmt.BodyTokens do
+    WriteToken(LToken);
+end;
+
+procedure TSyntaxTreeWriter.WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  for LToken in AStmt.Tokens do
+    WriteToken(LToken);
 end;
 
 procedure TSyntaxTreeWriter.WriteCompilationUnit(ANode: TCompilationUnitSyntax);

@@ -1,4 +1,4 @@
-program Test.ParseTree;
+﻿program Test.ParseTree;
 
 {$IFNDEF TESTINSIGHT}
 {$APPTYPE CONSOLE}
@@ -24,7 +24,9 @@ uses
   Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
   Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas',
   Test.ParseTree.Roundtrip in 'Test.ParseTree.Roundtrip.pas',
-  Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas';
+  Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas',
+  Test.ParseTree.Parser.Statements in 'Test.ParseTree.Parser.Statements.pas',
+  Test.ParseTree.Lexer in 'Test.ParseTree.Lexer.pas';
 
 {$IFNDEF TESTINSIGHT}
 var
@@ -48,7 +50,7 @@ begin
       logger := TDUnitXConsoleLogger.Create(TDUnitX.Options.ConsoleMode = TDunitXConsoleMode.Quiet);
       runner.AddLogger(logger);
     end;
-    
+
     nunitLogger := TDUnitXXMLNUnitFileLogger.Create(TDUnitX.Options.XMLOutputFile);
     runner.AddLogger(nunitLogger);
 

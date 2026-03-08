@@ -228,6 +228,13 @@ begin
   else if LUpper = 'READ' then LKind := tkReadKeyword
   else if LUpper = 'WRITE' then LKind := tkWriteKeyword
   else if LUpper = 'OVERRIDE' then LKind := tkOverrideKeyword
+  else if LUpper = 'WHILE' then LKind := tkWhileKeyword
+  else if LUpper = 'FOR' then LKind := tkForKeyword
+  else if LUpper = 'TO' then LKind := tkToKeyword
+  else if LUpper = 'DOWNTO' then LKind := tkDowntoKeyword
+  else if LUpper = 'DO' then LKind := tkDoKeyword
+  else if LUpper = 'REPEAT' then LKind := tkRepeatKeyword
+  else if LUpper = 'UNTIL' then LKind := tkUntilKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);

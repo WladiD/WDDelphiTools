@@ -196,6 +196,82 @@ type
     property Declarations: TObjectList<TDeclarationSectionSyntax> read FDeclarations;
   end;
 
+  { Base class for all statements (while, for, repeat, assignments, etc.) }
+  TStatementSyntax = class abstract(TSyntaxNode)
+  end;
+
+  { while Condition do Statement; }
+  TWhileStatementSyntax = class(TStatementSyntax)
+  private
+    FWhileKeyword: TSyntaxToken;
+    FConditionTokens: TObjectList<TSyntaxToken>;
+    FDoKeyword: TSyntaxToken;
+    FStatement: TStatementSyntax;
+    FBodyTokens: TObjectList<TSyntaxToken>; // Fallback if not fully parsed
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property WhileKeyword: TSyntaxToken read FWhileKeyword write FWhileKeyword;
+    property ConditionTokens: TObjectList<TSyntaxToken> read FConditionTokens;
+    property DoKeyword: TSyntaxToken read FDoKeyword write FDoKeyword;
+    property Statement: TStatementSyntax read FStatement write FStatement;
+    property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
+  end;
+
+  { repeat Statements; until Condition; }
+  TRepeatStatementSyntax = class(TStatementSyntax)
+  private
+    FRepeatKeyword: TSyntaxToken;
+    FStatements: TObjectList<TStatementSyntax>;
+    FUntilKeyword: TSyntaxToken;
+    FConditionTokens: TObjectList<TSyntaxToken>;
+    FBodyTokens: TObjectList<TSyntaxToken>; // Fallback
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property RepeatKeyword: TSyntaxToken read FRepeatKeyword write FRepeatKeyword;
+    property Statements: TObjectList<TStatementSyntax> read FStatements;
+    property UntilKeyword: TSyntaxToken read FUntilKeyword write FUntilKeyword;
+    property ConditionTokens: TObjectList<TSyntaxToken> read FConditionTokens;
+    property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
+  end;
+
+  { for I := Start to/downto End do Statement; }
+  TForStatementSyntax = class(TStatementSyntax)
+  private
+    FForKeyword: TSyntaxToken;
+    FVariableTokens: TObjectList<TSyntaxToken>;
+    FAssignmentToken: TSyntaxToken;
+    FStartTokens: TObjectList<TSyntaxToken>;
+    FToDowntoKeyword: TSyntaxToken;
+    FEndTokens: TObjectList<TSyntaxToken>;
+    FDoKeyword: TSyntaxToken;
+    FStatement: TStatementSyntax;
+    FBodyTokens: TObjectList<TSyntaxToken>; // Fallback
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property ForKeyword: TSyntaxToken read FForKeyword write FForKeyword;
+    property VariableTokens: TObjectList<TSyntaxToken> read FVariableTokens;
+    property AssignmentToken: TSyntaxToken read FAssignmentToken write FAssignmentToken;
+    property StartTokens: TObjectList<TSyntaxToken> read FStartTokens;
+    property ToDowntoKeyword: TSyntaxToken read FToDowntoKeyword write FToDowntoKeyword;
+    property EndTokens: TObjectList<TSyntaxToken> read FEndTokens;
+    property DoKeyword: TSyntaxToken read FDoKeyword write FDoKeyword;
+    property Statement: TStatementSyntax read FStatement write FStatement;
+    property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
+  end;
+
+  { A statement that just holds tokens for roundtrip if not specifically parsed }
+  TOpaqueStatementSyntax = class(TStatementSyntax)
+  private
+    FTokens: TObjectList<TSyntaxToken>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property Tokens: TObjectList<TSyntaxToken> read FTokens;
+  end;
+
   { Represents a generic unparsed block of tokens }
   TUnparsedDeclarationSyntax = class(TDeclarationSectionSyntax)
   private
@@ -215,7 +291,8 @@ type
     FSignatureSemicolon: TSyntaxToken;
     FLocalDeclarations: TObjectList<TDeclarationSectionSyntax>; // var, const, etc
     FBeginKeyword: TSyntaxToken;
-    FBodyTokens: TObjectList<TSyntaxToken>; // inner statements
+    FStatements: TObjectList<TStatementSyntax>; // Parsed statements
+    FBodyTokens: TObjectList<TSyntaxToken>; // inner tokens for roundtrip if needed
     FEndKeyword: TSyntaxToken;
     FFinalSemicolon: TSyntaxToken;
   public
@@ -228,6 +305,7 @@ type
     property SignatureSemicolon: TSyntaxToken read FSignatureSemicolon write FSignatureSemicolon;
     property LocalDeclarations: TObjectList<TDeclarationSectionSyntax> read FLocalDeclarations;
     property BeginKeyword: TSyntaxToken read FBeginKeyword write FBeginKeyword;
+    property Statements: TObjectList<TStatementSyntax> read FStatements;
     property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
     property FinalSemicolon: TSyntaxToken read FFinalSemicolon write FFinalSemicolon;
@@ -473,6 +551,84 @@ begin
   inherited;
 end;
 
+{ TWhileStatementSyntax }
+
+constructor TWhileStatementSyntax.Create;
+begin
+  inherited Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create;
+  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TWhileStatementSyntax.Destroy;
+begin
+  FWhileKeyword.Free;
+  FConditionTokens.Free;
+  FDoKeyword.Free;
+  FStatement.Free;
+  FBodyTokens.Free;
+  inherited;
+end;
+
+{ TRepeatStatementSyntax }
+
+constructor TRepeatStatementSyntax.Create;
+begin
+  inherited Create;
+  FStatements := TObjectList<TStatementSyntax>.Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create;
+  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TRepeatStatementSyntax.Destroy;
+begin
+  FRepeatKeyword.Free;
+  FStatements.Free;
+  FUntilKeyword.Free;
+  FConditionTokens.Free;
+  FBodyTokens.Free;
+  inherited;
+end;
+
+{ TForStatementSyntax }
+
+constructor TForStatementSyntax.Create;
+begin
+  inherited Create;
+  FVariableTokens := TObjectList<TSyntaxToken>.Create;
+  FStartTokens := TObjectList<TSyntaxToken>.Create;
+  FEndTokens := TObjectList<TSyntaxToken>.Create;
+  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TForStatementSyntax.Destroy;
+begin
+  FForKeyword.Free;
+  FVariableTokens.Free;
+  FAssignmentToken.Free;
+  FStartTokens.Free;
+  FToDowntoKeyword.Free;
+  FEndTokens.Free;
+  FDoKeyword.Free;
+  FStatement.Free;
+  FBodyTokens.Free;
+  inherited;
+end;
+
+{ TOpaqueStatementSyntax }
+
+constructor TOpaqueStatementSyntax.Create;
+begin
+  inherited Create;
+  FTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TOpaqueStatementSyntax.Destroy;
+begin
+  FTokens.Free;
+  inherited;
+end;
+
 { TInterfaceSectionSyntax }
 
 constructor TInterfaceSectionSyntax.Create;
@@ -510,6 +666,7 @@ begin
   inherited Create;
   FSignatureTokens := TObjectList<TSyntaxToken>.Create;
   FLocalDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
+  FStatements := TObjectList<TStatementSyntax>.Create;
   FBodyTokens := TObjectList<TSyntaxToken>.Create;
 end;
 
@@ -520,6 +677,7 @@ begin
   FSignatureSemicolon.Free;
   FLocalDeclarations.Free;
   FBeginKeyword.Free;
+  FStatements.Free;
   FBodyTokens.Free;
   FEndKeyword.Free;
   FFinalSemicolon.Free;

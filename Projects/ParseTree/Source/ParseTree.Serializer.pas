@@ -27,6 +27,13 @@ type
     function SerializeConstSection(ASection: TConstSectionSyntax): System.JSON.TJSONObject;
     function SerializeVarSection(ASection: TVarSectionSyntax): System.JSON.TJSONObject;
     function SerializeCompilationUnit(ANode: TCompilationUnitSyntax): TJSONObject;
+
+    // Statements
+    function SerializeStatement(AStmt: TStatementSyntax): System.JSON.TJSONObject;
+    function SerializeWhileStatement(AStmt: TWhileStatementSyntax): System.JSON.TJSONObject;
+    function SerializeRepeatStatement(AStmt: TRepeatStatementSyntax): System.JSON.TJSONObject;
+    function SerializeForStatement(AStmt: TForStatementSyntax): System.JSON.TJSONObject;
+    function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
   end;
@@ -428,6 +435,14 @@ begin
   if Assigned(AMethod.BeginKeyword) then
     Result.AddPair('BeginKeyword', SerializeToken(AMethod.BeginKeyword));
 
+  if AMethod.Statements.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for var LStmt in AMethod.Statements do
+      LArray.AddElement(SerializeStatement(LStmt));
+    Result.AddPair('Statements', LArray);
+  end;
+
   if AMethod.BodyTokens.Count > 0 then
   begin
     LArray := TJSONArray.Create;
@@ -458,6 +473,141 @@ begin
       LArray.AddElement(SerializeToken(LToken));
     Result.AddPair('Tokens', LArray);
   end;
+end;
+
+function TSyntaxTreeSerializer.SerializeStatement(AStmt: TStatementSyntax): System.JSON.TJSONObject;
+begin
+  if AStmt = nil then Exit(nil);
+  if AStmt is TWhileStatementSyntax then
+    Result := SerializeWhileStatement(TWhileStatementSyntax(AStmt))
+  else if AStmt is TRepeatStatementSyntax then
+    Result := SerializeRepeatStatement(TRepeatStatementSyntax(AStmt))
+  else if AStmt is TForStatementSyntax then
+    Result := SerializeForStatement(TForStatementSyntax(AStmt))
+  else if AStmt is TOpaqueStatementSyntax then
+    Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
+  else
+  begin
+    Result := TJSONObject.Create;
+    Result.AddPair('NodeType', 'UnknownStatement');
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeWhileStatement(AStmt: TWhileStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'WhileStatement');
+  Result.AddPair('WhileKeyword', SerializeToken(AStmt.WhileKeyword));
+  
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.ConditionTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('ConditionTokens', LArray);
+  
+  if Assigned(AStmt.DoKeyword) then
+    Result.AddPair('DoKeyword', SerializeToken(AStmt.DoKeyword));
+  if Assigned(AStmt.Statement) then
+    Result.AddPair('Statement', SerializeStatement(AStmt.Statement));
+    
+  if AStmt.BodyTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.BodyTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('BodyTokens', LArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeRepeatStatement(AStmt: TRepeatStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+  LInnerStmt: TStatementSyntax;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'RepeatStatement');
+  Result.AddPair('RepeatKeyword', SerializeToken(AStmt.RepeatKeyword));
+  
+  LArray := TJSONArray.Create;
+  for LInnerStmt in AStmt.Statements do
+    LArray.AddElement(SerializeStatement(LInnerStmt));
+  Result.AddPair('Statements', LArray);
+  
+  if Assigned(AStmt.UntilKeyword) then
+    Result.AddPair('UntilKeyword', SerializeToken(AStmt.UntilKeyword));
+    
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.ConditionTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('ConditionTokens', LArray);
+
+  if AStmt.BodyTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.BodyTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('BodyTokens', LArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeForStatement(AStmt: TForStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'ForStatement');
+  Result.AddPair('ForKeyword', SerializeToken(AStmt.ForKeyword));
+  
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.VariableTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('VariableTokens', LArray);
+  
+  if Assigned(AStmt.AssignmentToken) then
+    Result.AddPair('AssignmentToken', SerializeToken(AStmt.AssignmentToken));
+    
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.StartTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('StartTokens', LArray);
+  
+  if Assigned(AStmt.ToDowntoKeyword) then
+    Result.AddPair('ToDowntoKeyword', SerializeToken(AStmt.ToDowntoKeyword));
+    
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.EndTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('EndTokens', LArray);
+  
+  if Assigned(AStmt.DoKeyword) then
+    Result.AddPair('DoKeyword', SerializeToken(AStmt.DoKeyword));
+  if Assigned(AStmt.Statement) then
+    Result.AddPair('Statement', SerializeStatement(AStmt.Statement));
+
+  if AStmt.BodyTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.BodyTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('BodyTokens', LArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'OpaqueStatement');
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.Tokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('Tokens', LArray);
 end;
 
 function TSyntaxTreeSerializer.SerializeNode(ANode: TSyntaxNode): TJSONObject;

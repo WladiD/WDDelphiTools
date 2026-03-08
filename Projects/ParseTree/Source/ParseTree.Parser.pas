@@ -29,8 +29,12 @@ type
     function ParseConstDeclaration: TConstDeclarationSyntax;
     function ParseVarDeclaration: TVarDeclarationSyntax;
     function ParseInterfaceSection: TInterfaceSectionSyntax;
-    function ParseMethodImplementation: TMethodImplementationSyntax;
+    function ParseMethodImplementation(const AFullSource: string = ''): TMethodImplementationSyntax;
     function ParseImplementationSection: TImplementationSectionSyntax;
+    function ParseStatement: TStatementSyntax;
+    function ParseWhileStatement: TWhileStatementSyntax;
+    function ParseRepeatStatement: TRepeatStatementSyntax;
+    function ParseForStatement: TForStatementSyntax;
   end;
 
 implementation
@@ -483,12 +487,119 @@ begin
   end;
 end;
 
-function TParseTreeParser.ParseMethodImplementation: TMethodImplementationSyntax;
+function TParseTreeParser.ParseStatement: TStatementSyntax;
+var
+  LOpaque: TOpaqueStatementSyntax;
+  LNest: Integer;
+begin
+  if Current = nil then Exit(nil);
+
+  if Current.Kind = tkWhileKeyword then
+    Exit(ParseWhileStatement)
+  else if Current.Kind = tkRepeatKeyword then
+    Exit(ParseRepeatStatement)
+  else if Current.Kind = tkForKeyword then
+    Exit(ParseForStatement);
+
+  // Fallback: collect until semicolon or block end
+  LOpaque := TOpaqueStatementSyntax.Create;
+  LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+      Inc(LNest)
+    else if Current.Kind = tkEndKeyword then
+    begin
+      if LNest = 0 then Break;
+      Dec(LNest);
+    end
+    else if (Current.Kind = tkSemicolon) and (LNest = 0) then
+    begin
+      LOpaque.Tokens.Add(NextToken);
+      Break;
+    end;
+    
+    LOpaque.Tokens.Add(NextToken);
+  end;
+  Result := LOpaque;
+end;
+
+function TParseTreeParser.ParseWhileStatement: TWhileStatementSyntax;
+begin
+  Result := TWhileStatementSyntax.Create;
+  Result.WhileKeyword := MatchToken(tkWhileKeyword);
+  
+  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+    Result.ConditionTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkDoKeyword) then
+    Result.DoKeyword := MatchToken(tkDoKeyword);
+    
+  Result.Statement := ParseStatement;
+end;
+
+function TParseTreeParser.ParseRepeatStatement: TRepeatStatementSyntax;
+begin
+  Result := TRepeatStatementSyntax.Create;
+  Result.RepeatKeyword := MatchToken(tkRepeatKeyword);
+  
+  while (Current <> nil) and (Current.Kind <> tkUntilKeyword) and (Current.Kind <> tkEOF) do
+    Result.Statements.Add(ParseStatement);
+    
+  if (Current <> nil) and (Current.Kind = tkUntilKeyword) then
+    Result.UntilKeyword := MatchToken(tkUntilKeyword);
+    
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+    Result.ConditionTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.ConditionTokens.Add(MatchToken(tkSemicolon));
+end;
+
+function TParseTreeParser.ParseForStatement: TForStatementSyntax;
+begin
+  Result := TForStatementSyntax.Create;
+  Result.ForKeyword := MatchToken(tkForKeyword);
+  
+  while (Current <> nil) and (Current.Kind <> tkEquals) and (Current.Kind <> tkEOF) do
+    Result.VariableTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkEquals) then
+    Result.AssignmentToken := MatchToken(tkEquals);
+    
+  while (Current <> nil) and (Current.Kind <> tkToKeyword) and (Current.Kind <> tkDowntoKeyword) and (Current.Kind <> tkEOF) do
+    Result.StartTokens.Add(NextToken);
+    
+  if (Current <> nil) and ((Current.Kind = tkToKeyword) or (Current.Kind = tkDowntoKeyword)) then
+    Result.ToDowntoKeyword := NextToken;
+    
+  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+    Result.EndTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkDoKeyword) then
+    Result.DoKeyword := MatchToken(tkDoKeyword);
+    
+  Result.Statement := ParseStatement;
+end;
+
+function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;
 var
   LNestLevel: Integer;
   LDecl: TDeclarationSectionSyntax;
   LUnparsed: TUnparsedDeclarationSyntax;
 begin
+  // If source is provided, we need to tokenize it first (used by tests)
+  if AFullSource <> '' then
+  begin
+    var LLexer := TParseTreeLexer.Create(AFullSource);
+    try
+      FTokens := LLexer.TokenizeAll;
+      FPosition := 0;
+    finally
+      LLexer.Free;
+    end;
+  end;
+
   Result := TMethodImplementationSyntax.Create;
   LUnparsed := nil;
   
@@ -564,13 +675,9 @@ begin
     LNestLevel := 0;
     
   // Body until matched end
-  // Need to track begin/end nesting level!
   while (Current <> nil) and (LNestLevel > 0) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or 
-       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
-      Inc(LNestLevel)
-    else if (Current.Kind = tkEndKeyword) then
+    if Current.Kind = tkEndKeyword then
     begin
       Dec(LNestLevel);
       if LNestLevel = 0 then
@@ -578,9 +685,18 @@ begin
         Result.EndKeyword := MatchToken(tkEndKeyword);
         Break;
       end;
+      // Fall through to parse regular statement if end is nested
     end;
-    
-    Result.BodyTokens.Add(NextToken);
+
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or 
+       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+    begin
+       // We keep treating nested blocks as Opaque for now in ParseStatement fallback, 
+       // but we increment LNestLevel here if we don't call ParseStatement for blocks.
+       // Actually, let's call ParseStatement and it will handle LNest internal to the opaque if needed.
+    end;
+
+    Result.Statements.Add(ParseStatement);
   end;
   
   if (Current <> nil) and (Current.Kind = tkSemicolon) then

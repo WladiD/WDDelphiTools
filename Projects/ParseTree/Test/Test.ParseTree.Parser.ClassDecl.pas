@@ -1,4 +1,4 @@
-unit Test.ParseTree.Parser.ClassDecl;
+﻿unit Test.ParseTree.Parser.ClassDecl;
 
 interface
 
@@ -146,22 +146,22 @@ begin
     Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
     Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
     Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
-    
+
     LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
     Assert.AreEqual(1, LTypeSec.Declarations.Count, 'Should parse one type declaration');
-    
+
     LTypeDecl := LTypeSec.Declarations[0];
     Assert.AreEqual('TMyClass', LTypeDecl.Identifier.Text);
     Assert.AreEqual('class', LTypeDecl.TypeTypeToken.Text);
     Assert.IsNotNull(LTypeDecl.EndKeyword, 'Should have end keyword');
-    
+
     // Verify XML-Doc on class itself
     Assert.IsTrue(HasTriviaContaining(LTypeDecl.Identifier, '/// <summary>Main application class</summary>'),
       'TMyClass should have XML-Doc trivia');
-    
+
     // Should have 6 visibility sections
     Assert.AreEqual(6, LTypeDecl.VisibilitySections.Count, 'Should have 6 visibility sections');
-    
+
     // === Section 0: private ===
     LVisSec := LTypeDecl.VisibilitySections[0];
     Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
@@ -180,7 +180,7 @@ begin
     // The {$ELSE} + second CMaxItems is parsed as a separate member (index 3)
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 3), '{$ELSE}'),
       'Second CMaxItems should have {$ELSE} in trivia');
-    
+
     // === Section 1: strict private ===
     LVisSec := LTypeDecl.VisibilitySections[1];
     Assert.AreEqual('private', LVisSec.VisibilityKeyword.Text);
@@ -188,7 +188,7 @@ begin
     Assert.AreEqual(1, LVisSec.Members.Count, 'strict private should have 1 member');
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Strict private field for name storage'),
       'FStrictField should have XML-Doc');
-    
+
     // === Section 2: protected ===
     LVisSec := LTypeDecl.VisibilitySections[2];
     Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
@@ -198,7 +198,7 @@ begin
       'FProtField should have XML-Doc');
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 1), 'Updates internal state'),
       'InternalUpdate should have XML-Doc');
-    
+
     // === Section 3: strict protected ===
     LVisSec := LTypeDecl.VisibilitySections[3];
     Assert.AreEqual('protected', LVisSec.VisibilityKeyword.Text);
@@ -206,7 +206,7 @@ begin
     Assert.AreEqual(1, LVisSec.Members.Count);
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Strict protected helper routine'),
       'StrictHelper should have XML-Doc');
-    
+
     // === Section 4: public ===
     LVisSec := LTypeDecl.VisibilitySections[4];
     Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);

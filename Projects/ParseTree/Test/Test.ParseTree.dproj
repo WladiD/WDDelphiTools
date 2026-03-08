@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Console</AppType>
@@ -50,7 +50,15 @@
         <DCCReference Include="..\Source\ParseTree.Tokens.pas"/>
         <DCCReference Include="..\Source\ParseTree.Nodes.pas"/>
         <DCCReference Include="..\Source\ParseTree.Serializer.pas"/>
+        <DCCReference Include="..\Source\ParseTree.Writer.pas"/>
+        <DCCReference Include="..\Source\ParseTree.Parser.pas"/>
+        <DCCReference Include="..\Source\ParseTree.Lexer.pas"/>
         <DCCReference Include="Test.ParseTree.Nodes.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.pas"/>
+        <DCCReference Include="Test.ParseTree.Roundtrip.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.ClassDecl.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.pas"/>
+        <DCCReference Include="Test.ParseTree.Lexer.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
