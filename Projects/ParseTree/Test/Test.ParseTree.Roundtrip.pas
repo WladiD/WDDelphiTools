@@ -118,7 +118,6 @@ var
   LProjectsDir: string;
   LSourceDir: string;
   LFiles: TStringDynArray;
-  I: Integer;
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LSourceDir := TPath.Combine(LProjectsDir, 'DPT\Source');
@@ -128,11 +127,12 @@ begin
 
   LFiles := TDirectory.GetFiles(LSourceDir, '*.pas', TSearchOption.soTopDirectoryOnly);
   
-  for I := 0 to Length(LFiles) - 1 do
-  begin
-    Writeln('Testing: ' + ExtractFileName(LFiles[I]));
-    DoRoundtripTest(LFiles[I]);
-  end;
+  TParallel.For(0, Length(LFiles) - 1,
+    procedure(I: Integer)
+    begin
+      Writeln('Testing: ' + ExtractFileName(LFiles[I]));
+      DoRoundtripTest(LFiles[I]);
+    end);
 end;
 
 initialization
