@@ -21,6 +21,8 @@ type
     procedure TestRepeatStatement;
     [Test]
     procedure TestForStatement;
+    [Test]
+    procedure TestIfStatement;
   end;
 
 implementation
@@ -103,6 +105,35 @@ begin
     Assert.AreEqual(TTokenKind.tkForKeyword, LFor.ForKeyword.Kind);
     Assert.IsNotNull(LFor.ToDowntoKeyword);
     Assert.AreEqual(TTokenKind.tkToKeyword, LFor.ToDowntoKeyword.Kind);
+  finally
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestIfStatement;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LStmt: TStatementSyntax;
+  LIf: TIfStatementSyntax;
+begin
+  LParser := TParseTreeParser.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation('procedure IfTest; begin if True then Break else Continue; end;');
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    LStmt := LMethod.Statements[0];
+    Assert.IsTrue(LStmt is TIfStatementSyntax);
+    LIf := TIfStatementSyntax(LStmt);
+    
+    Assert.IsNotNull(LIf.IfKeyword, 'IfKeyword should not be null');
+    Assert.AreEqual(TTokenKind.tkIfKeyword, LIf.IfKeyword.Kind);
+    Assert.IsNotNull(LIf.ThenKeyword, 'ThenKeyword should not be null');
+    Assert.AreEqual(TTokenKind.tkThenKeyword, LIf.ThenKeyword.Kind);
+    Assert.IsNotNull(LIf.ElseKeyword, 'ElseKeyword should not be null');
+    Assert.AreEqual(TTokenKind.tkElseKeyword, LIf.ElseKeyword.Kind);
+    
+    Assert.IsNotNull(LIf.ThenStatement, 'ThenStatement should not be null');
+    Assert.IsNotNull(LIf.ElseStatement, 'ElseStatement should not be null');
   finally
     LParser.Free;
   end;

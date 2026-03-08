@@ -33,6 +33,7 @@ type
     function SerializeWhileStatement(AStmt: TWhileStatementSyntax): System.JSON.TJSONObject;
     function SerializeRepeatStatement(AStmt: TRepeatStatementSyntax): System.JSON.TJSONObject;
     function SerializeForStatement(AStmt: TForStatementSyntax): System.JSON.TJSONObject;
+    function SerializeIfStatement(AStmt: TIfStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -484,6 +485,8 @@ begin
     Result := SerializeRepeatStatement(TRepeatStatementSyntax(AStmt))
   else if AStmt is TForStatementSyntax then
     Result := SerializeForStatement(TForStatementSyntax(AStmt))
+  else if AStmt is TIfStatementSyntax then
+    Result := SerializeIfStatement(TIfStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -594,6 +597,33 @@ begin
     for LToken in AStmt.BodyTokens do
       LArray.AddElement(SerializeToken(LToken));
     Result.AddPair('BodyTokens', LArray);
+  end;
+end;
+
+function TSyntaxTreeSerializer.SerializeIfStatement(AStmt: TIfStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'IfStatement');
+  Result.AddPair('IfKeyword', SerializeToken(AStmt.IfKeyword));
+  
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.ConditionTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('ConditionTokens', LArray);
+  
+  if Assigned(AStmt.ThenKeyword) then
+    Result.AddPair('ThenKeyword', SerializeToken(AStmt.ThenKeyword));
+  if Assigned(AStmt.ThenStatement) then
+    Result.AddPair('ThenStatement', SerializeStatement(AStmt.ThenStatement));
+    
+  if Assigned(AStmt.ElseKeyword) then
+  begin
+    Result.AddPair('ElseKeyword', SerializeToken(AStmt.ElseKeyword));
+    if Assigned(AStmt.ElseStatement) then
+      Result.AddPair('ElseStatement', SerializeStatement(AStmt.ElseStatement));
   end;
 end;
 

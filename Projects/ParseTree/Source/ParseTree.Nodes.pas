@@ -262,6 +262,26 @@ type
     property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
   end;
 
+  { if Condition then Statement1 [else Statement2]; }
+  TIfStatementSyntax = class(TStatementSyntax)
+  private
+    FIfKeyword: TSyntaxToken;
+    FConditionTokens: TObjectList<TSyntaxToken>;
+    FThenKeyword: TSyntaxToken;
+    FThenStatement: TStatementSyntax;
+    FElseKeyword: TSyntaxToken;
+    FElseStatement: TStatementSyntax;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property IfKeyword: TSyntaxToken read FIfKeyword write FIfKeyword;
+    property ConditionTokens: TObjectList<TSyntaxToken> read FConditionTokens;
+    property ThenKeyword: TSyntaxToken read FThenKeyword write FThenKeyword;
+    property ThenStatement: TStatementSyntax read FThenStatement write FThenStatement;
+    property ElseKeyword: TSyntaxToken read FElseKeyword write FElseKeyword;
+    property ElseStatement: TStatementSyntax read FElseStatement write FElseStatement;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -612,6 +632,25 @@ begin
   FDoKeyword.Free;
   FStatement.Free;
   FBodyTokens.Free;
+  inherited;
+end;
+
+{ TIfStatementSyntax }
+
+constructor TIfStatementSyntax.Create;
+begin
+  inherited Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TIfStatementSyntax.Destroy;
+begin
+  FIfKeyword.Free;
+  FConditionTokens.Free;
+  FThenKeyword.Free;
+  FThenStatement.Free;
+  FElseKeyword.Free;
+  FElseStatement.Free;
   inherited;
 end;
 

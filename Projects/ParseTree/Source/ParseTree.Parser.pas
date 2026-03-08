@@ -35,6 +35,7 @@ type
     function ParseWhileStatement: TWhileStatementSyntax;
     function ParseRepeatStatement: TRepeatStatementSyntax;
     function ParseForStatement: TForStatementSyntax;
+    function ParseIfStatement: TIfStatementSyntax;
   end;
 
 implementation
@@ -499,7 +500,9 @@ begin
   else if Current.Kind = tkRepeatKeyword then
     Exit(ParseRepeatStatement)
   else if Current.Kind = tkForKeyword then
-    Exit(ParseForStatement);
+    Exit(ParseForStatement)
+  else if Current.Kind = tkIfKeyword then
+    Exit(ParseIfStatement);
 
   // Fallback: collect until semicolon or block end
   LOpaque := TOpaqueStatementSyntax.Create;
@@ -519,6 +522,13 @@ begin
       Break;
     end;
     
+    // Safety: if we hit another keyword that starts a statement, break if we have ANY tokens
+    if (LNest = 0) and (LOpaque.Tokens.Count > 0) and 
+       ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or 
+        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
+        (Current.Kind = tkElseKeyword)) then
+      Break;
+
     LOpaque.Tokens.Add(NextToken);
   end;
   Result := LOpaque;
@@ -580,6 +590,31 @@ begin
     Result.DoKeyword := MatchToken(tkDoKeyword);
     
   Result.Statement := ParseStatement;
+end;
+
+function TParseTreeParser.ParseIfStatement: TIfStatementSyntax;
+begin
+  Result := TIfStatementSyntax.Create;
+  Result.IfKeyword := MatchToken(tkIfKeyword);
+  
+  while (Current <> nil) and (Current.Kind <> tkThenKeyword) and (Current.Kind <> tkEOF) do
+    Result.ConditionTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkThenKeyword) then
+    Result.ThenKeyword := MatchToken(tkThenKeyword);
+    
+  Result.ThenStatement := ParseStatement;
+  
+  // if ThenStatement was an OpaqueStatement ending in a semicolon, 
+  // and the next token is ELSE, then the semicolon was actually part of the THEN branch
+  // BUT in Delphi, a semicolon before ELSE is technically a syntax error for the IF.
+  // HOWEVER, our ParseStatement might consume it.
+  
+  if (Current <> nil) and (Current.Kind = tkElseKeyword) then
+  begin
+    Result.ElseKeyword := MatchToken(tkElseKeyword);
+    Result.ElseStatement := ParseStatement;
+  end;
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

@@ -235,6 +235,9 @@ begin
   else if LUpper = 'DO' then LKind := tkDoKeyword
   else if LUpper = 'REPEAT' then LKind := tkRepeatKeyword
   else if LUpper = 'UNTIL' then LKind := tkUntilKeyword
+  else if LUpper = 'IF' then LKind := tkIfKeyword
+  else if LUpper = 'THEN' then LKind := tkThenKeyword
+  else if LUpper = 'ELSE' then LKind := tkElseKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);
