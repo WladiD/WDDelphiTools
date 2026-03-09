@@ -32,6 +32,20 @@ type
     procedure TestParseNestedClassDeclaration;
     [Test]
     procedure TestParseGenericReferenceTypeAliasRoundtrip;
+    [Test]
+    procedure TestClassOfTypeAliasInClassBodyRoundtrip;
+    [Test]
+    procedure TestClassOfTypeAliasTopLevelRoundtrip;
+    [Test]
+    procedure TestDispInterfaceRoundtrip;
+    [Test]
+    procedure TestRecordMethodPointerRoundtrip;
+    [Test]
+    procedure TestProcedureTypeAliasWithCallingConventionRoundtrip;
+    [Test]
+    procedure TestConditionalAlternativeMethodSignatureRoundtrip;
+    [Test]
+    procedure TestRecordWithProcedureAndFunctionPointerMembersRoundtrip;
   end;
 
 implementation
@@ -501,6 +515,242 @@ begin
     Assert.AreEqual('TSetter', LTypeSec.Declarations[1].Identifier.Text);
     Assert.AreEqual(3, LTypeSec.Declarations[1].GenericParameterTokens.Count);
 
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestClassOfTypeAliasInClassBodyRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TCustomComboBoxStrings = class
+      end;
+
+      TComboOwner = class
+      private
+        type
+          TCustomComboBoxStringsClass = class of TCustomComboBoxStrings;
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestClassOfTypeAliasTopLevelRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TBase = class
+      end;
+      TBaseClass = class of TBase;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestDispInterfaceRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      IStdEvents = dispinterface
+        [''{00020400-0000-0000-C000-000000000046}'']
+        procedure Click; dispid DISPID_CLICK;
+        procedure KeyDown(var KeyCode: Smallint;
+          Shift: Smallint); dispid DISPID_KEYDOWN;
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestRecordMethodPointerRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TMemoryMgr = record
+        alloc_small: function(cinfo: Pointer;
+          pool_id, sizeofobject: Integer): Pointer;
+        alloc_large: function(cinfo: Pointer;
+          pool_id, sizeofobject: Integer): Pointer;
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestProcedureTypeAliasWithCallingConventionRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TImageListWriteExProc = function(ImageList: Pointer; Flags: Cardinal;
+        Stream: IInterface): Integer; {$IFNDEF CLR}stdcall;{$ENDIF}
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestConditionalAlternativeMethodSignatureRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TMyClass = class
+      end;
+    implementation
+    {$IFDEF WIN64}
+    function TMyClass.SetContentExtent(sizel: Pointer): Integer; stdcall;
+    {$ELSE}
+    function TMyClass.SetContentExtent(const sizel: Integer): Integer; stdcall;
+    {$ENDIF}
+    begin
+      Result := 1;
+    end;
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestRecordWithProcedureAndFunctionPointerMembersRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TDestinationMgr = record
+        init_destination: procedure(cinfo: Pointer);
+        empty_output_buffer: function(cinfo: Pointer): Boolean;
+        term_destination: procedure(cinfo: Pointer);
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
     LWriter := TSyntaxTreeWriter.Create;
     try
       LRoundtrip := LWriter.GenerateSource(LTree);

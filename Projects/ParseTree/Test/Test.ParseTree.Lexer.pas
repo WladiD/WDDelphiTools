@@ -28,6 +28,8 @@ type
     procedure TestLessOrEqualsOperator;
     [Test]
     procedure TestGreaterOrEqualsOperator;
+    [Test]
+    procedure TestDispinterfaceKeyword;
   end;
 
 implementation
@@ -96,6 +98,22 @@ begin
     Assert.IsNotNull(LToken);
     Assert.AreEqual(TTokenKind.tkGreaterOrEquals, LToken.Kind, 'Expected >= to be a single greater-or-equals token');
     Assert.AreEqual('>=', LToken.Text);
+  finally
+    LLexer.Free;
+  end;
+end;
+
+procedure TParseTreeLexerTest.TestDispinterfaceKeyword;
+var
+  LLexer: TParseTreeLexer;
+  LToken: TSyntaxToken;
+begin
+  LLexer := TParseTreeLexer.Create('dispinterface');
+  try
+    LToken := LLexer.NextToken;
+    Assert.IsNotNull(LToken);
+    Assert.AreEqual(TTokenKind.tkDispinterfaceKeyword, LToken.Kind);
+    Assert.AreEqual('dispinterface', LToken.Text);
   finally
     LLexer.Free;
   end;

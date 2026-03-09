@@ -202,6 +202,7 @@ begin
   // Very basic keyword check. This matches TTokenKind mapping
   if LUpper = 'UNIT' then LKind := tkUnitKeyword
   else if LUpper = 'INTERFACE' then LKind := tkInterfaceKeyword
+  else if LUpper = 'DISPINTERFACE' then LKind := tkDispinterfaceKeyword
   else if LUpper = 'IMPLEMENTATION' then LKind := tkImplementationKeyword
   else if LUpper = 'USES' then LKind := tkUsesKeyword
   else if LUpper = 'IN' then LKind := tkInKeyword

@@ -9,6 +9,7 @@ type
     tkEOF,
     tkUnitKeyword,
     tkInterfaceKeyword,
+    tkDispinterfaceKeyword,
     tkImplementationKeyword,
     tkUsesKeyword,
     tkTypeKeyword,

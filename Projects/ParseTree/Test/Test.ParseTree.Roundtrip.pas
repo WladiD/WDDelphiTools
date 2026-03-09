@@ -125,12 +125,15 @@ procedure TParseTreeRoundtripTest.TestConfiguredPathsParallel;
 var
   LTestProjectDir: string;
   LPathsFile: string;
+  LOutputFolder: string;
   LPathLines: TStringList;
   LAllFiles: TStringList;
   LFilesInPath: TStringDynArray;
   LPathLine: string;
   LPathLineTrimmed: string;
   LResolvedPath: string;
+  LCheckedPathCount: Integer;
+  LSummary: string;
   LThreadPool: TThreadPool;
   LFailedFiles: TStringList;
   LLock: System.SyncObjs.TCriticalSection;
@@ -139,6 +142,11 @@ begin
   // Relative paths from RoundTripTestPaths.txt are grounded to Projects\ParseTree\Test.
   LTestProjectDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\'));
   LPathsFile := TPath.Combine(LTestProjectDir, 'RoundTripTestPaths.txt');
+  LOutputFolder := TPath.Combine(ExtractFilePath(ParamStr(0)), 'RoundTripTest');
+
+  if TDirectory.Exists(LOutputFolder) then
+    TDirectory.Delete(LOutputFolder, True);
+  TDirectory.CreateDirectory(LOutputFolder);
 
   if not TFile.Exists(LPathsFile) then
     Assert.Fail('Roundtrip path config does not exist: ' + LPathsFile);
@@ -149,6 +157,7 @@ begin
   LAllFiles.Duplicates := dupIgnore;
   try
     LPathLines.LoadFromFile(LPathsFile, TEncoding.UTF8);
+    LCheckedPathCount := 0;
 
     for LPathLine in LPathLines do
     begin
@@ -170,12 +179,15 @@ begin
         Assert.Fail(Format('Configured roundtrip directory contains no *.pas files: "%s" (from "%s")',
           [LResolvedPath, LPathLineTrimmed]));
 
+      Inc(LCheckedPathCount);
       for var LFile in LFilesInPath do
         LAllFiles.Add(LFile);
     end;
 
+    LSummary := Format('Checked %d files from %d paths', [LAllFiles.Count, LCheckedPathCount]);
+
     if LAllFiles.Count = 0 then
-      Assert.Fail('No *.pas files found in configured roundtrip paths: ' + LPathsFile);
+      Assert.Fail('No *.pas files found in configured roundtrip paths: ' + LPathsFile + sLineBreak + LSummary);
   finally
     LPathLines.Free;
   end;
@@ -220,8 +232,8 @@ begin
     end;
 
     if LFailedFiles.Count > 0 then
-      Assert.Fail(Format('Roundtrip failed for %d files:'#13#10'%s',
-        [LFailedFiles.Count, LFailedFiles.Text]));
+      Assert.Fail(Format('%s'#13#10'Roundtrip failed for %d files:'#13#10'%s',
+        [LSummary, LFailedFiles.Count, LFailedFiles.Text]));
   finally
     LThreadPool.Free;
     LLock.Free;
