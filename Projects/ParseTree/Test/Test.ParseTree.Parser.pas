@@ -218,9 +218,6 @@ begin
       try
         LJsonString := LJsonObj.ToString;
 
-        System.Writeln('PARSED JSON:');
-        System.Writeln(LJsonString);
-
         Assert.IsTrue(LJsonString.Contains('"NodeType":"CompilationUnit"'));
         Assert.IsTrue(LJsonString.Contains('"Text":"Unit1"'));
         

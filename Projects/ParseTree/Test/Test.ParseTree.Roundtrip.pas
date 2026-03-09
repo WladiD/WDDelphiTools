@@ -140,7 +140,6 @@ begin
       TParallel.For(0, Length(LFiles) - 1,
         procedure(I: Integer)
         begin
-          Writeln('Testing: ' + ExtractFileName(LFiles[I]));
           try
             DoRoundtripTest(LFiles[I]);
           except
