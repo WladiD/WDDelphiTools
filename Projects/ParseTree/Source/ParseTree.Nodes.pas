@@ -245,6 +245,8 @@ type
     FStartTokens: TObjectList<TSyntaxToken>;
     FToDowntoKeyword: TSyntaxToken;
     FEndTokens: TObjectList<TSyntaxToken>;
+    FInKeyword: TSyntaxToken;
+    FCollectionTokens: TObjectList<TSyntaxToken>;
     FDoKeyword: TSyntaxToken;
     FStatement: TStatementSyntax;
     FBodyTokens: TObjectList<TSyntaxToken>; // Fallback
@@ -257,6 +259,8 @@ type
     property StartTokens: TObjectList<TSyntaxToken> read FStartTokens;
     property ToDowntoKeyword: TSyntaxToken read FToDowntoKeyword write FToDowntoKeyword;
     property EndTokens: TObjectList<TSyntaxToken> read FEndTokens;
+    property InKeyword: TSyntaxToken read FInKeyword write FInKeyword;
+    property CollectionTokens: TObjectList<TSyntaxToken> read FCollectionTokens;
     property DoKeyword: TSyntaxToken read FDoKeyword write FDoKeyword;
     property Statement: TStatementSyntax read FStatement write FStatement;
     property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
@@ -750,6 +754,7 @@ begin
   FVariableTokens := TObjectList<TSyntaxToken>.Create;
   FStartTokens := TObjectList<TSyntaxToken>.Create;
   FEndTokens := TObjectList<TSyntaxToken>.Create;
+  FCollectionTokens := TObjectList<TSyntaxToken>.Create;
   FBodyTokens := TObjectList<TSyntaxToken>.Create;
 end;
 
@@ -761,6 +766,8 @@ begin
   FStartTokens.Free;
   FToDowntoKeyword.Free;
   FEndTokens.Free;
+  FInKeyword.Free;
+  FCollectionTokens.Free;
   FDoKeyword.Free;
   FStatement.Free;
   FBodyTokens.Free;

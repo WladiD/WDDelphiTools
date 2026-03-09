@@ -607,25 +607,37 @@ function TParseTreeParser.ParseForStatement: TForStatementSyntax;
 begin
   Result := TForStatementSyntax.Create;
   Result.ForKeyword := MatchToken(tkForKeyword);
-  
-  while (Current <> nil) and (Current.Kind <> tkColonEquals) and (Current.Kind <> tkEOF) do
+
+  while (Current <> nil) and (Current.Kind <> tkColonEquals) and
+        (Current.Kind <> tkInKeyword) and (Current.Kind <> tkEOF) do
     Result.VariableTokens.Add(NextToken);
-    
-  if (Current <> nil) and (Current.Kind = tkColonEquals) then
-    Result.AssignmentToken := MatchToken(tkColonEquals);
-    
-  while (Current <> nil) and (Current.Kind <> tkToKeyword) and (Current.Kind <> tkDowntoKeyword) and (Current.Kind <> tkEOF) do
-    Result.StartTokens.Add(NextToken);
-    
-  if (Current <> nil) and ((Current.Kind = tkToKeyword) or (Current.Kind = tkDowntoKeyword)) then
-    Result.ToDowntoKeyword := NextToken;
-    
-  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
-    Result.EndTokens.Add(NextToken);
-    
+
+  if (Current <> nil) and (Current.Kind = tkInKeyword) then
+  begin
+    Result.InKeyword := MatchToken(tkInKeyword);
+
+    while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+      Result.CollectionTokens.Add(NextToken);
+  end
+  else
+  begin
+    if (Current <> nil) and (Current.Kind = tkColonEquals) then
+      Result.AssignmentToken := MatchToken(tkColonEquals);
+
+    while (Current <> nil) and (Current.Kind <> tkToKeyword) and
+          (Current.Kind <> tkDowntoKeyword) and (Current.Kind <> tkEOF) do
+      Result.StartTokens.Add(NextToken);
+
+    if (Current <> nil) and ((Current.Kind = tkToKeyword) or (Current.Kind = tkDowntoKeyword)) then
+      Result.ToDowntoKeyword := NextToken;
+
+    while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+      Result.EndTokens.Add(NextToken);
+  end;
+
   if (Current <> nil) and (Current.Kind = tkDoKeyword) then
     Result.DoKeyword := MatchToken(tkDoKeyword);
-    
+
   Result.Statement := ParseStatement;
 end;
 

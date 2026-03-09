@@ -591,22 +591,37 @@ begin
     LArray.AddElement(SerializeToken(LToken));
   Result.AddPair('VariableTokens', LArray);
   
-  if Assigned(AStmt.AssignmentToken) then
-    Result.AddPair('AssignmentToken', SerializeToken(AStmt.AssignmentToken));
-    
-  LArray := TJSONArray.Create;
-  for LToken in AStmt.StartTokens do
-    LArray.AddElement(SerializeToken(LToken));
-  Result.AddPair('StartTokens', LArray);
-  
-  if Assigned(AStmt.ToDowntoKeyword) then
-    Result.AddPair('ToDowntoKeyword', SerializeToken(AStmt.ToDowntoKeyword));
-    
-  LArray := TJSONArray.Create;
-  for LToken in AStmt.EndTokens do
-    LArray.AddElement(SerializeToken(LToken));
-  Result.AddPair('EndTokens', LArray);
-  
+  if Assigned(AStmt.InKeyword) then
+  begin
+    Result.AddPair('InKeyword', SerializeToken(AStmt.InKeyword));
+
+    if AStmt.CollectionTokens.Count > 0 then
+    begin
+      LArray := TJSONArray.Create;
+      for LToken in AStmt.CollectionTokens do
+        LArray.AddElement(SerializeToken(LToken));
+      Result.AddPair('CollectionTokens', LArray);
+    end;
+  end
+  else
+  begin
+    if Assigned(AStmt.AssignmentToken) then
+      Result.AddPair('AssignmentToken', SerializeToken(AStmt.AssignmentToken));
+
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.StartTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('StartTokens', LArray);
+
+    if Assigned(AStmt.ToDowntoKeyword) then
+      Result.AddPair('ToDowntoKeyword', SerializeToken(AStmt.ToDowntoKeyword));
+
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.EndTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('EndTokens', LArray);
+  end;
+
   if Assigned(AStmt.DoKeyword) then
     Result.AddPair('DoKeyword', SerializeToken(AStmt.DoKeyword));
   if Assigned(AStmt.Statement) then

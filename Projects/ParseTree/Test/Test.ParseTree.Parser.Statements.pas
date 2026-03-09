@@ -174,6 +174,30 @@ type
     procedure TestWithAssignment;
     [Test]
     procedure TestWithDeepNesting;
+    [Test]
+    procedure TestForInSimple;
+    [Test]
+    procedure TestForInQualifiedCollection;
+    [Test]
+    procedure TestForInMethodCallCollection;
+    [Test]
+    procedure TestForInBeginEnd;
+    [Test]
+    procedure TestForInNested;
+    [Test]
+    procedure TestForInInBeginEnd;
+    [Test]
+    procedure TestForInInIfThenElse;
+    [Test]
+    procedure TestForInInTryFinally;
+    [Test]
+    procedure TestForInWithStatement;
+    [Test]
+    procedure TestForInArrayProperty;
+    [Test]
+    procedure TestForInString;
+    [Test]
+    procedure TestForToStillWorks;
   end;
 
 implementation
@@ -2749,6 +2773,383 @@ begin
     Assert.AreEqual(2, LBlock2.Statements.Count);
     Assert.IsTrue(LBlock2.Statements[0] is TAssignmentStatementSyntax);
     Assert.IsTrue(LBlock2.Statements[1] is TWithStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInSimple;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in List do Process(Item); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.ForKeyword);
+    Assert.AreEqual('for', LFor.ForKeyword.Text);
+    Assert.AreEqual(1, LFor.VariableTokens.Count);
+    Assert.AreEqual('Item', LFor.VariableTokens[0].Text);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual('in', LFor.InKeyword.Text);
+    Assert.AreEqual(1, LFor.CollectionTokens.Count);
+    Assert.AreEqual('List', LFor.CollectionTokens[0].Text);
+    Assert.IsNull(LFor.AssignmentToken);
+    Assert.IsNull(LFor.ToDowntoKeyword);
+    Assert.AreEqual(0, LFor.StartTokens.Count);
+    Assert.AreEqual(0, LFor.EndTokens.Count);
+    Assert.IsNotNull(LFor.DoKeyword);
+    Assert.AreEqual('do', LFor.DoKeyword.Text);
+    Assert.IsTrue(LFor.Statement is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInQualifiedCollection;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in Self.FItems do Process; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual(3, LFor.CollectionTokens.Count);
+    Assert.AreEqual('Self', LFor.CollectionTokens[0].Text);
+    Assert.AreEqual('.', LFor.CollectionTokens[1].Text);
+    Assert.AreEqual('FItems', LFor.CollectionTokens[2].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInMethodCallCollection;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in GetList(X) do Process; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual(4, LFor.CollectionTokens.Count);
+    Assert.AreEqual('GetList', LFor.CollectionTokens[0].Text);
+    Assert.AreEqual('(', LFor.CollectionTokens[1].Text);
+    Assert.AreEqual('X', LFor.CollectionTokens[2].Text);
+    Assert.AreEqual(')', LFor.CollectionTokens[3].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in List do begin Process(Item); Count := Count + 1; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.IsTrue(LFor.Statement is TBeginEndStatementSyntax);
+    Assert.AreEqual(2, TBeginEndStatementSyntax(LFor.Statement).Statements.Count);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInNested;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Outer in List1 do for Inner in List2 do Process; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual('List1', LFor.CollectionTokens[0].Text);
+    Assert.IsTrue(LFor.Statement is TForStatementSyntax);
+
+    var LInner := TForStatementSyntax(LFor.Statement);
+    Assert.IsNotNull(LInner.InKeyword);
+    Assert.AreEqual('List2', LInner.CollectionTokens[0].Text);
+    Assert.IsTrue(LInner.Statement is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin X := 0; for Item in List do Inc(X); Y := X; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(3, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[1] is TForStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[2] is TAssignmentStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInInIfThenElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if Condition then for Item in A do ProcessA else for Item in B do ProcessB; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TForStatementSyntax);
+    Assert.IsNotNull(TForStatementSyntax(LIf.ThenStatement).InKeyword);
+    Assert.IsTrue(LIf.ElseStatement is TForStatementSyntax);
+    Assert.IsNotNull(TForStatementSyntax(LIf.ElseStatement).InKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInInTryFinally;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin try for Item in List do Process; finally Cleanup; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LTry.Statements.Count);
+    Assert.IsTrue(LTry.Statements[0] is TForStatementSyntax);
+    Assert.IsNotNull(TForStatementSyntax(LTry.Statements[0]).InKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInWithStatement;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in List do with Item do Process; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.IsTrue(LFor.Statement is TWithStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInArrayProperty;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Item in Obj.Items[0] do Process; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual(6, LFor.CollectionTokens.Count);
+    Assert.AreEqual('Obj', LFor.CollectionTokens[0].Text);
+    Assert.AreEqual('.', LFor.CollectionTokens[1].Text);
+    Assert.AreEqual('Items', LFor.CollectionTokens[2].Text);
+    Assert.AreEqual('[', LFor.CollectionTokens[3].Text);
+    Assert.AreEqual('0', LFor.CollectionTokens[4].Text);
+    Assert.AreEqual(']', LFor.CollectionTokens[5].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForInString;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for Ch in S do Process(Ch); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LFor.VariableTokens.Count);
+    Assert.AreEqual('Ch', LFor.VariableTokens[0].Text);
+    Assert.IsNotNull(LFor.InKeyword);
+    Assert.AreEqual(1, LFor.CollectionTokens.Count);
+    Assert.AreEqual('S', LFor.CollectionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestForToStillWorks;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for I := 0 to 9 do Process(I); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LFor.AssignmentToken);
+    Assert.IsNotNull(LFor.ToDowntoKeyword);
+    Assert.AreEqual('to', LFor.ToDowntoKeyword.Text);
+    Assert.IsNull(LFor.InKeyword);
+    Assert.AreEqual(0, LFor.CollectionTokens.Count);
+    Assert.IsNotNull(LFor.DoKeyword);
+    Assert.IsTrue(LFor.Statement is TProcedureCallStatementSyntax);
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);

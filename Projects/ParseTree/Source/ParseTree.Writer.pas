@@ -356,12 +356,21 @@ begin
   WriteToken(AStmt.ForKeyword);
   for LToken in AStmt.VariableTokens do
     WriteToken(LToken);
-  WriteToken(AStmt.AssignmentToken);
-  for LToken in AStmt.StartTokens do
-    WriteToken(LToken);
-  WriteToken(AStmt.ToDowntoKeyword);
-  for LToken in AStmt.EndTokens do
-    WriteToken(LToken);
+  if Assigned(AStmt.InKeyword) then
+  begin
+    WriteToken(AStmt.InKeyword);
+    for LToken in AStmt.CollectionTokens do
+      WriteToken(LToken);
+  end
+  else
+  begin
+    WriteToken(AStmt.AssignmentToken);
+    for LToken in AStmt.StartTokens do
+      WriteToken(LToken);
+    WriteToken(AStmt.ToDowntoKeyword);
+    for LToken in AStmt.EndTokens do
+      WriteToken(LToken);
+  end;
   WriteToken(AStmt.DoKeyword);
   WriteStatement(AStmt.Statement);
   for LToken in AStmt.BodyTokens do
