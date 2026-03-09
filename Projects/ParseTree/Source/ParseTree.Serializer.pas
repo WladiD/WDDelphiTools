@@ -35,6 +35,7 @@ type
     function SerializeForStatement(AStmt: TForStatementSyntax): System.JSON.TJSONObject;
     function SerializeIfStatement(AStmt: TIfStatementSyntax): System.JSON.TJSONObject;
     function SerializeAssignmentStatement(AStmt: TAssignmentStatementSyntax): System.JSON.TJSONObject;
+    function SerializeBeginEndStatement(AStmt: TBeginEndStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -490,6 +491,8 @@ begin
     Result := SerializeIfStatement(TIfStatementSyntax(AStmt))
   else if AStmt is TAssignmentStatementSyntax then
     Result := SerializeAssignmentStatement(TAssignmentStatementSyntax(AStmt))
+  else if AStmt is TBeginEndStatementSyntax then
+    Result := SerializeBeginEndStatement(TBeginEndStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -650,6 +653,29 @@ begin
   for LToken in AStmt.RightTokens do
     LArray.AddElement(SerializeToken(LToken));
   Result.AddPair('RightTokens', LArray);
+end;
+
+function TSyntaxTreeSerializer.SerializeBeginEndStatement(AStmt: TBeginEndStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LStmt: TStatementSyntax;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'BeginEndStatement');
+  
+  if Assigned(AStmt.BeginKeyword) then
+    Result.AddPair('BeginKeyword', SerializeToken(AStmt.BeginKeyword));
+  
+  LArray := TJSONArray.Create;
+  for LStmt in AStmt.Statements do
+    LArray.AddElement(SerializeStatement(LStmt));
+  Result.AddPair('Statements', LArray);
+  
+  if Assigned(AStmt.EndKeyword) then
+    Result.AddPair('EndKeyword', SerializeToken(AStmt.EndKeyword));
+    
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
 end;
 
 function TSyntaxTreeSerializer.SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;

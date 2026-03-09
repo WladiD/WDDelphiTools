@@ -29,6 +29,7 @@ type
     procedure WriteForStatement(AStmt: TForStatementSyntax);
     procedure WriteIfStatement(AStmt: TIfStatementSyntax);
     procedure WriteAssignmentStatement(AStmt: TAssignmentStatementSyntax);
+    procedure WriteBeginEndStatement(AStmt: TBeginEndStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
     // Declarations
@@ -299,6 +300,8 @@ begin
     WriteIfStatement(TIfStatementSyntax(AStmt))
   else if AStmt is TAssignmentStatementSyntax then
     WriteAssignmentStatement(TAssignmentStatementSyntax(AStmt))
+  else if AStmt is TBeginEndStatementSyntax then
+    WriteBeginEndStatement(TBeginEndStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
 end;
@@ -378,6 +381,17 @@ begin
     
   for LToken in AStmt.RightTokens do
     WriteToken(LToken);
+end;
+
+procedure TSyntaxTreeWriter.WriteBeginEndStatement(AStmt: TBeginEndStatementSyntax);
+var
+  LStmt: TStatementSyntax;
+begin
+  WriteToken(AStmt.BeginKeyword);
+  for LStmt in AStmt.Statements do
+    WriteStatement(LStmt);
+  WriteToken(AStmt.EndKeyword);
+  WriteToken(AStmt.Semicolon);
 end;
 
 procedure TSyntaxTreeWriter.WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);

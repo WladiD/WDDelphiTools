@@ -34,6 +34,24 @@ type
     procedure TestIfStatementWithForbiddenSemicolon;
     [Test]
     procedure TestAssignmentStatement;
+    [Test]
+    procedure TestBeginEndSimple;
+    [Test]
+    procedure TestBeginEndWithMultipleStatements;
+    [Test]
+    procedure TestBeginEndNested;
+    [Test]
+    procedure TestBeginEndInIfThen;
+    [Test]
+    procedure TestBeginEndInIfThenElse;
+    [Test]
+    procedure TestBeginEndInWhileDo;
+    [Test]
+    procedure TestBeginEndInForDo;
+    [Test]
+    procedure TestBeginEndEmpty;
+    [Test]
+    procedure TestBeginEndDeepNesting;
   end;
 
 implementation
@@ -206,8 +224,7 @@ begin
     
     LIf := TIfStatementSyntax(LMethod.Statements[0]);
     Assert.IsNotNull(LIf.ThenStatement);
-    // Then statement should be TOpaque (begin ... end for now)
-    Assert.IsTrue(LIf.ThenStatement is TOpaqueStatementSyntax);
+    Assert.IsTrue(LIf.ThenStatement is TBeginEndStatementSyntax);
     
     Assert.IsNotNull(LIf.ElseStatement);
     Assert.IsTrue(LIf.ElseStatement is TIfStatementSyntax);
@@ -260,8 +277,7 @@ begin
     // Else branch of LIf1 is the "else if e"
     Assert.IsTrue(LIf1.ElseStatement is TIfStatementSyntax);
     var LIfE := TIfStatementSyntax(LIf1.ElseStatement);
-    // Then branch of LIfE is a begin...end (Opaque for now)
-    Assert.IsTrue(LIfE.ThenStatement is TOpaqueStatementSyntax);
+    Assert.IsTrue(LIfE.ThenStatement is TBeginEndStatementSyntax);
     
     // Else branch of LIfE is "else h;"
     Assert.IsTrue(LIfE.ElseStatement is TOpaqueStatementSyntax);
@@ -334,6 +350,339 @@ begin
     // Roundtrip
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndSimple;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin x := 1; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LBlock.BeginKeyword);
+    Assert.AreEqual('begin', LBlock.BeginKeyword.Text);
+    Assert.IsNotNull(LBlock.EndKeyword);
+    Assert.AreEqual('end', LBlock.EndKeyword.Text);
+    Assert.IsNotNull(LBlock.Semicolon, 'Semicolon after end should be consumed');
+    Assert.AreEqual(1, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndWithMultipleStatements;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin x := 1; y := 2; z := 3; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LBlock.Statements.Count, 'Should have 3 inner statements');
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[1] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[2] is TAssignmentStatementSyntax);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndNested;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LOuter, LInner: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin begin x := 1; end; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+    
+    LOuter := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LOuter.Statements.Count);
+    Assert.IsTrue(LOuter.Statements[0] is TBeginEndStatementSyntax);
+    
+    LInner := TBeginEndStatementSyntax(LOuter.Statements[0]);
+    Assert.AreEqual(1, LInner.Statements.Count);
+    Assert.IsTrue(LInner.Statements[0] is TAssignmentStatementSyntax);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndInIfThen;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if True then begin x := 1; y := 2; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+    
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LIf.ThenStatement);
+    Assert.AreEqual(2, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[1] is TAssignmentStatementSyntax);
+    Assert.IsNotNull(LBlock.Semicolon, 'Trailing semicolon should be consumed');
+    
+    Assert.IsNull(LIf.ElseKeyword, 'No else branch');
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndInIfThenElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+  LThenBlock, LElseBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if x then begin a := 1; end else begin b := 2; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+    
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    
+    Assert.IsTrue(LIf.ThenStatement is TBeginEndStatementSyntax);
+    LThenBlock := TBeginEndStatementSyntax(LIf.ThenStatement);
+    Assert.AreEqual(1, LThenBlock.Statements.Count);
+    Assert.IsNull(LThenBlock.Semicolon, 'No semicolon before else');
+    
+    Assert.IsNotNull(LIf.ElseKeyword);
+    Assert.IsTrue(LIf.ElseStatement is TBeginEndStatementSyntax);
+    LElseBlock := TBeginEndStatementSyntax(LIf.ElseStatement);
+    Assert.AreEqual(1, LElseBlock.Statements.Count);
+    Assert.IsNotNull(LElseBlock.Semicolon, 'Semicolon after else-end');
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndInWhileDo;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LWhile: TWhileStatementSyntax;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin while x do begin y := y + 1; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TWhileStatementSyntax);
+    
+    LWhile := TWhileStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LWhile.Statement is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LWhile.Statement);
+    Assert.AreEqual(1, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndInForDo;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for I := 0 to 10 do begin x := I; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+    
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LFor.Statement is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LFor.Statement);
+    Assert.AreEqual(1, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndEmpty;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+    
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(0, LBlock.Statements.Count, 'Empty begin-end should have 0 statements');
+    Assert.IsNotNull(LBlock.BeginKeyword);
+    Assert.IsNotNull(LBlock.EndKeyword);
+    
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestBeginEndDeepNesting;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+  LBlock: TBeginEndStatementSyntax;
+  LInnerIf: TIfStatementSyntax;
+  LInnerBlock: TBeginEndStatementSyntax;
+begin
+  LSource :=
+    'procedure Complex; ' + #13#10 +
+    'begin' + #13#10 +
+    '  if a then' + #13#10 +
+    '  begin' + #13#10 +
+    '    x := 1;' + #13#10 +
+    '    if b then' + #13#10 +
+    '    begin' + #13#10 +
+    '      y := 2;' + #13#10 +
+    '    end;' + #13#10 +
+    '    z := 3;' + #13#10 +
+    '  end' + #13#10 +
+    '  else' + #13#10 +
+    '  begin' + #13#10 +
+    '    w := 4;' + #13#10 +
+    '  end;' + #13#10 +
+    'end;';
+    
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+    
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    
+    // Then: begin x := 1; if b then begin y := 2; end; z := 3; end
+    Assert.IsTrue(LIf.ThenStatement is TBeginEndStatementSyntax);
+    LBlock := TBeginEndStatementSyntax(LIf.ThenStatement);
+    Assert.AreEqual(3, LBlock.Statements.Count, 'Then-block should have 3 statements');
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax, 'x := 1');
+    Assert.IsTrue(LBlock.Statements[1] is TIfStatementSyntax, 'if b then ...');
+    Assert.IsTrue(LBlock.Statements[2] is TAssignmentStatementSyntax, 'z := 3');
+    Assert.IsNull(LBlock.Semicolon, 'No semicolon before else');
+    
+    // Inner if: if b then begin y := 2; end;
+    LInnerIf := TIfStatementSyntax(LBlock.Statements[1]);
+    Assert.IsTrue(LInnerIf.ThenStatement is TBeginEndStatementSyntax);
+    LInnerBlock := TBeginEndStatementSyntax(LInnerIf.ThenStatement);
+    Assert.AreEqual(1, LInnerBlock.Statements.Count);
+    Assert.IsTrue(LInnerBlock.Statements[0] is TAssignmentStatementSyntax);
+    
+    // Else: begin w := 4; end;
+    Assert.IsNotNull(LIf.ElseKeyword);
+    Assert.IsTrue(LIf.ElseStatement is TBeginEndStatementSyntax);
+    LBlock := TBeginEndStatementSyntax(LIf.ElseStatement);
+    Assert.AreEqual(1, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsNotNull(LBlock.Semicolon, 'Semicolon after else-end');
+    
+    // Roundtrip
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult, 'Roundtrip should be exact');
   finally
     LWriter.Free;
     LParser.Free;

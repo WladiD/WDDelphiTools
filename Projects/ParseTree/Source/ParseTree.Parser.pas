@@ -37,6 +37,7 @@ type
     function ParseForStatement: TForStatementSyntax;
     function ParseIfStatement: TIfStatementSyntax;
     function ParseAssignmentStatement: TAssignmentStatementSyntax;
+    function ParseBeginEndStatement: TBeginEndStatementSyntax;
   end;
 
 implementation
@@ -503,7 +504,9 @@ begin
   else if Current.Kind = tkForKeyword then
     Exit(ParseForStatement)
   else if Current.Kind = tkIfKeyword then
-    Exit(ParseIfStatement);
+    Exit(ParseIfStatement)
+  else if Current.Kind = tkBeginKeyword then
+    Exit(ParseBeginEndStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -660,6 +663,21 @@ begin
 
     Result.RightTokens.Add(NextToken);
   end;
+end;
+
+function TParseTreeParser.ParseBeginEndStatement: TBeginEndStatementSyntax;
+begin
+  Result := TBeginEndStatementSyntax.Create;
+  Result.BeginKeyword := MatchToken(tkBeginKeyword);
+  
+  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+    Result.Statements.Add(ParseStatement);
+    
+  if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+    Result.EndKeyword := MatchToken(tkEndKeyword);
+
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

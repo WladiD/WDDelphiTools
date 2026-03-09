@@ -296,6 +296,22 @@ type
     property RightTokens: TObjectList<TSyntaxToken> read FRightTokens;
   end;
 
+  { begin Statements end [;] }
+  TBeginEndStatementSyntax = class(TStatementSyntax)
+  private
+    FBeginKeyword: TSyntaxToken;
+    FStatements: TObjectList<TStatementSyntax>;
+    FEndKeyword: TSyntaxToken;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property BeginKeyword: TSyntaxToken read FBeginKeyword write FBeginKeyword;
+    property Statements: TObjectList<TStatementSyntax> read FStatements;
+    property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -682,6 +698,23 @@ begin
   FLeftTokens.Free;
   FColonEqualsToken.Free;
   FRightTokens.Free;
+  inherited;
+end;
+
+{ TBeginEndStatementSyntax }
+
+constructor TBeginEndStatementSyntax.Create;
+begin
+  inherited Create;
+  FStatements := TObjectList<TStatementSyntax>.Create;
+end;
+
+destructor TBeginEndStatementSyntax.Destroy;
+begin
+  FBeginKeyword.Free;
+  FStatements.Free;
+  FEndKeyword.Free;
+  FSemicolon.Free;
   inherited;
 end;
 
