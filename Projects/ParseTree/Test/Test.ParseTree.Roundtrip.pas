@@ -7,6 +7,7 @@ uses
   System.Classes,
   System.IOUtils,
   System.Threading,
+  System.SyncObjs,
   System.Types,
   DUnitX.TestFramework,
   ParseTree.Core,
@@ -119,6 +120,8 @@ var
   LSourceDir: string;
   LFiles: TStringDynArray;
   LThreadPool: TThreadPool;
+  LFailedFiles: TStringList;
+  LLock: System.SyncObjs.TCriticalSection;
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LSourceDir := TPath.Combine(LProjectsDir, 'DPT\Source');
@@ -127,19 +130,54 @@ begin
     Assert.Fail('Source directory does not exist: ' + LSourceDir);
 
   LFiles := TDirectory.GetFiles(LSourceDir, '*.pas', TSearchOption.soTopDirectoryOnly);
-  
+
+  LFailedFiles := TStringList.Create;
+  LLock := System.SyncObjs.TCriticalSection.Create;
   LThreadPool := TThreadPool.Create;
   try
     LThreadPool.MaxWorkerThreads := 2;
-    TParallel.For(0, Length(LFiles) - 1,
-      procedure(I: Integer)
+    try
+      TParallel.For(0, Length(LFiles) - 1,
+        procedure(I: Integer)
+        begin
+          Writeln('Testing: ' + ExtractFileName(LFiles[I]));
+          try
+            DoRoundtripTest(LFiles[I]);
+          except
+            on E: Exception do
+            begin
+              LLock.Enter;
+              try
+                LFailedFiles.Add(Format('%s (%s: %s)', [ExtractFileName(LFiles[I]), E.ClassName, E.Message]));
+              finally
+                LLock.Leave;
+              end;
+            end;
+          end;
+        end,
+        LThreadPool);
+    except
+      on E: EAggregateException do
       begin
-        Writeln('Testing: ' + ExtractFileName(LFiles[I]));
-        DoRoundtripTest(LFiles[I]);
-      end,
-      LThreadPool);
+        for var I := 0 to E.Count - 1 do
+        begin
+          LLock.Enter;
+          try
+            LFailedFiles.Add(Format('AggregateException[%d]: %s: %s', [I, E.InnerExceptions[I].ClassName, E.InnerExceptions[I].Message]));
+          finally
+            LLock.Leave;
+          end;
+        end;
+      end;
+    end;
+
+    if LFailedFiles.Count > 0 then
+      Assert.Fail(Format('Roundtrip failed for %d files:'#13#10'%s',
+        [LFailedFiles.Count, LFailedFiles.Text]));
   finally
     LThreadPool.Free;
+    LLock.Free;
+    LFailedFiles.Free;
   end;
 end;
 

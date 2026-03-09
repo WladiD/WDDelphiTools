@@ -92,71 +92,82 @@ begin
   LThreadPool := TThreadPool.Create;
   try
     LThreadPool.MaxWorkerThreads := 2;
-    TParallel.For(Low(LFiles), High(LFiles),
-      procedure(LTaskIndex: Integer)
-      var
-        LTaskFile: string;
-        LLocalParser: TParseTreeParser;
-        LLocalSerializer: TSyntaxTreeSerializer;
-        LLocalTree: TCompilationUnitSyntax;
-        LLocalContent: string;
-        LLocalJson: TJSONObject;
-        LRelPath: string;
-        LTargetFile: string;
-      begin
-        LTaskFile := LFiles[LTaskIndex];
-        try
-          LLocalContent := TFile.ReadAllText(LTaskFile, TEncoding.UTF8);
-
-          // Each thread MUST instantiate its own parser/serializer to avoid race conditions!
-          LLocalParser := TParseTreeParser.Create;
-          LLocalSerializer := TSyntaxTreeSerializer.Create;
+    try
+      TParallel.For(Low(LFiles), High(LFiles),
+        procedure(LTaskIndex: Integer)
+        var
+          LTaskFile: string;
+          LLocalParser: TParseTreeParser;
+          LLocalSerializer: TSyntaxTreeSerializer;
+          LLocalTree: TCompilationUnitSyntax;
+          LLocalContent: string;
+          LLocalJson: TJSONObject;
+          LRelPath: string;
+          LTargetFile: string;
+        begin
+          LTaskFile := LFiles[LTaskIndex];
           try
-            LLocalTree := LLocalParser.Parse(LLocalContent);
-            try
-              // Serialize to JSON
-              LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
-              try
-                // Mirrored path in OutputDir
-                LRelPath := ExtractRelativePath(LProjectsDir, LTaskFile);
-                LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+            LLocalContent := TFile.ReadAllText(LTaskFile, TEncoding.UTF8);
 
-                // Ensure directory exists and write file (locked to avoid race conditions)
-                LLock.Enter;
+            LLocalParser := TParseTreeParser.Create;
+            LLocalSerializer := TSyntaxTreeSerializer.Create;
+            try
+              LLocalTree := LLocalParser.Parse(LLocalContent);
+              try
+                LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
                 try
-                  TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
-                  TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
+                  LRelPath := ExtractRelativePath(LProjectsDir, LTaskFile);
+                  LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+
+                  LLock.Enter;
+                  try
+                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
+                    TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
+                  finally
+                    LLock.Leave;
+                  end;
                 finally
-                  LLock.Leave;
+                  LLocalJson.Free;
                 end;
               finally
-                LLocalJson.Free;
+                LLocalTree.Free;
               end;
             finally
-              LLocalTree.Free;
+              LLocalSerializer.Free;
+              LLocalParser.Free;
             end;
-          finally
-            LLocalSerializer.Free;
-            LLocalParser.Free;
-          end;
 
-        except
-          on E: Exception do
-          begin
-            LLock.Enter;
-            try
-              LFailedFiles.Add(Format('%s (Error: %s)', [LTaskFile, E.Message]));
-            finally
-              LLock.Leave;
+          except
+            on E: Exception do
+            begin
+              LLock.Enter;
+              try
+                LFailedFiles.Add(Format('%s (%s: %s)', [LTaskFile, E.ClassName, E.Message]));
+              finally
+                LLock.Leave;
+              end;
             end;
+          end;
+        end,
+        LThreadPool);
+    except
+      on E: EAggregateException do
+      begin
+        for var I := 0 to E.Count - 1 do
+        begin
+          LLock.Enter;
+          try
+            LFailedFiles.Add(Format('AggregateException[%d]: %s: %s', [I, E.InnerExceptions[I].ClassName, E.InnerExceptions[I].Message]));
+          finally
+            LLock.Leave;
           end;
         end;
-      end,
-      LThreadPool);
+      end;
+    end;
 
     if LFailedFiles.Count > 0 then
-      Assert.Fail(Format('Failed to parse %d files out of %d. First error: %s',
-        [LFailedFiles.Count, Length(LFiles), LFailedFiles[0]]));
+      Assert.Fail(Format('Failed to parse %d files out of %d:'#13#10'%s',
+        [LFailedFiles.Count, Length(LFiles), LFailedFiles.Text]));
 
   finally
     LThreadPool.Free;

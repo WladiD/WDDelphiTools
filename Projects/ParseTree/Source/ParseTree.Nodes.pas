@@ -312,6 +312,28 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { try Statements finally/except Statements end [;] }
+  TTryStatementSyntax = class(TStatementSyntax)
+  private
+    FTryKeyword: TSyntaxToken;
+    FStatements: TObjectList<TStatementSyntax>;
+    FFinallyKeyword: TSyntaxToken;
+    FExceptKeyword: TSyntaxToken;
+    FFinallyExceptStatements: TObjectList<TStatementSyntax>;
+    FEndKeyword: TSyntaxToken;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property TryKeyword: TSyntaxToken read FTryKeyword write FTryKeyword;
+    property Statements: TObjectList<TStatementSyntax> read FStatements;
+    property FinallyKeyword: TSyntaxToken read FFinallyKeyword write FFinallyKeyword;
+    property ExceptKeyword: TSyntaxToken read FExceptKeyword write FExceptKeyword;
+    property FinallyExceptStatements: TObjectList<TStatementSyntax> read FFinallyExceptStatements;
+    property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -713,6 +735,27 @@ destructor TBeginEndStatementSyntax.Destroy;
 begin
   FBeginKeyword.Free;
   FStatements.Free;
+  FEndKeyword.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TTryStatementSyntax }
+
+constructor TTryStatementSyntax.Create;
+begin
+  inherited Create;
+  FStatements := TObjectList<TStatementSyntax>.Create;
+  FFinallyExceptStatements := TObjectList<TStatementSyntax>.Create;
+end;
+
+destructor TTryStatementSyntax.Destroy;
+begin
+  FTryKeyword.Free;
+  FStatements.Free;
+  FFinallyKeyword.Free;
+  FExceptKeyword.Free;
+  FFinallyExceptStatements.Free;
   FEndKeyword.Free;
   FSemicolon.Free;
   inherited;

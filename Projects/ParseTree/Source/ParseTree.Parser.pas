@@ -38,6 +38,7 @@ type
     function ParseIfStatement: TIfStatementSyntax;
     function ParseAssignmentStatement: TAssignmentStatementSyntax;
     function ParseBeginEndStatement: TBeginEndStatementSyntax;
+    function ParseTryStatement: TTryStatementSyntax;
   end;
 
 implementation
@@ -506,7 +507,9 @@ begin
   else if Current.Kind = tkIfKeyword then
     Exit(ParseIfStatement)
   else if Current.Kind = tkBeginKeyword then
-    Exit(ParseBeginEndStatement);
+    Exit(ParseBeginEndStatement)
+  else if Current.Kind = tkTryKeyword then
+    Exit(ParseTryStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -516,7 +519,8 @@ begin
       Exit(ParseAssignmentStatement);
     if Peek(LIdx).Kind in [tkBeginKeyword, tkEndKeyword, tkTryKeyword, tkCaseKeyword,
        tkAsmKeyword, tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword,
-       tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword] then
+       tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword,
+       tkFinallyKeyword, tkExceptKeyword] then
       Break;
     Inc(LIdx);
   end;
@@ -533,6 +537,8 @@ begin
       if LNest = 0 then Break;
       Dec(LNest);
     end
+    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and (LNest = 0) and (LOpaque.Tokens.Count > 0) then
+      Break
     else if (Current.Kind = tkSemicolon) and (LNest = 0) then
     begin
       LOpaque.Tokens.Add(NextToken);
@@ -673,6 +679,30 @@ begin
   while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
     Result.Statements.Add(ParseStatement);
     
+  if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+    Result.EndKeyword := MatchToken(tkEndKeyword);
+
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
+function TParseTreeParser.ParseTryStatement: TTryStatementSyntax;
+begin
+  Result := TTryStatementSyntax.Create;
+  Result.TryKeyword := MatchToken(tkTryKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkFinallyKeyword) and (Current.Kind <> tkExceptKeyword)
+        and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+    Result.Statements.Add(ParseStatement);
+
+  if (Current <> nil) and (Current.Kind = tkFinallyKeyword) then
+    Result.FinallyKeyword := MatchToken(tkFinallyKeyword)
+  else if (Current <> nil) and (Current.Kind = tkExceptKeyword) then
+    Result.ExceptKeyword := MatchToken(tkExceptKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+    Result.FinallyExceptStatements.Add(ParseStatement);
+
   if (Current <> nil) and (Current.Kind = tkEndKeyword) then
     Result.EndKeyword := MatchToken(tkEndKeyword);
 

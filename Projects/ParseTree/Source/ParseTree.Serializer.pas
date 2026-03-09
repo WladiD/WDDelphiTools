@@ -36,6 +36,7 @@ type
     function SerializeIfStatement(AStmt: TIfStatementSyntax): System.JSON.TJSONObject;
     function SerializeAssignmentStatement(AStmt: TAssignmentStatementSyntax): System.JSON.TJSONObject;
     function SerializeBeginEndStatement(AStmt: TBeginEndStatementSyntax): System.JSON.TJSONObject;
+    function SerializeTryStatement(AStmt: TTryStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -493,6 +494,8 @@ begin
     Result := SerializeAssignmentStatement(TAssignmentStatementSyntax(AStmt))
   else if AStmt is TBeginEndStatementSyntax then
     Result := SerializeBeginEndStatement(TBeginEndStatementSyntax(AStmt))
+  else if AStmt is TTryStatementSyntax then
+    Result := SerializeTryStatement(TTryStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -674,6 +677,40 @@ begin
   if Assigned(AStmt.EndKeyword) then
     Result.AddPair('EndKeyword', SerializeToken(AStmt.EndKeyword));
     
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeTryStatement(AStmt: TTryStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LStmt: TStatementSyntax;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'TryStatement');
+
+  if Assigned(AStmt.TryKeyword) then
+    Result.AddPair('TryKeyword', SerializeToken(AStmt.TryKeyword));
+
+  LArray := TJSONArray.Create;
+  for LStmt in AStmt.Statements do
+    LArray.AddElement(SerializeStatement(LStmt));
+  Result.AddPair('Statements', LArray);
+
+  if Assigned(AStmt.FinallyKeyword) then
+    Result.AddPair('FinallyKeyword', SerializeToken(AStmt.FinallyKeyword));
+
+  if Assigned(AStmt.ExceptKeyword) then
+    Result.AddPair('ExceptKeyword', SerializeToken(AStmt.ExceptKeyword));
+
+  LArray := TJSONArray.Create;
+  for LStmt in AStmt.FinallyExceptStatements do
+    LArray.AddElement(SerializeStatement(LStmt));
+  Result.AddPair('FinallyExceptStatements', LArray);
+
+  if Assigned(AStmt.EndKeyword) then
+    Result.AddPair('EndKeyword', SerializeToken(AStmt.EndKeyword));
+
   if Assigned(AStmt.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
 end;

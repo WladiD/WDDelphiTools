@@ -238,6 +238,8 @@ begin
   else if LUpper = 'IF' then LKind := tkIfKeyword
   else if LUpper = 'THEN' then LKind := tkThenKeyword
   else if LUpper = 'ELSE' then LKind := tkElseKeyword
+  else if LUpper = 'FINALLY' then LKind := tkFinallyKeyword
+  else if LUpper = 'EXCEPT' then LKind := tkExceptKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);
