@@ -41,6 +41,8 @@ type
     function SerializeCaseStatement(AStmt: TCaseStatementSyntax): System.JSON.TJSONObject;
     function SerializeProcedureCallStatement(AStmt: TProcedureCallStatementSyntax): System.JSON.TJSONObject;
     function SerializeWithStatement(AStmt: TWithStatementSyntax): System.JSON.TJSONObject;
+    function SerializeInheritedStatement(AStmt: TInheritedStatementSyntax): System.JSON.TJSONObject;
+    function SerializeExitStatement(AStmt: TExitStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -508,6 +510,10 @@ begin
     Result := SerializeProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
   else if AStmt is TWithStatementSyntax then
     Result := SerializeWithStatement(TWithStatementSyntax(AStmt))
+  else if AStmt is TInheritedStatementSyntax then
+    Result := SerializeInheritedStatement(TInheritedStatementSyntax(AStmt))
+  else if AStmt is TExitStatementSyntax then
+    Result := SerializeExitStatement(TExitStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -882,6 +888,52 @@ begin
 
   if Assigned(AStmt.Statement) then
     Result.AddPair('Statement', SerializeStatement(AStmt.Statement));
+end;
+
+function TSyntaxTreeSerializer.SerializeInheritedStatement(AStmt: TInheritedStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'InheritedStatement');
+
+  if Assigned(AStmt.InheritedKeyword) then
+    Result.AddPair('InheritedKeyword', SerializeToken(AStmt.InheritedKeyword));
+
+  if AStmt.CallTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.CallTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('CallTokens', LArray);
+  end;
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeExitStatement(AStmt: TExitStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'ExitStatement');
+
+  if Assigned(AStmt.ExitKeyword) then
+    Result.AddPair('ExitKeyword', SerializeToken(AStmt.ExitKeyword));
+
+  if AStmt.ExpressionTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.ExpressionTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('ExpressionTokens', LArray);
+  end;
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
 end;
 
 function TSyntaxTreeSerializer.SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;

@@ -408,7 +408,35 @@ type
     property Statement: TStatementSyntax read FStatement write FStatement;
   end;
 
-  { Foo.Bar(Baz); or inherited; or Exit(Value); etc. }
+  { inherited; or inherited MethodName(Args); }
+  TInheritedStatementSyntax = class(TStatementSyntax)
+  private
+    FInheritedKeyword: TSyntaxToken;
+    FCallTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property InheritedKeyword: TSyntaxToken read FInheritedKeyword write FInheritedKeyword;
+    property CallTokens: TObjectList<TSyntaxToken> read FCallTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
+  { Exit; or Exit(Value); }
+  TExitStatementSyntax = class(TStatementSyntax)
+  private
+    FExitKeyword: TSyntaxToken;
+    FExpressionTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property ExitKeyword: TSyntaxToken read FExitKeyword write FExitKeyword;
+    property ExpressionTokens: TObjectList<TSyntaxToken> read FExpressionTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
+  { Foo.Bar(Baz); etc. }
   TProcedureCallStatementSyntax = class(TStatementSyntax)
   private
     FExpressionTokens: TObjectList<TSyntaxToken>;
@@ -920,6 +948,40 @@ begin
   FExpressionTokens.Free;
   FDoKeyword.Free;
   FStatement.Free;
+  inherited;
+end;
+
+{ TProcedureCallStatementSyntax }
+
+{ TInheritedStatementSyntax }
+
+constructor TInheritedStatementSyntax.Create;
+begin
+  inherited Create;
+  FCallTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TInheritedStatementSyntax.Destroy;
+begin
+  FInheritedKeyword.Free;
+  FCallTokens.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TExitStatementSyntax }
+
+constructor TExitStatementSyntax.Create;
+begin
+  inherited Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TExitStatementSyntax.Destroy;
+begin
+  FExitKeyword.Free;
+  FExpressionTokens.Free;
+  FSemicolon.Free;
   inherited;
 end;
 

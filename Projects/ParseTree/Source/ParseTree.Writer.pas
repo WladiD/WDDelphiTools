@@ -35,6 +35,8 @@ type
     procedure WriteCaseStatement(AStmt: TCaseStatementSyntax);
     procedure WriteProcedureCallStatement(AStmt: TProcedureCallStatementSyntax);
     procedure WriteWithStatement(AStmt: TWithStatementSyntax);
+    procedure WriteInheritedStatement(AStmt: TInheritedStatementSyntax);
+    procedure WriteExitStatement(AStmt: TExitStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
     // Declarations
@@ -317,6 +319,10 @@ begin
     WriteProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
   else if AStmt is TWithStatementSyntax then
     WriteWithStatement(TWithStatementSyntax(AStmt))
+  else if AStmt is TInheritedStatementSyntax then
+    WriteInheritedStatement(TInheritedStatementSyntax(AStmt))
+  else if AStmt is TExitStatementSyntax then
+    WriteExitStatement(TExitStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
 end;
@@ -486,6 +492,26 @@ begin
     WriteToken(LToken);
   WriteToken(AStmt.DoKeyword);
   WriteStatement(AStmt.Statement);
+end;
+
+procedure TSyntaxTreeWriter.WriteInheritedStatement(AStmt: TInheritedStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  WriteToken(AStmt.InheritedKeyword);
+  for LToken in AStmt.CallTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.Semicolon);
+end;
+
+procedure TSyntaxTreeWriter.WriteExitStatement(AStmt: TExitStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  WriteToken(AStmt.ExitKeyword);
+  for LToken in AStmt.ExpressionTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.Semicolon);
 end;
 
 procedure TSyntaxTreeWriter.WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);

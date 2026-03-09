@@ -43,6 +43,8 @@ type
     function ParseProcedureCallStatement: TProcedureCallStatementSyntax;
     function ParseCaseStatement: TCaseStatementSyntax;
     function ParseWithStatement: TWithStatementSyntax;
+    function ParseInheritedStatement: TInheritedStatementSyntax;
+    function ParseExitStatement: TExitStatementSyntax;
   end;
 
 implementation
@@ -519,7 +521,11 @@ begin
   else if Current.Kind = tkCaseKeyword then
     Exit(ParseCaseStatement)
   else if Current.Kind = tkWithKeyword then
-    Exit(ParseWithStatement);
+    Exit(ParseWithStatement)
+  else if Current.Kind = tkInheritedKeyword then
+    Exit(ParseInheritedStatement)
+  else if Current.Kind = tkExitKeyword then
+    Exit(ParseExitStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -886,6 +892,64 @@ begin
   if (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkElseKeyword,
      tkFinallyKeyword, tkExceptKeyword, tkEOF]) then
     Result.Statement := ParseStatement;
+end;
+
+function TParseTreeParser.ParseInheritedStatement: TInheritedStatementSyntax;
+var
+  LNest: Integer;
+begin
+  Result := TInheritedStatementSyntax.Create;
+  Result.InheritedKeyword := MatchToken(tkInheritedKeyword);
+
+  LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind = tkOpenParen then
+      Inc(LNest)
+    else if Current.Kind = tkCloseParen then
+      Dec(LNest);
+
+    if (LNest = 0) and (Current.Kind = tkSemicolon) then
+    begin
+      Result.Semicolon := MatchToken(tkSemicolon);
+      Break;
+    end;
+
+    if (LNest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+       tkFinallyKeyword, tkExceptKeyword]) then
+      Break;
+
+    Result.CallTokens.Add(NextToken);
+  end;
+end;
+
+function TParseTreeParser.ParseExitStatement: TExitStatementSyntax;
+var
+  LNest: Integer;
+begin
+  Result := TExitStatementSyntax.Create;
+  Result.ExitKeyword := MatchToken(tkExitKeyword);
+
+  LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind = tkOpenParen then
+      Inc(LNest)
+    else if Current.Kind = tkCloseParen then
+      Dec(LNest);
+
+    if (LNest = 0) and (Current.Kind = tkSemicolon) then
+    begin
+      Result.Semicolon := MatchToken(tkSemicolon);
+      Break;
+    end;
+
+    if (LNest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+       tkFinallyKeyword, tkExceptKeyword]) then
+      Break;
+
+    Result.ExpressionTokens.Add(NextToken);
+  end;
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

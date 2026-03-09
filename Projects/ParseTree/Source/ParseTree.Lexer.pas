@@ -243,6 +243,8 @@ begin
   else if LUpper = 'RAISE' then LKind := tkRaiseKeyword
   else if LUpper = 'OF' then LKind := tkOfKeyword
   else if LUpper = 'WITH' then LKind := tkWithKeyword
+  else if LUpper = 'INHERITED' then LKind := tkInheritedKeyword
+  else if LUpper = 'EXIT' then LKind := tkExitKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);

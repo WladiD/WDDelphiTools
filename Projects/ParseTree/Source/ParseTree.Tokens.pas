@@ -64,7 +64,9 @@ type
     tkExceptKeyword,
     tkRaiseKeyword,
     tkOfKeyword,
-    tkWithKeyword
+    tkWithKeyword,
+    tkInheritedKeyword,
+    tkExitKeyword
   );
 
   TTokenKindHelper = record helper for TTokenKind
