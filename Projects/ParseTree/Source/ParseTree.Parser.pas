@@ -786,12 +786,22 @@ end;
 function TParseTreeParser.ParseProcedureCallStatement: TProcedureCallStatementSyntax;
 var
   LNest: Integer;
+  LDelimiterNest: Integer;
+  LPreviousIsDot: Boolean;
 begin
   Result := TProcedureCallStatementSyntax.Create;
   LNest := 0;
+  LDelimiterNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
+    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then
+      Inc(LDelimiterNest)
+    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then
+    begin
+      if LDelimiterNest > 0 then
+        Dec(LDelimiterNest);
+    end
+    else if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
        (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
       Inc(LNest)
     else if Current.Kind = tkEndKeyword then
@@ -800,15 +810,18 @@ begin
       Dec(LNest);
     end
     else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and
-            (LNest = 0) and (Result.ExpressionTokens.Count > 0) then
+            (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) then
       Break
-    else if (Current.Kind = tkSemicolon) and (LNest = 0) then
+    else if (Current.Kind = tkSemicolon) and (LNest = 0) and (LDelimiterNest = 0) then
     begin
       Result.Semicolon := MatchToken(tkSemicolon);
       Break;
     end;
 
-    if (LNest = 0) and (Result.ExpressionTokens.Count > 0) and
+    LPreviousIsDot := (Result.ExpressionTokens.Count > 0) and
+      (Result.ExpressionTokens.Last.Kind = tkDot);
+    if (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) and
+       not LPreviousIsDot and
        ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
         (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
         (Current.Kind = tkElseKeyword) or (Current.Kind = tkCaseKeyword) or
