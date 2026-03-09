@@ -545,7 +545,8 @@ begin
     Inc(LIdx);
   end;
 
-  if (Current <> nil) and (Current.Kind in [tkIdentifier, tkWriteKeyword, tkReadKeyword]) then
+  if (Current <> nil) and (Current.Kind in [tkIdentifier, tkWriteKeyword, tkReadKeyword,
+     tkOpenParen]) then
     Exit(ParseProcedureCallStatement);
 
   // Fallback: collect until semicolon or block end
