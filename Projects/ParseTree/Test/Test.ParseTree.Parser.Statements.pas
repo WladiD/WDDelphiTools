@@ -74,6 +74,20 @@ type
     procedure TestTryFinallyEmpty;
     [Test]
     procedure TestTryFinallyDeepNesting;
+    [Test]
+    procedure TestRaiseSimple;
+    [Test]
+    procedure TestRaiseBare;
+    [Test]
+    procedure TestRaiseWithMethodCall;
+    [Test]
+    procedure TestRaiseWithNestedParens;
+    [Test]
+    procedure TestRaiseInExceptBlock;
+    [Test]
+    procedure TestRaiseInIfThenElse;
+    [Test]
+    procedure TestRaiseInBeginEnd;
   end;
 
 implementation
@@ -1119,6 +1133,219 @@ begin
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult, 'Roundtrip should be exact');
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseSimple;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRaise: TRaiseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin raise Exception.Create(''Error''); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRaiseStatementSyntax);
+
+    LRaise := TRaiseStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LRaise.RaiseKeyword);
+    Assert.AreEqual('raise', LRaise.RaiseKeyword.Text);
+    Assert.IsTrue(LRaise.ExpressionTokens.Count > 0, 'Should have expression tokens');
+    Assert.AreEqual('Exception', LRaise.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseBare;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRaise: TRaiseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin raise; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRaiseStatementSyntax);
+
+    LRaise := TRaiseStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LRaise.RaiseKeyword);
+    Assert.AreEqual(0, LRaise.ExpressionTokens.Count, 'Bare raise should have no expression');
+    Assert.IsNotNull(LRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseWithMethodCall;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRaise: TRaiseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin raise EInvalidOperation.CreateFmt(''Error: %s'', [Msg]); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRaiseStatementSyntax);
+
+    LRaise := TRaiseStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LRaise.RaiseKeyword);
+    Assert.AreEqual('EInvalidOperation', LRaise.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseWithNestedParens;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRaise: TRaiseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin raise Exception.Create(Format(''%s (%d)'', [S, I])); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRaiseStatementSyntax);
+
+    LRaise := TRaiseStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseInExceptBlock;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin try DoWork; except raise; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LTry.ExceptKeyword);
+    Assert.AreEqual(1, LTry.FinallyExceptStatements.Count);
+    Assert.IsTrue(LTry.FinallyExceptStatements[0] is TRaiseStatementSyntax);
+
+    var LRaise := TRaiseStatementSyntax(LTry.FinallyExceptStatements[0]);
+    Assert.AreEqual(0, LRaise.ExpressionTokens.Count, 'Should be bare raise');
+    Assert.IsNotNull(LRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseInIfThenElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if x then raise Exception.Create(''A'') else raise Exception.Create(''B''); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TRaiseStatementSyntax, 'Then branch should be raise');
+    var LThenRaise := TRaiseStatementSyntax(LIf.ThenStatement);
+    Assert.IsNull(LThenRaise.Semicolon, 'No semicolon before else');
+
+    Assert.IsNotNull(LIf.ElseKeyword);
+    Assert.IsTrue(LIf.ElseStatement is TRaiseStatementSyntax, 'Else branch should be raise');
+    var LElseRaise := TRaiseStatementSyntax(LIf.ElseStatement);
+    Assert.IsNotNull(LElseRaise.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRaiseInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin x := 1; raise Exception.Create(''Error''); y := 2; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[1] is TRaiseStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[2] is TAssignmentStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
   finally
     LWriter.Free;
     LParser.Free;

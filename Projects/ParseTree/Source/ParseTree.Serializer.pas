@@ -37,6 +37,7 @@ type
     function SerializeAssignmentStatement(AStmt: TAssignmentStatementSyntax): System.JSON.TJSONObject;
     function SerializeBeginEndStatement(AStmt: TBeginEndStatementSyntax): System.JSON.TJSONObject;
     function SerializeTryStatement(AStmt: TTryStatementSyntax): System.JSON.TJSONObject;
+    function SerializeRaiseStatement(AStmt: TRaiseStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -496,6 +497,8 @@ begin
     Result := SerializeBeginEndStatement(TBeginEndStatementSyntax(AStmt))
   else if AStmt is TTryStatementSyntax then
     Result := SerializeTryStatement(TTryStatementSyntax(AStmt))
+  else if AStmt is TRaiseStatementSyntax then
+    Result := SerializeRaiseStatement(TRaiseStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -710,6 +713,29 @@ begin
 
   if Assigned(AStmt.EndKeyword) then
     Result.AddPair('EndKeyword', SerializeToken(AStmt.EndKeyword));
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeRaiseStatement(AStmt: TRaiseStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'RaiseStatement');
+
+  if Assigned(AStmt.RaiseKeyword) then
+    Result.AddPair('RaiseKeyword', SerializeToken(AStmt.RaiseKeyword));
+
+  if AStmt.ExpressionTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.ExpressionTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('ExpressionTokens', LArray);
+  end;
 
   if Assigned(AStmt.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));

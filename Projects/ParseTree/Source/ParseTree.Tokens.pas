@@ -61,7 +61,8 @@ type
     tkGreaterThan,
     tkColonEquals,
     tkFinallyKeyword,
-    tkExceptKeyword
+    tkExceptKeyword,
+    tkRaiseKeyword
   );
 
   TTokenKindHelper = record helper for TTokenKind

@@ -334,6 +334,20 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { raise [Expression]; }
+  TRaiseStatementSyntax = class(TStatementSyntax)
+  private
+    FRaiseKeyword: TSyntaxToken;
+    FExpressionTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property RaiseKeyword: TSyntaxToken read FRaiseKeyword write FRaiseKeyword;
+    property ExpressionTokens: TObjectList<TSyntaxToken> read FExpressionTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -757,6 +771,22 @@ begin
   FExceptKeyword.Free;
   FFinallyExceptStatements.Free;
   FEndKeyword.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TRaiseStatementSyntax }
+
+constructor TRaiseStatementSyntax.Create;
+begin
+  inherited Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TRaiseStatementSyntax.Destroy;
+begin
+  FRaiseKeyword.Free;
+  FExpressionTokens.Free;
   FSemicolon.Free;
   inherited;
 end;

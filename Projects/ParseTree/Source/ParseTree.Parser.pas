@@ -39,6 +39,7 @@ type
     function ParseAssignmentStatement: TAssignmentStatementSyntax;
     function ParseBeginEndStatement: TBeginEndStatementSyntax;
     function ParseTryStatement: TTryStatementSyntax;
+    function ParseRaiseStatement: TRaiseStatementSyntax;
   end;
 
 implementation
@@ -509,7 +510,9 @@ begin
   else if Current.Kind = tkBeginKeyword then
     Exit(ParseBeginEndStatement)
   else if Current.Kind = tkTryKeyword then
-    Exit(ParseTryStatement);
+    Exit(ParseTryStatement)
+  else if Current.Kind = tkRaiseKeyword then
+    Exit(ParseRaiseStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -520,7 +523,7 @@ begin
     if Peek(LIdx).Kind in [tkBeginKeyword, tkEndKeyword, tkTryKeyword, tkCaseKeyword,
        tkAsmKeyword, tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword,
        tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword,
-       tkFinallyKeyword, tkExceptKeyword] then
+       tkFinallyKeyword, tkExceptKeyword, tkRaiseKeyword] then
       Break;
     Inc(LIdx);
   end;
@@ -708,6 +711,35 @@ begin
 
   if (Current <> nil) and (Current.Kind = tkSemicolon) then
     Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
+function TParseTreeParser.ParseRaiseStatement: TRaiseStatementSyntax;
+var
+  LNest: Integer;
+begin
+  Result := TRaiseStatementSyntax.Create;
+  Result.RaiseKeyword := MatchToken(tkRaiseKeyword);
+
+  LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind = tkOpenParen then
+      Inc(LNest)
+    else if Current.Kind = tkCloseParen then
+      Dec(LNest);
+
+    if (Current.Kind = tkSemicolon) and (LNest <= 0) then
+    begin
+      Result.Semicolon := MatchToken(tkSemicolon);
+      Break;
+    end;
+
+    if (LNest <= 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+       tkFinallyKeyword, tkExceptKeyword]) then
+      Break;
+
+    Result.ExpressionTokens.Add(NextToken);
+  end;
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;
