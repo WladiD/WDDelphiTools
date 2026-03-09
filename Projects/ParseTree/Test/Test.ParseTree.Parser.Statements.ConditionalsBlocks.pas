@@ -33,6 +33,8 @@ type
     [Test]
     procedure TestAssignmentStatement;
     [Test]
+    procedure TestAssignmentWithAnonymousFunction;
+    [Test]
     procedure TestBeginEndSimple;
     [Test]
     procedure TestBeginEndWithMultipleStatements;
@@ -357,6 +359,39 @@ begin
     Assert.IsTrue(LMethod.Statements[2] is TAssignmentStatementSyntax);
     
     // Roundtrip
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsConditionalsBlocksTest.TestAssignmentWithAnonymousFunction;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource :=
+    'procedure Foo; begin ' +
+    'Result := function(Progress: Real): Real begin ' +
+    'if Progress > 0 then Result := Progress else Result := -Progress; ' +
+    'end; ' +
+    'end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TAssignmentStatementSyntax);
+
+    var LAssign := TAssignmentStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LAssign.RightTokens.Count > 0);
+    Assert.AreEqual('function', LAssign.RightTokens[0].Text);
+    Assert.AreEqual(';', LAssign.RightTokens.Last.Text);
+
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
   finally

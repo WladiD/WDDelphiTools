@@ -325,11 +325,11 @@ begin
   // Skip generic type parameters <T> or <T1, T2>
   if (Current <> nil) and (Current.Kind = tkLessThan) then
   begin
-    NextToken; // consume '<'
+    Result.GenericParameterTokens.Add(NextToken); // consume '<'
     while (Current <> nil) and (Current.Kind <> tkGreaterThan) and (Current.Kind <> tkEOF) do
-      NextToken; // consume type params and commas
+      Result.GenericParameterTokens.Add(NextToken); // consume type params and commas
     if (Current <> nil) and (Current.Kind = tkGreaterThan) then
-      NextToken; // consume '>'
+      Result.GenericParameterTokens.Add(NextToken); // consume '>'
   end;
   
   if (Current <> nil) and (Current.Kind = tkEquals) then
@@ -694,21 +694,34 @@ begin
     Result.ColonEqualsToken := MatchToken(tkColonEquals);
     
   var LNest := 0;
+  var LBlockNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
     if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then Inc(LNest)
     else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then Dec(LNest);
-    
-    if (Current.Kind = tkSemicolon) and (LNest = 0) then
+
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
+       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+      Inc(LBlockNest)
+    else if Current.Kind = tkEndKeyword then
+    begin
+      if LBlockNest = 0 then Break;
+      Dec(LBlockNest);
+    end
+    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and
+            (LNest = 0) and (LBlockNest = 0) and (Result.RightTokens.Count > 0) then
+      Break;
+
+    if (Current.Kind = tkSemicolon) and (LNest = 0) and (LBlockNest = 0) then
     begin
       Result.RightTokens.Add(MatchToken(tkSemicolon));
       Break;
     end;
-    
+
     // Break if we hit a keyword that definitely starts a new statement
-    if (LNest = 0) and (Result.RightTokens.Count > 0) and
+    if (LNest = 0) and (LBlockNest = 0) and (Result.RightTokens.Count > 0) and
        ((Current.Kind = tkIfKeyword) or (Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or 
-        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkEndKeyword) or (Current.Kind = tkElseKeyword)) then
+        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkElseKeyword)) then
       Break;
 
     Result.RightTokens.Add(NextToken);

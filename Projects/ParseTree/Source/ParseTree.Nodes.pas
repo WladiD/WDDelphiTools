@@ -124,6 +124,7 @@ type
   TTypeDeclarationSyntax = class(TSyntaxNode)
   private
     FIdentifier: TSyntaxToken;
+    FGenericParameterTokens: TObjectList<TSyntaxToken>; // e.g. <T>, <TKey, TValue>
     FEqualsToken: TSyntaxToken;
     FTypeTypeToken: TSyntaxToken; // e.g. class, interface, array, etc
     FTypeExtraTokens: TObjectList<TSyntaxToken>; // e.g. (stNone, stInto) for enums
@@ -136,6 +137,7 @@ type
     destructor Destroy; override;
     
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property GenericParameterTokens: TObjectList<TSyntaxToken> read FGenericParameterTokens;
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property TypeTypeToken: TSyntaxToken read FTypeTypeToken write FTypeTypeToken;
     property TypeExtraTokens: TObjectList<TSyntaxToken> read FTypeExtraTokens;
@@ -651,6 +653,7 @@ end;
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
+  FGenericParameterTokens := TObjectList<TSyntaxToken>.Create;
   FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
   FBaseListTokens := TObjectList<TSyntaxToken>.Create;
   FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
@@ -659,6 +662,7 @@ end;
 destructor TTypeDeclarationSyntax.Destroy;
 begin
   FIdentifier.Free;
+  FGenericParameterTokens.Free;
   FEqualsToken.Free;
   FTypeTypeToken.Free;
   FTypeExtraTokens.Free;

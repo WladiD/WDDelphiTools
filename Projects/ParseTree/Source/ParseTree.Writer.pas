@@ -137,6 +137,8 @@ var
 begin
   if ADecl = nil then Exit;
   WriteToken(ADecl.Identifier);
+  for LToken in ADecl.GenericParameterTokens do
+    WriteToken(LToken);
   WriteToken(ADecl.EqualsToken);
   WriteToken(ADecl.TypeTypeToken);
   for LToken in ADecl.TypeExtraTokens do

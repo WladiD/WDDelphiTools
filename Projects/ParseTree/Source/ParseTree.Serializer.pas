@@ -250,6 +250,13 @@ begin
   Result.AddPair('NodeType', 'TypeDeclaration');
   if Assigned(ADecl.Identifier) then
     Result.AddPair('Identifier', SerializeToken(ADecl.Identifier));
+  if Assigned(ADecl.GenericParameterTokens) and (ADecl.GenericParameterTokens.Count > 0) then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ADecl.GenericParameterTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('GenericParameterTokens', LArray);
+  end;
   if Assigned(ADecl.EqualsToken) then
     Result.AddPair('EqualsToken', SerializeToken(ADecl.EqualsToken));
   if Assigned(ADecl.TypeTypeToken) then

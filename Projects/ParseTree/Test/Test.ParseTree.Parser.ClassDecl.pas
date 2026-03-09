@@ -1,4 +1,4 @@
-﻿unit Test.ParseTree.Parser.ClassDecl;
+unit Test.ParseTree.Parser.ClassDecl;
 
 interface
 
@@ -8,7 +8,8 @@ uses
   ParseTree.Core,
   ParseTree.Tokens,
   ParseTree.Parser,
-  ParseTree.Nodes;
+  ParseTree.Nodes,
+  ParseTree.Writer;
 
 type
   [TestFixture]
@@ -29,6 +30,8 @@ type
     procedure TestParseGenericClassDeclaration;
     [Test]
     procedure TestParseNestedClassDeclaration;
+    [Test]
+    procedure TestParseGenericReferenceTypeAliasRoundtrip;
   end;
 
 implementation
@@ -458,6 +461,53 @@ begin
     Assert.AreEqual(1, LVisSec.Members.Count, 'public should have 1 member');
     Assert.IsTrue(HasTriviaContaining(GetFirstMemberToken(LVisSec, 0), 'Performs the main work'),
       'DoWork should have XML-Doc');
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestParseGenericReferenceTypeAliasRoundtrip;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TEachMiscFunction<T> = reference to function(AQ: TObject; Misc: T): Boolean;
+      TSetter<T> = reference to procedure(const Value: T);
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection);
+    Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
+    Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
+
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(2, LTypeSec.Declarations.Count);
+
+    Assert.AreEqual('TEachMiscFunction', LTypeSec.Declarations[0].Identifier.Text);
+    Assert.AreEqual(3, LTypeSec.Declarations[0].GenericParameterTokens.Count);
+    Assert.AreEqual('<', LTypeSec.Declarations[0].GenericParameterTokens[0].Text);
+    Assert.AreEqual('T', LTypeSec.Declarations[0].GenericParameterTokens[1].Text);
+    Assert.AreEqual('>', LTypeSec.Declarations[0].GenericParameterTokens[2].Text);
+
+    Assert.AreEqual('TSetter', LTypeSec.Declarations[1].Identifier.Text);
+    Assert.AreEqual(3, LTypeSec.Declarations[1].GenericParameterTokens.Count);
+
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
   finally
     LTree.Free;
   end;
