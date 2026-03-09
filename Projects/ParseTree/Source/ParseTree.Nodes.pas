@@ -448,6 +448,20 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { var X: Integer; or var X := 42; (inline variable declaration) }
+  TInlineVarStatementSyntax = class(TStatementSyntax)
+  private
+    FVarKeyword: TSyntaxToken;
+    FDeclarationTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property VarKeyword: TSyntaxToken read FVarKeyword write FVarKeyword;
+    property DeclarationTokens: TObjectList<TSyntaxToken> read FDeclarationTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -996,6 +1010,24 @@ end;
 destructor TProcedureCallStatementSyntax.Destroy;
 begin
   FExpressionTokens.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TOpaqueStatementSyntax }
+
+{ TInlineVarStatementSyntax }
+
+constructor TInlineVarStatementSyntax.Create;
+begin
+  inherited Create;
+  FDeclarationTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TInlineVarStatementSyntax.Destroy;
+begin
+  FVarKeyword.Free;
+  FDeclarationTokens.Free;
   FSemicolon.Free;
   inherited;
 end;

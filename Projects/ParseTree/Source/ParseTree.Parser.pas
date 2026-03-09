@@ -45,6 +45,7 @@ type
     function ParseWithStatement: TWithStatementSyntax;
     function ParseInheritedStatement: TInheritedStatementSyntax;
     function ParseExitStatement: TExitStatementSyntax;
+    function ParseInlineVarStatement: TInlineVarStatementSyntax;
   end;
 
 implementation
@@ -525,7 +526,9 @@ begin
   else if Current.Kind = tkInheritedKeyword then
     Exit(ParseInheritedStatement)
   else if Current.Kind = tkExitKeyword then
-    Exit(ParseExitStatement);
+    Exit(ParseExitStatement)
+  else if Current.Kind = tkVarKeyword then
+    Exit(ParseInlineVarStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -542,7 +545,7 @@ begin
     Inc(LIdx);
   end;
 
-  if (Current <> nil) and (Current.Kind = tkIdentifier) then
+  if (Current <> nil) and (Current.Kind in [tkIdentifier, tkWriteKeyword, tkReadKeyword]) then
     Exit(ParseProcedureCallStatement);
 
   // Fallback: collect until semicolon or block end
@@ -950,6 +953,22 @@ begin
 
     Result.ExpressionTokens.Add(NextToken);
   end;
+end;
+
+function TParseTreeParser.ParseInlineVarStatement: TInlineVarStatementSyntax;
+begin
+  Result := TInlineVarStatementSyntax.Create;
+  Result.VarKeyword := MatchToken(tkVarKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind in [tkEndKeyword, tkElseKeyword, tkFinallyKeyword, tkExceptKeyword] then
+      Break;
+    Result.DeclarationTokens.Add(NextToken);
+  end;
+
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

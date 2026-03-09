@@ -43,6 +43,7 @@ type
     function SerializeWithStatement(AStmt: TWithStatementSyntax): System.JSON.TJSONObject;
     function SerializeInheritedStatement(AStmt: TInheritedStatementSyntax): System.JSON.TJSONObject;
     function SerializeExitStatement(AStmt: TExitStatementSyntax): System.JSON.TJSONObject;
+    function SerializeInlineVarStatement(AStmt: TInlineVarStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -514,6 +515,8 @@ begin
     Result := SerializeInheritedStatement(TInheritedStatementSyntax(AStmt))
   else if AStmt is TExitStatementSyntax then
     Result := SerializeExitStatement(TExitStatementSyntax(AStmt))
+  else if AStmt is TInlineVarStatementSyntax then
+    Result := SerializeInlineVarStatement(TInlineVarStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -930,6 +933,29 @@ begin
     for LToken in AStmt.ExpressionTokens do
       LArray.AddElement(SerializeToken(LToken));
     Result.AddPair('ExpressionTokens', LArray);
+  end;
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeInlineVarStatement(AStmt: TInlineVarStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'InlineVarStatement');
+
+  if Assigned(AStmt.VarKeyword) then
+    Result.AddPair('VarKeyword', SerializeToken(AStmt.VarKeyword));
+
+  if AStmt.DeclarationTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.DeclarationTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('DeclarationTokens', LArray);
   end;
 
   if Assigned(AStmt.Semicolon) then
