@@ -562,11 +562,17 @@ begin
   
   if Assigned(AStmt.UntilKeyword) then
     Result.AddPair('UntilKeyword', SerializeToken(AStmt.UntilKeyword));
-    
-  LArray := TJSONArray.Create;
-  for LToken in AStmt.ConditionTokens do
-    LArray.AddElement(SerializeToken(LToken));
-  Result.AddPair('ConditionTokens', LArray);
+
+  if AStmt.ConditionTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.ConditionTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('ConditionTokens', LArray);
+  end;
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
 
   if AStmt.BodyTokens.Count > 0 then
   begin

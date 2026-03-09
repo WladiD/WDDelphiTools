@@ -589,18 +589,26 @@ function TParseTreeParser.ParseRepeatStatement: TRepeatStatementSyntax;
 begin
   Result := TRepeatStatementSyntax.Create;
   Result.RepeatKeyword := MatchToken(tkRepeatKeyword);
-  
+
   while (Current <> nil) and (Current.Kind <> tkUntilKeyword) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind in [tkEndKeyword, tkFinallyKeyword, tkExceptKeyword] then
+      Break;
     Result.Statements.Add(ParseStatement);
-    
+  end;
+
   if (Current <> nil) and (Current.Kind = tkUntilKeyword) then
     Result.UntilKeyword := MatchToken(tkUntilKeyword);
-    
+
   while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind in [tkEndKeyword, tkFinallyKeyword, tkExceptKeyword, tkElseKeyword] then
+      Break;
     Result.ConditionTokens.Add(NextToken);
-    
+  end;
+
   if (Current <> nil) and (Current.Kind = tkSemicolon) then
-    Result.ConditionTokens.Add(MatchToken(tkSemicolon));
+    Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
 function TParseTreeParser.ParseForStatement: TForStatementSyntax;

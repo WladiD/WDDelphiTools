@@ -21,6 +21,30 @@ type
     [Test]
     procedure TestRepeatStatement;
     [Test]
+    procedure TestRepeatMultipleStatements;
+    [Test]
+    procedure TestRepeatEmpty;
+    [Test]
+    procedure TestRepeatComplexCondition;
+    [Test]
+    procedure TestRepeatNested;
+    [Test]
+    procedure TestRepeatInBeginEnd;
+    [Test]
+    procedure TestRepeatInIfThenElse;
+    [Test]
+    procedure TestRepeatInTryFinally;
+    [Test]
+    procedure TestRepeatInForLoop;
+    [Test]
+    procedure TestRepeatWithAssignment;
+    [Test]
+    procedure TestRepeatWithProcCall;
+    [Test]
+    procedure TestRepeatWithIfStatement;
+    [Test]
+    procedure TestRepeatDeepNesting;
+    [Test]
     procedure TestForStatement;
     [Test]
     procedure TestIfStatement;
@@ -241,22 +265,393 @@ procedure TParseTreeParserStatementsTest.TestRepeatStatement;
 var
   LParser: TParseTreeParser;
   LMethod: TMethodImplementationSyntax;
-  LStmt: TStatementSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
   LRepeat: TRepeatStatementSyntax;
 begin
+  LSource := 'procedure Bar; begin repeat Inc(x); until x > 10; end;';
   LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
   try
-    LMethod := LParser.ParseMethodImplementation('procedure Bar; begin repeat Inc(x); until x > 10; end;');
+    LMethod := LParser.ParseMethodImplementation(LSource);
     Assert.AreEqual(1, LMethod.Statements.Count);
-    LStmt := LMethod.Statements[0];
-    Assert.IsTrue(LStmt is TRepeatStatementSyntax);
-    LRepeat := TRepeatStatementSyntax(LStmt);
-    
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
     Assert.IsNotNull(LRepeat.RepeatKeyword);
-    Assert.AreEqual(TTokenKind.tkRepeatKeyword, LRepeat.RepeatKeyword.Kind);
+    Assert.AreEqual('repeat', LRepeat.RepeatKeyword.Text);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TProcedureCallStatementSyntax);
     Assert.IsNotNull(LRepeat.UntilKeyword);
-    Assert.AreEqual(TTokenKind.tkUntilKeyword, LRepeat.UntilKeyword.Kind);
+    Assert.AreEqual('until', LRepeat.UntilKeyword.Text);
+    Assert.IsTrue(LRepeat.ConditionTokens.Count > 0);
+    Assert.IsNotNull(LRepeat.Semicolon);
+    Assert.AreEqual(';', LRepeat.Semicolon.Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
   finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatMultipleStatements;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat Inc(X); Dec(Y); DoWork; until Done; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LRepeat.Statements[1] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LRepeat.Statements[2] is TProcedureCallStatementSyntax);
+    Assert.IsNotNull(LRepeat.UntilKeyword);
+    Assert.IsNotNull(LRepeat.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatEmpty;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat until False; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(0, LRepeat.Statements.Count);
+    Assert.IsNotNull(LRepeat.UntilKeyword);
+    Assert.AreEqual(1, LRepeat.ConditionTokens.Count);
+    Assert.AreEqual('False', LRepeat.ConditionTokens[0].Text);
+    Assert.IsNotNull(LRepeat.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatComplexCondition;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat DoWork; until (X > 10) and (Y < 5); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsNotNull(LRepeat.UntilKeyword);
+    Assert.IsTrue(LRepeat.ConditionTokens.Count > 5);
+    Assert.IsNotNull(LRepeat.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatNested;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat repeat Inc(X); until X > 5; until Y > 10; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TRepeatStatementSyntax);
+
+    var LInner := TRepeatStatementSyntax(LRepeat.Statements[0]);
+    Assert.AreEqual(1, LInner.Statements.Count);
+    Assert.IsNotNull(LInner.UntilKeyword);
+    Assert.IsNotNull(LInner.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin X := 0; repeat Inc(X); until X > 10; Y := X; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(3, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[1] is TRepeatStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[2] is TAssignmentStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatInIfThenElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if Cond then repeat DoA; until X else repeat DoB; until Y; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TRepeatStatementSyntax);
+    Assert.IsTrue(LIf.ElseStatement is TRepeatStatementSyntax);
+
+    var LThen := TRepeatStatementSyntax(LIf.ThenStatement);
+    Assert.IsNotNull(LThen.UntilKeyword);
+    Assert.IsNull(LThen.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatInTryFinally;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin try repeat DoWork; until Done; finally Cleanup; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LTry.Statements.Count);
+    Assert.IsTrue(LTry.Statements[0] is TRepeatStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatInForLoop;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for I := 0 to 9 do repeat Process(I); until OK; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LFor.Statement is TRepeatStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatWithAssignment;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat X := X + 1; until X > 100; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TAssignmentStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatWithProcCall;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat Application.ProcessMessages; until Terminated; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TProcedureCallStatementSyntax);
+    Assert.AreEqual(1, LRepeat.ConditionTokens.Count);
+    Assert.AreEqual('Terminated', LRepeat.ConditionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatWithIfStatement;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat if X then Inc(Y); until Y > 10; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TIfStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestRepeatDeepNesting;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LRepeat: TRepeatStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin repeat repeat repeat Inc(X); until X > 3; until X > 6; until X > 9; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TRepeatStatementSyntax);
+
+    LRepeat := TRepeatStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LRepeat.Statements.Count);
+    Assert.IsTrue(LRepeat.Statements[0] is TRepeatStatementSyntax);
+
+    var LMid := TRepeatStatementSyntax(LRepeat.Statements[0]);
+    Assert.AreEqual(1, LMid.Statements.Count);
+    Assert.IsTrue(LMid.Statements[0] is TRepeatStatementSyntax);
+
+    var LInner := TRepeatStatementSyntax(LMid.Statements[0]);
+    Assert.AreEqual(1, LInner.Statements.Count);
+    Assert.IsTrue(LInner.Statements[0] is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
     LParser.Free;
   end;
 end;

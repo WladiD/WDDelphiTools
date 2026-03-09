@@ -225,6 +225,7 @@ type
     FStatements: TObjectList<TStatementSyntax>;
     FUntilKeyword: TSyntaxToken;
     FConditionTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
     FBodyTokens: TObjectList<TSyntaxToken>; // Fallback
   public
     constructor Create;
@@ -233,6 +234,7 @@ type
     property Statements: TObjectList<TStatementSyntax> read FStatements;
     property UntilKeyword: TSyntaxToken read FUntilKeyword write FUntilKeyword;
     property ConditionTokens: TObjectList<TSyntaxToken> read FConditionTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
     property BodyTokens: TObjectList<TSyntaxToken> read FBodyTokens;
   end;
 
@@ -742,6 +744,7 @@ begin
   FStatements.Free;
   FUntilKeyword.Free;
   FConditionTokens.Free;
+  FSemicolon.Free;
   FBodyTokens.Free;
   inherited;
 end;

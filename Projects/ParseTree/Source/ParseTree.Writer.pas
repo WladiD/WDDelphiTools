@@ -345,6 +345,7 @@ begin
   WriteToken(AStmt.UntilKeyword);
   for LToken in AStmt.ConditionTokens do
     WriteToken(LToken);
+  WriteToken(AStmt.Semicolon);
   for LToken in AStmt.BodyTokens do
     WriteToken(LToken);
 end;
