@@ -306,6 +306,16 @@ type
     procedure TestTryFinallyWithAnonymousProcedureCall;
     [Test]
     procedure TestTryExceptWithAnonymousProcedureCall;
+    [Test]
+    procedure TestProcCallWithNestedAnonymousProcedures;
+    [Test]
+    procedure TestProcCallWithAnonymousFunctionTryFinally;
+    [Test]
+    procedure TestProcCallWithAnonymousProcedureAndGenerics;
+    [Test]
+    procedure TestProcCallWithMultipleAnonymousArguments;
+    [Test]
+    procedure TestTryFinallyAfterComplexAnonymousCall;
   end;
 
 implementation
@@ -4848,6 +4858,148 @@ begin
     Assert.IsNotNull(LTry.ExceptKeyword);
     Assert.AreEqual(1, LTry.Statements.Count, 'One call in try body');
     Assert.AreEqual(1, LTry.FinallyExceptStatements.Count, 'One handler statement expected');
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithNestedAnonymousProcedures;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin Execute(procedure begin Schedule(procedure begin Work; end); end); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    var LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithAnonymousFunctionTryFinally;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin RegisterFactory(function(const X: Integer): Integer begin try Result := X * 2; finally Log(X); end; end); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    var LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithAnonymousProcedureAndGenerics;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin TThread.Queue(nil, procedure begin Handle<TPair<Integer, string>>(42); end); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    var LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithMultipleAnonymousArguments;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin WhenAll(procedure begin A; end, procedure begin B; end, 5000); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    var LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestTryFinallyAfterComplexAnonymousCall;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource :=
+    'procedure Foo; begin ' +
+    'try ' +
+    'TParallel.For(0, Count - 1, procedure(I: Integer) begin try Process(I); except Log(I); end; end, TThreadPool.Default); ' +
+    'FinalizeBatch; ' +
+    'finally ' +
+    'Cleanup; ' +
+    'end; ' +
+    'end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LTry.FinallyKeyword);
+    Assert.AreEqual(2, LTry.Statements.Count, 'Expected call + finalize in try body');
+    Assert.AreEqual(1, LTry.FinallyExceptStatements.Count, 'Expected one cleanup statement');
+    Assert.IsTrue(LTry.FinallyExceptStatements[0] is TProcedureCallStatementSyntax);
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
