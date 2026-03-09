@@ -22,6 +22,12 @@ type
     [TestCase('Repeat', 'repeat,tkRepeatKeyword')]
     [TestCase('Until', 'until,tkUntilKeyword')]
     procedure TestLoopKeywords(const ASource: string; const AExpectedKindStr: string);
+    [Test]
+    procedure TestNotEqualsOperator;
+    [Test]
+    procedure TestLessOrEqualsOperator;
+    [Test]
+    procedure TestGreaterOrEqualsOperator;
   end;
 
 implementation
@@ -42,6 +48,54 @@ begin
     Assert.IsNotNull(LToken);
     Assert.AreEqual(LExpectedKind, LToken.Kind, 'Expected token kind mapping failure');
     Assert.AreEqual(ASource, LToken.Text, 'Expected token text mapping failure');
+  finally
+    LLexer.Free;
+  end;
+end;
+
+procedure TParseTreeLexerTest.TestNotEqualsOperator;
+var
+  LLexer: TParseTreeLexer;
+  LToken: TSyntaxToken;
+begin
+  LLexer := TParseTreeLexer.Create('<>');
+  try
+    LToken := LLexer.NextToken;
+    Assert.IsNotNull(LToken);
+    Assert.AreEqual(TTokenKind.tkNotEquals, LToken.Kind, 'Expected <> to be a single not-equals token');
+    Assert.AreEqual('<>', LToken.Text);
+  finally
+    LLexer.Free;
+  end;
+end;
+
+procedure TParseTreeLexerTest.TestLessOrEqualsOperator;
+var
+  LLexer: TParseTreeLexer;
+  LToken: TSyntaxToken;
+begin
+  LLexer := TParseTreeLexer.Create('<=');
+  try
+    LToken := LLexer.NextToken;
+    Assert.IsNotNull(LToken);
+    Assert.AreEqual(TTokenKind.tkLessOrEquals, LToken.Kind, 'Expected <= to be a single less-or-equals token');
+    Assert.AreEqual('<=', LToken.Text);
+  finally
+    LLexer.Free;
+  end;
+end;
+
+procedure TParseTreeLexerTest.TestGreaterOrEqualsOperator;
+var
+  LLexer: TParseTreeLexer;
+  LToken: TSyntaxToken;
+begin
+  LLexer := TParseTreeLexer.Create('>=');
+  try
+    LToken := LLexer.NextToken;
+    Assert.IsNotNull(LToken);
+    Assert.AreEqual(TTokenKind.tkGreaterOrEquals, LToken.Kind, 'Expected >= to be a single greater-or-equals token');
+    Assert.AreEqual('>=', LToken.Text);
   finally
     LLexer.Free;
   end;

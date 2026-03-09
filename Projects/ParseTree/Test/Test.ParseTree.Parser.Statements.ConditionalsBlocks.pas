@@ -25,6 +25,12 @@ type
     [Test]
     procedure TestIfStatementWithForbiddenSemicolon;
     [Test]
+    procedure TestIfStatementWithNotEqualsOperator;
+    [Test]
+    procedure TestIfStatementWithLessOrEqualsOperator;
+    [Test]
+    procedure TestIfStatementWithGreaterOrEqualsOperator;
+    [Test]
     procedure TestAssignmentStatement;
     [Test]
     procedure TestBeginEndSimple;
@@ -226,6 +232,99 @@ begin
     Assert.IsNotNull(LIf.ElseStatement);
     
     // Roundtrip verification: should reproduce the "syntax error" exactly
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsConditionalsBlocksTest.TestIfStatementWithNotEqualsOperator;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure CompareTest; begin if A <> B then DoIt; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LIf.ConditionTokens.Count);
+    Assert.AreEqual('A', LIf.ConditionTokens[0].Text);
+    Assert.AreEqual(TTokenKind.tkNotEquals, LIf.ConditionTokens[1].Kind);
+    Assert.AreEqual('<>', LIf.ConditionTokens[1].Text);
+    Assert.AreEqual('B', LIf.ConditionTokens[2].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsConditionalsBlocksTest.TestIfStatementWithLessOrEqualsOperator;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure CompareTest; begin if A <= B then DoIt; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LIf.ConditionTokens.Count);
+    Assert.AreEqual('A', LIf.ConditionTokens[0].Text);
+    Assert.AreEqual(TTokenKind.tkLessOrEquals, LIf.ConditionTokens[1].Kind);
+    Assert.AreEqual('<=', LIf.ConditionTokens[1].Text);
+    Assert.AreEqual('B', LIf.ConditionTokens[2].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsConditionalsBlocksTest.TestIfStatementWithGreaterOrEqualsOperator;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure CompareTest; begin if A >= B then DoIt; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LIf.ConditionTokens.Count);
+    Assert.AreEqual('A', LIf.ConditionTokens[0].Text);
+    Assert.AreEqual(TTokenKind.tkGreaterOrEquals, LIf.ConditionTokens[1].Kind);
+    Assert.AreEqual('>=', LIf.ConditionTokens[1].Text);
+    Assert.AreEqual('B', LIf.ConditionTokens[2].Text);
+
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
   finally

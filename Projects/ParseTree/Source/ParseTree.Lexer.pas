@@ -330,9 +330,33 @@ begin
       else if LTokenText = ']' then
         Result := TSyntaxToken.Create(tkCloseBracket, LTokenText)
       else if LTokenText = '<' then
-        Result := TSyntaxToken.Create(tkLessThan, LTokenText)
+      begin
+        if Current = '>' then
+        begin
+          LTokenText := LTokenText + Current;
+          Next;
+          Result := TSyntaxToken.Create(tkNotEquals, LTokenText);
+        end
+        else if Current = '=' then
+        begin
+          LTokenText := LTokenText + Current;
+          Next;
+          Result := TSyntaxToken.Create(tkLessOrEquals, LTokenText);
+        end
+        else
+          Result := TSyntaxToken.Create(tkLessThan, LTokenText);
+      end
       else if LTokenText = '>' then
-        Result := TSyntaxToken.Create(tkGreaterThan, LTokenText)
+      begin
+        if Current = '=' then
+        begin
+          LTokenText := LTokenText + Current;
+          Next;
+          Result := TSyntaxToken.Create(tkGreaterOrEquals, LTokenText);
+        end
+        else
+          Result := TSyntaxToken.Create(tkGreaterThan, LTokenText);
+      end
       else
         Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;
