@@ -23,7 +23,7 @@ type
     procedure DoRoundtripTest(const AFilePath: string);
   public
     [Test]
-    procedure TestAllDPTFilesParallel;
+    procedure TestConfiguredPathsParallel;
   end;
 
 implementation
@@ -114,22 +114,64 @@ begin
   end;
 end;
 
-procedure TParseTreeRoundtripTest.TestAllDPTFilesParallel;
+procedure TParseTreeRoundtripTest.TestConfiguredPathsParallel;
 var
-  LProjectsDir: string;
-  LSourceDir: string;
-  LFiles: TStringDynArray;
+  LTestProjectDir: string;
+  LPathsFile: string;
+  LPathLines: TStringList;
+  LAllFiles: TStringList;
+  LFilesInPath: TStringDynArray;
+  LPathLine: string;
+  LPathLineTrimmed: string;
+  LResolvedPath: string;
   LThreadPool: TThreadPool;
   LFailedFiles: TStringList;
   LLock: System.SyncObjs.TCriticalSection;
 begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  LSourceDir := TPath.Combine(LProjectsDir, 'DPT\Source');
-  
-  if not TDirectory.Exists(LSourceDir) then
-    Assert.Fail('Source directory does not exist: ' + LSourceDir);
+  // ParamStr(0) points to Win32\Debug\Test.ParseTree.exe during test runs.
+  // Relative paths from RoundTripTestPaths.txt are grounded to Projects\ParseTree\Test.
+  LTestProjectDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\'));
+  LPathsFile := TPath.Combine(LTestProjectDir, 'RoundTripTestPaths.txt');
 
-  LFiles := TDirectory.GetFiles(LSourceDir, '*.pas', TSearchOption.soTopDirectoryOnly);
+  if not TFile.Exists(LPathsFile) then
+    Assert.Fail('Roundtrip path config does not exist: ' + LPathsFile);
+
+  LPathLines := TStringList.Create;
+  LAllFiles := TStringList.Create;
+  LAllFiles.Sorted := True;
+  LAllFiles.Duplicates := dupIgnore;
+  try
+    LPathLines.LoadFromFile(LPathsFile, TEncoding.UTF8);
+
+    for LPathLine in LPathLines do
+    begin
+      LPathLineTrimmed := Trim(LPathLine);
+      if (LPathLineTrimmed = '') or LPathLineTrimmed.StartsWith('#') then
+        Continue;
+
+      if TPath.IsPathRooted(LPathLineTrimmed) then
+        LResolvedPath := TPath.GetFullPath(LPathLineTrimmed)
+      else
+        LResolvedPath := TPath.GetFullPath(TPath.Combine(LTestProjectDir, LPathLineTrimmed));
+
+      if not TDirectory.Exists(LResolvedPath) then
+        Assert.Fail(Format('Configured roundtrip directory does not exist: "%s" (from "%s")',
+          [LResolvedPath, LPathLineTrimmed]));
+
+      LFilesInPath := TDirectory.GetFiles(LResolvedPath, '*.pas', TSearchOption.soTopDirectoryOnly);
+      if Length(LFilesInPath) = 0 then
+        Assert.Fail(Format('Configured roundtrip directory contains no *.pas files: "%s" (from "%s")',
+          [LResolvedPath, LPathLineTrimmed]));
+
+      for var LFile in LFilesInPath do
+        LAllFiles.Add(LFile);
+    end;
+
+    if LAllFiles.Count = 0 then
+      Assert.Fail('No *.pas files found in configured roundtrip paths: ' + LPathsFile);
+  finally
+    LPathLines.Free;
+  end;
 
   LFailedFiles := TStringList.Create;
   LLock := System.SyncObjs.TCriticalSection.Create;
@@ -137,17 +179,17 @@ begin
   try
     LThreadPool.MaxWorkerThreads := 2;
     try
-      TParallel.For(0, Length(LFiles) - 1,
+      TParallel.For(0, LAllFiles.Count - 1,
         procedure(I: Integer)
         begin
           try
-            DoRoundtripTest(LFiles[I]);
+            DoRoundtripTest(LAllFiles[I]);
           except
             on E: Exception do
             begin
               LLock.Enter;
               try
-                LFailedFiles.Add(Format('%s (%s: %s)', [ExtractFileName(LFiles[I]), E.ClassName, E.Message]));
+                LFailedFiles.Add(Format('%s (%s: %s)', [ExtractFileName(LAllFiles[I]), E.ClassName, E.Message]));
               finally
                 LLock.Leave;
               end;
@@ -177,6 +219,7 @@ begin
     LThreadPool.Free;
     LLock.Free;
     LFailedFiles.Free;
+    LAllFiles.Free;
   end;
 end;
 

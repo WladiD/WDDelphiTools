@@ -1,0 +1,2 @@
+# One path per line. Relative paths are grounded to Projects\ParseTree\Test.
+..\..\DPT\Source
