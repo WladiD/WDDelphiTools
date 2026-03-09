@@ -1,4 +1,4 @@
-﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Console</AppType>
@@ -57,7 +57,14 @@
         <DCCReference Include="Test.ParseTree.Parser.pas"/>
         <DCCReference Include="Test.ParseTree.Roundtrip.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.ClassDecl.pas"/>
-        <DCCReference Include="Test.ParseTree.Parser.Statements.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.Loops.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.ConditionalsBlocks.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.CaseWith.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.ExceptionFlow.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.ProcCall.Basic.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.InheritedExit.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.InlineVar.pas"/>
+        <DCCReference Include="Test.ParseTree.Parser.Statements.ProcCall.Advanced.pas"/>
         <DCCReference Include="Test.ParseTree.Lexer.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
