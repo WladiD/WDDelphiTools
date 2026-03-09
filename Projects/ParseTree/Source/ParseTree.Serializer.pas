@@ -38,6 +38,7 @@ type
     function SerializeBeginEndStatement(AStmt: TBeginEndStatementSyntax): System.JSON.TJSONObject;
     function SerializeTryStatement(AStmt: TTryStatementSyntax): System.JSON.TJSONObject;
     function SerializeRaiseStatement(AStmt: TRaiseStatementSyntax): System.JSON.TJSONObject;
+    function SerializeCaseStatement(AStmt: TCaseStatementSyntax): System.JSON.TJSONObject;
     function SerializeProcedureCallStatement(AStmt: TProcedureCallStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
@@ -500,6 +501,8 @@ begin
     Result := SerializeTryStatement(TTryStatementSyntax(AStmt))
   else if AStmt is TRaiseStatementSyntax then
     Result := SerializeRaiseStatement(TRaiseStatementSyntax(AStmt))
+  else if AStmt is TCaseStatementSyntax then
+    Result := SerializeCaseStatement(TCaseStatementSyntax(AStmt))
   else if AStmt is TProcedureCallStatementSyntax then
     Result := SerializeProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
@@ -739,6 +742,73 @@ begin
       LArray.AddElement(SerializeToken(LToken));
     Result.AddPair('ExpressionTokens', LArray);
   end;
+
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeCaseStatement(AStmt: TCaseStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray, LItemArray: TJSONArray;
+  LToken: TSyntaxToken;
+  LItem: TCaseItemSyntax;
+  LItemObj: TJSONObject;
+  LStmt: TStatementSyntax;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'CaseStatement');
+
+  if Assigned(AStmt.CaseKeyword) then
+    Result.AddPair('CaseKeyword', SerializeToken(AStmt.CaseKeyword));
+
+  if AStmt.ExpressionTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.ExpressionTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('ExpressionTokens', LArray);
+  end;
+
+  if Assigned(AStmt.OfKeyword) then
+    Result.AddPair('OfKeyword', SerializeToken(AStmt.OfKeyword));
+
+  if AStmt.CaseItems.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LItem in AStmt.CaseItems do
+    begin
+      LItemObj := TJSONObject.Create;
+      LItemObj.AddPair('NodeType', 'CaseItem');
+      if LItem.ValueTokens.Count > 0 then
+      begin
+        LItemArray := TJSONArray.Create;
+        for LToken in LItem.ValueTokens do
+          LItemArray.AddElement(SerializeToken(LToken));
+        LItemObj.AddPair('ValueTokens', LItemArray);
+      end;
+      if Assigned(LItem.ColonToken) then
+        LItemObj.AddPair('ColonToken', SerializeToken(LItem.ColonToken));
+      if Assigned(LItem.Statement) then
+        LItemObj.AddPair('Statement', SerializeStatement(LItem.Statement));
+      LArray.AddElement(LItemObj);
+    end;
+    Result.AddPair('CaseItems', LArray);
+  end;
+
+  if Assigned(AStmt.ElseKeyword) then
+  begin
+    Result.AddPair('ElseKeyword', SerializeToken(AStmt.ElseKeyword));
+    if AStmt.ElseStatements.Count > 0 then
+    begin
+      LArray := TJSONArray.Create;
+      for LStmt in AStmt.ElseStatements do
+        LArray.AddElement(SerializeStatement(LStmt));
+      Result.AddPair('ElseStatements', LArray);
+    end;
+  end;
+
+  if Assigned(AStmt.EndKeyword) then
+    Result.AddPair('EndKeyword', SerializeToken(AStmt.EndKeyword));
 
   if Assigned(AStmt.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));

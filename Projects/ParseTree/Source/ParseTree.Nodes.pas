@@ -348,6 +348,44 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { 1, 2: Statement; or 'a'..'z': Statement; }
+  TCaseItemSyntax = class(TSyntaxNode)
+  private
+    FValueTokens: TObjectList<TSyntaxToken>;
+    FColonToken: TSyntaxToken;
+    FStatement: TStatementSyntax;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property ValueTokens: TObjectList<TSyntaxToken> read FValueTokens;
+    property ColonToken: TSyntaxToken read FColonToken write FColonToken;
+    property Statement: TStatementSyntax read FStatement write FStatement;
+  end;
+
+  { case Expression of Items [else Statements] end [;] }
+  TCaseStatementSyntax = class(TStatementSyntax)
+  private
+    FCaseKeyword: TSyntaxToken;
+    FExpressionTokens: TObjectList<TSyntaxToken>;
+    FOfKeyword: TSyntaxToken;
+    FCaseItems: TObjectList<TCaseItemSyntax>;
+    FElseKeyword: TSyntaxToken;
+    FElseStatements: TObjectList<TStatementSyntax>;
+    FEndKeyword: TSyntaxToken;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property CaseKeyword: TSyntaxToken read FCaseKeyword write FCaseKeyword;
+    property ExpressionTokens: TObjectList<TSyntaxToken> read FExpressionTokens;
+    property OfKeyword: TSyntaxToken read FOfKeyword write FOfKeyword;
+    property CaseItems: TObjectList<TCaseItemSyntax> read FCaseItems;
+    property ElseKeyword: TSyntaxToken read FElseKeyword write FElseKeyword;
+    property ElseStatements: TObjectList<TStatementSyntax> read FElseStatements;
+    property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { Foo.Bar(Baz); or inherited; or Exit(Value); etc. }
   TProcedureCallStatementSyntax = class(TStatementSyntax)
   private
@@ -799,6 +837,45 @@ destructor TRaiseStatementSyntax.Destroy;
 begin
   FRaiseKeyword.Free;
   FExpressionTokens.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TCaseItemSyntax }
+
+constructor TCaseItemSyntax.Create;
+begin
+  inherited Create;
+  FValueTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TCaseItemSyntax.Destroy;
+begin
+  FValueTokens.Free;
+  FColonToken.Free;
+  FStatement.Free;
+  inherited;
+end;
+
+{ TCaseStatementSyntax }
+
+constructor TCaseStatementSyntax.Create;
+begin
+  inherited Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FCaseItems := TObjectList<TCaseItemSyntax>.Create;
+  FElseStatements := TObjectList<TStatementSyntax>.Create;
+end;
+
+destructor TCaseStatementSyntax.Destroy;
+begin
+  FCaseKeyword.Free;
+  FExpressionTokens.Free;
+  FOfKeyword.Free;
+  FCaseItems.Free;
+  FElseKeyword.Free;
+  FElseStatements.Free;
+  FEndKeyword.Free;
   FSemicolon.Free;
   inherited;
 end;

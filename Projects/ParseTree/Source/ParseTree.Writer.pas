@@ -32,6 +32,7 @@ type
     procedure WriteBeginEndStatement(AStmt: TBeginEndStatementSyntax);
     procedure WriteTryStatement(AStmt: TTryStatementSyntax);
     procedure WriteRaiseStatement(AStmt: TRaiseStatementSyntax);
+    procedure WriteCaseStatement(AStmt: TCaseStatementSyntax);
     procedure WriteProcedureCallStatement(AStmt: TProcedureCallStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
@@ -309,6 +310,8 @@ begin
     WriteTryStatement(TTryStatementSyntax(AStmt))
   else if AStmt is TRaiseStatementSyntax then
     WriteRaiseStatement(TRaiseStatementSyntax(AStmt))
+  else if AStmt is TCaseStatementSyntax then
+    WriteCaseStatement(TCaseStatementSyntax(AStmt))
   else if AStmt is TProcedureCallStatementSyntax then
     WriteProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
@@ -425,6 +428,30 @@ begin
   WriteToken(AStmt.RaiseKeyword);
   for LToken in AStmt.ExpressionTokens do
     WriteToken(LToken);
+  WriteToken(AStmt.Semicolon);
+end;
+
+procedure TSyntaxTreeWriter.WriteCaseStatement(AStmt: TCaseStatementSyntax);
+var
+  LItem: TCaseItemSyntax;
+  LToken: TSyntaxToken;
+  LStmt: TStatementSyntax;
+begin
+  WriteToken(AStmt.CaseKeyword);
+  for LToken in AStmt.ExpressionTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.OfKeyword);
+  for LItem in AStmt.CaseItems do
+  begin
+    for LToken in LItem.ValueTokens do
+      WriteToken(LToken);
+    WriteToken(LItem.ColonToken);
+    WriteStatement(LItem.Statement);
+  end;
+  WriteToken(AStmt.ElseKeyword);
+  for LStmt in AStmt.ElseStatements do
+    WriteStatement(LStmt);
+  WriteToken(AStmt.EndKeyword);
   WriteToken(AStmt.Semicolon);
 end;
 

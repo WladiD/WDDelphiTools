@@ -41,6 +41,7 @@ type
     function ParseTryStatement: TTryStatementSyntax;
     function ParseRaiseStatement: TRaiseStatementSyntax;
     function ParseProcedureCallStatement: TProcedureCallStatementSyntax;
+    function ParseCaseStatement: TCaseStatementSyntax;
   end;
 
 implementation
@@ -513,7 +514,9 @@ begin
   else if Current.Kind = tkTryKeyword then
     Exit(ParseTryStatement)
   else if Current.Kind = tkRaiseKeyword then
-    Exit(ParseRaiseStatement);
+    Exit(ParseRaiseStatement)
+  else if Current.Kind = tkCaseKeyword then
+    Exit(ParseCaseStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -524,7 +527,7 @@ begin
     if Peek(LIdx).Kind in [tkBeginKeyword, tkEndKeyword, tkTryKeyword, tkCaseKeyword,
        tkAsmKeyword, tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword,
        tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword,
-       tkFinallyKeyword, tkExceptKeyword, tkRaiseKeyword] then
+       tkFinallyKeyword, tkExceptKeyword, tkRaiseKeyword, tkOfKeyword] then
       Break;
     Inc(LIdx);
   end;
@@ -774,11 +777,70 @@ begin
     if (LNest = 0) and (Result.ExpressionTokens.Count > 0) and
        ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
         (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
-        (Current.Kind = tkElseKeyword)) then
+        (Current.Kind = tkElseKeyword) or (Current.Kind = tkCaseKeyword)) then
       Break;
 
     Result.ExpressionTokens.Add(NextToken);
   end;
+end;
+
+function TParseTreeParser.ParseCaseStatement: TCaseStatementSyntax;
+var
+  LItem: TCaseItemSyntax;
+  LNest: Integer;
+begin
+  Result := TCaseStatementSyntax.Create;
+  Result.CaseKeyword := MatchToken(tkCaseKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkOfKeyword) and (Current.Kind <> tkEOF) do
+    Result.ExpressionTokens.Add(NextToken);
+
+  if (Current <> nil) and (Current.Kind = tkOfKeyword) then
+    Result.OfKeyword := MatchToken(tkOfKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and
+        (Current.Kind <> tkElseKeyword) and (Current.Kind <> tkEOF) do
+  begin
+    LItem := TCaseItemSyntax.Create;
+
+    LNest := 0;
+    while (Current <> nil) and (Current.Kind <> tkEOF) do
+    begin
+      if Current.Kind = tkOpenParen then
+        Inc(LNest)
+      else if Current.Kind = tkCloseParen then
+        Dec(LNest);
+
+      if (Current.Kind = tkColon) and (LNest <= 0) then
+      begin
+        LItem.ColonToken := MatchToken(tkColon);
+        Break;
+      end;
+
+      if (Current.Kind = tkEndKeyword) or (Current.Kind = tkElseKeyword) then
+        Break;
+
+      LItem.ValueTokens.Add(NextToken);
+    end;
+
+    if Assigned(LItem.ColonToken) then
+      LItem.Statement := ParseStatement;
+
+    Result.CaseItems.Add(LItem);
+  end;
+
+  if (Current <> nil) and (Current.Kind = tkElseKeyword) then
+  begin
+    Result.ElseKeyword := MatchToken(tkElseKeyword);
+    while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+      Result.ElseStatements.Add(ParseStatement);
+  end;
+
+  if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+    Result.EndKeyword := MatchToken(tkEndKeyword);
+
+  if (Current <> nil) and (Current.Kind = tkSemicolon) then
+    Result.Semicolon := MatchToken(tkSemicolon);
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

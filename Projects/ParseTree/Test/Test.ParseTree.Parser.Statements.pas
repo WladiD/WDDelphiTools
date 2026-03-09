@@ -122,6 +122,34 @@ type
     procedure TestProcCallInForLoop;
     [Test]
     procedure TestProcCallWithBrackets;
+    [Test]
+    procedure TestCaseSimple;
+    [Test]
+    procedure TestCaseMultipleItems;
+    [Test]
+    procedure TestCaseWithElse;
+    [Test]
+    procedure TestCaseCommaValues;
+    [Test]
+    procedure TestCaseRangeValues;
+    [Test]
+    procedure TestCaseStringValues;
+    [Test]
+    procedure TestCaseWithBeginEnd;
+    [Test]
+    procedure TestCaseNested;
+    [Test]
+    procedure TestCaseInIfThenElse;
+    [Test]
+    procedure TestCaseInBeginEnd;
+    [Test]
+    procedure TestCaseInTryFinally;
+    [Test]
+    procedure TestCaseEmpty;
+    [Test]
+    procedure TestCaseElseOnly;
+    [Test]
+    procedure TestCaseDeepNesting;
   end;
 
 implementation
@@ -1873,6 +1901,459 @@ begin
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseSimple;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: DoA; 2: DoB; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.IsNotNull(LCase.CaseKeyword);
+    Assert.AreEqual('case', LCase.CaseKeyword.Text);
+    Assert.AreEqual(1, LCase.ExpressionTokens.Count);
+    Assert.AreEqual('X', LCase.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCase.OfKeyword);
+    Assert.AreEqual('of', LCase.OfKeyword.Text);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsNotNull(LCase.CaseItems[0].ColonToken);
+    Assert.IsTrue(LCase.CaseItems[0].Statement is TProcedureCallStatementSyntax);
+    Assert.IsNotNull(LCase.CaseItems[1].ColonToken);
+    Assert.IsTrue(LCase.CaseItems[1].Statement is TProcedureCallStatementSyntax);
+    Assert.IsNull(LCase.ElseKeyword);
+    Assert.IsNotNull(LCase.EndKeyword);
+    Assert.IsNotNull(LCase.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseMultipleItems;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: A; 2: B; 3: C; 4: D; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(4, LCase.CaseItems.Count);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseWithElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: DoA; 2: DoB; else DoDefault; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsNotNull(LCase.ElseKeyword);
+    Assert.AreEqual('else', LCase.ElseKeyword.Text);
+    Assert.AreEqual(1, LCase.ElseStatements.Count);
+    Assert.IsTrue(LCase.ElseStatements[0] is TProcedureCallStatementSyntax);
+    Assert.IsNotNull(LCase.EndKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseCommaValues;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1, 2, 3: DoA; 4, 5: DoB; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.AreEqual(5, LCase.CaseItems[0].ValueTokens.Count, '1 , 2 , 3 = 5 tokens');
+    Assert.AreEqual(3, LCase.CaseItems[1].ValueTokens.Count, '4 , 5 = 3 tokens');
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseRangeValues;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1..10: DoA; 11..20: DoB; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsNotNull(LCase.CaseItems[0].ColonToken);
+    Assert.IsNotNull(LCase.CaseItems[1].ColonToken);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseStringValues;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case C of ''a'': DoA; ''b'', ''c'': DoB; else DoDefault; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsNotNull(LCase.ElseKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseWithBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: begin DoA; DoB; end; 2: DoC; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsTrue(LCase.CaseItems[0].Statement is TBeginEndStatementSyntax);
+    var LBlock := TBeginEndStatementSyntax(LCase.CaseItems[0].Statement);
+    Assert.AreEqual(2, LBlock.Statements.Count);
+    Assert.IsTrue(LCase.CaseItems[1].Statement is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseNested;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase, LInner: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: case Y of 10: DoA; 20: DoB; end; 2: DoC; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsTrue(LCase.CaseItems[0].Statement is TCaseStatementSyntax);
+
+    LInner := TCaseStatementSyntax(LCase.CaseItems[0].Statement);
+    Assert.AreEqual(2, LInner.CaseItems.Count);
+    Assert.IsNotNull(LInner.EndKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseInIfThenElse;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if a then case X of 1: DoA; end else DoB; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TCaseStatementSyntax);
+    var LCase := TCaseStatementSyntax(LIf.ThenStatement);
+    Assert.IsNull(LCase.Semicolon, 'No semicolon before else');
+
+    Assert.IsNotNull(LIf.ElseKeyword);
+    Assert.IsTrue(LIf.ElseStatement is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin case X of 1: DoA; end; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TCaseStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseInTryFinally;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin try case X of 1: DoA; end; finally Cleanup; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LTry.Statements.Count);
+    Assert.IsTrue(LTry.Statements[0] is TCaseStatementSyntax);
+    Assert.AreEqual(1, LTry.FinallyExceptStatements.Count);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseEmpty;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(0, LCase.CaseItems.Count);
+    Assert.IsNull(LCase.ElseKeyword);
+    Assert.IsNotNull(LCase.EndKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseElseOnly;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of else DoDefault; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(0, LCase.CaseItems.Count);
+    Assert.IsNotNull(LCase.ElseKeyword);
+    Assert.AreEqual(1, LCase.ElseStatements.Count);
+    Assert.IsNotNull(LCase.EndKeyword);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestCaseDeepNesting;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource :=
+    'procedure Complex; ' + #13#10 +
+    'begin' + #13#10 +
+    '  case Action of' + #13#10 +
+    '    1:' + #13#10 +
+    '      begin' + #13#10 +
+    '        x := 1;' + #13#10 +
+    '        case SubAction of' + #13#10 +
+    '          10: DoA;' + #13#10 +
+    '          20: DoB;' + #13#10 +
+    '        end;' + #13#10 +
+    '      end;' + #13#10 +
+    '    2: DoC;' + #13#10 +
+    '  else' + #13#10 +
+    '    raise Exception.Create(''Unknown'');' + #13#10 +
+    '  end;' + #13#10 +
+    'end;';
+
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(2, LCase.CaseItems.Count);
+    Assert.IsTrue(LCase.CaseItems[0].Statement is TBeginEndStatementSyntax);
+    Assert.IsTrue(LCase.CaseItems[1].Statement is TProcedureCallStatementSyntax);
+    Assert.IsNotNull(LCase.ElseKeyword);
+    Assert.AreEqual(1, LCase.ElseStatements.Count);
+    Assert.IsTrue(LCase.ElseStatements[0] is TRaiseStatementSyntax);
+
+    var LBlock := TBeginEndStatementSyntax(LCase.CaseItems[0].Statement);
+    Assert.AreEqual(2, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[1] is TCaseStatementSyntax);
+
+    var LInner := TCaseStatementSyntax(LBlock.Statements[1]);
+    Assert.AreEqual(2, LInner.CaseItems.Count);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult, 'Roundtrip should be exact');
   finally
     LWriter.Free;
     LParser.Free;
