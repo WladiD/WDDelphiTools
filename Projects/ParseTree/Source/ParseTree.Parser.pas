@@ -773,6 +773,13 @@ var
 begin
   if Current = nil then Exit(nil);
 
+  if Current.Kind = tkSemicolon then
+  begin
+    var LEmpty := TEmptyStatementSyntax.Create;
+    LEmpty.Semicolon := MatchToken(tkSemicolon);
+    Exit(LEmpty);
+  end;
+
   if Current.Kind = tkWhileKeyword then
     Exit(ParseWhileStatement)
   else if Current.Kind = tkRepeatKeyword then
@@ -1255,9 +1262,33 @@ begin
   Result := TInlineVarStatementSyntax.Create;
   Result.VarKeyword := MatchToken(tkVarKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+  var LDelimiterNest := 0;
+  var LBlockNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if Current.Kind in [tkEndKeyword, tkElseKeyword, tkFinallyKeyword, tkExceptKeyword] then
+    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then
+      Inc(LDelimiterNest)
+    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then
+    begin
+      if LDelimiterNest > 0 then
+        Dec(LDelimiterNest);
+    end;
+
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
+       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+      Inc(LBlockNest)
+    else if Current.Kind = tkEndKeyword then
+    begin
+      if LBlockNest = 0 then
+        Break;
+      Dec(LBlockNest);
+    end;
+
+    if (Current.Kind = tkSemicolon) and (LDelimiterNest = 0) and (LBlockNest = 0) then
+      Break;
+
+    if (LDelimiterNest = 0) and (LBlockNest = 0) and
+       (Current.Kind in [tkEndKeyword, tkElseKeyword, tkFinallyKeyword, tkExceptKeyword]) then
       Break;
     Result.DeclarationTokens.Add(NextToken);
   end;
@@ -1273,6 +1304,21 @@ var
   LUnparsed: TUnparsedDeclarationSyntax;
   LScan: Integer;
   LCurrentSignatureName: string;
+  LCurrentSignatureShortName: string;
+
+  function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
+  begin
+    Result := (AToken <> nil) and (
+      (((AToken.Kind = tkProcedureKeyword) or (AToken.Kind = tkFunctionKeyword) or
+        (AToken.Kind = tkConstructorKeyword) or (AToken.Kind = tkDestructorKeyword)) and
+       (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
+       (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
+      ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
+       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword)) and
+       (Peek(2) <> nil) and (Peek(2).Kind = tkIdentifier) and
+       (Peek(3) <> nil) and (Peek(3).Kind = tkDot))
+    );
+  end;
 
   function IsMethodModifierStart(AToken: TSyntaxToken): Boolean;
   begin
@@ -1393,6 +1439,10 @@ begin
   end;
 
   LCurrentSignatureName := ExtractSignatureNameFromTokens(Result.SignatureTokens);
+  LCurrentSignatureShortName := LCurrentSignatureName;
+  if Pos('.', LCurrentSignatureShortName) > 0 then
+    LCurrentSignatureShortName := Copy(LCurrentSignatureShortName,
+      Pos('.', LCurrentSignatureShortName) + 1, MaxInt);
     
   // Local declarations (var, const, type, nested procedures/functions)
   while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkAsmKeyword) and (Current.Kind <> tkEOF) do
@@ -1408,7 +1458,9 @@ begin
       // Conditional alternative implementation signatures are often fully-qualified
       // and should stay as unparsed local declaration tokens before the shared body.
       if HasDotBeforeSemicolon or
-         ((LCurrentSignatureName <> '') and SameText(UpcomingSignatureName, LCurrentSignatureName)) then
+         ((LCurrentSignatureName <> '') and
+          (SameText(UpcomingSignatureName, LCurrentSignatureName) or
+           SameText(UpcomingSignatureName, LCurrentSignatureShortName))) then
       begin
         LNestLevel := 0;
         if LUnparsed = nil then
@@ -1480,6 +1532,11 @@ begin
   // Body until matched end
   while (Current <> nil) and (LNestLevel > 0) and (Current.Kind <> tkEOF) do
   begin
+    // Recovery: a qualified method header at this level should belong to the
+    // implementation section, not to the current method body.
+    if IsQualifiedMethodStart(Current) then
+      Break;
+
     if Current.Kind = tkEndKeyword then
     begin
       Dec(LNestLevel);

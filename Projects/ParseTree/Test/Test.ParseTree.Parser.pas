@@ -5,6 +5,7 @@ interface
 uses
   System.SysUtils,
   System.Classes,
+  System.Types,
   System.Generics.Collections,
   System.IOUtils,
   System.JSON,
@@ -56,36 +57,73 @@ end;
 procedure TParseTreeParserTest.TestParseAllProjectFiles;
 var
   LFiles: TArray<string>;
-  LProjectsDir: string;
+  LTestProjectDir: string;
+  LPathsFile: string;
   LOutputDir: string;
   LFailedFiles: TStringList;
   LLock: TCriticalSection;
-  LFilteredFiles: TList<string>;
-  LFile: string;
+  LPathLines: TStringList;
+  LAllFiles: TStringList;
+  LFilesInPath: TArray<string>;
+  LPathLine: string;
+  LPathLineTrimmed: string;
+  LResolvedPath: string;
+  LCheckedPathCount: Integer;
   LThreadPool: TThreadPool;
 begin
-  LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
-  if not TDirectory.Exists(LProjectsDir) then
-    Assert.Pass('Projects directory not found, skipping integration test.');
+  // ParamStr(0) points to Win32\Debug\Test.ParseTree.exe during test runs.
+  // Relative paths from RoundTripTestPaths.txt are grounded to Projects\ParseTree\Test.
+  LTestProjectDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\'));
+  LPathsFile := TPath.Combine(LTestProjectDir, 'RoundTripTestPaths.txt');
+  if not TFile.Exists(LPathsFile) then
+    Assert.Fail('Roundtrip path config does not exist: ' + LPathsFile);
 
   LOutputDir := TPath.Combine(ExtractFilePath(ParamStr(0)), 'ProjectParseTrees');
   if TDirectory.Exists(LOutputDir) then
     TDirectory.Delete(LOutputDir, True);
   TDirectory.CreateDirectory(LOutputDir);
 
-  // Exclude TMPL files (template files containing non-standard Pascal syntax)
-  LFilteredFiles := TList<string>.Create;
+  LPathLines := TStringList.Create;
+  LAllFiles := TStringList.Create;
+  LAllFiles.Sorted := True;
+  LAllFiles.Duplicates := dupIgnore;
   try
-    for LFile in TDirectory.GetFiles(LProjectsDir, '*.pas', TSearchOption.soAllDirectories) do
-      if not LFile.Contains('.TMPL.') then
-        LFilteredFiles.Add(LFile);
-    LFiles := LFilteredFiles.ToArray;
+    LPathLines.LoadFromFile(LPathsFile, TEncoding.UTF8);
+    LCheckedPathCount := 0;
+
+    for LPathLine in LPathLines do
+    begin
+      LPathLineTrimmed := Trim(LPathLine);
+      if (LPathLineTrimmed = '') or LPathLineTrimmed.StartsWith('#') then
+        Continue;
+
+      if TPath.IsPathRooted(LPathLineTrimmed) then
+        LResolvedPath := TPath.GetFullPath(LPathLineTrimmed)
+      else
+        LResolvedPath := TPath.GetFullPath(TPath.Combine(LTestProjectDir, LPathLineTrimmed));
+
+      if not TDirectory.Exists(LResolvedPath) then
+        Assert.Fail(Format('Configured parser directory does not exist: "%s" (from "%s")',
+          [LResolvedPath, LPathLineTrimmed]));
+
+      LFilesInPath := TDirectory.GetFiles(LResolvedPath, '*.pas', TSearchOption.soTopDirectoryOnly);
+      if Length(LFilesInPath) = 0 then
+        Assert.Fail(Format('Configured parser directory contains no *.pas files: "%s" (from "%s")',
+          [LResolvedPath, LPathLineTrimmed]));
+
+      Inc(LCheckedPathCount);
+      for var LFileIndex := Low(LFilesInPath) to High(LFilesInPath) do
+        LAllFiles.Add(LFilesInPath[LFileIndex]);
+    end;
+
+    LFiles := LAllFiles.ToStringArray;
   finally
-    LFilteredFiles.Free;
+    LPathLines.Free;
+    LAllFiles.Free;
   end;
 
   if Length(LFiles) = 0 then
-    Assert.Pass('No .pas files found to test.');
+    Assert.Fail('No .pas files found in configured parser paths: ' + LPathsFile);
 
   LFailedFiles := TStringList.Create;
   LLock := TCriticalSection.Create;
@@ -104,10 +142,16 @@ begin
           LLocalJson: TJSONObject;
           LRelPath: string;
           LTargetFile: string;
+          LSanitizedPath: string;
         begin
           LTaskFile := LFiles[LTaskIndex];
           try
-            LLocalContent := TFile.ReadAllText(LTaskFile, TEncoding.UTF8);
+            try
+              LLocalContent := TFile.ReadAllText(LTaskFile, TEncoding.UTF8);
+            except
+              on EEncodingError do
+                LLocalContent := TFile.ReadAllText(LTaskFile, TEncoding.Default);
+            end;
 
             LLocalParser := TParseTreeParser.Create;
             LLocalSerializer := TSyntaxTreeSerializer.Create;
@@ -116,7 +160,16 @@ begin
               try
                 LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
                 try
-                  LRelPath := ExtractRelativePath(LProjectsDir, LTaskFile);
+                  if LTaskFile.StartsWith(LTestProjectDir, True) then
+                    LRelPath := ExtractRelativePath(LTestProjectDir, LTaskFile)
+                  else
+                  begin
+                    LSanitizedPath := StringReplace(TPath.GetFullPath(LTaskFile), ':', '', [rfReplaceAll]);
+                    while (Length(LSanitizedPath) > 0) and
+                          ((LSanitizedPath[1] = '\') or (LSanitizedPath[1] = '/')) do
+                      Delete(LSanitizedPath, 1, 1);
+                    LRelPath := LSanitizedPath;
+                  end;
                   LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
 
                   LLock.Enter;

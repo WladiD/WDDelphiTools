@@ -43,6 +43,8 @@ type
     [Test]
     procedure TestCaseDeepNesting;
     [Test]
+    procedure TestCaseItemWithEmptyStatement;
+    [Test]
     procedure TestWithSimple;
     [Test]
     procedure TestWithQualifiedExpression;
@@ -517,6 +519,35 @@ begin
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult, 'Roundtrip should be exact');
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsCaseWithTest.TestCaseItemWithEmptyStatement;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCase: TCaseStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin case X of 1: ; else HandleElse; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TCaseStatementSyntax);
+
+    LCase := TCaseStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LCase.CaseItems.Count);
+    Assert.IsTrue(LCase.CaseItems[0].Statement is TEmptyStatementSyntax);
+    Assert.AreEqual(1, LCase.ElseStatements.Count);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
   finally
     LWriter.Free;
     LParser.Free;

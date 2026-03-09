@@ -44,6 +44,7 @@ type
     function SerializeInheritedStatement(AStmt: TInheritedStatementSyntax): System.JSON.TJSONObject;
     function SerializeExitStatement(AStmt: TExitStatementSyntax): System.JSON.TJSONObject;
     function SerializeInlineVarStatement(AStmt: TInlineVarStatementSyntax): System.JSON.TJSONObject;
+    function SerializeEmptyStatement(AStmt: TEmptyStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -524,6 +525,8 @@ begin
     Result := SerializeExitStatement(TExitStatementSyntax(AStmt))
   else if AStmt is TInlineVarStatementSyntax then
     Result := SerializeInlineVarStatement(TInlineVarStatementSyntax(AStmt))
+  else if AStmt is TEmptyStatementSyntax then
+    Result := SerializeEmptyStatement(TEmptyStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -965,6 +968,14 @@ begin
     Result.AddPair('DeclarationTokens', LArray);
   end;
 
+  if Assigned(AStmt.Semicolon) then
+    Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeEmptyStatement(AStmt: TEmptyStatementSyntax): System.JSON.TJSONObject;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'EmptyStatement');
   if Assigned(AStmt.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
 end;

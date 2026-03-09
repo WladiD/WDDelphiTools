@@ -46,6 +46,8 @@ type
     procedure TestConditionalAlternativeMethodSignatureRoundtrip;
     [Test]
     procedure TestRecordWithProcedureAndFunctionPointerMembersRoundtrip;
+    [Test]
+    procedure TestMethodBodyRecoveryBeforeNextQualifiedMethod;
   end;
 
 implementation
@@ -751,6 +753,61 @@ var
 begin
   LTree := FParser.Parse(LSourceCode);
   try
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestMethodBodyRecoveryBeforeNextQualifiedMethod;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TFoo = class
+      public
+        procedure First;
+        procedure Second(Value: Integer);
+      end;
+    implementation
+    procedure TFoo.First;
+    begin
+      {$IFDEF WIN64}
+      if True then
+      begin
+      end;
+      {$ENDIF}
+    end;
+
+    procedure TFoo.Second(Value: Integer);
+    var
+      LocalValue: Integer;
+    begin
+      LocalValue := Value;
+    end;
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+  LImpl: TImplementationSectionSyntax;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    LImpl := LTree.ImplementationSection;
+    Assert.IsNotNull(LImpl, 'Implementation section missing');
+    Assert.AreEqual(2, LImpl.Declarations.Count, 'Both method implementations must be parsed separately');
+    Assert.IsTrue(LImpl.Declarations[0] is TMethodImplementationSyntax, 'First declaration must be a method implementation');
+    Assert.IsTrue(LImpl.Declarations[1] is TMethodImplementationSyntax, 'Second declaration must be a method implementation');
+
     LWriter := TSyntaxTreeWriter.Create;
     try
       LRoundtrip := LWriter.GenerateSource(LTree);

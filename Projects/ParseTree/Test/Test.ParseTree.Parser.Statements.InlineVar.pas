@@ -38,6 +38,8 @@ type
     procedure TestInlineVarComplexExpression;
     [Test]
     procedure TestInlineVarBeforeEnd;
+    [Test]
+    procedure TestInlineVarWithAnonymousFunctionInitializer;
   end;
 
 implementation
@@ -378,6 +380,29 @@ begin
 
     LStmt := TInlineVarStatementSyntax(LMethod.Statements[0]);
     Assert.IsNull(LStmt.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsInlineVarTest.TestInlineVarWithAnonymousFunctionInitializer;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin var Task: IFuture<String> := TTask.Future<String>(function: String begin Result := ''X''; end); Process(Task); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.IsTrue(LMethod.Statements.Count >= 1);
+    Assert.IsTrue(LMethod.Statements[0] is TInlineVarStatementSyntax);
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);

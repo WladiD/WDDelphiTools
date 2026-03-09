@@ -38,6 +38,7 @@ type
     procedure WriteInheritedStatement(AStmt: TInheritedStatementSyntax);
     procedure WriteExitStatement(AStmt: TExitStatementSyntax);
     procedure WriteInlineVarStatement(AStmt: TInlineVarStatementSyntax);
+    procedure WriteEmptyStatement(AStmt: TEmptyStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
     // Declarations
@@ -328,6 +329,8 @@ begin
     WriteExitStatement(TExitStatementSyntax(AStmt))
   else if AStmt is TInlineVarStatementSyntax then
     WriteInlineVarStatement(TInlineVarStatementSyntax(AStmt))
+  else if AStmt is TEmptyStatementSyntax then
+    WriteEmptyStatement(TEmptyStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
 end;
@@ -526,6 +529,11 @@ begin
   WriteToken(AStmt.VarKeyword);
   for LToken in AStmt.DeclarationTokens do
     WriteToken(LToken);
+  WriteToken(AStmt.Semicolon);
+end;
+
+procedure TSyntaxTreeWriter.WriteEmptyStatement(AStmt: TEmptyStatementSyntax);
+begin
   WriteToken(AStmt.Semicolon);
 end;
 

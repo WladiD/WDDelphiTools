@@ -464,6 +464,15 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { ; (empty statement) }
+  TEmptyStatementSyntax = class(TStatementSyntax)
+  private
+    FSemicolon: TSyntaxToken;
+  public
+    destructor Destroy; override;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -1032,6 +1041,14 @@ destructor TInlineVarStatementSyntax.Destroy;
 begin
   FVarKeyword.Free;
   FDeclarationTokens.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TEmptyStatementSyntax }
+
+destructor TEmptyStatementSyntax.Destroy;
+begin
   FSemicolon.Free;
   inherited;
 end;
