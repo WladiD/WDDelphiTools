@@ -46,8 +46,15 @@ var
   LMsg: string;
 begin
   Assert.IsTrue(TFile.Exists(AFilePath), 'Source file does not exist: ' + AFilePath);
-  
-  LOriContent := TFile.ReadAllText(AFilePath, TEncoding.UTF8);
+
+  // Prefer UTF-8, but fall back to system default for legacy ANSI Delphi sources.
+  try
+    LOriContent := TFile.ReadAllText(AFilePath, TEncoding.UTF8);
+  except
+    on EEncodingError do
+      LOriContent := TFile.ReadAllText(AFilePath, TEncoding.Default);
+  end;
+
   LParser := TParseTreeParser.Create;
   try
     LTree := LParser.Parse(LOriContent);
