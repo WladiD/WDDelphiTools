@@ -42,6 +42,7 @@ type
     function ParseRaiseStatement: TRaiseStatementSyntax;
     function ParseProcedureCallStatement: TProcedureCallStatementSyntax;
     function ParseCaseStatement: TCaseStatementSyntax;
+    function ParseWithStatement: TWithStatementSyntax;
   end;
 
 implementation
@@ -516,7 +517,9 @@ begin
   else if Current.Kind = tkRaiseKeyword then
     Exit(ParseRaiseStatement)
   else if Current.Kind = tkCaseKeyword then
-    Exit(ParseCaseStatement);
+    Exit(ParseCaseStatement)
+  else if Current.Kind = tkWithKeyword then
+    Exit(ParseWithStatement);
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -527,7 +530,8 @@ begin
     if Peek(LIdx).Kind in [tkBeginKeyword, tkEndKeyword, tkTryKeyword, tkCaseKeyword,
        tkAsmKeyword, tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword,
        tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword,
-       tkFinallyKeyword, tkExceptKeyword, tkRaiseKeyword, tkOfKeyword] then
+       tkFinallyKeyword, tkExceptKeyword, tkRaiseKeyword, tkOfKeyword,
+       tkWithKeyword] then
       Break;
     Inc(LIdx);
   end;
@@ -777,7 +781,8 @@ begin
     if (LNest = 0) and (Result.ExpressionTokens.Count > 0) and
        ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
         (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
-        (Current.Kind = tkElseKeyword) or (Current.Kind = tkCaseKeyword)) then
+        (Current.Kind = tkElseKeyword) or (Current.Kind = tkCaseKeyword) or
+        (Current.Kind = tkWithKeyword)) then
       Break;
 
     Result.ExpressionTokens.Add(NextToken);
@@ -841,6 +846,26 @@ begin
 
   if (Current <> nil) and (Current.Kind = tkSemicolon) then
     Result.Semicolon := MatchToken(tkSemicolon);
+end;
+
+function TParseTreeParser.ParseWithStatement: TWithStatementSyntax;
+begin
+  Result := TWithStatementSyntax.Create;
+  Result.WithKeyword := MatchToken(tkWithKeyword);
+
+  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+  begin
+    if Current.Kind in [tkEndKeyword, tkElseKeyword, tkFinallyKeyword, tkExceptKeyword] then
+      Break;
+    Result.ExpressionTokens.Add(NextToken);
+  end;
+
+  if (Current <> nil) and (Current.Kind = tkDoKeyword) then
+    Result.DoKeyword := MatchToken(tkDoKeyword);
+
+  if (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkElseKeyword,
+     tkFinallyKeyword, tkExceptKeyword, tkEOF]) then
+    Result.Statement := ParseStatement;
 end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;

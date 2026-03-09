@@ -386,6 +386,22 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { with Expression [, Expression] do Statement }
+  TWithStatementSyntax = class(TStatementSyntax)
+  private
+    FWithKeyword: TSyntaxToken;
+    FExpressionTokens: TObjectList<TSyntaxToken>;
+    FDoKeyword: TSyntaxToken;
+    FStatement: TStatementSyntax;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property WithKeyword: TSyntaxToken read FWithKeyword write FWithKeyword;
+    property ExpressionTokens: TObjectList<TSyntaxToken> read FExpressionTokens;
+    property DoKeyword: TSyntaxToken read FDoKeyword write FDoKeyword;
+    property Statement: TStatementSyntax read FStatement write FStatement;
+  end;
+
   { Foo.Bar(Baz); or inherited; or Exit(Value); etc. }
   TProcedureCallStatementSyntax = class(TStatementSyntax)
   private
@@ -877,6 +893,23 @@ begin
   FElseStatements.Free;
   FEndKeyword.Free;
   FSemicolon.Free;
+  inherited;
+end;
+
+{ TWithStatementSyntax }
+
+constructor TWithStatementSyntax.Create;
+begin
+  inherited Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TWithStatementSyntax.Destroy;
+begin
+  FWithKeyword.Free;
+  FExpressionTokens.Free;
+  FDoKeyword.Free;
+  FStatement.Free;
   inherited;
 end;
 

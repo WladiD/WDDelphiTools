@@ -40,6 +40,7 @@ type
     function SerializeRaiseStatement(AStmt: TRaiseStatementSyntax): System.JSON.TJSONObject;
     function SerializeCaseStatement(AStmt: TCaseStatementSyntax): System.JSON.TJSONObject;
     function SerializeProcedureCallStatement(AStmt: TProcedureCallStatementSyntax): System.JSON.TJSONObject;
+    function SerializeWithStatement(AStmt: TWithStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -505,6 +506,8 @@ begin
     Result := SerializeCaseStatement(TCaseStatementSyntax(AStmt))
   else if AStmt is TProcedureCallStatementSyntax then
     Result := SerializeProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
+  else if AStmt is TWithStatementSyntax then
+    Result := SerializeWithStatement(TWithStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -832,6 +835,32 @@ begin
 
   if Assigned(AStmt.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(AStmt.Semicolon));
+end;
+
+function TSyntaxTreeSerializer.SerializeWithStatement(AStmt: TWithStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'WithStatement');
+
+  if Assigned(AStmt.WithKeyword) then
+    Result.AddPair('WithKeyword', SerializeToken(AStmt.WithKeyword));
+
+  if AStmt.ExpressionTokens.Count > 0 then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in AStmt.ExpressionTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('ExpressionTokens', LArray);
+  end;
+
+  if Assigned(AStmt.DoKeyword) then
+    Result.AddPair('DoKeyword', SerializeToken(AStmt.DoKeyword));
+
+  if Assigned(AStmt.Statement) then
+    Result.AddPair('Statement', SerializeStatement(AStmt.Statement));
 end;
 
 function TSyntaxTreeSerializer.SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;

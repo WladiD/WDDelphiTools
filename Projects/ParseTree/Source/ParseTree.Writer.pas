@@ -34,6 +34,7 @@ type
     procedure WriteRaiseStatement(AStmt: TRaiseStatementSyntax);
     procedure WriteCaseStatement(AStmt: TCaseStatementSyntax);
     procedure WriteProcedureCallStatement(AStmt: TProcedureCallStatementSyntax);
+    procedure WriteWithStatement(AStmt: TWithStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
     // Declarations
@@ -314,6 +315,8 @@ begin
     WriteCaseStatement(TCaseStatementSyntax(AStmt))
   else if AStmt is TProcedureCallStatementSyntax then
     WriteProcedureCallStatement(TProcedureCallStatementSyntax(AStmt))
+  else if AStmt is TWithStatementSyntax then
+    WriteWithStatement(TWithStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
 end;
@@ -462,6 +465,17 @@ begin
   for LToken in AStmt.ExpressionTokens do
     WriteToken(LToken);
   WriteToken(AStmt.Semicolon);
+end;
+
+procedure TSyntaxTreeWriter.WriteWithStatement(AStmt: TWithStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  WriteToken(AStmt.WithKeyword);
+  for LToken in AStmt.ExpressionTokens do
+    WriteToken(LToken);
+  WriteToken(AStmt.DoKeyword);
+  WriteStatement(AStmt.Statement);
 end;
 
 procedure TSyntaxTreeWriter.WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);

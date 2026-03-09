@@ -242,6 +242,7 @@ begin
   else if LUpper = 'EXCEPT' then LKind := tkExceptKeyword
   else if LUpper = 'RAISE' then LKind := tkRaiseKeyword
   else if LUpper = 'OF' then LKind := tkOfKeyword
+  else if LUpper = 'WITH' then LKind := tkWithKeyword
   else LKind := tkIdentifier;
 
   Result := TSyntaxToken.Create(LKind, LText);
