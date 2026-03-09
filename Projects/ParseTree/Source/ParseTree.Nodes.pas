@@ -348,6 +348,18 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { Foo.Bar(Baz); or inherited; or Exit(Value); etc. }
+  TProcedureCallStatementSyntax = class(TStatementSyntax)
+  private
+    FExpressionTokens: TObjectList<TSyntaxToken>;
+    FSemicolon: TSyntaxToken;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property ExpressionTokens: TObjectList<TSyntaxToken> read FExpressionTokens;
+    property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
+  end;
+
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
   private
@@ -786,6 +798,21 @@ end;
 destructor TRaiseStatementSyntax.Destroy;
 begin
   FRaiseKeyword.Free;
+  FExpressionTokens.Free;
+  FSemicolon.Free;
+  inherited;
+end;
+
+{ TProcedureCallStatementSyntax }
+
+constructor TProcedureCallStatementSyntax.Create;
+begin
+  inherited Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TProcedureCallStatementSyntax.Destroy;
+begin
   FExpressionTokens.Free;
   FSemicolon.Free;
   inherited;

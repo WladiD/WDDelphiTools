@@ -88,6 +88,40 @@ type
     procedure TestRaiseInIfThenElse;
     [Test]
     procedure TestRaiseInBeginEnd;
+    [Test]
+    procedure TestProcCallSimple;
+    [Test]
+    procedure TestProcCallWithArgs;
+    [Test]
+    procedure TestProcCallQualified;
+    [Test]
+    procedure TestProcCallQualifiedWithArgs;
+    [Test]
+    procedure TestProcCallNestedParens;
+    [Test]
+    procedure TestProcCallInherited;
+    [Test]
+    procedure TestProcCallInheritedWithArgs;
+    [Test]
+    procedure TestProcCallExit;
+    [Test]
+    procedure TestProcCallExitWithValue;
+    [Test]
+    procedure TestProcCallInc;
+    [Test]
+    procedure TestProcCallClassMethod;
+    [Test]
+    procedure TestProcCallMultipleConsecutive;
+    [Test]
+    procedure TestProcCallInIfThen;
+    [Test]
+    procedure TestProcCallInBeginEnd;
+    [Test]
+    procedure TestProcCallInTryFinally;
+    [Test]
+    procedure TestProcCallInForLoop;
+    [Test]
+    procedure TestProcCallWithBrackets;
   end;
 
 implementation
@@ -232,7 +266,7 @@ begin
     LIf2 := TIfStatementSyntax(LIf1.ElseStatement);
     Assert.AreEqual('c', LIf2.ConditionTokens[0].Text);
     Assert.IsNotNull(LIf2.ElseStatement);
-    Assert.IsTrue(LIf2.ElseStatement is TOpaqueStatementSyntax);
+    Assert.IsTrue(LIf2.ElseStatement is TProcedureCallStatementSyntax);
     
     // Roundtrip verification
     LResult := LWriter.GenerateSource(LMethod);
@@ -316,7 +350,7 @@ begin
     Assert.IsTrue(LIfE.ThenStatement is TBeginEndStatementSyntax);
     
     // Else branch of LIfE is "else h;"
-    Assert.IsTrue(LIfE.ElseStatement is TOpaqueStatementSyntax);
+    Assert.IsTrue(LIfE.ElseStatement is TProcedureCallStatementSyntax);
     
     // Roundtrip verification:
     LResult := LWriter.GenerateSource(LMethod);
@@ -346,8 +380,9 @@ begin
     var LIf := TIfStatementSyntax(LMethod.Statements[0]);
     // Our parser (at this point) should be lenient and find the else.
     // The then statement (Opaque) will contain 'b;'
-    Assert.IsTrue(LIf.ThenStatement is TOpaqueStatementSyntax);
-    Assert.AreEqual('b;', TOpaqueStatementSyntax(LIf.ThenStatement).Tokens[0].Text + TOpaqueStatementSyntax(LIf.ThenStatement).Tokens[1].Text);
+    Assert.IsTrue(LIf.ThenStatement is TProcedureCallStatementSyntax);
+    Assert.AreEqual('b', TProcedureCallStatementSyntax(LIf.ThenStatement).ExpressionTokens[0].Text);
+    Assert.IsNotNull(TProcedureCallStatementSyntax(LIf.ThenStatement).Semicolon);
     
     Assert.IsNotNull(LIf.ElseStatement);
     
@@ -1343,6 +1378,498 @@ begin
     Assert.IsTrue(LBlock.Statements[0] is TAssignmentStatementSyntax);
     Assert.IsTrue(LBlock.Statements[1] is TRaiseStatementSyntax);
     Assert.IsTrue(LBlock.Statements[2] is TAssignmentStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallSimple;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin DoSomething; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LCall.ExpressionTokens.Count);
+    Assert.AreEqual('DoSomething', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithArgs;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin Writeln(''Hello''); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('Writeln', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallQualified;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin FList.Clear; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('FList', LCall.ExpressionTokens[0].Text);
+    Assert.AreEqual('.', LCall.ExpressionTokens[1].Text);
+    Assert.AreEqual('Clear', LCall.ExpressionTokens[2].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallQualifiedWithArgs;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin FList.Add(Item); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('FList', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallNestedParens;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin Writeln(Format(''%s (%d)'', [S, I])); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('Writeln', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInherited;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure TMyClass.Destroy; begin inherited; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LCall.ExpressionTokens.Count);
+    Assert.AreEqual('inherited', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInheritedWithArgs;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'constructor TMyClass.Create(AOwner: TComponent); begin inherited Create(AOwner); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('inherited', LCall.ExpressionTokens[0].Text);
+    Assert.AreEqual('Create', LCall.ExpressionTokens[1].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallExit;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin Exit; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LCall.ExpressionTokens.Count);
+    Assert.AreEqual('Exit', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallExitWithValue;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'function Foo: Integer; begin Exit(42); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('Exit', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInc;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin Inc(Result); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('Inc', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallClassMethod;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin TDirectory.CreateDirectory(LPath); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('TDirectory', LCall.ExpressionTokens[0].Text);
+    Assert.AreEqual('.', LCall.ExpressionTokens[1].Text);
+    Assert.AreEqual('CreateDirectory', LCall.ExpressionTokens[2].Text);
+    Assert.IsNotNull(LCall.Semicolon);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallMultipleConsecutive;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+begin
+  LSource := 'procedure Foo; begin Client.Connect; DoWork; Client.Disconnect; Client.Free; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(4, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[1] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[2] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[3] is TProcedureCallStatementSyntax);
+
+    Assert.AreEqual('Client', TProcedureCallStatementSyntax(LMethod.Statements[0]).ExpressionTokens[0].Text);
+    Assert.AreEqual('DoWork', TProcedureCallStatementSyntax(LMethod.Statements[1]).ExpressionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInIfThen;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LIf: TIfStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin if x then DoSomething; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TIfStatementSyntax);
+
+    LIf := TIfStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LIf.ThenStatement is TProcedureCallStatementSyntax);
+    Assert.AreEqual('DoSomething', TProcedureCallStatementSyntax(LIf.ThenStatement).ExpressionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInBeginEnd;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LBlock: TBeginEndStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin begin Init; Process(Data); Cleanup; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TBeginEndStatementSyntax);
+
+    LBlock := TBeginEndStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(3, LBlock.Statements.Count);
+    Assert.IsTrue(LBlock.Statements[0] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[1] is TProcedureCallStatementSyntax);
+    Assert.IsTrue(LBlock.Statements[2] is TProcedureCallStatementSyntax);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInTryFinally;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LTry: TTryStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin try DoWork; finally Cleanup; end; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TTryStatementSyntax);
+
+    LTry := TTryStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual(1, LTry.Statements.Count);
+    Assert.IsTrue(LTry.Statements[0] is TProcedureCallStatementSyntax);
+    Assert.AreEqual('DoWork', TProcedureCallStatementSyntax(LTry.Statements[0]).ExpressionTokens[0].Text);
+
+    Assert.AreEqual(1, LTry.FinallyExceptStatements.Count);
+    Assert.IsTrue(LTry.FinallyExceptStatements[0] is TProcedureCallStatementSyntax);
+    Assert.AreEqual('Cleanup', TProcedureCallStatementSyntax(LTry.FinallyExceptStatements[0]).ExpressionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallInForLoop;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LFor: TForStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin for I := 0 to 10 do Process(I); end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TForStatementSyntax);
+
+    LFor := TForStatementSyntax(LMethod.Statements[0]);
+    Assert.IsTrue(LFor.Statement is TProcedureCallStatementSyntax);
+    Assert.AreEqual('Process', TProcedureCallStatementSyntax(LFor.Statement).ExpressionTokens[0].Text);
+
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestProcCallWithBrackets;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LCall: TProcedureCallStatementSyntax;
+begin
+  LSource := 'procedure Foo; begin Items[0].Execute; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(1, LMethod.Statements.Count);
+    Assert.IsTrue(LMethod.Statements[0] is TProcedureCallStatementSyntax);
+
+    LCall := TProcedureCallStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('Items', LCall.ExpressionTokens[0].Text);
+    Assert.IsNotNull(LCall.Semicolon);
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);

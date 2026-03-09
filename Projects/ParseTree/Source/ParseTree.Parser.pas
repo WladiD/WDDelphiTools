@@ -40,6 +40,7 @@ type
     function ParseBeginEndStatement: TBeginEndStatementSyntax;
     function ParseTryStatement: TTryStatementSyntax;
     function ParseRaiseStatement: TRaiseStatementSyntax;
+    function ParseProcedureCallStatement: TProcedureCallStatementSyntax;
   end;
 
 implementation
@@ -528,6 +529,9 @@ begin
     Inc(LIdx);
   end;
 
+  if (Current <> nil) and (Current.Kind = tkIdentifier) then
+    Exit(ParseProcedureCallStatement);
+
   // Fallback: collect until semicolon or block end
   LOpaque := TOpaqueStatementSyntax.Create;
   LNest := 0;
@@ -736,6 +740,41 @@ begin
 
     if (LNest <= 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
        tkFinallyKeyword, tkExceptKeyword]) then
+      Break;
+
+    Result.ExpressionTokens.Add(NextToken);
+  end;
+end;
+
+function TParseTreeParser.ParseProcedureCallStatement: TProcedureCallStatementSyntax;
+var
+  LNest: Integer;
+begin
+  Result := TProcedureCallStatementSyntax.Create;
+  LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
+       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+      Inc(LNest)
+    else if Current.Kind = tkEndKeyword then
+    begin
+      if LNest = 0 then Break;
+      Dec(LNest);
+    end
+    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and
+            (LNest = 0) and (Result.ExpressionTokens.Count > 0) then
+      Break
+    else if (Current.Kind = tkSemicolon) and (LNest = 0) then
+    begin
+      Result.Semicolon := MatchToken(tkSemicolon);
+      Break;
+    end;
+
+    if (LNest = 0) and (Result.ExpressionTokens.Count > 0) and
+       ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
+        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
+        (Current.Kind = tkElseKeyword)) then
       Break;
 
     Result.ExpressionTokens.Add(NextToken);
