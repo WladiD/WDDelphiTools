@@ -32,6 +32,8 @@ type
     procedure TestComplexIfStatement;
     [Test]
     procedure TestIfStatementWithForbiddenSemicolon;
+    [Test]
+    procedure TestAssignmentStatement;
   end;
 
 implementation
@@ -298,6 +300,38 @@ begin
     Assert.IsNotNull(LIf.ElseStatement);
     
     // Roundtrip verification: should reproduce the "syntax error" exactly
+    LResult := LWriter.GenerateSource(LMethod);
+    Assert.AreEqual(LSource, LResult);
+  finally
+    LWriter.Free;
+    LParser.Free;
+  end;
+end;
+
+procedure TParseTreeParserStatementsTest.TestAssignmentStatement;
+var
+  LParser: TParseTreeParser;
+  LMethod: TMethodImplementationSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LSource, LResult: string;
+  LAssign: TAssignmentStatementSyntax;
+begin
+  LSource := 'procedure Assign; begin x := 10; y := a + b; MyObj.Field := ''test''; end;';
+  LParser := TParseTreeParser.Create;
+  LWriter := TSyntaxTreeWriter.Create;
+  try
+    LMethod := LParser.ParseMethodImplementation(LSource);
+    Assert.AreEqual(3, LMethod.Statements.Count);
+    
+    Assert.IsTrue(LMethod.Statements[0] is TAssignmentStatementSyntax);
+    LAssign := TAssignmentStatementSyntax(LMethod.Statements[0]);
+    Assert.AreEqual('x', LAssign.LeftTokens[0].Text);
+    Assert.AreEqual(':=', LAssign.ColonEqualsToken.Text);
+    
+    Assert.IsTrue(LMethod.Statements[1] is TAssignmentStatementSyntax);
+    Assert.IsTrue(LMethod.Statements[2] is TAssignmentStatementSyntax);
+    
+    // Roundtrip
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);
   finally

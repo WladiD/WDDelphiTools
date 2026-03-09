@@ -34,6 +34,7 @@ type
     function SerializeRepeatStatement(AStmt: TRepeatStatementSyntax): System.JSON.TJSONObject;
     function SerializeForStatement(AStmt: TForStatementSyntax): System.JSON.TJSONObject;
     function SerializeIfStatement(AStmt: TIfStatementSyntax): System.JSON.TJSONObject;
+    function SerializeAssignmentStatement(AStmt: TAssignmentStatementSyntax): System.JSON.TJSONObject;
     function SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;
   public
     function SerializeNode(ANode: TSyntaxNode): TJSONObject;
@@ -487,6 +488,8 @@ begin
     Result := SerializeForStatement(TForStatementSyntax(AStmt))
   else if AStmt is TIfStatementSyntax then
     Result := SerializeIfStatement(TIfStatementSyntax(AStmt))
+  else if AStmt is TAssignmentStatementSyntax then
+    Result := SerializeAssignmentStatement(TAssignmentStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     Result := SerializeOpaqueStatement(TOpaqueStatementSyntax(AStmt))
   else
@@ -625,6 +628,28 @@ begin
     if Assigned(AStmt.ElseStatement) then
       Result.AddPair('ElseStatement', SerializeStatement(AStmt.ElseStatement));
   end;
+end;
+
+function TSyntaxTreeSerializer.SerializeAssignmentStatement(AStmt: TAssignmentStatementSyntax): System.JSON.TJSONObject;
+var
+  LArray: TJSONArray;
+  LToken: TSyntaxToken;
+begin
+  Result := TJSONObject.Create;
+  Result.AddPair('NodeType', 'AssignmentStatement');
+  
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.LeftTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('LeftTokens', LArray);
+  
+  if Assigned(AStmt.ColonEqualsToken) then
+    Result.AddPair('ColonEqualsToken', SerializeToken(AStmt.ColonEqualsToken));
+    
+  LArray := TJSONArray.Create;
+  for LToken in AStmt.RightTokens do
+    LArray.AddElement(SerializeToken(LToken));
+  Result.AddPair('RightTokens', LArray);
 end;
 
 function TSyntaxTreeSerializer.SerializeOpaqueStatement(AStmt: TOpaqueStatementSyntax): System.JSON.TJSONObject;

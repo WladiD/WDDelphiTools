@@ -302,7 +302,16 @@ begin
       else if LTokenText = ',' then
         Result := TSyntaxToken.Create(tkComma, LTokenText)
       else if LTokenText = ':' then
-        Result := TSyntaxToken.Create(tkColon, LTokenText)
+      begin
+        if Current = '=' then
+        begin
+          LTokenText := LTokenText + Current;
+          Next;
+          Result := TSyntaxToken.Create(tkColonEquals, LTokenText);
+        end
+        else
+          Result := TSyntaxToken.Create(tkColon, LTokenText);
+      end
       else if LTokenText = '=' then
         Result := TSyntaxToken.Create(tkEquals, LTokenText)
       else if LTokenText = '(' then

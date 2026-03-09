@@ -36,6 +36,7 @@ type
     function ParseRepeatStatement: TRepeatStatementSyntax;
     function ParseForStatement: TForStatementSyntax;
     function ParseIfStatement: TIfStatementSyntax;
+    function ParseAssignmentStatement: TAssignmentStatementSyntax;
   end;
 
 implementation
@@ -504,6 +505,19 @@ begin
   else if Current.Kind = tkIfKeyword then
     Exit(ParseIfStatement);
 
+  // Check for assignment: look ahead for := before ; or structural keyword
+  var LIdx := 0;
+  while (Peek(LIdx) <> nil) and (Peek(LIdx).Kind <> tkEOF) and (Peek(LIdx).Kind <> tkSemicolon) do
+  begin
+    if Peek(LIdx).Kind = tkColonEquals then
+      Exit(ParseAssignmentStatement);
+    if Peek(LIdx).Kind in [tkBeginKeyword, tkEndKeyword, tkTryKeyword, tkCaseKeyword,
+       tkAsmKeyword, tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword,
+       tkElseKeyword, tkUntilKeyword, tkThenKeyword, tkDoKeyword] then
+      Break;
+    Inc(LIdx);
+  end;
+
   // Fallback: collect until semicolon or block end
   LOpaque := TOpaqueStatementSyntax.Create;
   LNest := 0;
@@ -571,11 +585,11 @@ begin
   Result := TForStatementSyntax.Create;
   Result.ForKeyword := MatchToken(tkForKeyword);
   
-  while (Current <> nil) and (Current.Kind <> tkEquals) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (Current.Kind <> tkColonEquals) and (Current.Kind <> tkEOF) do
     Result.VariableTokens.Add(NextToken);
     
-  if (Current <> nil) and (Current.Kind = tkEquals) then
-    Result.AssignmentToken := MatchToken(tkEquals);
+  if (Current <> nil) and (Current.Kind = tkColonEquals) then
+    Result.AssignmentToken := MatchToken(tkColonEquals);
     
   while (Current <> nil) and (Current.Kind <> tkToKeyword) and (Current.Kind <> tkDowntoKeyword) and (Current.Kind <> tkEOF) do
     Result.StartTokens.Add(NextToken);
@@ -614,6 +628,37 @@ begin
   begin
     Result.ElseKeyword := MatchToken(tkElseKeyword);
     Result.ElseStatement := ParseStatement;
+  end;
+end;
+
+function TParseTreeParser.ParseAssignmentStatement: TAssignmentStatementSyntax;
+begin
+  Result := TAssignmentStatementSyntax.Create;
+  while (Current <> nil) and (Current.Kind <> tkColonEquals) and (Current.Kind <> tkEOF) do
+    Result.LeftTokens.Add(NextToken);
+    
+  if (Current <> nil) and (Current.Kind = tkColonEquals) then
+    Result.ColonEqualsToken := MatchToken(tkColonEquals);
+    
+  var LNest := 0;
+  while (Current <> nil) and (Current.Kind <> tkEOF) do
+  begin
+    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then Inc(LNest)
+    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then Dec(LNest);
+    
+    if (Current.Kind = tkSemicolon) and (LNest = 0) then
+    begin
+      Result.RightTokens.Add(MatchToken(tkSemicolon));
+      Break;
+    end;
+    
+    // Break if we hit a keyword that definitely starts a new statement
+    if (LNest = 0) and (Result.RightTokens.Count > 0) and
+       ((Current.Kind = tkIfKeyword) or (Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or 
+        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkEndKeyword) or (Current.Kind = tkElseKeyword)) then
+      Break;
+
+    Result.RightTokens.Add(NextToken);
   end;
 end;
 

@@ -58,7 +58,8 @@ type
     tkOpenBracket,
     tkCloseBracket,
     tkLessThan,
-    tkGreaterThan
+    tkGreaterThan,
+    tkColonEquals
   );
 
   TTokenKindHelper = record helper for TTokenKind

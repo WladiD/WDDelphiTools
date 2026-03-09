@@ -118,6 +118,7 @@ var
   LProjectsDir: string;
   LSourceDir: string;
   LFiles: TStringDynArray;
+  LThreadPool: TThreadPool;
 begin
   LProjectsDir := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\..\'));
   LSourceDir := TPath.Combine(LProjectsDir, 'DPT\Source');
@@ -127,12 +128,19 @@ begin
 
   LFiles := TDirectory.GetFiles(LSourceDir, '*.pas', TSearchOption.soTopDirectoryOnly);
   
-  TParallel.For(0, Length(LFiles) - 1,
-    procedure(I: Integer)
-    begin
-      Writeln('Testing: ' + ExtractFileName(LFiles[I]));
-      DoRoundtripTest(LFiles[I]);
-    end);
+  LThreadPool := TThreadPool.Create;
+  try
+    LThreadPool.MaxWorkerThreads := 2;
+    TParallel.For(0, Length(LFiles) - 1,
+      procedure(I: Integer)
+      begin
+        Writeln('Testing: ' + ExtractFileName(LFiles[I]));
+        DoRoundtripTest(LFiles[I]);
+      end,
+      LThreadPool);
+  finally
+    LThreadPool.Free;
+  end;
 end;
 
 initialization

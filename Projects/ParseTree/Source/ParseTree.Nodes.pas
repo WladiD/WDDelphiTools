@@ -281,6 +281,20 @@ type
     property ElseKeyword: TSyntaxToken read FElseKeyword write FElseKeyword;
     property ElseStatement: TStatementSyntax read FElseStatement write FElseStatement;
   end;
+  
+  { Variable := Expression; }
+  TAssignmentStatementSyntax = class(TStatementSyntax)
+  private
+    FLeftTokens: TObjectList<TSyntaxToken>;
+    FColonEqualsToken: TSyntaxToken;
+    FRightTokens: TObjectList<TSyntaxToken>;
+  public
+    constructor Create;
+    destructor Destroy; override;
+    property LeftTokens: TObjectList<TSyntaxToken> read FLeftTokens;
+    property ColonEqualsToken: TSyntaxToken read FColonEqualsToken write FColonEqualsToken;
+    property RightTokens: TObjectList<TSyntaxToken> read FRightTokens;
+  end;
 
   { A statement that just holds tokens for roundtrip if not specifically parsed }
   TOpaqueStatementSyntax = class(TStatementSyntax)
@@ -651,6 +665,23 @@ begin
   FThenStatement.Free;
   FElseKeyword.Free;
   FElseStatement.Free;
+  inherited;
+end;
+
+{ TAssignmentStatementSyntax }
+
+constructor TAssignmentStatementSyntax.Create;
+begin
+  inherited Create;
+  FLeftTokens := TObjectList<TSyntaxToken>.Create;
+  FRightTokens := TObjectList<TSyntaxToken>.Create;
+end;
+
+destructor TAssignmentStatementSyntax.Destroy;
+begin
+  FLeftTokens.Free;
+  FColonEqualsToken.Free;
+  FRightTokens.Free;
   inherited;
 end;
 

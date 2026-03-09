@@ -28,6 +28,7 @@ type
     procedure WriteRepeatStatement(AStmt: TRepeatStatementSyntax);
     procedure WriteForStatement(AStmt: TForStatementSyntax);
     procedure WriteIfStatement(AStmt: TIfStatementSyntax);
+    procedure WriteAssignmentStatement(AStmt: TAssignmentStatementSyntax);
     procedure WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
     
     // Declarations
@@ -296,6 +297,8 @@ begin
     WriteForStatement(TForStatementSyntax(AStmt))
   else if AStmt is TIfStatementSyntax then
     WriteIfStatement(TIfStatementSyntax(AStmt))
+  else if AStmt is TAssignmentStatementSyntax then
+    WriteAssignmentStatement(TAssignmentStatementSyntax(AStmt))
   else if AStmt is TOpaqueStatementSyntax then
     WriteOpaqueStatement(TOpaqueStatementSyntax(AStmt));
 end;
@@ -361,6 +364,20 @@ begin
     WriteToken(AStmt.ElseKeyword);
     WriteStatement(AStmt.ElseStatement);
   end;
+end;
+
+procedure TSyntaxTreeWriter.WriteAssignmentStatement(AStmt: TAssignmentStatementSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  for LToken in AStmt.LeftTokens do
+    WriteToken(LToken);
+
+  if Assigned(AStmt.ColonEqualsToken) then
+    WriteToken(AStmt.ColonEqualsToken);
+    
+  for LToken in AStmt.RightTokens do
+    WriteToken(LToken);
 end;
 
 procedure TSyntaxTreeWriter.WriteOpaqueStatement(AStmt: TOpaqueStatementSyntax);
