@@ -48,6 +48,8 @@ type
     procedure TestRecordWithProcedureAndFunctionPointerMembersRoundtrip;
     [Test]
     procedure TestMethodBodyRecoveryBeforeNextQualifiedMethod;
+    [Test]
+    procedure TestTypeDeclarationSubclasses;
   end;
 
 implementation
@@ -817,6 +819,60 @@ begin
     end;
   finally
     LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestTypeDeclarationSubclasses;
+const
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TMyClass = class(TObject)
+      end;
+      
+      TMyRecord = record
+      end;
+      
+      TMyEnum = (enOne, enTwo);
+      
+      TMyGenericClass<T> = class
+      end;
+    implementation
+    end.
+  ''';
+var
+  LUnit: TCompilationUnitSyntax;
+  LTypeSection: TTypeSectionSyntax;
+begin
+  LUnit := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LUnit);
+    Assert.IsNotNull(LUnit.InterfaceSection);
+    Assert.AreEqual(1, LUnit.InterfaceSection.Declarations.Count);
+    
+    LTypeSection := LUnit.InterfaceSection.Declarations[0] as TTypeSectionSyntax;
+    Assert.AreEqual(4, LTypeSection.Declarations.Count);
+    
+    // TMyClass = class(TObject)
+    Assert.IsTrue(LTypeSection.Declarations[0] is TClassDeclarationSyntax, 'TMyClass should be TClassDeclarationSyntax');
+    Assert.AreEqual('TMyClass', LTypeSection.Declarations[0].Identifier.Text);
+    
+    // TMyRecord = record
+    Assert.IsTrue(LTypeSection.Declarations[1] is TRecordDeclarationSyntax, 'TMyRecord should be TRecordDeclarationSyntax');
+    Assert.AreEqual('TMyRecord', LTypeSection.Declarations[1].Identifier.Text);
+    
+    // TMyEnum = (enOne, enTwo)
+    Assert.IsFalse(LTypeSection.Declarations[2] is TClassDeclarationSyntax, 'TMyEnum should NOT be TClassDeclarationSyntax');
+    Assert.IsFalse(LTypeSection.Declarations[2] is TRecordDeclarationSyntax, 'TMyEnum should NOT be TRecordDeclarationSyntax');
+    Assert.IsTrue(LTypeSection.Declarations[2].ClassType = TTypeDeclarationSyntax, 'TMyEnum should be exact TTypeDeclarationSyntax');
+    Assert.AreEqual('TMyEnum', LTypeSection.Declarations[2].Identifier.Text);
+    
+    // TMyGenericClass<T> = class
+    Assert.IsTrue(LTypeSection.Declarations[3] is TClassDeclarationSyntax, 'TMyGenericClass<T> should be TClassDeclarationSyntax');
+    Assert.AreEqual('TMyGenericClass', LTypeSection.Declarations[3].Identifier.Text);
+  finally
+    LUnit.Free;
   end;
 end;
 

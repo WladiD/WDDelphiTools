@@ -149,6 +149,14 @@ type
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
+  { e.g. TMyClass = class ... end; }
+  TClassDeclarationSyntax = class(TTypeDeclarationSyntax)
+  end;
+
+  { e.g. TMyRecord = record ... end; }
+  TRecordDeclarationSyntax = class(TTypeDeclarationSyntax)
+  end;
+
   { type ... }
   TTypeSectionSyntax = class(TDeclarationSectionSyntax)
   private

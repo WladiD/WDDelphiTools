@@ -583,8 +583,38 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
 
 var
   LNestLevel: Integer;
+  LTypeKind: TTokenKind;
 begin
-  Result := TTypeDeclarationSyntax.Create;
+  // Peek ahead to determine the specific type declaration class to instantiate
+  LTypeKind := tkUnknown;
+  if (Current <> nil) and (Current.Kind = tkIdentifier) then
+  begin
+    var LScan: Integer := FPosition + 1;
+    // Skip generic type parameters <T>
+    if (LScan < FTokens.Count) and (FTokens[LScan].Kind = tkLessThan) then
+    begin
+      Inc(LScan);
+      while (LScan < FTokens.Count) and (FTokens[LScan].Kind <> tkGreaterThan) and (FTokens[LScan].Kind <> tkEOF) do
+        Inc(LScan);
+      if (LScan < FTokens.Count) and (FTokens[LScan].Kind = tkGreaterThan) then
+        Inc(LScan);
+    end;
+    
+    if (LScan < FTokens.Count) and (FTokens[LScan].Kind = tkEquals) then
+    begin
+      Inc(LScan);
+      if (LScan < FTokens.Count) then
+        LTypeKind := FTokens[LScan].Kind;
+    end;
+  end;
+
+  if LTypeKind = tkClassKeyword then
+    Result := TClassDeclarationSyntax.Create
+  else if LTypeKind = tkRecordKeyword then
+    Result := TRecordDeclarationSyntax.Create
+  else
+    Result := TTypeDeclarationSyntax.Create;
+
   Result.Identifier := MatchToken(tkIdentifier);
 
   // Skip generic type parameters <T> or <T1, T2>
