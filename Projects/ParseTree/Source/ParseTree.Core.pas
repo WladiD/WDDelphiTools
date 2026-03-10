@@ -33,14 +33,20 @@ type
     FText: string;
     FLeadingTrivia: TObjectList<TSyntaxTrivia>;
     FTrailingTrivia: TObjectList<TSyntaxTrivia>;
+    function GetLeadingTrivia: TObjectList<TSyntaxTrivia>;
+    function GetTrailingTrivia: TObjectList<TSyntaxTrivia>;
+    function GetHasLeadingTrivia: Boolean;
+    function GetHasTrailingTrivia: Boolean;
   public
     constructor Create(AKind: TTokenKind; const AText: string);
     destructor Destroy; override;
 
     property Kind: TTokenKind read FKind;
     property Text: string read FText;
-    property LeadingTrivia: TObjectList<TSyntaxTrivia> read FLeadingTrivia;
-    property TrailingTrivia: TObjectList<TSyntaxTrivia> read FTrailingTrivia;
+    property HasLeadingTrivia: Boolean read GetHasLeadingTrivia;
+    property HasTrailingTrivia: Boolean read GetHasTrailingTrivia;
+    property LeadingTrivia: TObjectList<TSyntaxTrivia> read GetLeadingTrivia;
+    property TrailingTrivia: TObjectList<TSyntaxTrivia> read GetTrailingTrivia;
   end;
 
   { Base class for syntax nodes (statements, expressions, etc.) }
@@ -76,8 +82,6 @@ begin
   inherited Create;
   FKind := AKind;
   FText := AText;
-  FLeadingTrivia := TObjectList<TSyntaxTrivia>.Create;
-  FTrailingTrivia := TObjectList<TSyntaxTrivia>.Create;
 end;
 
 destructor TSyntaxToken.Destroy;
@@ -85,6 +89,28 @@ begin
   FLeadingTrivia.Free;
   FTrailingTrivia.Free;
   inherited;
+end;
+
+function TSyntaxToken.GetHasLeadingTrivia: Boolean;
+begin
+  Result := (FLeadingTrivia <> nil) and (FLeadingTrivia.Count > 0);
+end;
+
+function TSyntaxToken.GetHasTrailingTrivia: Boolean;
+begin
+  Result := (FTrailingTrivia <> nil) and (FTrailingTrivia.Count > 0);
+end;
+
+function TSyntaxToken.GetLeadingTrivia: TObjectList<TSyntaxTrivia>;
+begin
+  if FLeadingTrivia = nil then FLeadingTrivia := TObjectList<TSyntaxTrivia>.Create;
+  Result := FLeadingTrivia;
+end;
+
+function TSyntaxToken.GetTrailingTrivia: TObjectList<TSyntaxTrivia>;
+begin
+  if FTrailingTrivia = nil then FTrailingTrivia := TObjectList<TSyntaxTrivia>.Create;
+  Result := FTrailingTrivia;
 end;
 
 end.

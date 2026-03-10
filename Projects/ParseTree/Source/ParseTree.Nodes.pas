@@ -593,8 +593,8 @@ end;
 constructor TUnitReferenceSyntax.Create;
 begin
   inherited Create;
-  FNamespaces := TObjectList<TSyntaxToken>.Create;
-  FDots := TObjectList<TSyntaxToken>.Create;
+  FNamespaces := TObjectList<TSyntaxToken>.Create(True);
+  FDots := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TUnitReferenceSyntax.Destroy;
@@ -612,7 +612,7 @@ constructor TUsesClauseSyntax.Create;
 begin
   inherited Create;
   FUnitReferences := TObjectList<TUnitReferenceSyntax>.Create;
-  FCommas := TObjectList<TSyntaxToken>.Create;
+  FCommas := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TUsesClauseSyntax.Destroy;
@@ -629,7 +629,7 @@ end;
 constructor TClassMemberSyntax.Create;
 begin
   inherited Create;
-  FTokens := TObjectList<TSyntaxToken>.Create;
+  FTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TClassMemberSyntax.Destroy;
@@ -664,11 +664,11 @@ end;
 constructor TTypeDeclarationSyntax.Create;
 begin
   inherited Create;
-  FGenericParameterTokens := TObjectList<TSyntaxToken>.Create;
-  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
-  FBaseListTokens := TObjectList<TSyntaxToken>.Create;
+  FGenericParameterTokens := TObjectList<TSyntaxToken>.Create(True);
+  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create(True);
+  FBaseListTokens := TObjectList<TSyntaxToken>.Create(True);
   FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
-  FTrailingTokens := TObjectList<TSyntaxToken>.Create;
+  FTrailingTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TTypeDeclarationSyntax.Destroy;
@@ -706,7 +706,7 @@ end;
 constructor TConstDeclarationSyntax.Create;
 begin
   inherited Create;
-  FValueTokens := TObjectList<TSyntaxToken>.Create;
+  FValueTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TConstDeclarationSyntax.Destroy;
@@ -725,7 +725,7 @@ end;
 constructor TVarDeclarationSyntax.Create;
 begin
   inherited Create;
-  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
+  FTypeExtraTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TVarDeclarationSyntax.Destroy;
@@ -773,8 +773,8 @@ end;
 constructor TWhileStatementSyntax.Create;
 begin
   inherited Create;
-  FConditionTokens := TObjectList<TSyntaxToken>.Create;
-  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create(True);
+  FBodyTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TWhileStatementSyntax.Destroy;
@@ -793,8 +793,8 @@ constructor TRepeatStatementSyntax.Create;
 begin
   inherited Create;
   FStatements := TObjectList<TStatementSyntax>.Create;
-  FConditionTokens := TObjectList<TSyntaxToken>.Create;
-  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create(True);
+  FBodyTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TRepeatStatementSyntax.Destroy;
@@ -813,11 +813,11 @@ end;
 constructor TForStatementSyntax.Create;
 begin
   inherited Create;
-  FVariableTokens := TObjectList<TSyntaxToken>.Create;
-  FStartTokens := TObjectList<TSyntaxToken>.Create;
-  FEndTokens := TObjectList<TSyntaxToken>.Create;
-  FCollectionTokens := TObjectList<TSyntaxToken>.Create;
-  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+  FVariableTokens := TObjectList<TSyntaxToken>.Create(True);
+  FStartTokens := TObjectList<TSyntaxToken>.Create(True);
+  FEndTokens := TObjectList<TSyntaxToken>.Create(True);
+  FCollectionTokens := TObjectList<TSyntaxToken>.Create(True);
+  FBodyTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TForStatementSyntax.Destroy;
@@ -841,7 +841,7 @@ end;
 constructor TIfStatementSyntax.Create;
 begin
   inherited Create;
-  FConditionTokens := TObjectList<TSyntaxToken>.Create;
+  FConditionTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TIfStatementSyntax.Destroy;
@@ -860,8 +860,8 @@ end;
 constructor TAssignmentStatementSyntax.Create;
 begin
   inherited Create;
-  FLeftTokens := TObjectList<TSyntaxToken>.Create;
-  FRightTokens := TObjectList<TSyntaxToken>.Create;
+  FLeftTokens := TObjectList<TSyntaxToken>.Create(True);
+  FRightTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TAssignmentStatementSyntax.Destroy;
@@ -915,7 +915,7 @@ end;
 constructor TRaiseStatementSyntax.Create;
 begin
   inherited Create;
-  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TRaiseStatementSyntax.Destroy;
@@ -931,7 +931,7 @@ end;
 constructor TCaseItemSyntax.Create;
 begin
   inherited Create;
-  FValueTokens := TObjectList<TSyntaxToken>.Create;
+  FValueTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TCaseItemSyntax.Destroy;
@@ -947,7 +947,7 @@ end;
 constructor TCaseStatementSyntax.Create;
 begin
   inherited Create;
-  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create(True);
   FCaseItems := TObjectList<TCaseItemSyntax>.Create;
   FElseStatements := TObjectList<TStatementSyntax>.Create;
 end;
@@ -970,7 +970,7 @@ end;
 constructor TWithStatementSyntax.Create;
 begin
   inherited Create;
-  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TWithStatementSyntax.Destroy;
@@ -989,7 +989,7 @@ end;
 constructor TInheritedStatementSyntax.Create;
 begin
   inherited Create;
-  FCallTokens := TObjectList<TSyntaxToken>.Create;
+  FCallTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TInheritedStatementSyntax.Destroy;
@@ -1005,7 +1005,7 @@ end;
 constructor TExitStatementSyntax.Create;
 begin
   inherited Create;
-  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TExitStatementSyntax.Destroy;
@@ -1021,7 +1021,7 @@ end;
 constructor TProcedureCallStatementSyntax.Create;
 begin
   inherited Create;
-  FExpressionTokens := TObjectList<TSyntaxToken>.Create;
+  FExpressionTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TProcedureCallStatementSyntax.Destroy;
@@ -1038,7 +1038,7 @@ end;
 constructor TInlineVarStatementSyntax.Create;
 begin
   inherited Create;
-  FDeclarationTokens := TObjectList<TSyntaxToken>.Create;
+  FDeclarationTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TInlineVarStatementSyntax.Destroy;
@@ -1062,7 +1062,7 @@ end;
 constructor TOpaqueStatementSyntax.Create;
 begin
   inherited Create;
-  FTokens := TObjectList<TSyntaxToken>.Create;
+  FTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TOpaqueStatementSyntax.Destroy;
@@ -1092,7 +1092,7 @@ end;
 constructor TUnparsedDeclarationSyntax.Create;
 begin
   inherited Create;
-  FTokens := TObjectList<TSyntaxToken>.Create;
+  FTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TUnparsedDeclarationSyntax.Destroy;
@@ -1106,10 +1106,10 @@ end;
 constructor TMethodImplementationSyntax.Create;
 begin
   inherited Create;
-  FSignatureTokens := TObjectList<TSyntaxToken>.Create;
+  FSignatureTokens := TObjectList<TSyntaxToken>.Create(True);
   FLocalDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
   FStatements := TObjectList<TStatementSyntax>.Create;
-  FBodyTokens := TObjectList<TSyntaxToken>.Create;
+  FBodyTokens := TObjectList<TSyntaxToken>.Create(True);
 end;
 
 destructor TMethodImplementationSyntax.Destroy;
@@ -1147,8 +1147,8 @@ end;
 constructor TCompilationUnitSyntax.Create;
 begin
   inherited Create;
-  FNamespaces := TObjectList<TSyntaxToken>.Create;
-  FDots := TObjectList<TSyntaxToken>.Create;
+  FNamespaces := TObjectList<TSyntaxToken>.Create(True);
+  FDots := TObjectList<TSyntaxToken>.Create(True);
   FPreInterfaceDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
   FIntfImplDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;
   FPostImplementationDeclarations := TObjectList<TDeclarationSectionSyntax>.Create;

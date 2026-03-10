@@ -87,13 +87,15 @@ var
   LTrivia: TSyntaxTrivia;
 begin
   if AToken = nil then Exit;
-  for LTrivia in AToken.LeadingTrivia do
-    WriteTrivia(LTrivia);
+  if AToken.HasLeadingTrivia then
+    for LTrivia in AToken.LeadingTrivia do
+      WriteTrivia(LTrivia);
     
   FBuilder.Append(AToken.Text);
   
-  for LTrivia in AToken.TrailingTrivia do
-    WriteTrivia(LTrivia);
+  if AToken.HasTrailingTrivia then
+    for LTrivia in AToken.TrailingTrivia do
+      WriteTrivia(LTrivia);
 end;
 
 procedure TSyntaxTreeWriter.WriteUnitReference(ANode: TUnitReferenceSyntax);

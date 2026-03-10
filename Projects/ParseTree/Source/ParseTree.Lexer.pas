@@ -260,17 +260,26 @@ begin
   if Current = #0 then
     Exit(TSyntaxToken.Create(tkEOF, ''));
 
-  LLeadingTrivia := TList<TSyntaxTrivia>.Create;
+  LLeadingTrivia := nil;
   try
     // Scan leading trivia (whitespace and comments)
     while True do
     begin
       if (Current = ' ') or (Current = #9) or (Current = #13) or (Current = #10) then
-        LLeadingTrivia.Add(ScanWhitespace)
+      begin
+        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
+        LLeadingTrivia.Add(ScanWhitespace);
+      end
       else if (Current = '/') and (Peek(1) = '/') then
-        LLeadingTrivia.Add(ScanComment)
+      begin
+        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
+        LLeadingTrivia.Add(ScanComment);
+      end
       else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then
-        LLeadingTrivia.Add(ScanComment)
+      begin
+        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
+        LLeadingTrivia.Add(ScanComment);
+      end
       else
         Break;
     end;
@@ -278,7 +287,8 @@ begin
     if Current = #0 then
     begin
       Result := TSyntaxToken.Create(tkEOF, '');
-      Result.LeadingTrivia.AddRange(LLeadingTrivia);
+      if LLeadingTrivia <> nil then
+        Result.LeadingTrivia.AddRange(LLeadingTrivia);
       Exit;
     end;
 
@@ -362,7 +372,8 @@ begin
         Result := TSyntaxToken.Create(tkUnknown, LTokenText);
     end;
 
-    Result.LeadingTrivia.AddRange(LLeadingTrivia);
+    if LLeadingTrivia <> nil then
+      Result.LeadingTrivia.AddRange(LLeadingTrivia);
 
   finally
     LLeadingTrivia.Free;

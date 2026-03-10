@@ -157,33 +157,34 @@ begin
             LLocalSerializer := TSyntaxTreeSerializer.Create;
             try
               LLocalTree := LLocalParser.Parse(LLocalContent);
+              LLocalContent := '';
               try
                 LLocalJson := LLocalSerializer.SerializeNode(LLocalTree);
-                try
-                  if LTaskFile.StartsWith(LTestProjectDir, True) then
-                    LRelPath := ExtractRelativePath(LTestProjectDir, LTaskFile)
-                  else
-                  begin
-                    LSanitizedPath := StringReplace(TPath.GetFullPath(LTaskFile), ':', '', [rfReplaceAll]);
-                    while (Length(LSanitizedPath) > 0) and
-                          ((LSanitizedPath[1] = '\') or (LSanitizedPath[1] = '/')) do
-                      Delete(LSanitizedPath, 1, 1);
-                    LRelPath := LSanitizedPath;
-                  end;
-                  LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
-
-                  LLock.Enter;
-                  try
-                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
-                    TFile.WriteAllText(LTargetFile, LLocalJson.Format(2), TEncoding.UTF8);
-                  finally
-                    LLock.Leave;
-                  end;
-                finally
-                  LLocalJson.Free;
-                end;
               finally
                 LLocalTree.Free;
+              end;
+              try
+                if LTaskFile.StartsWith(LTestProjectDir, True) then
+                  LRelPath := ExtractRelativePath(LTestProjectDir, LTaskFile)
+                else
+                begin
+                  LSanitizedPath := StringReplace(TPath.GetFullPath(LTaskFile), ':', '', [rfReplaceAll]);
+                  while (Length(LSanitizedPath) > 0) and
+                        ((LSanitizedPath[1] = '\') or (LSanitizedPath[1] = '/')) do
+                    Delete(LSanitizedPath, 1, 1);
+                  LRelPath := LSanitizedPath;
+                end;
+                LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+
+                LLock.Enter;
+                try
+                  TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
+                  TFile.WriteAllText(LTargetFile, LLocalJson.ToString, TEncoding.UTF8);
+                finally
+                  LLock.Leave;
+                end;
+              finally
+                LLocalJson.Free;
               end;
             finally
               LLocalSerializer.Free;

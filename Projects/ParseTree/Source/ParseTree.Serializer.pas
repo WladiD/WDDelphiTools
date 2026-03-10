@@ -76,7 +76,7 @@ begin
   Result.AddPair('Kind', AToken.Kind.ToString);
   Result.AddPair('Text', TJSONString.Create(AToken.Text));
 
-  if AToken.LeadingTrivia.Count > 0 then
+  if AToken.HasLeadingTrivia then
   begin
     LArray := TJSONArray.Create;
     for LTrivia in AToken.LeadingTrivia do
@@ -84,7 +84,7 @@ begin
     Result.AddPair('LeadingTrivia', LArray);
   end;
 
-  if AToken.TrailingTrivia.Count > 0 then
+  if AToken.HasTrailingTrivia then
   begin
     LArray := TJSONArray.Create;
     for LTrivia in AToken.TrailingTrivia do
