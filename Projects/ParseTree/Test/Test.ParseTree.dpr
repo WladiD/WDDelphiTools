@@ -4,6 +4,7 @@ program Test.ParseTree;
 {$APPTYPE CONSOLE}
 {$ENDIF}
 {$STRONGLINKTYPES ON}
+{$SetPEFlags $0020} // IMAGE_FILE_LARGE_ADDRESS_AWARE
 uses
   System.SysUtils,
   {$IFDEF TESTINSIGHT}
