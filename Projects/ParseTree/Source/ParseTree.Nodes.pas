@@ -131,6 +131,7 @@ type
     FBaseListTokens: TObjectList<TSyntaxToken>; // Holds '(' 'TObject' ')'
     FVisibilitySections: TObjectList<TVisibilitySectionSyntax>;
     FEndKeyword: TSyntaxToken;
+    FTrailingTokens: TObjectList<TSyntaxToken>;
     FSemicolon: TSyntaxToken;
   public
     constructor Create;
@@ -144,6 +145,7 @@ type
     property BaseListTokens: TObjectList<TSyntaxToken> read FBaseListTokens;
     property VisibilitySections: TObjectList<TVisibilitySectionSyntax> read FVisibilitySections;
     property EndKeyword: TSyntaxToken read FEndKeyword write FEndKeyword;
+    property TrailingTokens: TObjectList<TSyntaxToken> read FTrailingTokens;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
   end;
 
@@ -666,6 +668,7 @@ begin
   FTypeExtraTokens := TObjectList<TSyntaxToken>.Create;
   FBaseListTokens := TObjectList<TSyntaxToken>.Create;
   FVisibilitySections := TObjectList<TVisibilitySectionSyntax>.Create;
+  FTrailingTokens := TObjectList<TSyntaxToken>.Create;
 end;
 
 destructor TTypeDeclarationSyntax.Destroy;
@@ -678,6 +681,7 @@ begin
   FBaseListTokens.Free;
   FVisibilitySections.Free;
   FEndKeyword.Free;
+  FTrailingTokens.Free;
   FSemicolon.Free;
   inherited;
 end;

@@ -295,6 +295,15 @@ begin
 
   if Assigned(ADecl.EndKeyword) then
     Result.AddPair('EndKeyword', SerializeToken(ADecl.EndKeyword));
+
+  if Assigned(ADecl.TrailingTokens) and (ADecl.TrailingTokens.Count > 0) then
+  begin
+    LArray := TJSONArray.Create;
+    for LToken in ADecl.TrailingTokens do
+      LArray.AddElement(SerializeToken(LToken));
+    Result.AddPair('TrailingTokens', LArray);
+  end;
+
   if Assigned(ADecl.Semicolon) then
     Result.AddPair('Semicolon', SerializeToken(ADecl.Semicolon));
 end;

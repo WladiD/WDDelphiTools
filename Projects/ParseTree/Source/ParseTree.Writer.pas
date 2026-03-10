@@ -166,6 +166,8 @@ begin
   end;
 
   WriteToken(ADecl.EndKeyword);
+  for LToken in ADecl.TrailingTokens do
+    WriteToken(LToken);
   WriteToken(ADecl.Semicolon);
 end;
 

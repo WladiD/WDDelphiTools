@@ -358,35 +358,33 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
     function IsForwardClassLikeDecl: Boolean;
     var
       LIdx: Integer;
-      LParenNest: Integer;
     begin
       LIdx := FPosition + 1; // token right after class/interface/dispinterface
-      LParenNest := 0;
-
-      // Skip optional base list: class(...), interface(...)
-      if (LIdx < FTokens.Count) and (FTokens[LIdx].Kind = tkOpenParen) then
+      // Forward declarations end directly with ';' after optional modifiers and optional base list.
+      // But we just skip until we see either '(' or ';' or 'end'.
+      while (LIdx < FTokens.Count) and (FTokens[LIdx].Kind <> tkEOF) do
       begin
-        Inc(LParenNest);
-        Inc(LIdx);
-        while (LIdx < FTokens.Count) and (FTokens[LIdx].Kind <> tkEOF) do
+        if FTokens[LIdx].Kind = tkSemicolon then
         begin
-          if FTokens[LIdx].Kind = tkOpenParen then
-            Inc(LParenNest)
-          else if FTokens[LIdx].Kind = tkCloseParen then
-          begin
-            Dec(LParenNest);
-            if LParenNest = 0 then
-            begin
-              Inc(LIdx); // move past ')'
-              Break;
-            end;
-          end;
-          Inc(LIdx);
+          Result := True;
+          Exit;
         end;
+        if (FTokens[LIdx].Kind = tkEndKeyword) or 
+           (FTokens[LIdx].Kind = tkOpenBracket) or
+           (FTokens[LIdx].Kind = tkTypeKeyword) or
+           (FTokens[LIdx].Kind = tkVarKeyword) or
+           (FTokens[LIdx].Kind = tkConstKeyword) or
+           (FTokens[LIdx].Kind = tkProcedureKeyword) or
+           (FTokens[LIdx].Kind = tkFunctionKeyword) or
+           (FTokens[LIdx].Kind = tkPropertyKeyword) or
+           IsVisibilityKeyword(FTokens[LIdx]) then
+        begin
+          Result := False;
+          Exit;
+        end;
+        Inc(LIdx);
       end;
-
-      // Forward declarations end directly with ';' after optional base list.
-      Result := (LIdx < FTokens.Count) and (FTokens[LIdx].Kind = tkSemicolon);
+      Result := False;
     end;
   begin
     LMember := TClassMemberSyntax.Create;
@@ -612,9 +610,19 @@ begin
        not ((Result.TypeTypeToken.Kind = tkClassKeyword) and (Current <> nil) and (Current.Kind = tkOfKeyword)) then
     begin
       // Consume modifiers like 'abstract' or 'sealed' before the base list
-      while (Current <> nil) and (Current.Kind = tkIdentifier) and
-            (SameText(Current.Text, 'abstract') or SameText(Current.Text, 'sealed')) do
-        Result.TypeExtraTokens.Add(NextToken);
+      while (Current <> nil) do
+      begin
+        if (Current.Kind = tkIdentifier) and
+           (SameText(Current.Text, 'abstract') or SameText(Current.Text, 'sealed') or SameText(Current.Text, 'deprecated')) then
+        begin
+          Result.TypeExtraTokens.Add(NextToken);
+          // 'deprecated' can be followed by a string literal message
+          if (Current <> nil) and (Current.Kind = tkStringLiteral) then
+            Result.TypeExtraTokens.Add(NextToken);
+        end
+        else
+          Break;
+      end;
 
       // Parse base classes / interfaces: class(TObject, IInterface)
       if (Current <> nil) and (Current.Kind = tkOpenParen) then
@@ -671,7 +679,11 @@ begin
       Dec(LNestLevel)
     else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
       Break;
-    Result.TypeExtraTokens.Add(NextToken);
+      
+    if Assigned(Result.EndKeyword) then
+      Result.TrailingTokens.Add(NextToken)
+    else
+      Result.TypeExtraTokens.Add(NextToken);
   end;
     
   Result.Semicolon := MatchToken(tkSemicolon);
