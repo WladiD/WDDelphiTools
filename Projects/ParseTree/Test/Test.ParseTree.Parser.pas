@@ -461,6 +461,7 @@ begin
                   var LJsonWriter := TJsonTextWriter.Create(LWriter);
                   try
                     LJsonWriter.Formatting := TJsonFormatting.Indented;
+                    LJsonWriter.Indentation := 2;
                     WriteJsonValue(LJsonWriter, LLocalJson);
                   finally
                     LJsonWriter.Free;
