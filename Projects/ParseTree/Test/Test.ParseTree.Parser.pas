@@ -42,6 +42,8 @@ type
     procedure TestParseVarDeclarations;
     [Test]
     procedure TestParseConstDeclarations;
+    [Test]
+    procedure TestParseMethodImplementationWithConditionalSignatures;
   end;
 
 implementation
@@ -708,6 +710,37 @@ begin
     Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueTokens[0].Text);
   finally
     LTree.Free;
+  end;
+end;
+
+procedure TParseTreeParserTest.TestParseMethodImplementationWithConditionalSignatures;
+const
+  LSourceCode = '''
+    class function TStringHelper.InternalMapOptionsToFlags(AOptions: TCompareOptions): LongWord;
+    const
+      MyConst = 1;
+    {$ELSEIF defined(MACOS)}
+    class function TStringHelper.InternalMapOptionsToFlags(AOptions: TCompareOptions): LongWord;
+    const
+      MyConst2 = 2;
+    var
+      MyVar: Integer;
+    begin
+      Result := 0;
+    end;
+  ''';
+var
+  LMethod: TMethodImplementationSyntax;
+begin
+  LMethod := FParser.ParseMethodImplementation(LSourceCode);
+  try
+    Assert.AreEqual(4, LMethod.LocalDeclarations.Count, 'Should have 4 local declaration blocks');
+    Assert.IsTrue(LMethod.LocalDeclarations[0] is TConstSectionSyntax);
+    Assert.IsTrue(LMethod.LocalDeclarations[1] is TUnparsedDeclarationSyntax);
+    Assert.IsTrue(LMethod.LocalDeclarations[2] is TConstSectionSyntax);
+    Assert.IsTrue(LMethod.LocalDeclarations[3] is TVarSectionSyntax);
+  finally
+    LMethod.Free;
   end;
 end;
 

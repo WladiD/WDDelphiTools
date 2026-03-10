@@ -1475,6 +1475,7 @@ begin
   begin
     if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
     begin
+      LUnparsed := nil;
       LDecl := ParseDeclarationSection;
       if Assigned(LDecl) then
         Result.LocalDeclarations.Add(LDecl);
@@ -1518,6 +1519,7 @@ begin
       else
       begin
         // Nested procedure/function - parse recursively
+        LUnparsed := nil;
         Result.LocalDeclarations.Add(ParseMethodImplementation);
       end;
     end
