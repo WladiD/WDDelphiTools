@@ -9,6 +9,9 @@ uses
   System.Generics.Collections,
   System.IOUtils,
   System.JSON,
+  System.JSON.Types,
+  System.JSON.Writers,
+  System.JSON.Serializers,
   System.Threading,
   System.SyncObjs,
   DUnitX.TestFramework,
@@ -23,6 +26,7 @@ type
   TParseTreeParserTest = class
   private
     FParser: TParseTreeParser;
+    class procedure WriteJsonValue(AWriter: TJsonTextWriter; AValue: TJSONValue);
   public
     [Setup]
     procedure Setup;
@@ -30,7 +34,7 @@ type
     procedure TearDown;
 
     [Test]
-    procedure TestParseAllProjectFiles;
+    procedure TestDumpConfiguredPathsToJson;
 
     [Test]
     procedure TestParserSerialization;
@@ -42,7 +46,275 @@ type
 
 implementation
 
+type
+  TBufferedUtf8FileWriter = class(TTextWriter)
+  private
+    FStream: TFileStream;
+    FBuffer: TStringBuilder;
+    FThreshold: Integer;
+    procedure FlushBuffer;
+    procedure AppendAndCheck(const Value: string); inline;
+  public
+    constructor Create(const AFileName: string; ABufferThreshold: Integer = 64 * 1024);
+    destructor Destroy; override;
+    procedure Close; override;
+    procedure Flush; override;
+    procedure Write(Value: Boolean); overload; override;
+    procedure Write(Value: Char); overload; override;
+    procedure Write(const Value: TCharArray); overload; override;
+    procedure Write(Value: Double); overload; override;
+    procedure Write(Value: Integer); overload; override;
+    procedure Write(Value: Int64); overload; override;
+    procedure Write(Value: TObject); overload; override;
+    procedure Write(Value: Single); overload; override;
+    procedure Write(const Value: string); overload; override;
+    procedure Write(Value: Cardinal); overload; override;
+    procedure Write(Value: UInt64); overload; override;
+    procedure Write(const Format: string; Args: array of const); overload; override;
+    procedure Write(const Value: TCharArray; Index, Count: Integer); overload; override;
+    procedure WriteLine; overload; override;
+    procedure WriteLine(Value: Boolean); overload; override;
+    procedure WriteLine(Value: Char); overload; override;
+    procedure WriteLine(const Value: TCharArray); overload; override;
+    procedure WriteLine(Value: Double); overload; override;
+    procedure WriteLine(Value: Integer); overload; override;
+    procedure WriteLine(Value: Int64); overload; override;
+    procedure WriteLine(Value: TObject); overload; override;
+    procedure WriteLine(Value: Single); overload; override;
+    procedure WriteLine(const Value: string); overload; override;
+    procedure WriteLine(Value: Cardinal); overload; override;
+    procedure WriteLine(Value: UInt64); overload; override;
+    procedure WriteLine(const Format: string; Args: array of const); overload; override;
+    procedure WriteLine(const Value: TCharArray; Index, Count: Integer); overload; override;
+  end;
+
+{ TBufferedUtf8FileWriter }
+
+constructor TBufferedUtf8FileWriter.Create(const AFileName: string; ABufferThreshold: Integer);
+begin
+  inherited Create;
+  FStream := TFileStream.Create(AFileName, fmCreate);
+  FThreshold := ABufferThreshold;
+  FBuffer := TStringBuilder.Create(ABufferThreshold + 4096);
+end;
+
+destructor TBufferedUtf8FileWriter.Destroy;
+begin
+  FlushBuffer;
+  FBuffer.Free;
+  FStream.Free;
+  inherited;
+end;
+
+procedure TBufferedUtf8FileWriter.FlushBuffer;
+begin
+  if FBuffer.Length > 0 then
+  begin
+    var LBytes := TEncoding.UTF8.GetBytes(FBuffer.ToString);
+    FStream.WriteBuffer(LBytes, Length(LBytes));
+    FBuffer.Clear;
+  end;
+end;
+
+procedure TBufferedUtf8FileWriter.AppendAndCheck(const Value: string);
+begin
+  FBuffer.Append(Value);
+  if FBuffer.Length >= FThreshold then
+    FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.Close;
+begin
+  FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.Flush;
+begin
+  FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Boolean);
+begin
+  AppendAndCheck(BoolToStr(Value, True));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Char);
+begin
+  FBuffer.Append(Value);
+  if FBuffer.Length >= FThreshold then
+    FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.Write(const Value: TCharArray);
+begin
+  FBuffer.Append(Value);
+  if FBuffer.Length >= FThreshold then
+    FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Double);
+begin
+  AppendAndCheck(FloatToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Integer);
+begin
+  AppendAndCheck(IntToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Int64);
+begin
+  AppendAndCheck(IntToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: TObject);
+begin
+  AppendAndCheck(Value.ToString);
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Single);
+begin
+  AppendAndCheck(FloatToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(const Value: string);
+begin
+  AppendAndCheck(Value);
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: Cardinal);
+begin
+  AppendAndCheck(UIntToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(Value: UInt64);
+begin
+  AppendAndCheck(UIntToStr(Value));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(const Format: string; Args: array of const);
+begin
+  AppendAndCheck(System.SysUtils.Format(Format, Args));
+end;
+
+procedure TBufferedUtf8FileWriter.Write(const Value: TCharArray; Index, Count: Integer);
+begin
+  FBuffer.Append(Value, Index, Count);
+  if FBuffer.Length >= FThreshold then
+    FlushBuffer;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine;
+begin
+  AppendAndCheck(sLineBreak);
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Boolean);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Char);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(const Value: TCharArray);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Double);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Integer);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Int64);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: TObject);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Single);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(const Value: string);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: Cardinal);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(Value: UInt64);
+begin
+  Write(Value); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(const Format: string; Args: array of const);
+begin
+  Write(Format, Args); WriteLine;
+end;
+
+procedure TBufferedUtf8FileWriter.WriteLine(const Value: TCharArray; Index, Count: Integer);
+begin
+  Write(Value, Index, Count); WriteLine;
+end;
+
 { TParseTreeParserTest }
+
+class procedure TParseTreeParserTest.WriteJsonValue(AWriter: TJsonTextWriter; AValue: TJSONValue);
+var
+  LObj: TJSONObject;
+  LArr: TJSONArray;
+  I: Integer;
+begin
+  if AValue is TJSONObject then
+  begin
+    LObj := TJSONObject(AValue);
+    AWriter.WriteStartObject;
+    for I := 0 to LObj.Count - 1 do
+    begin
+      AWriter.WritePropertyName(LObj.Pairs[I].JsonString.Value);
+      WriteJsonValue(AWriter, LObj.Pairs[I].JsonValue);
+    end;
+    AWriter.WriteEndObject;
+  end
+  else if AValue is TJSONArray then
+  begin
+    LArr := TJSONArray(AValue);
+    AWriter.WriteStartArray;
+    for I := 0 to LArr.Count - 1 do
+      WriteJsonValue(AWriter, LArr.Items[I]);
+    AWriter.WriteEndArray;
+  end
+  else if AValue is TJSONString then
+    AWriter.WriteValue(TJSONString(AValue).Value)
+  else if AValue is TJSONNumber then
+  begin
+    if Pos('.', TJSONNumber(AValue).ToString) > 0 then
+      AWriter.WriteValue(TJSONNumber(AValue).AsDouble)
+    else
+      AWriter.WriteValue(TJSONNumber(AValue).AsInt64);
+  end
+  else if AValue is TJSONBool then
+    AWriter.WriteValue(TJSONBool(AValue).AsBoolean)
+  else if AValue is TJSONNull then
+    AWriter.WriteNull;
+end;
 
 procedure TParseTreeParserTest.Setup;
 begin
@@ -54,7 +326,7 @@ begin
   FParser.Free;
 end;
 
-procedure TParseTreeParserTest.TestParseAllProjectFiles;
+procedure TParseTreeParserTest.TestDumpConfiguredPathsToJson;
 var
   LFiles: TArray<string>;
   LTestProjectDir: string;
@@ -129,7 +401,6 @@ begin
   LLock := TCriticalSection.Create;
   LThreadPool := TThreadPool.Create;
   try
-    LThreadPool.MaxWorkerThreads := 2;
     try
       TParallel.For(Low(LFiles), High(LFiles),
         procedure(LTaskIndex: Integer)
@@ -178,10 +449,24 @@ begin
 
                 LLock.Enter;
                 try
-                  TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
-                  TFile.WriteAllText(LTargetFile, LLocalJson.ToString, TEncoding.UTF8);
+                  if not TDirectory.Exists(TPath.GetDirectoryName(LTargetFile)) then
+                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
+                  Writeln('Dump: ' + ExtractFileName(LTargetFile));
                 finally
                   LLock.Leave;
+                end;
+
+                var LWriter := TBufferedUtf8FileWriter.Create(LTargetFile, 1024 * 1024);
+                try
+                  var LJsonWriter := TJsonTextWriter.Create(LWriter);
+                  try
+                    LJsonWriter.Formatting := TJsonFormatting.Indented;
+                    WriteJsonValue(LJsonWriter, LLocalJson);
+                  finally
+                    LJsonWriter.Free;
+                  end;
+                finally
+                  LWriter.Free;
                 end;
               finally
                 LLocalJson.Free;

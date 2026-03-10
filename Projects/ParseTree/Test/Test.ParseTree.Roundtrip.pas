@@ -196,12 +196,17 @@ begin
   LLock := System.SyncObjs.TCriticalSection.Create;
   LThreadPool := TThreadPool.Create;
   try
-    LThreadPool.MaxWorkerThreads := 2;
     try
       TParallel.For(0, LAllFiles.Count - 1,
         procedure(I: Integer)
         begin
           try
+            LLock.Enter;
+            try
+              Writeln('Roundtrip: ' + ExtractFileName(LAllFiles[I]));
+            finally
+              LLock.Leave;
+            end;
             DoRoundtripTest(LAllFiles[I]);
           except
             on E: Exception do
