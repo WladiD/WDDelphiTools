@@ -233,7 +233,9 @@ begin
 
     if LFailedFiles.Count > 0 then
       Assert.Fail(Format('%s'#13#10'Roundtrip failed for %d files:'#13#10'%s',
-        [LSummary, LFailedFiles.Count, LFailedFiles.Text]));
+        [LSummary, LFailedFiles.Count, LFailedFiles.Text]))
+    else
+      System.Writeln(Format('Successfully checked %d files from %d paths.', [LAllFiles.Count, LCheckedPathCount]));
   finally
     LThreadPool.Free;
     LLock.Free;
