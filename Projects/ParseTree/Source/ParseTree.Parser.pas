@@ -103,15 +103,24 @@ begin
     LUnitRef := TUnitReferenceSyntax.Create;
     
     // Parse the unit identifier(s) and dots (e.g. System.SysUtils)
+    var LExpectDot: Boolean := False;
     while (Current <> nil) and 
           ((Current.Kind = tkIdentifier) or (Current.Kind = tkDot) or 
            (Current.Kind = tkUnitKeyword) or (Current.Kind = tkInterfaceKeyword) or
            (Current.Kind = tkImplementationKeyword) or (Current.Kind = tkUsesKeyword)) do
     begin
       if Current.Kind = tkDot then
-        LUnitRef.Dots.Add(NextToken)
+      begin
+        if not LExpectDot then Break;
+        LUnitRef.Dots.Add(NextToken);
+        LExpectDot := False;
+      end
       else
+      begin
+        if LExpectDot then Break;
         LUnitRef.Namespaces.Add(NextToken);
+        LExpectDot := True;
+      end;
     end;
     
     // Parse optional 'in' clause (e.g. in '..\Unit1.pas')
@@ -602,6 +611,11 @@ begin
        ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword) or (Result.TypeTypeToken.Kind = tkDispinterfaceKeyword) or (Result.TypeTypeToken.Kind = tkRecordKeyword)) and
        not ((Result.TypeTypeToken.Kind = tkClassKeyword) and (Current <> nil) and (Current.Kind = tkOfKeyword)) then
     begin
+      // Consume modifiers like 'abstract' or 'sealed' before the base list
+      while (Current <> nil) and (Current.Kind = tkIdentifier) and
+            (SameText(Current.Text, 'abstract') or SameText(Current.Text, 'sealed')) do
+        Result.TypeExtraTokens.Add(NextToken);
+
       // Parse base classes / interfaces: class(TObject, IInterface)
       if (Current <> nil) and (Current.Kind = tkOpenParen) then
       begin
