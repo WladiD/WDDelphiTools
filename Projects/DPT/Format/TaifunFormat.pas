@@ -39,8 +39,7 @@ begin
   if Assigned(LToken) then
   begin
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10 + #13#10); // Leerzeile vor uses
-    AddTrailingTrivia(LToken, #13#10); // uses alleine in einer Zeile
+    // AddTrailingTrivia(LToken, #13#10); 
   end;
 end;
 
@@ -64,4 +63,49 @@ end;
 
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 begin
+end;
+
+function CreateSectionBanner(const AName: string): string;
+begin
+  Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+            AName + #13#10 +
+            '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+end;
+
+procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  LToken := GetInterfaceKeyword(ASection);
+  if Assigned(LToken) then
+  begin
+    ClearTrivia(LToken);
+    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }'); 
+  end;
+end;
+
+procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  LToken := GetImplementationKeyword(ASection);
+  if Assigned(LToken) then
+  begin
+    ClearTrivia(LToken);
+    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+  end;
+end;
+
+procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  LToken := GetFinalEndKeyword(AUnit);
+  if Assigned(LToken) then
+  begin
+    ClearTrivia(LToken);
+    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+  end;
 end;

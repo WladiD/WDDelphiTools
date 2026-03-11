@@ -29,11 +29,17 @@ type
     
     // AST wrappers
     procedure dwsGetUsesKeyword(Info: TProgramInfo);
+    procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
+    procedure dwsGetImplementationKeyword(Info: TProgramInfo);
+    procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
   protected
     procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); override;
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); override;
     procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); override;
+    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); override;
+    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); override;
+    procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); override;
   public
     constructor Create;
     destructor Destroy; override;
@@ -81,6 +87,8 @@ begin
   FUnit.ExposeRTTI(TypeInfo(TVisibilitySectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TClassMemberSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TMethodImplementationSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
+  FUnit.ExposeRTTI(TypeInfo(TInterfaceSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
+  FUnit.ExposeRTTI(TypeInfo(TImplementationSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   
   with FUnit.Functions.Add('ClearTrivia') do
   begin
@@ -109,6 +117,27 @@ begin
     ResultType := 'TSyntaxToken';
     OnEval := dwsGetUsesKeyword;
   end;
+
+  with FUnit.Functions.Add('GetInterfaceKeyword') do
+  begin
+    Parameters.Add('ANode', 'TInterfaceSectionSyntax');
+    ResultType := 'TSyntaxToken';
+    OnEval := dwsGetInterfaceKeyword;
+  end;
+
+  with FUnit.Functions.Add('GetImplementationKeyword') do
+  begin
+    Parameters.Add('ANode', 'TImplementationSectionSyntax');
+    ResultType := 'TSyntaxToken';
+    OnEval := dwsGetImplementationKeyword;
+  end;
+
+  with FUnit.Functions.Add('GetFinalEndKeyword') do
+  begin
+    Parameters.Add('ANode', 'TCompilationUnitSyntax');
+    ResultType := 'TSyntaxToken';
+    OnEval := dwsGetFinalEndKeyword;
+  end;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -133,6 +162,39 @@ begin
   LNode := TUsesClauseSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.UsesKeyword) then
     Info.ResultAsVariant := Info.RegisterExternalObject(LNode.UsesKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);
+var
+  LNode: TInterfaceSectionSyntax;
+begin
+  LNode := TInterfaceSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.InterfaceKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.InterfaceKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetImplementationKeyword(Info: TProgramInfo);
+var
+  LNode: TImplementationSectionSyntax;
+begin
+  LNode := TImplementationSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.ImplementationKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.ImplementationKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetFinalEndKeyword(Info: TProgramInfo);
+var
+  LNode: TCompilationUnitSyntax;
+begin
+  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.FinalEndKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.FinalEndKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
@@ -172,7 +234,16 @@ var
 begin
   if not Assigned(FExec) then Exit;
   
-  LFunc := FExec.Info.Func[AProcName];
+  try
+    LFunc := FExec.Info.Func[AProcName];
+  except
+    on E: Exception do
+      if E.Message.Contains('not found') or E.Message.Contains('Nicht gefunden') then
+        Exit
+      else
+        raise;
+  end;
+
   if Assigned(LFunc) then
   begin
     LFunc.Call([FExec.Info.RegisterExternalObject(AObj, False, False)]);
@@ -201,6 +272,24 @@ procedure TDptDwsFormatter.OnVisitMethodImplementation(AMethod: TMethodImplement
 begin
   inherited;
   CallScriptProc('OnVisitMethodImplementation', 'AMethod', AMethod);
+end;
+
+procedure TDptDwsFormatter.OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitInterfaceSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitImplementationSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitUnitEnd', 'AUnit', AUnit);
 end;
 
 end.

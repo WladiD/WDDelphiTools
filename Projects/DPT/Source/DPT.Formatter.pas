@@ -20,6 +20,9 @@ type
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); virtual;
     procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); virtual;
     procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); virtual;
+    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); virtual;
+    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); virtual;
+    procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); virtual;
 
   public
     // Overrides from TParseTreeVisitor
@@ -27,6 +30,9 @@ type
     procedure VisitClassDeclaration(ANode: TClassDeclarationSyntax); override;
     procedure VisitRecordDeclaration(ANode: TRecordDeclarationSyntax); override;
     procedure VisitMethodImplementation(ANode: TMethodImplementationSyntax); override;
+    procedure VisitInterfaceSection(ANode: TInterfaceSectionSyntax); override;
+    procedure VisitImplementationSection(ANode: TImplementationSectionSyntax); override;
+    procedure VisitCompilationUnit(ANode: TCompilationUnitSyntax); override;
 
     // Starts the formatting and traversal
     procedure FormatUnit(AUnit: TCompilationUnitSyntax); virtual;
@@ -58,6 +64,21 @@ begin
   // Do nothing by default
 end;
 
+procedure TDptFormatter.OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
+begin
+  // Do nothing by default
+end;
+
+procedure TDptFormatter.OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
+begin
+  // Do nothing by default
+end;
+
+procedure TDptFormatter.OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
+begin
+  // Do nothing by default
+end;
+
 procedure TDptFormatter.OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
 begin
   // Do nothing by default
@@ -78,6 +99,24 @@ procedure TDptFormatter.VisitMethodImplementation(ANode: TMethodImplementationSy
 begin
   inherited;
   OnVisitMethodImplementation(ANode);
+end;
+
+procedure TDptFormatter.VisitInterfaceSection(ANode: TInterfaceSectionSyntax);
+begin
+  inherited;
+  OnVisitInterfaceSection(ANode);
+end;
+
+procedure TDptFormatter.VisitImplementationSection(ANode: TImplementationSectionSyntax);
+begin
+  inherited;
+  OnVisitImplementationSection(ANode);
+end;
+
+procedure TDptFormatter.VisitCompilationUnit(ANode: TCompilationUnitSyntax);
+begin
+  inherited;
+  OnVisitUnitEnd(ANode);
 end;
 
 procedure TDptFormatter.VisitRecordDeclaration(ANode: TRecordDeclarationSyntax);
