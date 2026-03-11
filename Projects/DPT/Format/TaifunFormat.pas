@@ -61,8 +61,31 @@ procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
 begin
 end;
 
+var
+  LastClassName: string;
+
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
+var
+  LClassName: string;
+  LToken: TSyntaxToken;
 begin
+  LClassName := GetMethodClassName(AMethod);
+  LToken := GetMethodStartToken(AMethod);
+
+  if Assigned(LToken) then
+  begin
+    ClearTrivia(LToken);
+    
+    if (LClassName <> '') and (LClassName <> LastClassName) then
+    begin
+      AddLeadingTrivia(LToken, #13#10 + CreateMethodBanner() + #13#10 + CreateClassBanner(LClassName) + #13#10);
+      LastClassName := LClassName;
+    end
+    else
+    begin
+      AddLeadingTrivia(LToken, #13#10 + CreateMethodBanner() + #13#10);
+    end;
+  end;
 end;
 
 function CreateSectionBanner(const AName: string): string;

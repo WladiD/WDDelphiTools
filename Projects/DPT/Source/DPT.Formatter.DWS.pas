@@ -32,6 +32,9 @@ type
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
+    procedure dwsGetMethodClassName(Info: TProgramInfo);
+    procedure dwsGetMethodName(Info: TProgramInfo);
+    procedure dwsGetMethodStartToken(Info: TProgramInfo);
   protected
     procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); override;
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
@@ -138,6 +141,27 @@ begin
     ResultType := 'TSyntaxToken';
     OnEval := dwsGetFinalEndKeyword;
   end;
+
+  with FUnit.Functions.Add('GetMethodClassName') do
+  begin
+    Parameters.Add('ANode', 'TMethodImplementationSyntax');
+    ResultType := 'String';
+    OnEval := dwsGetMethodClassName;
+  end;
+
+  with FUnit.Functions.Add('GetMethodName') do
+  begin
+    Parameters.Add('ANode', 'TMethodImplementationSyntax');
+    ResultType := 'String';
+    OnEval := dwsGetMethodName;
+  end;
+
+  with FUnit.Functions.Add('GetMethodStartToken') do
+  begin
+    Parameters.Add('ANode', 'TMethodImplementationSyntax');
+    ResultType := 'TSyntaxToken';
+    OnEval := dwsGetMethodStartToken;
+  end;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -195,6 +219,79 @@ begin
   LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.FinalEndKeyword) then
     Info.ResultAsVariant := Info.RegisterExternalObject(LNode.FinalEndKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
+var
+  LNode: TMethodImplementationSyntax;
+  I: Integer;
+begin
+  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
+  begin
+    for I := 0 to LNode.SignatureTokens.Count - 1 do
+    begin
+      if LNode.SignatureTokens[I].Text = '.' then
+      begin
+        if I > 0 then
+        begin
+          Info.ResultAsString := LNode.SignatureTokens[I-1].Text;
+          Exit;
+        end;
+      end;
+    end;
+  end;
+  Info.ResultAsString := '';
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);
+var
+  LNode: TMethodImplementationSyntax;
+  I: Integer;
+begin
+  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
+  begin
+    for I := LNode.SignatureTokens.Count - 1 downto 0 do
+    begin
+      if LNode.SignatureTokens[I].Text = '.' then
+      begin
+        if I < LNode.SignatureTokens.Count - 1 then
+        begin
+          Info.ResultAsString := LNode.SignatureTokens[I+1].Text;
+          Exit;
+        end;
+      end;
+    end;
+    if LNode.SignatureTokens.Count > 0 then
+      Info.ResultAsString := LNode.SignatureTokens[0].Text
+    else
+      Info.ResultAsString := '';
+  end
+  else
+    Info.ResultAsString := '';
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodStartToken(Info: TProgramInfo);
+var
+  LNode: TMethodImplementationSyntax;
+  LToken: TSyntaxToken;
+begin
+  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) then
+  begin
+    if Assigned(LNode.ClassKeyword) then
+      LToken := LNode.ClassKeyword
+    else
+      LToken := LNode.MethodTypeKeyword;
+      
+    if Assigned(LToken) then
+      Info.ResultAsVariant := Info.RegisterExternalObject(LToken, False, False)
+    else
+      Info.ResultAsVariant := IUnknown(nil);
+  end
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;

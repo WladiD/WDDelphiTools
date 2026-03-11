@@ -28,6 +28,8 @@ type
     procedure TestFormatUsesClause;
     [Test]
     procedure TestFormatSections;
+    [Test]
+    procedure TestFormatMethodImplementation;
   end;
 
 implementation
@@ -110,6 +112,45 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Formatting the sections should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation;
+var
+  LUnit, LUnit2: TCompilationUnitSyntax;
+  LSource, LResult, LResult2: string;
+begin
+  LSource := 'unit MyUnit; interface implementation procedure TMyClass.MyMethod; begin end; procedure TMyClass.MyMethod2; begin end; procedure TOtherClass.MyMethod; begin end; end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    TFile.WriteAllText('LResult_Methods.txt', LResult);
+
+    // Check for class banner of TMyClass
+    Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + '{ TMyClass' + StringOfChar(' ', 63) + ' }' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 + 'procedure TMyClass.MyMethod;'), 'TMyClass banner missing');
+
+    // Check for method 2 banner of TMyClass (no class banner this time)
+    Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 + 'procedure TMyClass.MyMethod2;'), 'Method 2 banner missing');
+
+    // Check for class banner of TOtherClass
+    Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + '{ TOtherClass' + StringOfChar(' ', 60) + ' }' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 + 'procedure TOtherClass.MyMethod;'), 'TOtherClass banner missing');
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+
+      Assert.AreEqual(LResult, LResult2, 'Formatting the methods should be idempotent');
     finally
       LUnit2.Free;
     end;
