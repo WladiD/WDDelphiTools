@@ -4,7 +4,7 @@ interface
 
 uses
   System.SysUtils, System.Classes, System.Generics.Collections, System.IOUtils, System.Variants,
-  dwsComp, dwsExprs, dwsRTTIExposer, dwsInfo,
+  dwsComp, dwsExprs, dwsRTTIExposer, dwsInfo, dwsErrors,
   ParseTree.Core, ParseTree.Nodes, DPT.Formatter;
 
 type

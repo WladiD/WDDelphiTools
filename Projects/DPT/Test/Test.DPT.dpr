@@ -24,6 +24,7 @@ uses
   Test.DPT.Debugger,
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
+  Test.DPT.Formatter.Taifun,
   Test.DPT.MCP.Server;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }

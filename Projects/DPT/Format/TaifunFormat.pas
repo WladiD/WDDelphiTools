@@ -1,24 +1,67 @@
 // DWScript for formatting Delphi units in the Taifun style
 
-procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
+function StringOfChar(C: String; Count: Integer): string;
+var
+  I: Integer;
 begin
-  // Example rule: add a space after 'uses', and maybe a banner
-  ClearTrivia(GetUsesKeyword(AUses));
-  AddLeadingTrivia(GetUsesKeyword(AUses), #13#10 + '// FORMATTED BY DPT' + #13#10);
-  AddTrailingTrivia(GetUsesKeyword(AUses), ' ');
+  Result := '';
+  for I := 1 to Count do
+    Result := Result + C;
 end;
+
+function PadRight(const S: string; ALen: Integer): string;
+begin
+  Result := S;
+  while Length(Result) < ALen do
+    Result := Result + ' ';
+end;
+
+function CreateClassBanner(const AClassName: string): string;
+var
+  LRule: string;
+begin
+  LRule := '{ ' + StringOfChar('=', 71) + ' }';
+  Result := LRule + #13#10 +
+            '{ ' + PadRight(AClassName, 71) + ' }' + #13#10 +
+            LRule + #13#10;
+end;
+
+function CreateMethodBanner: string;
+begin
+  Result := '{ ' + StringOfChar('-', 71) + ' }' + #13#10;
+end;
+
+procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
+var
+  LToken: TSyntaxToken;
+begin
+  LToken := GetUsesKeyword(AUses);
+  if Assigned(LToken) then
+  begin
+    ClearTrivia(LToken);
+    AddLeadingTrivia(LToken, #13#10 + #13#10); // Leerzeile vor uses
+    AddTrailingTrivia(LToken, #13#10); // uses alleine in einer Zeile
+  end;
+end;
+
+// Note: Requires AST nodes to be exposed with Identifier and other properties.
+// procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
+// begin
+//   if Assigned(AClass.Identifier) then
+//   begin
+//     ClearTrivia(AClass.Identifier);
+//     AddLeadingTrivia(AClass.Identifier, #13#10 + CreateClassBanner(AClass.Identifier.Text) + #13#10);
+//   end;
+// end;
 
 procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
 begin
-  // Rules for class declarations
 end;
 
 procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
 begin
-  // Rules for record declarations 
 end;
 
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 begin
-  // Rules for method bodies
 end;
