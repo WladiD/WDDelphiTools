@@ -82,8 +82,6 @@ end;
 
 destructor TDptDwsFormatter.Destroy;
 begin
-  FExec := nil;
-  FProgram := nil;
   FUnit.Free;
   FScript.Free;
   inherited Destroy;
@@ -220,12 +218,11 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
 var
   LNode: TMethodImplementationSyntax;
-  I: Integer;
 begin
   LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
   begin
-    for I := 0 to LNode.SignatureTokens.Count - 1 do
+    for var I: Integer := 0 to LNode.SignatureTokens.Count - 1 do
     begin
       if LNode.SignatureTokens[I].Text = '.' then
       begin
@@ -243,12 +240,11 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);
 var
   LNode: TMethodImplementationSyntax;
-  I: Integer;
 begin
   LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
   begin
-    for I := LNode.SignatureTokens.Count - 1 downto 0 do
+    for var I: Integer := LNode.SignatureTokens.Count - 1 downto 0 do
     begin
       if LNode.SignatureTokens[I].Text = '.' then
       begin
@@ -323,7 +319,8 @@ procedure TDptDwsFormatter.CallScriptProc(const AProcName, AParamName: string; A
 var
   LFunc: IInfo;
 begin
-  if not Assigned(FExec) then Exit;
+  if not Assigned(FExec) then 
+    Exit;
   
   try
     LFunc := FExec.Info.Func[AProcName];
@@ -336,9 +333,7 @@ begin
   end;
 
   if Assigned(LFunc) then
-  begin
     LFunc.Call([FExec.Info.RegisterExternalObject(AObj, False, False)]);
-  end;
 end;
 
 procedure TDptDwsFormatter.OnVisitUsesClause(AUses: TUsesClauseSyntax);
