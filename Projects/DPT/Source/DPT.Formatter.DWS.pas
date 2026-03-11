@@ -3,20 +3,34 @@ unit DPT.Formatter.DWS;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections, System.IOUtils, System.Variants,
-  dwsComp, dwsExprs, dwsRTTIExposer, dwsInfo, dwsErrors,
-  ParseTree.Core, ParseTree.Nodes, DPT.Formatter;
+
+  System.Classes,
+  System.Generics.Collections,
+  System.IOUtils,
+  System.SysUtils,
+  System.Variants,
+  
+  dwsComp,
+  dwsErrors,
+  dwsExprs,
+  dwsInfo,
+  dwsRTTIExposer,
+
+  ParseTree.Core,
+  ParseTree.Nodes,
+  
+  DPT.Formatter;
 
 type
-  {
-    Formatter that loads a DWScript file and delegates formatting tasks
-    to script functions.
-  }
+  /// <summary>
+  ///   Formatter that loads a DWScript file and delegates formatting tasks
+  ///   to script functions.
+  /// </summary>
   TDptDwsFormatter = class(TDptFormatter)
   private
-    FScript: TDelphiWebScript;
-    FProgram: IdwsProgram;
     FExec: IdwsProgramExecution;
+    FProgram: IdwsProgram;
+    FScript: TDelphiWebScript;
     FUnit: TdwsUnit;
     
     procedure SetupScriptUnit;
@@ -93,75 +107,55 @@ begin
   FUnit.ExposeRTTI(TypeInfo(TInterfaceSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TImplementationSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   
-  with FUnit.Functions.Add('ClearTrivia') do
-  begin
-    Parameters.Add('AToken', 'TSyntaxToken');
-    OnEval := dwsClearTrivia;
-  end;
+  var LFunc := FUnit.Functions.Add('ClearTrivia');
+  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
+  LFunc.OnEval := dwsClearTrivia;
   
-  with FUnit.Functions.Add('AddLeadingTrivia') do
-  begin
-    Parameters.Add('AToken', 'TSyntaxToken');
-    Parameters.Add('ATriviaText', 'String');
-    OnEval := dwsAddLeadingTrivia;
-  end;
+  LFunc := FUnit.Functions.Add('AddLeadingTrivia');
+  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
+  LFunc.Parameters.Add('ATriviaText', 'String');
+  LFunc.OnEval := dwsAddLeadingTrivia;
   
-  with FUnit.Functions.Add('AddTrailingTrivia') do
-  begin
-    Parameters.Add('AToken', 'TSyntaxToken');
-    Parameters.Add('ATriviaText', 'String');
-    OnEval := dwsAddTrailingTrivia;
-  end;
+  LFunc := FUnit.Functions.Add('AddTrailingTrivia');
+  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
+  LFunc.Parameters.Add('ATriviaText', 'String');
+  LFunc.OnEval := dwsAddTrailingTrivia;
 
   // AST Wrappers
-  with FUnit.Functions.Add('GetUsesKeyword') do
-  begin
-    Parameters.Add('ANode', 'TUsesClauseSyntax');
-    ResultType := 'TSyntaxToken';
-    OnEval := dwsGetUsesKeyword;
-  end;
+  LFunc := FUnit.Functions.Add('GetUsesKeyword');
+  LFunc.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetUsesKeyword;
 
-  with FUnit.Functions.Add('GetInterfaceKeyword') do
-  begin
-    Parameters.Add('ANode', 'TInterfaceSectionSyntax');
-    ResultType := 'TSyntaxToken';
-    OnEval := dwsGetInterfaceKeyword;
-  end;
+  LFunc := FUnit.Functions.Add('GetInterfaceKeyword');
+  LFunc.Parameters.Add('ANode', 'TInterfaceSectionSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetInterfaceKeyword;
 
-  with FUnit.Functions.Add('GetImplementationKeyword') do
-  begin
-    Parameters.Add('ANode', 'TImplementationSectionSyntax');
-    ResultType := 'TSyntaxToken';
-    OnEval := dwsGetImplementationKeyword;
-  end;
+  LFunc := FUnit.Functions.Add('GetImplementationKeyword');
+  LFunc.Parameters.Add('ANode', 'TImplementationSectionSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetImplementationKeyword;
 
-  with FUnit.Functions.Add('GetFinalEndKeyword') do
-  begin
-    Parameters.Add('ANode', 'TCompilationUnitSyntax');
-    ResultType := 'TSyntaxToken';
-    OnEval := dwsGetFinalEndKeyword;
-  end;
+  LFunc := FUnit.Functions.Add('GetFinalEndKeyword');
+  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetFinalEndKeyword;
 
-  with FUnit.Functions.Add('GetMethodClassName') do
-  begin
-    Parameters.Add('ANode', 'TMethodImplementationSyntax');
-    ResultType := 'String';
-    OnEval := dwsGetMethodClassName;
-  end;
+  LFunc := FUnit.Functions.Add('GetMethodClassName');
+  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  LFunc.ResultType := 'String';
+  LFunc.OnEval := dwsGetMethodClassName;
 
-  with FUnit.Functions.Add('GetMethodName') do
-  begin
-    Parameters.Add('ANode', 'TMethodImplementationSyntax');
-    ResultType := 'String';
-    OnEval := dwsGetMethodName;
-  end;
+  LFunc := FUnit.Functions.Add('GetMethodName');
+  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  LFunc.ResultType := 'String';
+  LFunc.OnEval := dwsGetMethodName;
 
-  with FUnit.Functions.Add('GetMethodStartToken') do
-  begin
-    Parameters.Add('ANode', 'TMethodImplementationSyntax');
-    ResultType := 'TSyntaxToken';
-    OnEval := dwsGetMethodStartToken;
-  end;
+  LFunc := FUnit.Functions.Add('GetMethodStartToken');
+  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetMethodStartToken;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);

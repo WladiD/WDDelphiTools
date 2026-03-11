@@ -49,7 +49,7 @@ begin
   FParser := TParseTreeParser.Create;
   FWriter := TSyntaxTreeWriter.Create;
   FFormatter := TDptDwsFormatter.Create;
-  
+
   // Navigate back to the Format folder to find the real script
   FScriptPath := TPath.GetFullPath(TPath.Combine(ExtractFilePath(ParamStr(0)), '..\..\..\Format\TaifunFormat.pas'));
 end;
