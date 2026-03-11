@@ -3,14 +3,22 @@ unit Test.DPT.Formatter.Taifun;
 interface
 
 uses
+
   System.Classes,
   System.SysUtils,
   System.IOUtils,
+
   DUnitX.TestFramework,
-  ParseTree.Core, ParseTree.Nodes, ParseTree.Parser, ParseTree.Writer,
+
+  ParseTree.Core,
+  ParseTree.Nodes,
+  ParseTree.Parser,
+  ParseTree.Writer,
+
   DPT.Formatter.DWS;
 
 type
+
   [TestFixture]
   TTestTaifunFormatter = class
   private
@@ -55,8 +63,11 @@ end;
 
 procedure TTestTaifunFormatter.TestFormatUsesClause;
 var
-  LUnit, LUnit2: TCompilationUnitSyntax;
-  LSource, LResult, LResult2: string;
+  LResult : String;
+  LResult2: String;
+  LSource : String; 
+  LUnit   : TCompilationUnitSyntax; 
+  LUnit2  : TCompilationUnitSyntax;
 begin
   LSource := 'unit MyUnit; interface uses System.SysUtils; end.';
   
@@ -85,8 +96,11 @@ end;
 
 procedure TTestTaifunFormatter.TestFormatSections;
 var
-  LUnit, LUnit2: TCompilationUnitSyntax;
-  LSource, LResult, LResult2: string;
+  LResult : String;
+  LResult2: String;
+  LSource : String; 
+  LUnit   : TCompilationUnitSyntax; 
+  LUnit2  : TCompilationUnitSyntax;
 begin
   LSource := 'unit MyUnit; interface implementation end.';
   
@@ -98,11 +112,8 @@ begin
     
     // Check for interface
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }'), 'interface should be wrapped in banners');
-    
     // Check for implementation
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }'), 'implementation should be wrapped in banners');
-
-    
     // Check for end.
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'end.'), 'end. should have a banner above it');
 
@@ -122,8 +133,11 @@ end;
 
 procedure TTestTaifunFormatter.TestFormatMethodImplementation;
 var
-  LUnit, LUnit2: TCompilationUnitSyntax;
-  LSource, LResult, LResult2: string;
+  LResult : String;
+  LResult2: String;
+  LSource : String; 
+  LUnit   : TCompilationUnitSyntax; 
+  LUnit2  : TCompilationUnitSyntax;
 begin
   LSource := 'unit MyUnit; interface implementation procedure TMyClass.MyMethod; begin end; procedure TMyClass.MyMethod2; begin end; procedure TOtherClass.MyMethod; begin end; end.';
 
