@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -55,6 +55,7 @@ uses
   DPT.Detection,
   DPT.DProj.Task,
   DPT.DProjAnalyzer,
+  DPT.Format.Task,
   DPT.McpDebugger.Task,
   DPT.Fixtures,
   DPT.IdeControl.Task,
@@ -85,6 +86,7 @@ begin
   RegisterTask('IsPackageRegistered', TDptIsPackageRegisteredTask);
   RegisterTask('Lint', TDptLintTask);
   RegisterTask('LintSetup', TDptLintSetupTask);
+  RegisterTask('Format', TDptFormatTask);
   RegisterTask('PrintPath', TDptPrintPathTask);
   RegisterTask('OpenUnit', TDptOpenUnitTask);
   RegisterTask('DProjPrintConfigs', TDptDProjPrintConfigsTask);
