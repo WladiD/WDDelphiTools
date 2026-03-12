@@ -44,10 +44,12 @@ type
     
     // AST wrappers
     procedure dwsGetUsesKeyword(Info: TProgramInfo);
+    procedure dwsGetUsesFirstItemToken(Info: TProgramInfo);
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
     procedure dwsGetUnitKeyword(Info: TProgramInfo);
+    procedure dwsGetUnitSemicolon(Info: TProgramInfo);
     procedure dwsGetUnitName(Info: TProgramInfo);
     procedure dwsGetMethodClassName(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
@@ -136,6 +138,11 @@ begin
   LFunc.ResultType := 'TSyntaxToken';
   LFunc.OnEval := dwsGetUsesKeyword;
 
+  LFunc := FUnit.Functions.Add('GetUsesFirstItemToken');
+  LFunc.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetUsesFirstItemToken;
+
   LFunc := FUnit.Functions.Add('GetInterfaceKeyword');
   LFunc.Parameters.Add('ANode', 'TInterfaceSectionSyntax');
   LFunc.ResultType := 'TSyntaxToken';
@@ -155,6 +162,11 @@ begin
   LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
   LFunc.ResultType := 'TSyntaxToken';
   LFunc.OnEval := dwsGetUnitKeyword;
+
+  LFunc := FUnit.Functions.Add('GetUnitSemicolon');
+  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetUnitSemicolon;
 
   LFunc := FUnit.Functions.Add('GetUnitName');
   LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
@@ -208,6 +220,27 @@ begin
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
+procedure TDptDwsFormatter.dwsGetUsesFirstItemToken(Info: TProgramInfo);
+var
+  LNode: TUsesClauseSyntax;
+  LRef: TUnitReferenceSyntax;
+  LToken: TSyntaxToken;
+begin
+  LNode := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  LToken := nil;
+  if Assigned(LNode) and (LNode.UnitReferences.Count > 0) then
+  begin
+    LRef := LNode.UnitReferences.List[0];
+    if Assigned(LRef) and (LRef.Namespaces.Count > 0) then
+      LToken := LRef.Namespaces.List[0];
+  end;
+  
+  if Assigned(LToken) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LToken, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
 procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);
 var
   LNode: TInterfaceSectionSyntax;
@@ -248,6 +281,17 @@ begin
   LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.UnitKeyword) then
     Info.ResultAsVariant := Info.RegisterExternalObject(LNode.UnitKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetUnitSemicolon(Info: TProgramInfo);
+var
+  LNode: TCompilationUnitSyntax;
+begin
+  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.Semicolon) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.Semicolon, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;

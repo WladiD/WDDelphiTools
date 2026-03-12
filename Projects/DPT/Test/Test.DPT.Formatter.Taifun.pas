@@ -82,9 +82,10 @@ begin
     FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
+    TFile.WriteAllText('LResult_Uses.txt', LResult);
     
-    // Expecting no extra newlines right around uses, unless it falls inside interface
-    Assert.IsTrue(LResult.Contains('uses '), 'uses should not add double lines when not in an interface');
+    // Expecting newline right around uses
+    Assert.IsTrue(LResult.Contains('uses' + #13#10 + #13#10 + '  System.SysUtils;'), 'uses should be on its own line followed by an empty line');
 
     // Idempotence check
     LUnit2 := FParser.Parse(LResult);
@@ -193,6 +194,7 @@ begin
     '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
     '//' + #13#10 +
     '// Autor: Name' + #13#10 +
+    '//' + #13#10 +
     '// ======================================================================' + #13#10 +
     #13#10 +
     '{$I Tfw.Define.pas}' + #13#10 +
@@ -229,6 +231,7 @@ begin
     '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
     '//' + #13#10 +
     '// Autor: John Doe / Jane Doe' + #13#10 +
+    '//' + #13#10 +
     '// ======================================================================' + #13#10 +
     #13#10 +
     '{$I Tfw.Define.pas}' + #13#10 +
@@ -259,6 +262,7 @@ begin
     '// MyUnit - Special description' + #13#10 +
     '//' + #13#10 +
     '// Autor: The Real Author' + #13#10 +
+    '//' + #13#10 +
     '// ======================================================================' + #13#10 +
     #13#10 +
     '{$I Base.Define.pas}' + #13#10 +

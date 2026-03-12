@@ -33,16 +33,24 @@ end;
 
 procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
 var
-  LToken: TSyntaxToken;
+  LToken, LFirstItem: TSyntaxToken;
 begin
   LToken := GetUsesKeyword(AUses);
   if Assigned(LToken) then
   begin
     ClearTrivia(LToken);
-    // AddTrailingTrivia(LToken, #13#10); 
+    AddLeadingTrivia(LToken, #13#10);
+    AddTrailingTrivia(LToken, #13#10);
+    
+    LFirstItem := GetUsesFirstItemToken(AUses);
+    if Assigned(LFirstItem) then
+    begin
+      ClearTrivia(LFirstItem);
+      // Ensure one empty line after uses keyword
+      AddLeadingTrivia(LFirstItem, #13#10 + '  ');
+    end;
   end;
 end;
-
 // Note: Requires AST nodes to be exposed with Identifier and other properties.
 // procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
 // begin
@@ -104,7 +112,7 @@ begin
   begin
     ClearTrivia(LToken);
     AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }'); 
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
   end;
 end;
 
@@ -117,7 +125,7 @@ begin
   begin
     ClearTrivia(LToken);
     AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
   end;
 end;
 
@@ -180,7 +188,7 @@ end;
 
 procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
 var
-  LToken: TSyntaxToken;
+  LToken, LSemicolon: TSyntaxToken;
   LUnitName: string;
   LTrivia: string;
   LDesc, LAuthor, LInclude: string;
@@ -201,15 +209,24 @@ begin
                   '// ' + LUnitName + ' - ' + LDesc + #13#10 +
                   '//' + #13#10 +
                   '// Autor: ' + LAuthor + #13#10 +
+                  '//' + #13#10 +
                   LRule + #13#10 +
                   #13#10 +
                   LInclude + #13#10 +
                   #13#10;
-                  
+
     if LTrivia <> LNewBanner then
     begin
       ClearTrivia(LToken);
       AddLeadingTrivia(LToken, LNewBanner);
+    end;
+
+    // Ensure exactly one empty line after the unit statement (after the semicolon)
+    LSemicolon := GetUnitSemicolon(AUnit);
+    if Assigned(LSemicolon) then
+    begin
+      ClearTrivia(LSemicolon);
+      AddTrailingTrivia(LSemicolon, #13#10);
     end;
   end;
 end;
