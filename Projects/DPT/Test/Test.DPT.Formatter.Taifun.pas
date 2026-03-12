@@ -212,18 +212,19 @@ var
   LExpectedHeader: string;
 begin
   LSource := 'unit MyUnit; interface end.';
-  LExpectedHeader := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: Name' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    #13#10 +
-    '{$I Tfw.Define.pas}' + #13#10 +
-    #13#10 +
-    'unit MyUnit;';
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Kurzbeschreibung der Unit
+    //
+    // Autor: Name
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -249,18 +250,19 @@ begin
     '// ===============' + #13#10 +
     'unit MyUnit; interface end.';
     
-  LExpectedHeader := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: John Doe / Jane Doe' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    #13#10 +
-    '{$I Tfw.Define.pas}' + #13#10 +
-    #13#10 +
-    'unit MyUnit;';
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Kurzbeschreibung der Unit
+    //
+    // Autor: John Doe / Jane Doe
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -280,18 +282,19 @@ var
   LUnit: TCompilationUnitSyntax;
   LExpectedHeader: string;
 begin
-  LExpectedHeader := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit - Special description' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: The Real Author' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    #13#10 +
-    '{$I Base.Define.pas}' + #13#10 +
-    #13#10 +
-    'unit MyUnit;';
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Special description
+    //
+    // Autor: The Real Author
+    //
+    // ======================================================================
+
+    {$I Base.Define.pas}
+
+    unit MyUnit;
+    ''';
 
   LSource := LExpectedHeader + ' interface end.';
 
