@@ -121,6 +121,99 @@ begin
   end;
 end;
 
+function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var AInclude: string): Boolean;
+var
+  S, LLine: string;
+  P, P2: Integer;
+begin
+  ADescription := 'Kurzbeschreibung der Unit';
+  AAuthor := 'Name';
+  AInclude := '{$I Tfw.Define.pas}';
+  Result := Length(ATrivia) > 0;
+
+  if not Result then Exit;
+
+  S := ATrivia;
+  while Length(S) > 0 do
+  begin
+    P := Pos(#10, S);
+    if P > 0 then
+    begin
+      LLine := Copy(S, 1, P - 1);
+      if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then
+        LLine := Copy(LLine, 1, Length(LLine) - 1);
+      Delete(S, 1, P);
+    end
+    else
+    begin
+      LLine := S;
+      S := '';
+    end;
+
+    // Check Include
+    if Pos('{$I ', LLine) > 0 then
+    begin
+      AInclude := LLine;
+    end;
+
+    // Check Author
+    P2 := Pos('Autor:', LLine);
+    if P2 > 0 then
+    begin
+      AAuthor := Copy(LLine, P2 + 6, Length(LLine));
+      // Trim spaces
+      while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1);
+      while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1);
+    end;
+
+    // Check Description
+    P2 := Pos('// ' + AUnitName + ' - ', LLine);
+    if P2 = 1 then
+    begin
+      ADescription := Copy(LLine, Length('// ' + AUnitName + ' - ') + 1, Length(LLine));
+      // Trim spaces
+      while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1);
+      while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1);
+    end;
+  end;
+end;
+
+procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+var
+  LToken: TSyntaxToken;
+  LUnitName: string;
+  LTrivia: string;
+  LDesc, LAuthor, LInclude: string;
+  LRule: string;
+  LNewBanner: string;
+begin
+  LToken := GetUnitKeyword(AUnit);
+  if Assigned(LToken) then
+  begin
+    LUnitName := GetUnitName(AUnit);
+    LTrivia := GetLeadingTrivia(LToken);
+
+    ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LInclude);
+
+    LRule := '// ' + StringOfChar('=', 70);
+    LNewBanner := LRule + #13#10 +
+                  '//' + #13#10 +
+                  '// ' + LUnitName + ' - ' + LDesc + #13#10 +
+                  '//' + #13#10 +
+                  '// Autor: ' + LAuthor + #13#10 +
+                  LRule + #13#10 +
+                  #13#10 +
+                  LInclude + #13#10 +
+                  #13#10;
+                  
+    if LTrivia <> LNewBanner then
+    begin
+      ClearTrivia(LToken);
+      AddLeadingTrivia(LToken, LNewBanner);
+    end;
+  end;
+end;
+
 procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
 var
   LToken: TSyntaxToken;

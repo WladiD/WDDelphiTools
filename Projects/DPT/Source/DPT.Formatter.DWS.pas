@@ -38,6 +38,7 @@ type
     
     // DWScript function handlers
     procedure dwsClearTrivia(Info: TProgramInfo);
+    procedure dwsGetLeadingTrivia(Info: TProgramInfo);
     procedure dwsAddLeadingTrivia(Info: TProgramInfo);
     procedure dwsAddTrailingTrivia(Info: TProgramInfo);
     
@@ -113,7 +114,12 @@ begin
   var LFunc := FUnit.Functions.Add('ClearTrivia');
   LFunc.Parameters.Add('AToken', 'TSyntaxToken');
   LFunc.OnEval := dwsClearTrivia;
-  
+
+  LFunc := FUnit.Functions.Add('GetLeadingTrivia');
+  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
+  LFunc.ResultType := 'String';
+  LFunc.OnEval := dwsGetLeadingTrivia;
+
   LFunc := FUnit.Functions.Add('AddLeadingTrivia');
   LFunc.Parameters.Add('AToken', 'TSyntaxToken');
   LFunc.Parameters.Add('ATriviaText', 'String');
@@ -174,6 +180,11 @@ end;
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
 begin
   TDptFormatter.ClearTrivia(TSyntaxToken(Info.ParamAsObject[0]));
+end;
+
+procedure TDptDwsFormatter.dwsGetLeadingTrivia(Info: TProgramInfo);
+begin
+  Info.ResultAsString := TDptFormatter.GetLeadingTrivia(TSyntaxToken(Info.ParamAsObject[0]));
 end;
 
 procedure TDptDwsFormatter.dwsAddLeadingTrivia(Info: TProgramInfo);

@@ -38,6 +38,12 @@ type
     procedure TestFormatSections;
     [Test]
     procedure TestFormatMethodImplementation;
+    [Test]
+    procedure TestFormatUnitHeader_CreatesNew;
+    [Test]
+    procedure TestFormatUnitHeader_CorrectsExisting;
+    [Test]
+    procedure TestFormatUnitHeader_PreservesPerfect;
   end;
 
 implementation
@@ -168,6 +174,106 @@ begin
     finally
       LUnit2.Free;
     end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_CreatesNew;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LExpectedHeader: string;
+begin
+  LSource := 'unit MyUnit; interface end.';
+  LExpectedHeader := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Name' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit MyUnit;';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Header was not created correctly: '#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_CorrectsExisting;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LExpectedHeader: string;
+begin
+  LSource := 
+    '// ==== Blubb ====' + #13#10 +
+    '// Autor: John Doe / Jane Doe' + #13#10 +
+    '// ===============' + #13#10 +
+    'unit MyUnit; interface end.';
+    
+  LExpectedHeader := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Kurzbeschreibung der Unit' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: John Doe / Jane Doe' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit MyUnit;';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Header was not corrected properly: '#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PreservesPerfect;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LExpectedHeader: string;
+begin
+  LExpectedHeader := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Special description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: The Real Author' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Base.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit MyUnit;';
+
+  LSource := LExpectedHeader + ' interface end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    // Should preserve 'Special description', 'The Real Author', and 'Base.Define.pas' exactly
+    Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Perfect header was modified: '#13#10 + LResult);
   finally
     LUnit.Free;
   end;

@@ -40,6 +40,7 @@ type
     
     // Helper methods for token/trivia manipulation
     class procedure ClearTrivia(AToken: TSyntaxToken);
+    class function GetLeadingTrivia(AToken: TSyntaxToken): string;
     class procedure AddLeadingTrivia(AToken: TSyntaxToken; const ATriviaText: string);
     class procedure AddTrailingTrivia(AToken: TSyntaxToken; const ATriviaText: string);
   end;
@@ -144,6 +145,18 @@ begin
   begin
     AToken.LeadingTrivia.Clear;
     AToken.TrailingTrivia.Clear;
+  end;
+end;
+
+class function TDptFormatter.GetLeadingTrivia(AToken: TSyntaxToken): string;
+var
+  LTrivia: TSyntaxTrivia;
+begin
+  Result := '';
+  if Assigned(AToken) and Assigned(AToken.LeadingTrivia) then
+  begin
+    for LTrivia in AToken.LeadingTrivia do
+      Result := Result + LTrivia.Text;
   end;
 end;
 
