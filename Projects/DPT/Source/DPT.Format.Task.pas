@@ -37,6 +37,9 @@ end;
 procedure TDptFormatTask.Parse(CmdLine: TCmdLineConsumer);
 var
   Param: string;
+  LPath, LMask: string;
+  LFiles: TArray<string>;
+  LFile: string;
 begin
   FScriptFile := '';
   FTargetFiles.Clear;
@@ -58,7 +61,27 @@ begin
       end
       else
       begin
-        FTargetFiles.Add(ExpandFileName(Param));
+        // If the parameter contains wildcards (* or ?), resolve them
+        if (Pos('*', Param) > 0) or (Pos('?', Param) > 0) then
+        begin
+          LPath := ExtractFilePath(Param);
+          if LPath = '' then
+            LPath := GetCurrentDir;
+          LMask := ExtractFileName(Param);
+
+          if TDirectory.Exists(LPath) then
+          begin
+            LFiles := TDirectory.GetFiles(LPath, LMask);
+            for LFile in LFiles do
+              FTargetFiles.Add(LFile);
+          end
+          else
+            Writeln('Directory not found for mask: ' + Param);
+        end
+        else
+        begin
+          FTargetFiles.Add(ExpandFileName(Param));
+        end;
         CmdLine.ConsumeParameter;
       end;
     end;
@@ -97,10 +120,8 @@ begin
       end;
 
       Writeln('Formatting: ' + LTarget);
-      LEncoding := nil;
+      LEncoding := TEncoding.UTF8;
       LSource := TFile.ReadAllText(LTarget, LEncoding);
-      if not Assigned(LEncoding) then
-        LEncoding := TEncoding.UTF8;
 
       LParser := TParseTreeParser.Create;
       try

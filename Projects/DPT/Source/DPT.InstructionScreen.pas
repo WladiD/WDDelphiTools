@@ -150,6 +150,12 @@ begin
         'Or joins them back into a single aligned style file.',
         'Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas'
       ]),
+      TActionInfo.Create('Format', '<ScriptFile> <TargetFiles...>', [
+        'Formats one or more target files based on the rules defined in a DWScript script.',
+        'The script can inspect the ParseTree CST and manipulate tokens or trivia.',
+        'TargetFiles supports glob wildcards (* and ?).',
+        'Example: DPT LATEST Format Format\TaifunFormat.pas Projects\DPT\Source\*.pas'
+      ]),
       TActionInfo.Create('McpDebugger', '', [
         'Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.',
         'The server runs continuously in the background and provides the following tools for AI agents:',
