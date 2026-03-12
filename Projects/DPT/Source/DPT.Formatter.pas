@@ -16,6 +16,7 @@ type
     FUnit: TCompilationUnitSyntax;
   protected
     // Hooks for descendant classes (e.g. TDptDwsFormatter)
+    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); virtual;
     procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); virtual;
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); virtual;
     procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); virtual;
@@ -74,6 +75,11 @@ begin
   // Do nothing by default
 end;
 
+procedure TDptFormatter.OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+begin
+  // Do nothing by default
+end;
+
 procedure TDptFormatter.OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
 begin
   // Do nothing by default
@@ -115,6 +121,7 @@ end;
 
 procedure TDptFormatter.VisitCompilationUnit(ANode: TCompilationUnitSyntax);
 begin
+  OnVisitUnitStart(ANode);
   inherited;
   OnVisitUnitEnd(ANode);
 end;

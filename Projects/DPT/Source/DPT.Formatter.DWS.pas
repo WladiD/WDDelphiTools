@@ -46,6 +46,8 @@ type
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
+    procedure dwsGetUnitKeyword(Info: TProgramInfo);
+    procedure dwsGetUnitName(Info: TProgramInfo);
     procedure dwsGetMethodClassName(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
@@ -56,6 +58,7 @@ type
     procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); override;
     procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); override;
     procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); override;
+    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); override;
     procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); override;
   public
     constructor Create;
@@ -142,6 +145,16 @@ begin
   LFunc.ResultType := 'TSyntaxToken';
   LFunc.OnEval := dwsGetFinalEndKeyword;
 
+  LFunc := FUnit.Functions.Add('GetUnitKeyword');
+  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetUnitKeyword;
+
+  LFunc := FUnit.Functions.Add('GetUnitName');
+  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  LFunc.ResultType := 'String';
+  LFunc.OnEval := dwsGetUnitName;
+
   LFunc := FUnit.Functions.Add('GetMethodClassName');
   LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   LFunc.ResultType := 'String';
@@ -215,6 +228,37 @@ begin
     Info.ResultAsVariant := Info.RegisterExternalObject(LNode.FinalEndKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetUnitKeyword(Info: TProgramInfo);
+var
+  LNode: TCompilationUnitSyntax;
+begin
+  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(LNode) and Assigned(LNode.UnitKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.UnitKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetUnitName(Info: TProgramInfo);
+var
+  LNode: TCompilationUnitSyntax;
+  I: Integer;
+  LResultStr: string;
+begin
+  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  LResultStr := '';
+  if Assigned(LNode) and Assigned(LNode.Namespaces) and (LNode.Namespaces.Count > 0) then
+  begin
+    for I := 0 to LNode.Namespaces.Count - 1 do
+    begin
+      LResultStr := LResultStr + LNode.Namespaces.List[I].Text;
+      if I < LNode.Dots.Count then
+        LResultStr := LResultStr + LNode.Dots.List[I].Text;
+    end;
+  end;
+  Info.ResultAsString := LResultStr;
 end;
 
 procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
@@ -372,6 +416,12 @@ procedure TDptDwsFormatter.OnVisitImplementationSection(ASection: TImplementatio
 begin
   inherited;
   CallScriptProc('OnVisitImplementationSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitUnitStart', 'AUnit', AUnit);
 end;
 
 procedure TDptDwsFormatter.OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
