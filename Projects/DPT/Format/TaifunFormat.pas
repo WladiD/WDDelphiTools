@@ -78,12 +78,12 @@ begin
     
     if (LClassName <> '') and (LClassName <> LastClassName) then
     begin
-      AddLeadingTrivia(LToken, #13#10 + CreateMethodBanner() + #13#10 + CreateClassBanner(LClassName) + #13#10);
+      AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10);
       LastClassName := LClassName;
     end
     else
     begin
-      AddLeadingTrivia(LToken, #13#10 + CreateMethodBanner() + #13#10);
+      AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10);
     end;
   end;
 end;
@@ -129,6 +129,6 @@ begin
   if Assigned(LToken) then
   begin
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
   end;
 end;
