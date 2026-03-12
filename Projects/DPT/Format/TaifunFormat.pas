@@ -57,33 +57,88 @@ end;
 
 procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
 begin
+  LastBannerWasDouble := False;
 end;
 
 procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
 begin
+  LastBannerWasDouble := False;
 end;
 
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 var
   LClassName: string;
   LToken: TSyntaxToken;
+  LOldTrivia, LComments, LLine, S: string;
+  P, I: Integer;
+  LIsText, LIsBanner: Boolean;
 begin
   LClassName := GetMethodClassName(AMethod);
   LToken := GetMethodStartToken(AMethod);
 
   if Assigned(LToken) then
   begin
+    LOldTrivia := GetLeadingTrivia(LToken);
     ClearTrivia(LToken);
-    
+
+    LComments := '';
+    S := LOldTrivia;
+    while Length(S) > 0 do
+    begin
+      P := Pos(#10, S);
+      if P > 0 then
+      begin
+        LLine := Copy(S, 1, P);
+        Delete(S, 1, P);
+      end
+      else
+      begin
+        LLine := S;
+        S := '';
+      end;
+      
+      LIsText := False;
+      for I := 1 to Length(LLine) do
+      begin
+        if (LLine[I] <> ' ') and (LLine[I] <> #13) and (LLine[I] <> #10) and (LLine[I] <> #9) then
+        begin
+          LIsText := True;
+          Break;
+        end;
+      end;
+
+      if LIsText then
+      begin
+        LIsBanner := False;
+        if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
+        
+        // Check if the line looks like an old class banner: "{ SomeClassName }"
+        // It starts with "{ ", ends with " }", and contains no other text or braces.
+        if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) then
+        begin
+          // A valid banner line usually has lots of trailing spaces padding it to 71 chars.
+          // Alternatively, we can just assume any line matching "{ ClassName }" where ClassName
+          // does not contain XML-DOC tokens is likely a banner remnant.
+          if Pos('<', LLine) = 0 then
+            LIsBanner := True;
+        end;
+        
+        if not LIsBanner then
+          LComments := LComments + LLine;
+      end;
+    end;
+
     if (LClassName <> '') and (LClassName <> LastClassName) then
     begin
-      AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10);
+      AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
       LastClassName := LClassName;
     end
     else
     begin
       if not LastBannerWasDouble then
-        AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10);
+        AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
+      else if (Pos(#10, LOldTrivia) > 0) or (LComments <> '') then
+        AddLeadingTrivia(LToken, #13#10#13#10 + LComments);
     end;
     
     // Reset double banner flag after any method implementation starts
@@ -98,9 +153,78 @@ begin
             '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
 end;
 
+procedure StripBanners(AToken: TSyntaxToken);
+var
+  LTrivia, LLine, S, LNewTrivia: string;
+  P, I: Integer;
+  LIsText, LIsBanner: Boolean;
+begin
+  if not Assigned(AToken) then Exit;
+  LTrivia := GetLeadingTrivia(AToken);
+  if LTrivia = '' then Exit;
+
+  LNewTrivia := '';
+  S := LTrivia;
+  while Length(S) > 0 do
+  begin
+    P := Pos(#10, S);
+    if P > 0 then
+    begin
+      LLine := Copy(S, 1, P);
+      Delete(S, 1, P);
+    end
+    else
+    begin
+      LLine := S;
+      S := '';
+    end;
+
+    LIsText := False;
+    for I := 1 to Length(LLine) do
+    begin
+      if (LLine[I] <> ' ') and (LLine[I] <> #13) and (LLine[I] <> #10) and (LLine[I] <> #9) then
+      begin
+        LIsText := True;
+        Break;
+      end;
+    end;
+
+    LIsBanner := False;
+    if LIsText then
+    begin
+      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('<', LLine) = 0) then LIsBanner := True;
+    end;
+
+    if LIsBanner then
+    begin
+      // Skip the banner, but also try not to duplicate empty lines later.
+      // We do nothing here so it's stripped.
+    end
+    else
+    begin
+      LNewTrivia := LNewTrivia + LLine;
+    end;
+  end;
+
+  // Collapse multiple newlines into max 2 if needed or leave it as is if we just stripped correctly.
+  // Actually, standard formatting has AddTrailingTrivia for banners, so the next token's leading trivia
+  // should ideally just contain regular comments or nothing. Let's just trim excessive leading newlines.
+  while (Length(LNewTrivia) >= 2) and (Copy(LNewTrivia, 1, 2) = #13#10) do
+    Delete(LNewTrivia, 1, 2);
+
+  // If there's still text, we want to pad it with an empty line so it's not glued to the banner.
+  if Length(LNewTrivia) > 0 then
+    LNewTrivia := #13#10 + LNewTrivia;
+
+  ClearTrivia(AToken);
+  if Length(LNewTrivia) > 0 then
+    AddLeadingTrivia(AToken, LNewTrivia);
+end;
+
 procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
 var
-  LToken: TSyntaxToken;
+  LToken, LNext: TSyntaxToken;
 begin
   LToken := GetInterfaceKeyword(ASection);
   if Assigned(LToken) then
@@ -109,12 +233,16 @@ begin
     AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
     AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
     LastBannerWasDouble := True;
+
+    LNext := GetNextToken(LToken);
+    if Assigned(LNext) then
+      StripBanners(LNext);
   end;
 end;
 
 procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
 var
-  LToken: TSyntaxToken;
+  LToken, LNext: TSyntaxToken;
 begin
   LToken := GetImplementationKeyword(ASection);
   if Assigned(LToken) then
@@ -123,6 +251,10 @@ begin
     AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
     AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
     LastBannerWasDouble := True;
+
+    LNext := GetNextToken(LToken);
+    if Assigned(LNext) then
+      StripBanners(LNext);
   end;
 end;
 

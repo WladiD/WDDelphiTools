@@ -381,11 +381,18 @@ end;
 
 function TParseTreeLexer.TokenizeAll: TList<TSyntaxToken>;
 var
-  LToken: TSyntaxToken;
+  LToken, LPrev: TSyntaxToken;
 begin
   Result := TList<TSyntaxToken>.Create;
+  LPrev := nil;
   repeat
     LToken := NextToken;
+    if Assigned(LPrev) then
+    begin
+      LPrev.NextToken := LToken;
+      LToken.PrevToken := LPrev;
+    end;
+    LPrev := LToken;
     Result.Add(LToken);
   until LToken.Kind = tkEOF;
 end;

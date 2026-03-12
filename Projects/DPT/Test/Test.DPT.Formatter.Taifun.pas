@@ -37,6 +37,8 @@ type
     [Test]
     procedure TestFormatSections;
     [Test]
+    procedure TestFormatSections_IdempotentWithResourceString;
+    [Test]
     procedure TestFormatMethodImplementation;
     [Test]
     procedure TestFormatUnitHeader_CreatesNew;
@@ -46,6 +48,10 @@ type
     procedure TestFormatUnitHeader_PreservesPerfect;
     [Test]
     procedure TestNoRedundantSeparatorAfterImplementation;
+    [Test]
+    procedure TestFormatMethodImplementation_WithXmlDoc;
+    [Test]
+    procedure TestFormatMethodImplementation_NestedClass;
   end;
 
 implementation
@@ -132,6 +138,43 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Formatting the sections should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatSections_IdempotentWithResourceString;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 + 'interface' + #13#10 + 'implementation' + #13#10 + 'resourcestring' + #13#10 + '  SMyString = ''My String'';' + #13#10 + 'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    TFile.WriteAllText('LResult_Idempotent.txt', LResult);
+
+    // Initial format should have one banner block after implementation
+    Assert.IsTrue(LResult.Contains(
+      #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'resourcestring'
+    ), 'Implementation should be followed by resourcestring with single banner correctly placed. Actual:' + #13#10 + LResult);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      
+      Assert.AreEqual(LResult, LResult2, 'Formatting implementation followed by resourcestring should be idempotent');
     finally
       LUnit2.Free;
     end;
@@ -305,6 +348,98 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     // Should preserve 'Special description', 'The Real Author', and 'Base.Define.pas' exactly
     Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Perfect header was modified: '#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_WithXmlDoc;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '/// <summary>My summary</summary>' + #13#10 +
+    '/// <param name="A">Param A</param>' + #13#10 +
+    '/// <returns>Result</returns>' + #13#10 +
+    'procedure TMyClass.MyMethod;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    '/// <summary>Second summary</summary>' + #13#10 +
+    'procedure TMyClass.MyMethod2;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains('/// <summary>My summary</summary>'), 'XML-DOC summary should be preserved');
+    Assert.IsTrue(LResult.Contains('/// <param name="A">Param A</param>'), 'XML-DOC param should be preserved');
+    Assert.IsTrue(LResult.Contains('/// <returns>Result</returns>'), 'XML-DOC returns should be preserved');
+    Assert.IsTrue(LResult.Contains('/// <summary>Second summary</summary>'), 'Second XML-DOC summary should be preserved');
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      '{ TMyClass' + StringOfChar(' ', 63) + ' }' + #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 +
+      '/// <summary>My summary'),
+      'Class banner should be placed before the first XML-DOC comment'
+    );
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 +
+      '/// <summary>Second summary'),
+      'Method banner should be placed before the second XML-DOC comment'
+    );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_NestedClass;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CAppConnectionProvider                                                  }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'class function CAppConnectionProvider.TCacheKey.Create(ASrc, ADst: TLicenseModuleKind; ASrcMdt: Word): TCacheKey;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result.SrcModule:=ASrc;' + #13#10 +
+    '  Result.DstModule:=ADst;' + #13#10 +
+    '  Result.SrcMdt:=ASrcMdt;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      '{ CAppConnectionProvider.TCacheKey                                        }' + #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      #13#10 +
+      'class function CAppConnectionProvider.TCacheKey.Create'),
+      'Class banner should contain the full nested class name and MUST NOT contain fragments of old class banners' + #13#10 + 'Actual result:' + #13#10 + LResult
+    );
   finally
     LUnit.Free;
   end;

@@ -54,6 +54,7 @@ type
     procedure dwsGetMethodClassName(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
+    procedure dwsGetNextToken(Info: TProgramInfo);
   protected
     procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); override;
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
@@ -187,6 +188,11 @@ begin
   LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   LFunc.ResultType := 'TSyntaxToken';
   LFunc.OnEval := dwsGetMethodStartToken;
+
+  LFunc := FUnit.Functions.Add('GetNextToken');
+  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
+  LFunc.ResultType := 'TSyntaxToken';
+  LFunc.OnEval := dwsGetNextToken;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -319,19 +325,29 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
 var
   LNode: TMethodImplementationSyntax;
+  I, J: Integer;
+  LResultStr, LTokenLower: string;
 begin
   LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
   begin
-    for var I: Integer := 0 to LNode.SignatureTokens.Count - 1 do
+    for I := LNode.SignatureTokens.Count - 1 downto 0 do
     begin
       if LNode.SignatureTokens[I].Text = '.' then
       begin
-        if I > 0 then
+        LResultStr := '';
+        for J := 0 to I - 1 do
         begin
-          Info.ResultAsString := LNode.SignatureTokens[I-1].Text;
-          Exit;
+          LTokenLower := LowerCase(LNode.SignatureTokens[J].Text);
+          if (LTokenLower = 'class') or (LTokenLower = 'procedure') or 
+             (LTokenLower = 'function') or (LTokenLower = 'constructor') or 
+             (LTokenLower = 'destructor') or (LTokenLower = 'operator') then
+            Continue;
+            
+          LResultStr := LResultStr + LNode.SignatureTokens[J].Text;
         end;
+        Info.ResultAsString := LResultStr;
+        Exit;
       end;
     end;
   end;
@@ -383,6 +399,17 @@ begin
     else
       Info.ResultAsVariant := IUnknown(nil);
   end
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetNextToken(Info: TProgramInfo);
+var
+  LToken: TSyntaxToken;
+begin
+  LToken := TSyntaxToken(Info.ParamAsObject[0]);
+  if Assigned(LToken) and Assigned(LToken.NextToken) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(LToken.NextToken, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;

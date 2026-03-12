@@ -31,6 +31,8 @@ type
   private
     FKind: TTokenKind;
     FText: string;
+    FNextToken: TSyntaxToken;
+    FPrevToken: TSyntaxToken;
     FLeadingTrivia: TObjectList<TSyntaxTrivia>;
     FTrailingTrivia: TObjectList<TSyntaxTrivia>;
     function GetLeadingTrivia: TObjectList<TSyntaxTrivia>;
@@ -43,6 +45,8 @@ type
 
     property Kind: TTokenKind read FKind;
     property Text: string read FText;
+    property NextToken: TSyntaxToken read FNextToken write FNextToken;
+    property PrevToken: TSyntaxToken read FPrevToken write FPrevToken;
     property HasLeadingTrivia: Boolean read GetHasLeadingTrivia;
     property HasTrailingTrivia: Boolean read GetHasTrailingTrivia;
     property LeadingTrivia: TObjectList<TSyntaxTrivia> read GetLeadingTrivia;
