@@ -1,4 +1,4 @@
-unit ParseTree.Visitor;
+﻿unit ParseTree.Visitor;
 
 interface
 
@@ -10,25 +10,25 @@ type
   TParseTreeVisitor = class
   public
     procedure Visit(ANode: TSyntaxNode); virtual;
-    
+
     // Root and major sections
     procedure VisitCompilationUnit(ANode: TCompilationUnitSyntax); virtual;
     procedure VisitUsesClause(ANode: TUsesClauseSyntax); virtual;
     procedure VisitInterfaceSection(ANode: TInterfaceSectionSyntax); virtual;
     procedure VisitImplementationSection(ANode: TImplementationSectionSyntax); virtual;
-    
+
     // Declarations
     procedure VisitTypeSection(ANode: TTypeSectionSyntax); virtual;
     procedure VisitConstSection(ANode: TConstSectionSyntax); virtual;
     procedure VisitVarSection(ANode: TVarSectionSyntax); virtual;
-    
+
     procedure VisitTypeDeclaration(ANode: TTypeDeclarationSyntax); virtual;
     procedure VisitClassDeclaration(ANode: TClassDeclarationSyntax); virtual;
     procedure VisitRecordDeclaration(ANode: TRecordDeclarationSyntax); virtual;
     procedure VisitConstDeclaration(ANode: TConstDeclarationSyntax); virtual;
     procedure VisitVarDeclaration(ANode: TVarDeclarationSyntax); virtual;
     procedure VisitMethodImplementation(ANode: TMethodImplementationSyntax); virtual;
-    
+
     // Statements
     procedure VisitStatement(ANode: TStatementSyntax); virtual;
   end;
@@ -77,16 +77,16 @@ var
 begin
   if ANode.InterfaceSection <> nil then
     Visit(ANode.InterfaceSection);
-    
+
   for LDecl in ANode.PreInterfaceDeclarations do
     Visit(LDecl);
-    
+
   if ANode.ImplementationSection <> nil then
     Visit(ANode.ImplementationSection);
-    
+
   for LDecl in ANode.IntfImplDeclarations do
     Visit(LDecl);
-    
+
   for LDecl in ANode.PostImplementationDeclarations do
     Visit(LDecl);
 end;
@@ -102,7 +102,7 @@ var
 begin
   if ANode.UsesClause <> nil then
     Visit(ANode.UsesClause);
-    
+
   for LDecl in ANode.Declarations do
     Visit(LDecl);
 end;
@@ -113,7 +113,7 @@ var
 begin
   if ANode.UsesClause <> nil then
     Visit(ANode.UsesClause);
-    
+
   for LDecl in ANode.Declarations do
     Visit(LDecl);
 end;
@@ -176,7 +176,7 @@ var
 begin
   for LDecl in ANode.LocalDeclarations do
     Visit(LDecl);
-    
+
   for LStmt in ANode.Statements do
     Visit(LStmt);
 end;

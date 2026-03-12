@@ -1,4 +1,4 @@
-unit ParseTree.Lexer;
+﻿unit ParseTree.Lexer;
 
 interface
 
@@ -77,7 +77,7 @@ var
   LIsMultiLine: Boolean;
 begin
   LStartPos := FPosition;
-  
+
   if (Current = '/') and (Peek(1) = '/') then
   begin
     // Single-line comment
@@ -198,7 +198,7 @@ begin
 
   LText := Copy(FText, LStartPos, FPosition - LStartPos);
   LUpper := UpperCase(LText);
-  
+
   // Very basic keyword check. This matches TTokenKind mapping
   if LUpper = 'UNIT' then LKind := tkUnitKeyword
   else if LUpper = 'INTERFACE' then LKind := tkInterfaceKeyword
@@ -254,7 +254,6 @@ end;
 function TParseTreeLexer.NextToken: TSyntaxToken;
 var
   LLeadingTrivia: TList<TSyntaxTrivia>;
-  LTrailingTrivia: TList<TSyntaxTrivia>;
   LTokenText: string;
 begin
   if Current = #0 then
@@ -312,7 +311,7 @@ begin
       // Fallback: Just consume one char as some punctuation
       LTokenText := Current;
       Next;
-      
+
       if LTokenText = ';' then
         Result := TSyntaxToken.Create(tkSemicolon, LTokenText)
       else if LTokenText = '.' then
