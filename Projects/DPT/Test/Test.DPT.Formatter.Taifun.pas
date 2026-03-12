@@ -90,8 +90,7 @@ begin
     FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
-    TFile.WriteAllText('LResult_Uses.txt', LResult);
-    
+
     // Expecting newline right around uses
     Assert.IsTrue(LResult.Contains('uses' + #13#10 + #13#10 + '  System.SysUtils;'), 'uses should be on its own line followed by an empty line');
 
@@ -161,7 +160,6 @@ begin
     FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
-    TFile.WriteAllText('LResult_Idempotent.txt', LResult);
 
     // Initial format should have one banner block after implementation
     Assert.IsTrue(LResult.Contains(
@@ -220,8 +218,6 @@ begin
     FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
-
-    TFile.WriteAllText('LResult_Methods.txt', LResult);
 
     // Check for class banner of TMyClass
     Assert.IsTrue(LResult.Contains(#13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + '{ TMyClass' + StringOfChar(' ', 63) + ' }' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 + 'procedure TMyClass.MyMethod;'), 'TMyClass banner missing');
