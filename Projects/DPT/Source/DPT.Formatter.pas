@@ -110,14 +110,14 @@ end;
 
 procedure TDptFormatter.VisitInterfaceSection(ANode: TInterfaceSectionSyntax);
 begin
-  inherited;
   OnVisitInterfaceSection(ANode);
+  inherited;
 end;
 
 procedure TDptFormatter.VisitImplementationSection(ANode: TImplementationSectionSyntax);
 begin
-  inherited;
   OnVisitImplementationSection(ANode);
+  inherited;
 end;
 
 procedure TDptFormatter.VisitCompilationUnit(ANode: TCompilationUnitSyntax);

@@ -1,4 +1,4 @@
-unit Test.DPT.Formatter.Taifun;
+﻿unit Test.DPT.Formatter.Taifun;
 
 interface
 
@@ -44,6 +44,8 @@ type
     procedure TestFormatUnitHeader_CorrectsExisting;
     [Test]
     procedure TestFormatUnitHeader_PreservesPerfect;
+    [Test]
+    procedure TestNoRedundantSeparatorAfterImplementation;
   end;
 
 implementation
@@ -116,11 +118,11 @@ begin
     FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
-    
+
     // Check for interface
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }'), 'interface should be wrapped in banners');
     // Check for implementation
-    Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }'), 'implementation should be wrapped in banners');
+    Assert.IsTrue(LResult.Contains(#13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }'), 'implementation should be wrapped in banners');
     // Check for end.
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'end.'), 'end. should have a banner above it');
 
@@ -133,6 +135,28 @@ begin
     finally
       LUnit2.Free;
     end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestNoRedundantSeparatorAfterImplementation;
+var
+  LResult: string;
+  LSource: string;
+  LUnit  : TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface implementation procedure MyProc; begin end; end.';
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Check that there is NO simple separator '{ --- }' after implementation banner
+    // The implementation footer has { === }\r\n\r\n
+    // The procedure should follow immediately (possibly with its own newline)
+    Assert.IsFalse(LResult.Contains('{ ' + StringOfChar('-', 71) + ' }'), 'Simple separator should not be present after implementation banner');
   finally
     LUnit.Free;
   end;

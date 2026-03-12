@@ -1,5 +1,8 @@
 // DWScript for formatting Delphi units in the Taifun style
 
+var LastClassName: string;
+var LastBannerWasDouble: Boolean;
+
 function StringOfChar(C: String; Count: Integer): string;
 var
   I: Integer;
@@ -51,15 +54,6 @@ begin
     end;
   end;
 end;
-// Note: Requires AST nodes to be exposed with Identifier and other properties.
-// procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
-// begin
-//   if Assigned(AClass.Identifier) then
-//   begin
-//     ClearTrivia(AClass.Identifier);
-//     AddLeadingTrivia(AClass.Identifier, #13#10 + CreateClassBanner(AClass.Identifier.Text) + #13#10);
-//   end;
-// end;
 
 procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
 begin
@@ -68,9 +62,6 @@ end;
 procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
 begin
 end;
-
-var
-  LastClassName: string;
 
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 var
@@ -91,8 +82,12 @@ begin
     end
     else
     begin
-      AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10);
+      if not LastBannerWasDouble then
+        AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10);
     end;
+    
+    // Reset double banner flag after any method implementation starts
+    LastBannerWasDouble := False;
   end;
 end;
 
@@ -113,6 +108,7 @@ begin
     ClearTrivia(LToken);
     AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
     AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    LastBannerWasDouble := True;
   end;
 end;
 
@@ -124,8 +120,9 @@ begin
   if Assigned(LToken) then
   begin
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
+    LastBannerWasDouble := True;
   end;
 end;
 
