@@ -82,6 +82,8 @@ end;
 
 destructor TDptDwsFormatter.Destroy;
 begin
+  FExec := nil;
+  FProgram := nil;
   FUnit.Free;
   FScript.Free;
   inherited Destroy;
