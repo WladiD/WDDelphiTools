@@ -35,6 +35,8 @@ type
     [Test]
     procedure TestFormatUsesClause;
     [Test]
+    procedure TestFormatUsesClause_WithCompilerDirectives;
+    [Test]
     procedure TestFormatSections;
     [Test]
     procedure TestFormatSections_IdempotentWithResourceString;
@@ -55,11 +57,17 @@ type
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeConst;
     [Test]
+    procedure TestFormatImplementation_PreservesConstAroundIt;
+    [Test]
     procedure TestNoRedundantSeparatorAfterImplementation;
     [Test]
     procedure TestFormatMethodImplementation_WithXmlDoc;
     [Test]
     procedure TestFormatMethodImplementation_NestedClass;
+    [Test]
+    procedure TestFormatMethodImplementation_NamespacedReturnType;
+    [Test]
+    procedure TestFormatImplementation_NoExtraEmptyLinesBeforeFirstClass;
   end;
 
 implementation
@@ -111,6 +119,38 @@ begin
     finally
       LUnit2.Free;
     end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_WithCompilerDirectives;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 +
+             'interface' + #13#10 +
+             #13#10 +
+             'uses' + #13#10 +
+             #13#10 +
+             '  {$IF DEFINED(TED) OR DEFINED(TES)}' + #13#10 +
+             '  Base.Soap.Constants,' + #13#10 +
+             '  {$ENDIF DEFINED(TED) OR DEFINED(TES)}' + #13#10 +
+             #13#10 +
+             '  Base.AppCaps;' + #13#10 +
+             'implementation' + #13#10 +
+             'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains('uses' + #13#10 + #13#10 + '  {$IF DEFINED(TED) OR DEFINED(TES)}'), 'Compiler directive should be preserved after uses keyword. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('  {$ENDIF DEFINED(TED) OR DEFINED(TES)}' + #13#10 + #13#10 + '  Base.AppCaps;'), 'Compiler directive should be preserved before next uses item. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;
@@ -253,6 +293,60 @@ begin
     Assert.IsTrue(LResult.Contains(
       #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'const' + #13#10
     ), 'Implementation block should be followed by exactly one empty line before the const declaration. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesConstAroundIt;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'const' + #13#10 +
+    #13#10 +
+    '  MsgNoAccess = ''Funktion nicht verfügbar, weil die Leseberechtigung fehlt.'';' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'const' + #13#10 +
+    #13#10 +
+    '  AccessRightHelperNames : Array[Integer] of String' + #13#10 +
+    '                         = (''-'',' + #13#10 +
+    '                            ''Nein'',' + #13#10 +
+    '                            ''Ja'');' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ TAccessTypeHelper                                                       }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'function TAccessTypeHelper.HasReadAccess: Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=True;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains('  MsgNoAccess = ''Funktion nicht verfügbar, weil die Leseberechtigung fehlt.'';' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      'implementation' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'const' + #13#10 +
+      #13#10 +
+      '  AccessRightHelperNames : Array[Integer] of String'), 'Implementation banners should be properly inserted without mangling surrounding const declarations. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;
@@ -553,6 +647,98 @@ begin
       #13#10 +
       'class function CAppConnectionProvider.TCacheKey.Create'),
       'Class banner should contain the full nested class name and MUST NOT contain fragments of old class banners' + #13#10 + 'Actual result:' + #13#10 + LResult
+    );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_NamespacedReturnType;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'function CCopyWrongMdtBlobsInPrg.GetName: S_255;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=''xxx'';' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'function CCopyWrongMdtBlobsInPrg.GetSortDate: Base.Types.DateTime.TDate;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=Default(TDate);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      '{ CCopyWrongMdtBlobsInPrg                                                 }' + #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      #13#10 +
+      'function CCopyWrongMdtBlobsInPrg.GetName: S_255;'),
+      'First method should have a full class banner. Actual:' + #13#10 + LResult
+    );
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('-', 71) + ' }' + #13#10 +
+      #13#10 +
+      'function CCopyWrongMdtBlobsInPrg.GetSortDate: Base.Types.DateTime.TDate;'),
+      'Second method should have a short method banner despite namespaced return type. Actual:' + #13#10 + LResult
+    );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_NoExtraEmptyLinesBeforeFirstClass;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CMongoBlobService                                                       }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'constructor CMongoBlobService.Create(ASession: IDbSession; ATblId,AMdtId: Word);' + #13#10 +
+    'var' + #13#10 +
+    '  MongoSession: IMongoSession;' + #13#10 +
+    'begin' + #13#10 +
+    '  inherited Create(ASession,ATblId);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      'implementation' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      '{ CMongoBlobService                                                       }' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'constructor CMongoBlobService.Create'),
+      'Should not have extra blank lines between implementation banner and the first class banner. Actual:' + #13#10 + LResult
     );
   finally
     LUnit.Free;

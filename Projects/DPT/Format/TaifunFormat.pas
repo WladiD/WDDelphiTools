@@ -57,9 +57,17 @@ begin
     LFirstItem := GetUsesFirstItemToken(AUses);
     if Assigned(LFirstItem) then
     begin
+      LTrivia := GetLeadingTrivia(LFirstItem);
       ClearTrivia(LFirstItem);
-      // Ensure one empty line after uses keyword
-      AddLeadingTrivia(LFirstItem, #13#10 + '  ');
+      
+      // We want an empty line after the uses keyword, and then some indentation.
+      // But we must preserve any existing comments/directives in the trivia.
+      // Usually, there might be existing spaces, we just prepend our required spacing.
+      // But let's avoid adding too many newlines if they are already there.
+      while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do
+        Delete(LTrivia, 1, 1);
+        
+      AddLeadingTrivia(LFirstItem, #13#10 + '  ' + LTrivia);
     end;
   end;
 end;
@@ -70,6 +78,21 @@ begin
 end;
 
 procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax);
+begin
+  LastBannerWasDouble := False;
+end;
+
+procedure OnVisitTypeSection(ASection: TTypeSectionSyntax);
+begin
+  LastBannerWasDouble := False;
+end;
+
+procedure OnVisitConstSection(ASection: TConstSectionSyntax);
+begin
+  LastBannerWasDouble := False;
+end;
+
+procedure OnVisitVarSection(ASection: TVarSectionSyntax);
 begin
   LastBannerWasDouble := False;
 end;

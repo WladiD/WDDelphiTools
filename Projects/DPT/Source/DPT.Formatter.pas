@@ -23,6 +23,9 @@ type
     procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); virtual;
     procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); virtual;
     procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); virtual;
+    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); virtual;
+    procedure OnVisitConstSection(ASection: TConstSectionSyntax); virtual;
+    procedure OnVisitVarSection(ASection: TVarSectionSyntax); virtual;
     procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); virtual;
 
   public
@@ -33,6 +36,9 @@ type
     procedure VisitMethodImplementation(ANode: TMethodImplementationSyntax); override;
     procedure VisitInterfaceSection(ANode: TInterfaceSectionSyntax); override;
     procedure VisitImplementationSection(ANode: TImplementationSectionSyntax); override;
+    procedure VisitTypeSection(ANode: TTypeSectionSyntax); override;
+    procedure VisitConstSection(ANode: TConstSectionSyntax); override;
+    procedure VisitVarSection(ANode: TVarSectionSyntax); override;
     procedure VisitCompilationUnit(ANode: TCompilationUnitSyntax); override;
 
     // Starts the formatting and traversal
@@ -76,6 +82,21 @@ begin
   // Do nothing by default
 end;
 
+procedure TDptFormatter.OnVisitTypeSection(ASection: TTypeSectionSyntax);
+begin
+  // Do nothing by default
+end;
+
+procedure TDptFormatter.OnVisitConstSection(ASection: TConstSectionSyntax);
+begin
+  // Do nothing by default
+end;
+
+procedure TDptFormatter.OnVisitVarSection(ASection: TVarSectionSyntax);
+begin
+  // Do nothing by default
+end;
+
 procedure TDptFormatter.OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
 begin
   // Do nothing by default
@@ -98,14 +119,14 @@ end;
 
 procedure TDptFormatter.VisitClassDeclaration(ANode: TClassDeclarationSyntax);
 begin
-  inherited;
   OnVisitClassDeclaration(ANode);
+  inherited;
 end;
 
 procedure TDptFormatter.VisitMethodImplementation(ANode: TMethodImplementationSyntax);
 begin
-  inherited;
   OnVisitMethodImplementation(ANode);
+  inherited;
 end;
 
 procedure TDptFormatter.VisitInterfaceSection(ANode: TInterfaceSectionSyntax);
@@ -120,6 +141,24 @@ begin
   inherited;
 end;
 
+procedure TDptFormatter.VisitTypeSection(ANode: TTypeSectionSyntax);
+begin
+  OnVisitTypeSection(ANode);
+  inherited;
+end;
+
+procedure TDptFormatter.VisitConstSection(ANode: TConstSectionSyntax);
+begin
+  OnVisitConstSection(ANode);
+  inherited;
+end;
+
+procedure TDptFormatter.VisitVarSection(ANode: TVarSectionSyntax);
+begin
+  OnVisitVarSection(ANode);
+  inherited;
+end;
+
 procedure TDptFormatter.VisitCompilationUnit(ANode: TCompilationUnitSyntax);
 begin
   OnVisitUnitStart(ANode);
@@ -129,14 +168,14 @@ end;
 
 procedure TDptFormatter.VisitRecordDeclaration(ANode: TRecordDeclarationSyntax);
 begin
-  inherited;
   OnVisitRecordDeclaration(ANode);
+  inherited;
 end;
 
 procedure TDptFormatter.VisitUsesClause(ANode: TUsesClauseSyntax);
 begin
-  inherited;
   OnVisitUsesClause(ANode);
+  inherited;
 end;
 
 class procedure TDptFormatter.ClearTrivia(AToken: TSyntaxToken);

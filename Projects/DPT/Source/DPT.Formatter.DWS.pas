@@ -62,6 +62,9 @@ type
     procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); override;
     procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); override;
     procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); override;
+    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); override;
+    procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
+    procedure OnVisitVarSection(ASection: TVarSectionSyntax); override;
     procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); override;
     procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); override;
   public
@@ -113,6 +116,9 @@ begin
   FUnit.ExposeRTTI(TypeInfo(TMethodImplementationSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TInterfaceSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TImplementationSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
+  FUnit.ExposeRTTI(TypeInfo(TTypeSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
+  FUnit.ExposeRTTI(TypeInfo(TConstSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
+  FUnit.ExposeRTTI(TypeInfo(TVarSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   
   var LFunc := FUnit.Functions.Add('ClearTrivia');
   LFunc.Parameters.Add('AToken', 'TSyntaxToken');
@@ -325,30 +331,36 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
 var
   LNode: TMethodImplementationSyntax;
-  I, J: Integer;
+  I, J, LDotIndex: Integer;
   LResultStr, LTokenLower: string;
 begin
   LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
   begin
-    for I := LNode.SignatureTokens.Count - 1 downto 0 do
+    LDotIndex := -1;
+    for I := 0 to LNode.SignatureTokens.Count - 1 do
     begin
+      if (LNode.SignatureTokens[I].Text = '(') or (LNode.SignatureTokens[I].Text = ':') or (LNode.SignatureTokens[I].Text = ';') then
+        Break;
       if LNode.SignatureTokens[I].Text = '.' then
+        LDotIndex := I;
+    end;
+
+    if LDotIndex >= 0 then
+    begin
+      LResultStr := '';
+      for J := 0 to LDotIndex - 1 do
       begin
-        LResultStr := '';
-        for J := 0 to I - 1 do
-        begin
-          LTokenLower := LowerCase(LNode.SignatureTokens[J].Text);
-          if (LTokenLower = 'class') or (LTokenLower = 'procedure') or 
-             (LTokenLower = 'function') or (LTokenLower = 'constructor') or 
-             (LTokenLower = 'destructor') or (LTokenLower = 'operator') then
-            Continue;
-            
-          LResultStr := LResultStr + LNode.SignatureTokens[J].Text;
-        end;
-        Info.ResultAsString := LResultStr;
-        Exit;
+        LTokenLower := LowerCase(LNode.SignatureTokens[J].Text);
+        if (LTokenLower = 'class') or (LTokenLower = 'procedure') or 
+           (LTokenLower = 'function') or (LTokenLower = 'constructor') or 
+           (LTokenLower = 'destructor') or (LTokenLower = 'operator') then
+          Continue;
+          
+        LResultStr := LResultStr + LNode.SignatureTokens[J].Text;
       end;
+      Info.ResultAsString := LResultStr;
+      Exit;
     end;
   end;
   Info.ResultAsString := '';
@@ -357,25 +369,40 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);
 var
   LNode: TMethodImplementationSyntax;
+  I, LDotIndex, LEndIndex: Integer;
 begin
   LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
   if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
   begin
-    for var I: Integer := LNode.SignatureTokens.Count - 1 downto 0 do
+    LDotIndex := -1;
+    LEndIndex := LNode.SignatureTokens.Count - 1;
+    for I := 0 to LNode.SignatureTokens.Count - 1 do
     begin
-      if LNode.SignatureTokens[I].Text = '.' then
+      if (LNode.SignatureTokens[I].Text = '(') or (LNode.SignatureTokens[I].Text = ':') or (LNode.SignatureTokens[I].Text = ';') then
       begin
-        if I < LNode.SignatureTokens.Count - 1 then
-        begin
-          Info.ResultAsString := LNode.SignatureTokens[I+1].Text;
-          Exit;
-        end;
+        LEndIndex := I - 1;
+        Break;
       end;
+      if LNode.SignatureTokens[I].Text = '.' then
+        LDotIndex := I;
     end;
-    if LNode.SignatureTokens.Count > 0 then
-      Info.ResultAsString := LNode.SignatureTokens[0].Text
+
+    if LDotIndex >= 0 then
+    begin
+      if LDotIndex < LEndIndex then
+        Info.ResultAsString := LNode.SignatureTokens[LDotIndex + 1].Text
+      else
+        Info.ResultAsString := '';
+    end
     else
-      Info.ResultAsString := '';
+    begin
+      if LEndIndex >= 0 then
+        Info.ResultAsString := LNode.SignatureTokens[LEndIndex].Text
+      else if LNode.SignatureTokens.Count > 0 then
+        Info.ResultAsString := LNode.SignatureTokens[0].Text
+      else
+        Info.ResultAsString := '';
+    end;
   end
   else
     Info.ResultAsString := '';
@@ -498,6 +525,24 @@ procedure TDptDwsFormatter.OnVisitImplementationSection(ASection: TImplementatio
 begin
   inherited;
   CallScriptProc('OnVisitImplementationSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitTypeSection(ASection: TTypeSectionSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitTypeSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitConstSection(ASection: TConstSectionSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitConstSection', 'ASection', ASection);
+end;
+
+procedure TDptDwsFormatter.OnVisitVarSection(ASection: TVarSectionSyntax);
+begin
+  inherited;
+  CallScriptProc('OnVisitVarSection', 'ASection', ASection);
 end;
 
 procedure TDptDwsFormatter.OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
