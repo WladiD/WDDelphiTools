@@ -41,11 +41,19 @@ type
     [Test]
     procedure TestFormatMethodImplementation;
     [Test]
+    procedure TestFormatImplementation_OldClassBannerIsReplacedProperly;
+    [Test]
     procedure TestFormatUnitHeader_CreatesNew;
     [Test]
     procedure TestFormatUnitHeader_CorrectsExisting;
     [Test]
     procedure TestFormatUnitHeader_PreservesPerfect;
+    [Test]
+    procedure TestFormatInterface_PreservesEmptyLineBeforeType;
+    [Test]
+    procedure TestFormatInterface_NoExtraEmptyLineBeforeUses;
+    [Test]
+    procedure TestFormatImplementation_NoExtraEmptyLineBeforeConst;
     [Test]
     procedure TestNoRedundantSeparatorAfterImplementation;
     [Test]
@@ -181,6 +189,75 @@ begin
   end;
 end;
 
+procedure TTestTaifunFormatter.TestFormatInterface_PreservesEmptyLineBeforeType;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 + 'interface' + #13#10 + #13#10 + 'type' + #13#10 + '  TMyType = Integer;' + #13#10 + 'implementation' + #13#10 + 'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Initial format should preserve the empty line between interface and type
+    Assert.IsTrue(LResult.Contains(
+      #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'type' + #13#10
+    ), 'Interface block should be followed by an empty line before the type declaration. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatInterface_NoExtraEmptyLineBeforeUses;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 + 'interface' + #13#10 + #13#10 + 'uses' + #13#10 + '  System.Classes,' + #13#10 + '  System.SysUtils;' + #13#10 + 'implementation' + #13#10 + 'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Initial format should have exactly one empty line between interface banner and uses
+    Assert.IsTrue(LResult.Contains(
+      #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'uses' + #13#10
+    ), 'Interface block should be followed by exactly one empty line before the uses declaration. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_NoExtraEmptyLineBeforeConst;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 + 'interface' + #13#10 + 'implementation' + #13#10 + #13#10 + 'const' + #13#10 + '  MyConst = 1;' + #13#10 + 'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Initial format should have exactly one empty line between implementation banner and const
+    Assert.IsTrue(LResult.Contains(
+      #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'const' + #13#10
+    ), 'Implementation block should be followed by exactly one empty line before the const declaration. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
 procedure TTestTaifunFormatter.TestNoRedundantSeparatorAfterImplementation;
 var
   LResult: string;
@@ -238,6 +315,47 @@ begin
     finally
       LUnit2.Free;
     end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_OldClassBannerIsReplacedProperly;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 +
+             'interface' + #13#10 +
+             'implementation' + #13#10 +
+             '{ ======================================================================= }' + #13#10 +
+             '{ CBlacklist - Class                                                      }' + #13#10 +
+             '{ ======================================================================= }' + #13#10 +
+             #13#10 +
+             'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);' + #13#10 +
+             'begin' + #13#10 +
+             '  inherited Create;' + #13#10 +
+             'end;' + #13#10 +
+             'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      'implementation' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      '{ CBlacklist                                                              }' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);'
+    ), 'Old banner with suffixes like "- Class" must be completely replaced and no extra empty lines should be present before the new banner. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;

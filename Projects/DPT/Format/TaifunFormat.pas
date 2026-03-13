@@ -37,12 +37,21 @@ end;
 procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
 var
   LToken, LFirstItem: TSyntaxToken;
+  LTrivia: string;
 begin
   LToken := GetUsesKeyword(AUses);
   if Assigned(LToken) then
   begin
+    LTrivia := GetLeadingTrivia(LToken);
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10);
+
+    // Restore leading trivia exactly as it was after StripBanners processed it,
+    // or as it was originally. The previous token (like interface banner or unit declaration)
+    // already provides the necessary trailing whitespace (e.g. #13#10#13#10).
+    if Length(LTrivia) > 0 then
+      AddLeadingTrivia(LToken, LTrivia);
+
+    // The trailing trivia of uses should push the next line down
     AddTrailingTrivia(LToken, #13#10);
     
     LFirstItem := GetUsesFirstItemToken(AUses);
@@ -130,7 +139,12 @@ begin
 
     if (LClassName <> '') and (LClassName <> LastClassName) then
     begin
-      AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
+      // If we are right after a double banner (e.g. implementation), its trailing trivia already provided #13#10#13#10.
+      // If we add another #13#10#13#10 here, we get too many empty lines.
+      if LastBannerWasDouble then
+        AddLeadingTrivia(LToken, CreateClassBanner(LClassName) + #13#10 + LComments)
+      else
+        AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
       LastClassName := LClassName;
     end
     else
@@ -138,9 +152,8 @@ begin
       if not LastBannerWasDouble then
         AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
       else if (Pos(#10, LOldTrivia) > 0) or (LComments <> '') then
-        AddLeadingTrivia(LToken, #13#10#13#10 + LComments);
+        AddLeadingTrivia(LToken, #13#10 + LComments);
     end;
-    
     // Reset double banner flag after any method implementation starts
     LastBannerWasDouble := False;
   end;
@@ -207,14 +220,21 @@ begin
     end;
   end;
 
-  // Collapse multiple newlines into max 2 if needed or leave it as is if we just stripped correctly.
-  // Actually, standard formatting has AddTrailingTrivia for banners, so the next token's leading trivia
-  // should ideally just contain regular comments or nothing. Let's just trim excessive leading newlines.
+  // We want to keep at most ONE empty line before the next token if there was any spacing.
+  // The banner will append #13#10#13#10.
+  // The remaining trivia here belongs to the token itself.
+  // If we strip all newlines, it glues.
+  // Let's strip excess newlines but leave up to ONE #13#10 if it originally existed and wasn't part of the banner.
+
+  // Strip ALL leading newlines first
   while (Length(LNewTrivia) >= 2) and (Copy(LNewTrivia, 1, 2) = #13#10) do
     Delete(LNewTrivia, 1, 2);
 
-  // If there's still text, we want to pad it with an empty line so it's not glued to the banner.
-  if Length(LNewTrivia) > 0 then
+  // If the original token had any leading spaces/newlines before we started stripping banners,
+  // we restore exactly ONE newline so it isn't glued.
+  // LNewTrivia now contains the comments/directives that are NOT banners.
+  // We prepend a single newline only if there is actual text left, or if there was an empty line in the original code.
+  if (Length(LNewTrivia) > 0) then
     LNewTrivia := #13#10 + LNewTrivia;
 
   ClearTrivia(AToken);
@@ -231,7 +251,7 @@ begin
   begin
     ClearTrivia(LToken);
     AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
     LastBannerWasDouble := True;
 
     LNext := GetNextToken(LToken);
