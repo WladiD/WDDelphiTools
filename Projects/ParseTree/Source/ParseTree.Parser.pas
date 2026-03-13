@@ -1,4 +1,10 @@
-﻿unit ParseTree.Parser;
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
+unit ParseTree.Parser;
 
 interface
 
@@ -18,8 +24,8 @@ type
   { TParseTreeParser is the main entry point to parse Pascal source code into a CST }
   TParseTreeParser = class
   private
-    FTokens: IList<TSyntaxToken>;
     FPosition: Integer;
+    FTokens  : IList<TSyntaxToken>;
     function Peek(AOffset: Integer = 0): TSyntaxToken;
     function Current: TSyntaxToken;
     function NextToken: TSyntaxToken;
@@ -58,11 +64,11 @@ implementation
 
 function TParseTreeParser.Peek(AOffset: Integer): TSyntaxToken;
 var
-  LIndex: Integer;
+  Index: Integer;
 begin
-  LIndex := FPosition + AOffset;
-  if (LIndex >= 0) and (LIndex < FTokens.Count) then
-    Result := FTokens[LIndex]
+  Index := FPosition + AOffset;
+  if (Index >= 0) and (Index < FTokens.Count) then
+    Result := FTokens[Index]
   else
     Result := nil;
 end;
@@ -93,41 +99,41 @@ end;
 
 function TParseTreeParser.HasDotAfterIdentifierOrGeneric(AStartIndex: Integer): Boolean;
 var
-  LIdx: Integer;
-  LGenericDepth: Integer;
-  LTok: TSyntaxToken;
+  GenericDepth: Integer;
+  Idx         : Integer;
+  Token       : TSyntaxToken;
 begin
-  LIdx := FPosition + AStartIndex;
-  LTok := Peek(AStartIndex);
-  if (LTok = nil) or (LTok.Kind <> tkIdentifier) then Exit(False);
+  Idx := FPosition + AStartIndex;
+  Token := Peek(AStartIndex);
+  if not Assigned(Token) or (Token.Kind <> tkIdentifier) then
+    Exit(False);
   
-  Inc(LIdx);
-  LTok := Peek(LIdx - FPosition);
+  Inc(Idx);
+  Token := Peek(Idx - FPosition);
   
-  if (LTok <> nil) and (LTok.Kind = tkLessThan) then
+  if Assigned(Token) and (Token.Kind = tkLessThan) then
   begin
-    LGenericDepth := 1;
-    Inc(LIdx);
-    while (LGenericDepth > 0) do
+    GenericDepth := 1;
+    Inc(Idx);
+    while (GenericDepth > 0) do
     begin
-      LTok := Peek(LIdx - FPosition);
-      if LTok = nil then Exit(False);
+      Token := Peek(Idx - FPosition);
+      if Token = nil then Exit(False);
       
-      if LTok.Kind = tkLessThan then Inc(LGenericDepth)
-      else if LTok.Kind = tkGreaterThan then Dec(LGenericDepth);
+      if Token.Kind = tkLessThan then Inc(GenericDepth)
+      else if Token.Kind = tkGreaterThan then Dec(GenericDepth);
       
-      Inc(LIdx);
+      Inc(Idx);
     end;
-    LTok := Peek(LIdx - FPosition);
+    Token := Peek(Idx - FPosition);
   end;
   
-  Result := (LTok <> nil) and (LTok.Kind = tkDot);
-  // Writeln('HasDot: StartIndex=', AStartIndex, ' Result=', Result, ' EndTok=', ifthen(LTok<>nil, LTok.Text, 'nil'));
+  Result := (Token <> nil) and (Token.Kind = tkDot);
 end;
 
 function TParseTreeParser.ParseUsesClause: TUsesClauseSyntax;
 var
-  LUnitRef: TUnitReferenceSyntax;
+  UnitRef: TUnitReferenceSyntax;
 begin
   Result := nil;
   if (Current = nil) or (Current.Kind <> tkUsesKeyword) then
@@ -138,39 +144,41 @@ begin
   
   while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
   begin
-    LUnitRef := TUnitReferenceSyntax.Create;
+    UnitRef := TUnitReferenceSyntax.Create;
     
     // Parse the unit identifier(s) and dots (e.g. System.SysUtils)
-    var LExpectDot: Boolean := False;
-    while (Current <> nil) and 
-          ((Current.Kind = tkIdentifier) or (Current.Kind = tkDot) or 
-           (Current.Kind = tkUnitKeyword) or (Current.Kind = tkInterfaceKeyword) or
-           (Current.Kind = tkImplementationKeyword) or (Current.Kind = tkUsesKeyword)) do
+    var ExpectDot: Boolean := False;
+    while
+      (Current <> nil) and
+      (Current.Kind in [tkIdentifier, tkDot, tkUnitKeyword, tkInterfaceKeyword,
+        tkImplementationKeyword, tkUsesKeyword]) do
     begin
       if Current.Kind = tkDot then
       begin
-        if not LExpectDot then Break;
-        LUnitRef.Dots.Add(NextToken);
-        LExpectDot := False;
+        if not ExpectDot then
+          Break;
+        UnitRef.Dots.Add(NextToken);
+        ExpectDot := False;
       end
       else
       begin
-        if LExpectDot then Break;
-        LUnitRef.Namespaces.Add(NextToken);
-        LExpectDot := True;
+        if ExpectDot then
+          Break;
+        UnitRef.Namespaces.Add(NextToken);
+        ExpectDot := True;
       end;
     end;
     
     // Parse optional 'in' clause (e.g. in '..\Unit1.pas')
     if (Current <> nil) and (Current.Kind = tkInKeyword) then
     begin
-      LUnitRef.InKeyword := MatchToken(tkInKeyword);
+      UnitRef.InKeyword := MatchToken(tkInKeyword);
       
       if (Current <> nil) and (Current.Kind = tkStringLiteral) then
-        LUnitRef.StringLiteral := MatchToken(tkStringLiteral);
+        UnitRef.StringLiteral := MatchToken(tkStringLiteral);
     end;
     
-    Result.UnitReferences.Add(LUnitRef);
+    Result.UnitReferences.Add(UnitRef);
     
     // Look for comma separating units
     if (Current <> nil) and (Current.Kind = tkComma) then
@@ -184,66 +192,66 @@ end;
 
 function TParseTreeParser.ParseConstDeclaration: TConstDeclarationSyntax;
 var
-  LNestLevel: Integer;
-  LTypeTokens: IList<TSyntaxToken>;
-  LHasComplexType: Boolean;
-  LFallbackOpaqueConst: Boolean;
+  FallbackOpaqueConst: Boolean;
+  HasComplexType     : Boolean;
+  NestLevel          : Integer;
+  TypeTokens         : IList<TSyntaxToken>;
 begin
   Result := TConstDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
-  LFallbackOpaqueConst := False;
+  FallbackOpaqueConst := False;
   
   if (Current <> nil) and (Current.Kind = tkColon) then
   begin
     Result.ColonToken := MatchToken(tkColon);
-    LTypeTokens := Collections.NewList<TSyntaxToken>([loNoFinalize]);
-    LNestLevel := 0;
+    TypeTokens := Collections.NewList<TSyntaxToken>([loNoFinalize]);
+    NestLevel := 0;
     while (Current <> nil) and (Current.Kind <> tkEOF) do
     begin
       if Current.Kind in [tkOpenParen, tkOpenBracket, tkLessThan] then
-        Inc(LNestLevel)
+        Inc(NestLevel)
       else if Current.Kind in [tkCloseParen, tkCloseBracket, tkGreaterThan] then
-        Dec(LNestLevel)
-      else if (Current.Kind = tkEquals) and (LNestLevel <= 0) then
+        Dec(NestLevel)
+      else if (Current.Kind = tkEquals) and (NestLevel <= 0) then
         Break
-      else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+      else if (Current.Kind = tkSemicolon) and (NestLevel <= 0) then
         Break;
 
-      LTypeTokens.Add(NextToken);
+      TypeTokens.Add(NextToken);
     end;
 
-    LHasComplexType := (LTypeTokens.Count <> 1) or (LTypeTokens[0].Kind <> tkIdentifier);
-    if (LTypeTokens.Count > 0) and not LHasComplexType then
-      Result.TypeIdentifier := LTypeTokens[0]
+    HasComplexType := (TypeTokens.Count <> 1) or (TypeTokens[0].Kind <> tkIdentifier);
+    if (TypeTokens.Count > 0) and not HasComplexType then
+      Result.TypeIdentifier := TypeTokens[0]
     else
     begin
       // Fallback for complex typed constants: preserve the entire right stream opaquely.
-      LFallbackOpaqueConst := True;
+      FallbackOpaqueConst := True;
       if Result.ColonToken <> nil then
       begin
         Result.ValueTokens.Add(Result.ColonToken);
         Result.ColonToken := nil;
       end;
-      for LNestLevel := 0 to LTypeTokens.Count - 1 do
-        Result.ValueTokens.Add(LTypeTokens[LNestLevel]);
+      for NestLevel := 0 to TypeTokens.Count - 1 do
+        Result.ValueTokens.Add(TypeTokens[NestLevel]);
     end;
   end;
   
   if (Current <> nil) and (Current.Kind = tkEquals) then
   begin
-    if LFallbackOpaqueConst then
+    if FallbackOpaqueConst then
       Result.ValueTokens.Add(MatchToken(tkEquals))
     else
       Result.EqualsToken := MatchToken(tkEquals);
     // Read value tokens until semicolon (respect nested parentheses/brackets)
-    LNestLevel := 0;
+    NestLevel := 0;
     while (Current <> nil) and (Current.Kind <> tkEOF) do
     begin
       if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then
-        Inc(LNestLevel)
+        Inc(NestLevel)
       else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then
-        Dec(LNestLevel)
-      else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+        Dec(NestLevel)
+      else if (Current.Kind = tkSemicolon) and (NestLevel <= 0) then
         Break;
       Result.ValueTokens.Add(NextToken);
     end;
@@ -253,39 +261,46 @@ begin
 end;
 
 function TParseTreeParser.ParseVarDeclaration: TVarDeclarationSyntax;
-var
-  LNestLevel: Integer;
 
   function IsVarTypeModifierStart(AToken: TSyntaxToken): Boolean;
   begin
-    Result := (AToken <> nil) and (
-      (AToken.Kind = tkOverrideKeyword) or
-      ((AToken.Kind = tkIdentifier) and (
-        SameText(AToken.Text, 'dispid') or
-        SameText(AToken.Text, 'message') or
-        SameText(AToken.Text, 'deprecated') or
-        SameText(AToken.Text, 'platform') or
-        SameText(AToken.Text, 'library') or
-        SameText(AToken.Text, 'experimental') or
-        SameText(AToken.Text, 'unimplemented') or
-        SameText(AToken.Text, 'overload') or
-        SameText(AToken.Text, 'override') or
-        SameText(AToken.Text, 'reintroduce') or
-        SameText(AToken.Text, 'virtual') or
-        SameText(AToken.Text, 'dynamic') or
-        SameText(AToken.Text, 'abstract') or
-        SameText(AToken.Text, 'final') or
-        SameText(AToken.Text, 'static') or
-        SameText(AToken.Text, 'inline') or
-        SameText(AToken.Text, 'assembler') or
-        SameText(AToken.Text, 'cdecl') or
-        SameText(AToken.Text, 'pascal') or
-        SameText(AToken.Text, 'register') or
-        SameText(AToken.Text, 'stdcall') or
-        SameText(AToken.Text, 'safecall') or
-        SameText(AToken.Text, 'varargs')
-      )));
+    Result :=
+      Assigned(AToken) and
+      (
+        (AToken.Kind = tkOverrideKeyword) or
+        (
+          (AToken.Kind = tkIdentifier) and
+          (
+            SameText(AToken.Text, 'dispid') or
+            SameText(AToken.Text, 'message') or
+            SameText(AToken.Text, 'deprecated') or
+            SameText(AToken.Text, 'platform') or
+            SameText(AToken.Text, 'library') or
+            SameText(AToken.Text, 'experimental') or
+            SameText(AToken.Text, 'unimplemented') or
+            SameText(AToken.Text, 'overload') or
+            SameText(AToken.Text, 'override') or
+            SameText(AToken.Text, 'reintroduce') or
+            SameText(AToken.Text, 'virtual') or
+            SameText(AToken.Text, 'dynamic') or
+            SameText(AToken.Text, 'abstract') or
+            SameText(AToken.Text, 'final') or
+            SameText(AToken.Text, 'static') or
+            SameText(AToken.Text, 'inline') or
+            SameText(AToken.Text, 'assembler') or
+            SameText(AToken.Text, 'cdecl') or
+            SameText(AToken.Text, 'pascal') or
+            SameText(AToken.Text, 'register') or
+            SameText(AToken.Text, 'stdcall') or
+            SameText(AToken.Text, 'safecall') or
+            SameText(AToken.Text, 'varargs')
+          )
+        )
+      );
   end;
+
+var
+  NestLevel: Integer;
 begin
   Result := TVarDeclarationSyntax.Create;
   Result.Identifier := MatchToken(tkIdentifier);
@@ -298,14 +313,14 @@ begin
   end;
   
   // Collect remaining type tokens (e.g. function pointer params, generics, directives)
-  LNestLevel := 0;
+  NestLevel := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) or (Current.Kind = tkLessThan) then
-      Inc(LNestLevel)
-    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) or (Current.Kind = tkGreaterThan) then
-      Dec(LNestLevel)
-    else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+    if (Current.Kind in [tkOpenParen, tkOpenBracket, tkLessThan]) then
+      Inc(NestLevel)
+    else if (Current.Kind in [tkCloseParen, tkCloseBracket, tkGreaterThan]) then
+      Dec(NestLevel)
+    else if (Current.Kind = tkSemicolon) and (NestLevel <= 0) then
     begin
       if IsVarTypeModifierStart(Peek(1)) then
       begin
@@ -324,70 +339,67 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
 
   function IsVisibilityKeyword(AToken: TSyntaxToken): Boolean;
   begin
-    Result := (AToken <> nil) and (
-      (AToken.Kind = tkPrivateKeyword) or
-      (AToken.Kind = tkProtectedKeyword) or
-      (AToken.Kind = tkPublicKeyword) or
-      (AToken.Kind = tkPublishedKeyword));
+    Result := Assigned(AToken) and
+      (AToken.Kind in [tkPrivateKeyword, tkProtectedKeyword, tkPublicKeyword, tkPublishedKeyword]);
   end;
 
   function IsTypeModifierStart(AToken: TSyntaxToken): Boolean;
   begin
-    Result := (AToken <> nil) and (
-      (AToken.Kind = tkOverrideKeyword) or
-      ((AToken.Kind = tkIdentifier) and (
-        SameText(AToken.Text, 'dispid') or
-        SameText(AToken.Text, 'message') or
-        SameText(AToken.Text, 'deprecated') or
-        SameText(AToken.Text, 'platform') or
-        SameText(AToken.Text, 'library') or
-        SameText(AToken.Text, 'experimental') or
-        SameText(AToken.Text, 'unimplemented') or
-        SameText(AToken.Text, 'overload') or
-        SameText(AToken.Text, 'override') or
-        SameText(AToken.Text, 'reintroduce') or
-        SameText(AToken.Text, 'virtual') or
-        SameText(AToken.Text, 'dynamic') or
-        SameText(AToken.Text, 'abstract') or
-        SameText(AToken.Text, 'final') or
-        SameText(AToken.Text, 'static') or
-        SameText(AToken.Text, 'inline') or
-        SameText(AToken.Text, 'assembler') or
-        SameText(AToken.Text, 'cdecl') or
-        SameText(AToken.Text, 'pascal') or
-        SameText(AToken.Text, 'register') or
-        SameText(AToken.Text, 'stdcall') or
-        SameText(AToken.Text, 'safecall') or
-        SameText(AToken.Text, 'varargs')
-      )));
+    Result :=
+      Assigned(AToken) and
+      (
+        (AToken.Kind = tkOverrideKeyword) or
+        (
+          (AToken.Kind = tkIdentifier) and
+          (
+            SameText(AToken.Text, 'dispid') or
+            SameText(AToken.Text, 'message') or
+            SameText(AToken.Text, 'deprecated') or
+            SameText(AToken.Text, 'platform') or
+            SameText(AToken.Text, 'library') or
+            SameText(AToken.Text, 'experimental') or
+            SameText(AToken.Text, 'unimplemented') or
+            SameText(AToken.Text, 'overload') or
+            SameText(AToken.Text, 'override') or
+            SameText(AToken.Text, 'reintroduce') or
+            SameText(AToken.Text, 'virtual') or
+            SameText(AToken.Text, 'dynamic') or
+            SameText(AToken.Text, 'abstract') or
+            SameText(AToken.Text, 'final') or
+            SameText(AToken.Text, 'static') or
+            SameText(AToken.Text, 'inline') or
+            SameText(AToken.Text, 'assembler') or
+            SameText(AToken.Text, 'cdecl') or
+            SameText(AToken.Text, 'pascal') or
+            SameText(AToken.Text, 'register') or
+            SameText(AToken.Text, 'stdcall') or
+            SameText(AToken.Text, 'safecall') or
+            SameText(AToken.Text, 'varargs')
+          )
+        )
+      );
   end;
 
   function IsMemberStartToken(AToken: TSyntaxToken): Boolean;
   begin
-    Result := (AToken <> nil) and (
-      (AToken.Kind = tkIdentifier) or
-      (AToken.Kind = tkProcedureKeyword) or
-      (AToken.Kind = tkFunctionKeyword) or
-      (AToken.Kind = tkConstructorKeyword) or
-      (AToken.Kind = tkDestructorKeyword) or
-      (AToken.Kind = tkPropertyKeyword) or
-      (AToken.Kind = tkClassKeyword) or
-      (AToken.Kind = tkTypeKeyword) or
-      (AToken.Kind = tkVarKeyword) or
-      (AToken.Kind = tkConstKeyword));
+    Result := Assigned(AToken) and
+      (AToken.Kind in [
+        tkIdentifier, tkProcedureKeyword, tkFunctionKeyword, tkConstructorKeyword,
+        tkDestructorKeyword, tkPropertyKeyword, tkClassKeyword, tkTypeKeyword, tkVarKeyword,
+        tkConstKeyword]);
   end;
 
   procedure ParseClassMember(ASection: TVisibilitySectionSyntax);
   var
-    LMember: TClassMemberSyntax;
-    LNestLevel: Integer;
-    LDeclBlockNest: Integer;
-    LPrevKind: TTokenKind;
-    LScan: Integer;
-    LHasColon: Boolean;
+    LCanHaveModifiers : Boolean;
+    LDeclBlockNest    : Integer;
+    LHasColon         : Boolean;
+    LIsModifierStart  : Boolean;
+    LMember           : TClassMemberSyntax;
     LModifierSemicolon: Boolean;
-    LCanHaveModifiers: Boolean;
-    LIsModifierStart: Boolean;
+    LNestLevel        : Integer;
+    LPrevKind         : TTokenKind;
+    LScan             : Integer;
 
     function IsForwardClassLikeDecl: Boolean;
     var
