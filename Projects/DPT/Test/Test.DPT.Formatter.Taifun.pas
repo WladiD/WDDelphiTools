@@ -74,6 +74,8 @@ type
     procedure TestFormatUnitHeader_PreservesDirectivesAfterInclude;
     [Test]
     procedure TestFormatMethodImplementation_ClassConstructor;
+    [Test]
+    procedure TestFormatMethodImplementation_GenericClass;
   end;
 
 implementation
@@ -869,6 +871,62 @@ begin
       #13#10 +
       'class destructor CBootstrapping.ClassDestroy;'),
       'Class destructor should be formatted properly. Actual:' + #13#10 + LResult
+    );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_GenericClass;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'constructor CConcurrentDictionary<TKey,TValue>.Create;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'destructor CConcurrentDictionary<TKey,TValue>.Destroy;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'function CConcurrentDictionary<TKey,TValue>.Contains(const AKey: TKey): Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      '{ CConcurrentDictionary<TKey,TValue>                                      }' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'constructor CConcurrentDictionary<TKey,TValue>.Create;'),
+      'First generic class method should get the full banner. Actual:' + #13#10 + LResult
+    );
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ----------------------------------------------------------------------- }' + #13#10 +
+      #13#10 +
+      'destructor CConcurrentDictionary<TKey,TValue>.Destroy;'),
+      'Second generic class method should get short banner. Actual:' + #13#10 + LResult
+    );
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ----------------------------------------------------------------------- }' + #13#10 +
+      #13#10 +
+      'function CConcurrentDictionary<TKey,TValue>.Contains(const AKey: TKey): Boolean;'),
+      'Third generic class method should get short banner, not a new class banner. Actual:' + #13#10 + LResult
     );
   finally
     LUnit.Free;

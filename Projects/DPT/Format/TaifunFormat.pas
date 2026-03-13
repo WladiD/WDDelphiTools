@@ -159,9 +159,7 @@ begin
         if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) then
         begin
           // A valid banner line usually has lots of trailing spaces padding it to 71 chars.
-          // Alternatively, we can just assume any line matching "{ ClassName }" where ClassName
-          // does not contain XML-DOC tokens is likely a banner remnant.
-          if Pos('<', LLine) = 0 then
+          if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
             LIsBanner := True;
         end;
         
@@ -242,7 +240,7 @@ begin
     if LIsText then
     begin
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
-      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('<', LLine) = 0) then LIsBanner := True;
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
     end;
 
     if LIsBanner then

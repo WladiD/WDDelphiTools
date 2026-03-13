@@ -21,6 +21,7 @@ type
     function Current: TSyntaxToken;
     function NextToken: TSyntaxToken;
     function MatchToken(AKind: TTokenKind): TSyntaxToken;
+    function HasDotAfterIdentifierOrGeneric(AStartIndex: Integer): Boolean;
   public
     function Parse(const AText: string): TCompilationUnitSyntax;
     function ParseUsesClause: TUsesClauseSyntax;
@@ -85,6 +86,40 @@ begin
     Result := NextToken
   else
     Result := nil; // In a full parser, we'd add a diagnostic here (e.g. "Expected X")
+end;
+
+function TParseTreeParser.HasDotAfterIdentifierOrGeneric(AStartIndex: Integer): Boolean;
+var
+  LIdx: Integer;
+  LGenericDepth: Integer;
+  LTok: TSyntaxToken;
+begin
+  LIdx := FPosition + AStartIndex;
+  LTok := Peek(AStartIndex);
+  if (LTok = nil) or (LTok.Kind <> tkIdentifier) then Exit(False);
+  
+  Inc(LIdx);
+  LTok := Peek(LIdx - FPosition);
+  
+  if (LTok <> nil) and (LTok.Kind = tkLessThan) then
+  begin
+    LGenericDepth := 1;
+    Inc(LIdx);
+    while (LGenericDepth > 0) do
+    begin
+      LTok := Peek(LIdx - FPosition);
+      if LTok = nil then Exit(False);
+      
+      if LTok.Kind = tkLessThan then Inc(LGenericDepth)
+      else if LTok.Kind = tkGreaterThan then Dec(LGenericDepth);
+      
+      Inc(LIdx);
+    end;
+    LTok := Peek(LIdx - FPosition);
+  end;
+  
+  Result := (LTok <> nil) and (LTok.Kind = tkDot);
+  // Writeln('HasDot: StartIndex=', AStartIndex, ' Result=', Result, ' EndTok=', ifthen(LTok<>nil, LTok.Text, 'nil'));
 end;
 
 function TParseTreeParser.ParseUsesClause: TUsesClauseSyntax;
@@ -1633,10 +1668,8 @@ var
     Result := (AToken <> nil) and (
       (AToken.Kind = tkProcedureKeyword) or
       (AToken.Kind = tkFunctionKeyword) or
-      ((AToken.Kind = tkConstructorKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
-       (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
-      ((AToken.Kind = tkDestructorKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
-       (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
+      ((AToken.Kind = tkConstructorKeyword) and HasDotAfterIdentifierOrGeneric(1)) or
+      ((AToken.Kind = tkDestructorKeyword) and HasDotAfterIdentifierOrGeneric(1)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
         (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword))));
@@ -1646,13 +1679,11 @@ var
     Result := (AToken <> nil) and (
       (((AToken.Kind = tkProcedureKeyword) or (AToken.Kind = tkFunctionKeyword) or
         (AToken.Kind = tkConstructorKeyword) or (AToken.Kind = tkDestructorKeyword)) and
-       (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
-       (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
+       HasDotAfterIdentifierOrGeneric(1)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
         (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword)) and
-       (Peek(2) <> nil) and (Peek(2).Kind = tkIdentifier) and
-       (Peek(3) <> nil) and (Peek(3).Kind = tkDot))
+       HasDotAfterIdentifierOrGeneric(2))
     );
   end;
 
