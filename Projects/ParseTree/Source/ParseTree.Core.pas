@@ -10,7 +10,7 @@ interface
 
 uses
 
-  System.Generics.Collections,
+  mormot.core.collections,
 
   ParseTree.Tokens;
 
@@ -39,27 +39,26 @@ type
   TSyntaxToken = class(TSyntaxElement)
   private
     FKind          : TTokenKind;
-    FLeadingTrivia : TObjectList<TSyntaxTrivia>;
+    FLeadingTrivia : IList<TSyntaxTrivia>;
     FNextToken     : TSyntaxToken;
     FPrevToken     : TSyntaxToken;
     FText          : String;
-    FTrailingTrivia: TObjectList<TSyntaxTrivia>;
+    FTrailingTrivia: IList<TSyntaxTrivia>;
     function GetHasLeadingTrivia: Boolean;
     function GetHasTrailingTrivia: Boolean;
-    function GetLeadingTrivia: TObjectList<TSyntaxTrivia>;
-    function GetTrailingTrivia: TObjectList<TSyntaxTrivia>;
+    function GetLeadingTrivia: IList<TSyntaxTrivia>;
+    function GetTrailingTrivia: IList<TSyntaxTrivia>;
   public
     constructor Create(AKind: TTokenKind; const AText: string);
-    destructor Destroy; override;
 
     property HasLeadingTrivia: Boolean read GetHasLeadingTrivia;
     property HasTrailingTrivia: Boolean read GetHasTrailingTrivia;
     property Kind: TTokenKind read FKind;
-    property LeadingTrivia: TObjectList<TSyntaxTrivia> read GetLeadingTrivia;
+    property LeadingTrivia: IList<TSyntaxTrivia> read GetLeadingTrivia;
     property NextToken: TSyntaxToken read FNextToken write FNextToken;
     property PrevToken: TSyntaxToken read FPrevToken write FPrevToken;
     property Text: string read FText;
-    property TrailingTrivia: TObjectList<TSyntaxTrivia> read GetTrailingTrivia;
+    property TrailingTrivia: IList<TSyntaxTrivia> read GetTrailingTrivia;
   end;
 
   /// <summary>Base class for syntax nodes (statements, expressions, etc.)</summary>
@@ -97,13 +96,6 @@ begin
   FText := AText;
 end;
 
-destructor TSyntaxToken.Destroy;
-begin
-  FLeadingTrivia.Free;
-  FTrailingTrivia.Free;
-  inherited;
-end;
-
 function TSyntaxToken.GetHasLeadingTrivia: Boolean;
 begin
   Result := Assigned(FLeadingTrivia) and (FLeadingTrivia.Count > 0);
@@ -114,17 +106,17 @@ begin
   Result := Assigned(FTrailingTrivia) and (FTrailingTrivia.Count > 0);
 end;
 
-function TSyntaxToken.GetLeadingTrivia: TObjectList<TSyntaxTrivia>;
+function TSyntaxToken.GetLeadingTrivia: IList<TSyntaxTrivia>;
 begin
   if not Assigned(FLeadingTrivia) then
-    FLeadingTrivia := TObjectList<TSyntaxTrivia>.Create;
+    FLeadingTrivia := Collections.NewList<TSyntaxTrivia>;
   Result := FLeadingTrivia;
 end;
 
-function TSyntaxToken.GetTrailingTrivia: TObjectList<TSyntaxTrivia>;
+function TSyntaxToken.GetTrailingTrivia: IList<TSyntaxTrivia>;
 begin
   if not Assigned(FTrailingTrivia) then
-    FTrailingTrivia := TObjectList<TSyntaxTrivia>.Create;
+    FTrailingTrivia := Collections.NewList<TSyntaxTrivia>;
   Result := FTrailingTrivia;
 end;
 

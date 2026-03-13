@@ -1,4 +1,4 @@
-unit Test.ParseTree.Parser.Statements.ConditionalsBlocks;
+﻿unit Test.ParseTree.Parser.Statements.ConditionalsBlocks;
 
 interface
 
@@ -390,7 +390,7 @@ begin
     var LAssign := TAssignmentStatementSyntax(LMethod.Statements[0]);
     Assert.IsTrue(LAssign.RightTokens.Count > 0);
     Assert.AreEqual('function', LAssign.RightTokens[0].Text);
-    Assert.AreEqual(';', LAssign.RightTokens.Last.Text);
+    Assert.AreEqual(';', LAssign.RightTokens[LAssign.RightTokens.Count - 1].Text);
 
     LResult := LWriter.GenerateSource(LMethod);
     Assert.AreEqual(LSource, LResult);

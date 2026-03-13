@@ -342,7 +342,6 @@ var
   LPathLine: string;
   LPathLineTrimmed: string;
   LResolvedPath: string;
-  LCheckedPathCount: Integer;
   LThreadPool: TThreadPool;
 begin
   // ParamStr(0) points to Win32\Debug\Test.ParseTree.exe during test runs.
@@ -363,7 +362,6 @@ begin
   LAllFiles.Duplicates := dupIgnore;
   try
     LPathLines.LoadFromFile(LPathsFile, TEncoding.UTF8);
-    LCheckedPathCount := 0;
 
     for LPathLine in LPathLines do
     begin
@@ -385,7 +383,6 @@ begin
         Assert.Fail(Format('Configured parser directory contains no *.pas files: "%s" (from "%s")',
           [LResolvedPath, LPathLineTrimmed]));
 
-      Inc(LCheckedPathCount);
       for var LFileIndex := Low(LFilesInPath) to High(LFilesInPath) do
         LAllFiles.Add(LFilesInPath[LFileIndex]);
     end;
@@ -532,16 +529,16 @@ const
       System.Generics.Collections,
       {$IFEND}
       My.Custom.Unit in '..\Path\My.Custom.Unit.pas';
-      
+
     type
       TTest = class; // forward
-      
+
     const
       MyConst = 42;
-      
+
     var
       MyVar: Integer;
-      
+
     implementation
   ''';
 var
@@ -562,21 +559,21 @@ begin
 
         Assert.IsTrue(LJsonString.Contains('"NodeType":"CompilationUnit"'));
         Assert.IsTrue(LJsonString.Contains('"Text":"Unit1"'));
-        
+
         // Extensive AST Structure checks
         Assert.IsNotNull(LTree.InterfaceSection, 'Interface section should exist');
         Assert.IsNotNull(LTree.InterfaceSection.UsesClause, 'Uses clause should exist');
         Assert.AreEqual(4, LTree.InterfaceSection.UsesClause.UnitReferences.Count, 'Should find 4 unit references');
-        
+
         // Check 1: System.SysUtils
         Assert.AreEqual(2, LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces.Count, 'System.SysUtils has 2 namespaces');
         Assert.AreEqual('System', LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces[0].Text);
         Assert.AreEqual('SysUtils', LTree.InterfaceSection.UsesClause.UnitReferences[0].Namespaces[1].Text);
-        
+
         // Check 2: Winapi.Windows (with $IFDEF MSWINDOWS)
         Assert.AreEqual(2, LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces.Count);
         Assert.AreEqual('Winapi', LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces[0].Text);
-        
+
         LHasIfDef := False;
         for LTrivia in LTree.InterfaceSection.UsesClause.UnitReferences[1].Namespaces[0].LeadingTrivia do
           if LTrivia.Text.Contains('{$IFDEF MSWINDOWS}') then LHasIfDef := True;
@@ -587,7 +584,7 @@ begin
         Assert.AreEqual('System', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[0].Text);
         Assert.AreEqual('Generics', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[1].Text);
         Assert.AreEqual('Collections', LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[2].Text);
-        
+
         LHasIf := False;
         for LTrivia in LTree.InterfaceSection.UsesClause.UnitReferences[2].Namespaces[0].LeadingTrivia do
           if LTrivia.Text.Contains('{$IF CompilerVersion >= 35.0}') then LHasIf := True;
@@ -601,11 +598,11 @@ begin
         Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].InKeyword, 'Should have "in" keyword');
         Assert.IsNotNull(LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral, 'Should have string literal');
         Assert.AreEqual('''..\Path\My.Custom.Unit.pas''', LTree.InterfaceSection.UsesClause.UnitReferences[3].StringLiteral.Text);
-        
+
         // Check Declarations (type, const, var)
         Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations property must exist');
         Assert.AreEqual(3, LTree.InterfaceSection.Declarations.Count, 'Should find 3 declaration blocks');
-        
+
         Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TTypeSectionSyntax);
         Assert.AreEqual('type', TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]).TypeKeyword.Text);
 
@@ -629,7 +626,7 @@ begin
         Assert.AreEqual('MyVar', TVarSectionSyntax(LTree.InterfaceSection.Declarations[2]).Declarations[0].Identifier.Text);
         Assert.IsNotNull(TVarSectionSyntax(LTree.InterfaceSection.Declarations[2]).Declarations[0].ColonToken);
         Assert.AreEqual('Integer', TVarSectionSyntax(LTree.InterfaceSection.Declarations[2]).Declarations[0].TypeIdentifier.Text);
-        
+
       finally
         LJsonObj.Free;
       end;
@@ -646,7 +643,7 @@ const
   LSourceCode = '''
     unit Unit1;
     interface
-    
+
     var
       PlainVar: string;
       MultiVar1, MultiVar2: Integer;
@@ -661,15 +658,15 @@ begin
     Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
     Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
     Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TVarSectionSyntax);
-    
+
     LVarSec := TVarSectionSyntax(LTree.InterfaceSection.Declarations[0]);
     Assert.AreEqual(2, LVarSec.Declarations.Count, 'Should parse 2 variable blocks (including comma separated)');
-    
+
     // First: PlainVar: string;
     Assert.AreEqual('PlainVar', LVarSec.Declarations[0].Identifier.Text);
     Assert.AreEqual('string', LVarSec.Declarations[0].TypeIdentifier.Text);
-    
-    // Second: MultiVar1, MultiVar2: Integer; => The parser right now just groups by identifier. 
+
+    // Second: MultiVar1, MultiVar2: Integer; => The parser right now just groups by identifier.
     // We expect it to parse MultiVar1 correctly until the colon, even if commas exist.
     Assert.AreEqual('MultiVar1', LVarSec.Declarations[1].Identifier.Text);
   finally
@@ -682,7 +679,7 @@ const
   LSourceCode = '''
     unit Unit1;
     interface
-    
+
     const
       SimpleConst = 100;
       TypedConst: string = 'Hello World';
@@ -697,14 +694,14 @@ begin
     Assert.IsNotNull(LTree.InterfaceSection.Declarations, 'Declarations missing');
     Assert.AreEqual(1, LTree.InterfaceSection.Declarations.Count);
     Assert.IsTrue(LTree.InterfaceSection.Declarations[0] is TConstSectionSyntax);
-    
+
     LConstSec := TConstSectionSyntax(LTree.InterfaceSection.Declarations[0]);
     Assert.AreEqual(2, LConstSec.Declarations.Count, 'Should parse 2 const lines');
-    
+
     // SimpleConst = 100;
     Assert.AreEqual('SimpleConst', LConstSec.Declarations[0].Identifier.Text);
     Assert.AreEqual('100', LConstSec.Declarations[0].ValueTokens[0].Text);
-    
+
     // TypedConst: string = 'Hello World';
     Assert.AreEqual('TypedConst', LConstSec.Declarations[1].Identifier.Text);
     Assert.AreEqual('''Hello World''', LConstSec.Declarations[1].ValueTokens[0].Text);

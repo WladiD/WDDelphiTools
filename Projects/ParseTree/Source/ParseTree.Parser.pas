@@ -1,11 +1,14 @@
-unit ParseTree.Parser;
+﻿unit ParseTree.Parser;
 
 interface
 
 uses
+
+  mormot.core.collections,
+
   System.SysUtils,
   System.Classes,
-  System.Generics.Collections,
+
   ParseTree.Core,
   ParseTree.Nodes,
   ParseTree.Tokens,
@@ -15,7 +18,7 @@ type
   { TParseTreeParser is the main entry point to parse Pascal source code into a CST }
   TParseTreeParser = class
   private
-    FTokens: TList<TSyntaxToken>;
+    FTokens: IList<TSyntaxToken>;
     FPosition: Integer;
     function Peek(AOffset: Integer = 0): TSyntaxToken;
     function Current: TSyntaxToken;
@@ -182,7 +185,7 @@ end;
 function TParseTreeParser.ParseConstDeclaration: TConstDeclarationSyntax;
 var
   LNestLevel: Integer;
-  LTypeTokens: TList<TSyntaxToken>;
+  LTypeTokens: IList<TSyntaxToken>;
   LHasComplexType: Boolean;
   LFallbackOpaqueConst: Boolean;
 begin
@@ -193,40 +196,36 @@ begin
   if (Current <> nil) and (Current.Kind = tkColon) then
   begin
     Result.ColonToken := MatchToken(tkColon);
-    LTypeTokens := TList<TSyntaxToken>.Create;
-    try
-      LNestLevel := 0;
-      while (Current <> nil) and (Current.Kind <> tkEOF) do
-      begin
-        if Current.Kind in [tkOpenParen, tkOpenBracket, tkLessThan] then
-          Inc(LNestLevel)
-        else if Current.Kind in [tkCloseParen, tkCloseBracket, tkGreaterThan] then
-          Dec(LNestLevel)
-        else if (Current.Kind = tkEquals) and (LNestLevel <= 0) then
-          Break
-        else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
-          Break;
+    LTypeTokens := Collections.NewList<TSyntaxToken>([loNoFinalize]);
+    LNestLevel := 0;
+    while (Current <> nil) and (Current.Kind <> tkEOF) do
+    begin
+      if Current.Kind in [tkOpenParen, tkOpenBracket, tkLessThan] then
+        Inc(LNestLevel)
+      else if Current.Kind in [tkCloseParen, tkCloseBracket, tkGreaterThan] then
+        Dec(LNestLevel)
+      else if (Current.Kind = tkEquals) and (LNestLevel <= 0) then
+        Break
+      else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+        Break;
 
-        LTypeTokens.Add(NextToken);
-      end;
+      LTypeTokens.Add(NextToken);
+    end;
 
-      LHasComplexType := (LTypeTokens.Count <> 1) or (LTypeTokens[0].Kind <> tkIdentifier);
-      if (LTypeTokens.Count > 0) and not LHasComplexType then
-        Result.TypeIdentifier := LTypeTokens[0]
-      else
+    LHasComplexType := (LTypeTokens.Count <> 1) or (LTypeTokens[0].Kind <> tkIdentifier);
+    if (LTypeTokens.Count > 0) and not LHasComplexType then
+      Result.TypeIdentifier := LTypeTokens[0]
+    else
+    begin
+      // Fallback for complex typed constants: preserve the entire right stream opaquely.
+      LFallbackOpaqueConst := True;
+      if Result.ColonToken <> nil then
       begin
-        // Fallback for complex typed constants: preserve the entire right stream opaquely.
-        LFallbackOpaqueConst := True;
-        if Result.ColonToken <> nil then
-        begin
-          Result.ValueTokens.Add(Result.ColonToken);
-          Result.ColonToken := nil;
-        end;
-        for LNestLevel := 0 to LTypeTokens.Count - 1 do
-          Result.ValueTokens.Add(LTypeTokens[LNestLevel]);
+        Result.ValueTokens.Add(Result.ColonToken);
+        Result.ColonToken := nil;
       end;
-    finally
-      LTypeTokens.Free;
+      for LNestLevel := 0 to LTypeTokens.Count - 1 do
+        Result.ValueTokens.Add(LTypeTokens[LNestLevel]);
     end;
   end;
   
@@ -590,12 +589,13 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
           LVisSec := TVisibilitySectionSyntax.Create;
           ATypeDecl.VisibilitySections.Add(LVisSec);
         end;
-        LVisSec.Members.Add(TClassMemberSyntax.Create);
-        LVisSec.Members.Last.Tokens.Add(NextToken); // [
+        var LClassMember: TClassMemberSyntax:=TClassMemberSyntax.Create;
+        LVisSec.Members.Add(LClassMember);
+        LClassMember.Tokens.Add(NextToken); // [
         while (Current <> nil) and (Current.Kind <> tkCloseBracket) and (Current.Kind <> tkEOF) do
-          LVisSec.Members.Last.Tokens.Add(NextToken);
+          LClassMember.Tokens.Add(NextToken);
         if (Current <> nil) and (Current.Kind = tkCloseBracket) then
-          LVisSec.Members.Last.Tokens.Add(NextToken); // ]
+          LClassMember.Tokens.Add(NextToken); // ]
       end
       else
       begin
@@ -608,7 +608,7 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
         end;
         if LVisSec.Members.Count = 0 then
           LVisSec.Members.Add(TClassMemberSyntax.Create);
-        LVisSec.Members.Last.Tokens.Add(NextToken);
+        LVisSec.Members[LVisSec.Members.Count-1].Tokens.Add(NextToken);
       end;
     end;
     
@@ -1198,7 +1198,7 @@ begin
     end;
 
     LPreviousIsDot := (Result.ExpressionTokens.Count > 0) and
-      (Result.ExpressionTokens.Last.Kind = tkDot);
+      (Result.ExpressionTokens[Result.ExpressionTokens.Count - 1].Kind = tkDot);
     if (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) and
        not LPreviousIsDot and
        ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
@@ -1457,7 +1457,7 @@ var
     end;
   end;
 
-  function ExtractSignatureNameFromTokens(ATokens: TObjectList<TSyntaxToken>): string;
+  function ExtractSignatureNameFromTokens(const ATokens: IList<TSyntaxToken>): string;
   begin
     Result := '';
     if (ATokens = nil) or (ATokens.Count = 0) then
@@ -1599,7 +1599,7 @@ begin
       LUnparsed.Tokens.Add(NextToken);
       
       // Stop if it's external or forward since it won't have a body
-      if (LUnparsed.Tokens.Last.Kind = tkSemicolon) then
+      if (LUnparsed.Tokens[LUnparsed.Tokens.Count - 1].Kind = tkSemicolon) then
       begin
         var lident := False;
         for var k := 0 to LUnparsed.Tokens.Count - 1 do
@@ -1866,7 +1866,6 @@ begin
         Result.EndOfFileToken := MatchToken(tkEOF);
       
     finally
-      FTokens.Free;
       FTokens := nil;
     end;
   finally

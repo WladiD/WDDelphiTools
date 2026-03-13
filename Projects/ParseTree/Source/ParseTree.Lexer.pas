@@ -10,8 +10,9 @@ interface
 
 uses
 
+  mormot.core.collections,
+
   System.Classes,
-  System.Generics.Collections,
   System.SysUtils,
 
   ParseTree.Core,
@@ -37,7 +38,7 @@ type
   public
     constructor Create(const AText: string);
     function NextToken: TSyntaxToken;
-    function TokenizeAll: TList<TSyntaxToken>;
+    function TokenizeAll: IList<TSyntaxToken>;
   end;
 
 implementation
@@ -264,145 +265,146 @@ end;
 
 function TParseTreeLexer.NextToken: TSyntaxToken;
 var
-  LeadingTrivia: TList<TSyntaxTrivia>;
+  LeadingTrivia: IList<TSyntaxTrivia>;
   TokenText    : String;
 
   procedure InitLeadingTrivia;
   begin
     if not Assigned(LeadingTrivia) then
-      LeadingTrivia := TList<TSyntaxTrivia>.Create;
+      LeadingTrivia := Collections.NewList<TSyntaxTrivia>([loNoFinalize]);
+  end;
+
+  procedure AddRange(const ASourceList, ATargetList: IList<TSyntaxTrivia>);
+  begin
+    for var Entry: TSyntaxTrivia in ASourceList do
+      ATargetList.Add(Entry);
   end;
 
 begin
   if Current = #0 then
     Exit(TSyntaxToken.Create(tkEOF, ''));
 
-  LeadingTrivia := nil;
-  try
-    // Scan leading trivia (whitespace and comments)
-    while True do
+  // Scan leading trivia (whitespace and comments)
+  while True do
+  begin
+    var LCurrent: Char := Current;
+    if CharInSet(LCurrent, [' ', #9, #13, #10]) then
     begin
-      var LCurrent: Char := Current;
-      if CharInSet(LCurrent, [' ', #9, #13, #10]) then
-      begin
-        InitLeadingTrivia;
-        LeadingTrivia.Add(ScanWhitespace);
-      end
-      else if (LCurrent = '/') and (Peek(1) = '/') then
-      begin
-        InitLeadingTrivia;
-        LeadingTrivia.Add(ScanComment);
-      end
-      else if (LCurrent = '{') or ((LCurrent = '(') and (Peek(1) = '*')) then
-      begin
-        InitLeadingTrivia;
-        LeadingTrivia.Add(ScanComment);
-      end
-      else
-        Break;
-    end;
-
-    if Current = #0 then
-    begin
-      Result := TSyntaxToken.Create(tkEOF, '');
-      if Assigned(LeadingTrivia) then
-        Result.LeadingTrivia.AddRange(LeadingTrivia);
-      Exit;
-    end;
-
-    // Scan actual token
-    if ((Current >= 'A') and (Current <= 'Z')) or
-       ((Current >= 'a') and (Current <= 'z')) or
-       (Current = '_') then
-    begin
-      Result := ScanIdentifierOrKeyword;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanWhitespace);
     end
-    else if ((Current >= '0') and (Current <= '9')) or (Current = '$') then
+    else if (LCurrent = '/') and (Peek(1) = '/') then
     begin
-      Result := ScanNumericLiteral;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanComment);
     end
-    else if Current = '''' then // String literal start
+    else if (LCurrent = '{') or ((LCurrent = '(') and (Peek(1) = '*')) then
     begin
-      Result := ScanStringLiteral;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanComment);
     end
     else
-    begin
-      // Fallback: Just consume one char as some punctuation
-      TokenText := Current;
-      Next;
+      Break;
+  end;
 
-      if TokenText = ';' then
-        Result := TSyntaxToken.Create(tkSemicolon, TokenText)
-      else if TokenText = '.' then
-        Result := TSyntaxToken.Create(tkDot, TokenText)
-      else if TokenText = ',' then
-        Result := TSyntaxToken.Create(tkComma, TokenText)
-      else if TokenText = ':' then
+  if Current = #0 then
+  begin
+    Result := TSyntaxToken.Create(tkEOF, '');
+    if Assigned(LeadingTrivia) then
+      AddRange(LeadingTrivia, Result.LeadingTrivia);
+    Exit;
+  end;
+
+  // Scan actual token
+  if ((Current >= 'A') and (Current <= 'Z')) or
+     ((Current >= 'a') and (Current <= 'z')) or
+     (Current = '_') then
+  begin
+    Result := ScanIdentifierOrKeyword;
+  end
+  else if ((Current >= '0') and (Current <= '9')) or (Current = '$') then
+  begin
+    Result := ScanNumericLiteral;
+  end
+  else if Current = '''' then // String literal start
+  begin
+    Result := ScanStringLiteral;
+  end
+  else
+  begin
+    // Fallback: Just consume one char as some punctuation
+    TokenText := Current;
+    Next;
+
+    if TokenText = ';' then
+      Result := TSyntaxToken.Create(tkSemicolon, TokenText)
+    else if TokenText = '.' then
+      Result := TSyntaxToken.Create(tkDot, TokenText)
+    else if TokenText = ',' then
+      Result := TSyntaxToken.Create(tkComma, TokenText)
+    else if TokenText = ':' then
+    begin
+      if Current = '=' then
       begin
-        if Current = '=' then
-        begin
-          TokenText := TokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkColonEquals, TokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkColon, TokenText);
-      end
-      else if TokenText = '=' then
-        Result := TSyntaxToken.Create(tkEquals, TokenText)
-      else if TokenText = '(' then
-        Result := TSyntaxToken.Create(tkOpenParen, TokenText)
-      else if TokenText = ')' then
-        Result := TSyntaxToken.Create(tkCloseParen, TokenText)
-      else if TokenText = '[' then
-        Result := TSyntaxToken.Create(tkOpenBracket, TokenText)
-      else if TokenText = ']' then
-        Result := TSyntaxToken.Create(tkCloseBracket, TokenText)
-      else if TokenText = '<' then
-      begin
-        if Current = '>' then
-        begin
-          TokenText := TokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkNotEquals, TokenText);
-        end
-        else if Current = '=' then
-        begin
-          TokenText := TokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkLessOrEquals, TokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkLessThan, TokenText);
-      end
-      else if TokenText = '>' then
-      begin
-        if Current = '=' then
-        begin
-          TokenText := TokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkGreaterOrEquals, TokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkGreaterThan, TokenText);
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkColonEquals, TokenText);
       end
       else
-        Result := TSyntaxToken.Create(tkUnknown, TokenText);
-    end;
-
-    if Assigned(LeadingTrivia) then
-      Result.LeadingTrivia.AddRange(LeadingTrivia);
-  finally
-    LeadingTrivia.Free;
+        Result := TSyntaxToken.Create(tkColon, TokenText);
+    end
+    else if TokenText = '=' then
+      Result := TSyntaxToken.Create(tkEquals, TokenText)
+    else if TokenText = '(' then
+      Result := TSyntaxToken.Create(tkOpenParen, TokenText)
+    else if TokenText = ')' then
+      Result := TSyntaxToken.Create(tkCloseParen, TokenText)
+    else if TokenText = '[' then
+      Result := TSyntaxToken.Create(tkOpenBracket, TokenText)
+    else if TokenText = ']' then
+      Result := TSyntaxToken.Create(tkCloseBracket, TokenText)
+    else if TokenText = '<' then
+    begin
+      if Current = '>' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkNotEquals, TokenText);
+      end
+      else if Current = '=' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkLessOrEquals, TokenText);
+      end
+      else
+        Result := TSyntaxToken.Create(tkLessThan, TokenText);
+    end
+    else if TokenText = '>' then
+    begin
+      if Current = '=' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkGreaterOrEquals, TokenText);
+      end
+      else
+        Result := TSyntaxToken.Create(tkGreaterThan, TokenText);
+    end
+    else
+      Result := TSyntaxToken.Create(tkUnknown, TokenText);
   end;
+
+  if Assigned(LeadingTrivia) then
+    AddRange(LeadingTrivia, Result.LeadingTrivia);
 end;
 
-function TParseTreeLexer.TokenizeAll: TList<TSyntaxToken>;
+function TParseTreeLexer.TokenizeAll: IList<TSyntaxToken>;
 var
   Token: TSyntaxToken;
   Prev : TSyntaxToken;
 begin
-  Result := TList<TSyntaxToken>.Create;
+  Result := Collections.NewList<TSyntaxToken>([loNoFinalize]);
   Prev := nil;
   repeat
     Token := NextToken;

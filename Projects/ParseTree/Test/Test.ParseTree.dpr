@@ -1,4 +1,4 @@
-program Test.ParseTree;
+﻿program Test.ParseTree;
 
 {$IFNDEF TESTINSIGHT}
 {$APPTYPE CONSOLE}

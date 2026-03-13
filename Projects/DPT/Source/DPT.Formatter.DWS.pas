@@ -242,9 +242,9 @@ begin
   Token := nil;
   if Assigned(Node) and (Node.UnitReferences.Count > 0) then
   begin
-    Ref := Node.UnitReferences.List[0];
+    Ref := Node.UnitReferences[0];
     if Assigned(Ref) and (Ref.Namespaces.Count > 0) then
-      Token := Ref.Namespaces.List[0];
+      Token := Ref.Namespaces[0];
   end;
   
   if Assigned(Token) then
@@ -319,9 +319,9 @@ begin
   begin
     for var I: Integer := 0 to Node.Namespaces.Count - 1 do
     begin
-      ResultStr := ResultStr + Node.Namespaces.List[I].Text;
+      ResultStr := ResultStr + Node.Namespaces[I].Text;
       if I < Node.Dots.Count then
-        ResultStr := ResultStr + Node.Dots.List[I].Text;
+        ResultStr := ResultStr + Node.Dots[I].Text;
     end;
   end;
   Info.ResultAsString := ResultStr;
