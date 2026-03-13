@@ -72,6 +72,8 @@ type
     procedure TestFormatImplementation_ClassToFunctionTransition;
     [Test]
     procedure TestFormatUnitHeader_PreservesDirectivesAfterInclude;
+    [Test]
+    procedure TestFormatMethodImplementation_ClassConstructor;
   end;
 
 implementation
@@ -821,6 +823,53 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
 
     Assert.IsTrue(LResult.Contains('{$I Base.Define.pas}' + #13#10 + '{$DENYPACKAGEUNIT}'), 'Compiler directives after include should be preserved. Actual: ' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_ClassConstructor;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'class constructor CBootstrapping.ClassCreate;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'class destructor CBootstrapping.ClassDestroy;' + #13#10 +
+    'var' + #13#10 +
+    '  LogPath: String;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      '{ CBootstrapping                                                          }' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'class constructor CBootstrapping.ClassCreate;'),
+      'Class constructor should be formatted properly. Actual:' + #13#10 + LResult
+    );
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ----------------------------------------------------------------------- }' + #13#10 +
+      #13#10 +
+      'class destructor CBootstrapping.ClassDestroy;'),
+      'Class destructor should be formatted properly. Actual:' + #13#10 + LResult
+    );
   finally
     LUnit.Free;
   end;

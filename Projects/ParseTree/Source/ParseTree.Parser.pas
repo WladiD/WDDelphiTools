@@ -1370,7 +1370,8 @@ var
        (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
-       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword)) and
+       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword)) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkIdentifier) and
        (Peek(3) <> nil) and (Peek(3).Kind = tkDot))
     );
@@ -1636,10 +1637,10 @@ var
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
       ((AToken.Kind = tkDestructorKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
-      ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and 
-       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword))));
+      ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
+       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword))));
   end;
-
   function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
   begin
     Result := (AToken <> nil) and (
@@ -1648,7 +1649,8 @@ var
        (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
-       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword)) and
+       ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword)) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkIdentifier) and
        (Peek(3) <> nil) and (Peek(3).Kind = tkDot))
     );
