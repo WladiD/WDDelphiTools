@@ -411,9 +411,7 @@ begin
           LLocalTree: TCompilationUnitSyntax;
           LLocalContent: string;
           LLocalJson: TJSONObject;
-          LRelPath: string;
           LTargetFile: string;
-          LSanitizedPath: string;
         begin
           LTaskFile := LFiles[LTaskIndex];
           try

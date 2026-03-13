@@ -1011,7 +1011,7 @@ begin
     if (Current <> nil) and (Current.Kind in [tkToKeyword, tkDowntoKeyword]) then
       Result.ToDowntoKeyword := NextToken;
 
-    while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+    while (Current <> nil) and not (Current.Kind in [tkDoKeyword, tkEOF]) do
       Result.EndTokens.Add(NextToken);
   end;
 
@@ -1025,20 +1025,20 @@ function TParseTreeParser.ParseIfStatement: TIfStatementSyntax;
 begin
   Result := TIfStatementSyntax.Create;
   Result.IfKeyword := MatchToken(tkIfKeyword);
-  
-  while (Current <> nil) and (Current.Kind <> tkThenKeyword) and (Current.Kind <> tkEOF) do
+
+  while (Current <> nil) and not (Current.Kind in [tkThenKeyword, tkEOF]) do
     Result.ConditionTokens.Add(NextToken);
-    
+
   if (Current <> nil) and (Current.Kind = tkThenKeyword) then
     Result.ThenKeyword := MatchToken(tkThenKeyword);
-    
+
   Result.ThenStatement := ParseStatement;
-  
+
   // if ThenStatement was an OpaqueStatement ending in a semicolon, 
   // and the next token is ELSE, then the semicolon was actually part of the THEN branch
   // BUT in Delphi, a semicolon before ELSE is technically a syntax error for the IF.
   // HOWEVER, our ParseStatement might consume it.
-  
+
   if (Current <> nil) and (Current.Kind = tkElseKeyword) then
   begin
     Result.ElseKeyword := MatchToken(tkElseKeyword);
@@ -1049,28 +1049,27 @@ end;
 function TParseTreeParser.ParseAssignmentStatement: TAssignmentStatementSyntax;
 begin
   Result := TAssignmentStatementSyntax.Create;
-  while (Current <> nil) and (Current.Kind <> tkColonEquals) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkColonEquals, tkEOF]) do
     Result.LeftTokens.Add(NextToken);
-    
+
   if (Current <> nil) and (Current.Kind = tkColonEquals) then
     Result.ColonEqualsToken := MatchToken(tkColonEquals);
-    
+
   var LNest := 0;
   var LBlockNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then Inc(LNest)
-    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then Dec(LNest);
+    if Current.Kind in [tkOpenParen, tkOpenBracket] then Inc(LNest)
+    else if Current.Kind in [tkCloseParen, tkCloseBracket] then Dec(LNest);
 
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
-       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+    if Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword] then
       Inc(LBlockNest)
     else if Current.Kind = tkEndKeyword then
     begin
       if LBlockNest = 0 then Break;
       Dec(LBlockNest);
     end
-    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and
+    else if (Current.Kind in [tkFinallyKeyword, tkExceptKeyword]) and
             (LNest = 0) and (LBlockNest = 0) and (Result.RightTokens.Count > 0) then
       Break;
 
@@ -1082,8 +1081,7 @@ begin
 
     // Break if we hit a keyword that definitely starts a new statement
     if (LNest = 0) and (LBlockNest = 0) and (Result.RightTokens.Count > 0) and
-       ((Current.Kind = tkIfKeyword) or (Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or 
-        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkElseKeyword)) then
+       (Current.Kind in [tkIfKeyword, tkWhileKeyword, tkForKeyword, tkRepeatKeyword, tkElseKeyword]) then
       Break;
 
     Result.RightTokens.Add(NextToken);
@@ -1094,10 +1092,10 @@ function TParseTreeParser.ParseBeginEndStatement: TBeginEndStatementSyntax;
 begin
   Result := TBeginEndStatementSyntax.Create;
   Result.BeginKeyword := MatchToken(tkBeginKeyword);
-  
-  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+
+  while (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkEOF]) do
     Result.Statements.Add(ParseStatement);
-    
+
   if (Current <> nil) and (Current.Kind = tkEndKeyword) then
     Result.EndKeyword := MatchToken(tkEndKeyword);
 
@@ -1110,8 +1108,7 @@ begin
   Result := TTryStatementSyntax.Create;
   Result.TryKeyword := MatchToken(tkTryKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkFinallyKeyword) and (Current.Kind <> tkExceptKeyword)
-        and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkFinallyKeyword, tkExceptKeyword, tkEndKeyword, tkEOF]) do
     Result.Statements.Add(ParseStatement);
 
   if (Current <> nil) and (Current.Kind = tkFinallyKeyword) then
@@ -1119,7 +1116,7 @@ begin
   else if (Current <> nil) and (Current.Kind = tkExceptKeyword) then
     Result.ExceptKeyword := MatchToken(tkExceptKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkEOF]) do
     Result.FinallyExceptStatements.Add(ParseStatement);
 
   if (Current <> nil) and (Current.Kind = tkEndKeyword) then
@@ -1169,22 +1166,21 @@ begin
   LDelimiterNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then
+    if Current.Kind in [tkOpenParen, tkOpenBracket] then
       Inc(LDelimiterNest)
-    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then
+    else if Current.Kind in [tkCloseParen, tkCloseBracket] then
     begin
       if LDelimiterNest > 0 then
         Dec(LDelimiterNest);
     end
-    else if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
-       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+    else if Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword] then
       Inc(LNest)
     else if Current.Kind = tkEndKeyword then
     begin
       if LNest = 0 then Break;
       Dec(LNest);
     end
-    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and
+    else if (Current.Kind in [tkFinallyKeyword, tkExceptKeyword]) and
             (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) then
       Break
     else if (Current.Kind = tkSemicolon) and (LNest = 0) and (LDelimiterNest = 0) then
@@ -1197,12 +1193,8 @@ begin
       (Result.ExpressionTokens[Result.ExpressionTokens.Count - 1].Kind = tkDot);
     if (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) and
        not LPreviousIsDot and
-       ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or
-        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
-        (Current.Kind = tkElseKeyword) or (Current.Kind = tkCaseKeyword) or
-        (Current.Kind = tkWithKeyword)) then
+       (Current.Kind in [tkWhileKeyword, tkForKeyword, tkRepeatKeyword, tkIfKeyword, tkElseKeyword, tkCaseKeyword, tkWithKeyword]) then
       Break;
-
     Result.ExpressionTokens.Add(NextToken);
   end;
 end;
@@ -1215,14 +1207,13 @@ begin
   Result := TCaseStatementSyntax.Create;
   Result.CaseKeyword := MatchToken(tkCaseKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkOfKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkOfKeyword, tkEOF]) do
     Result.ExpressionTokens.Add(NextToken);
 
   if (Current <> nil) and (Current.Kind = tkOfKeyword) then
     Result.OfKeyword := MatchToken(tkOfKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkEndKeyword) and
-        (Current.Kind <> tkElseKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkElseKeyword, tkEOF]) do
   begin
     LItem := TCaseItemSyntax.Create;
 
@@ -1240,7 +1231,7 @@ begin
         Break;
       end;
 
-      if (Current.Kind = tkEndKeyword) or (Current.Kind = tkElseKeyword) then
+      if Current.Kind in [tkEndKeyword, tkElseKeyword] then
         Break;
 
       LItem.ValueTokens.Add(NextToken);
@@ -1255,7 +1246,7 @@ begin
   if (Current <> nil) and (Current.Kind = tkElseKeyword) then
   begin
     Result.ElseKeyword := MatchToken(tkElseKeyword);
-    while (Current <> nil) and (Current.Kind <> tkEndKeyword) and (Current.Kind <> tkEOF) do
+    while (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkEOF]) do
       Result.ElseStatements.Add(ParseStatement);
   end;
 
@@ -1271,7 +1262,7 @@ begin
   Result := TWithStatementSyntax.Create;
   Result.WithKeyword := MatchToken(tkWithKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkDoKeyword, tkEOF]) do
   begin
     if Current.Kind in [tkEndKeyword, tkElseKeyword, tkFinallyKeyword, tkExceptKeyword] then
       Break;
@@ -1353,16 +1344,15 @@ begin
   var LBlockNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkOpenParen) or (Current.Kind = tkOpenBracket) then
+    if Current.Kind in [tkOpenParen, tkOpenBracket] then
       Inc(LDelimiterNest)
-    else if (Current.Kind = tkCloseParen) or (Current.Kind = tkCloseBracket) then
+    else if Current.Kind in [tkCloseParen, tkCloseBracket] then
     begin
       if LDelimiterNest > 0 then
         Dec(LDelimiterNest);
     end;
 
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or
-       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+    if Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword] then
       Inc(LBlockNest)
     else if Current.Kind = tkEndKeyword then
     begin
@@ -1396,8 +1386,7 @@ var
   function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
   begin
     Result := (AToken <> nil) and (
-      (((AToken.Kind = tkProcedureKeyword) or (AToken.Kind = tkFunctionKeyword) or
-        (AToken.Kind = tkConstructorKeyword) or (AToken.Kind = tkDestructorKeyword)) and
+      ((AToken.Kind in [tkProcedureKeyword, tkFunctionKeyword, tkConstructorKeyword, tkDestructorKeyword]) and
        (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
@@ -1520,7 +1509,7 @@ begin
     while (Current <> nil) and (Current.Kind = tkSemicolon) and IsMethodModifierStart(Peek(1)) do
     begin
       Result.SignatureTokens.Add(NextToken); // ;
-      while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+      while (Current <> nil) and not (Current.Kind in [tkSemicolon, tkEOF]) do
         Result.SignatureTokens.Add(NextToken);
     end;
     Result.SignatureSemicolon := MatchToken(tkSemicolon);
@@ -1533,16 +1522,16 @@ begin
       Pos('.', LCurrentSignatureShortName) + 1, MaxInt);
     
   // Local declarations (var, const, type, nested procedures/functions)
-  while (Current <> nil) and (Current.Kind <> tkBeginKeyword) and (Current.Kind <> tkAsmKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and not (Current.Kind in [tkBeginKeyword, tkAsmKeyword, tkEOF]) do
   begin
-    if (Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword) then
+    if Current.Kind in [tkVarKeyword, tkConstKeyword, tkTypeKeyword] then
     begin
       LUnparsed := nil;
       LDecl := ParseDeclarationSection;
       if Assigned(LDecl) then
         Result.LocalDeclarations.Add(LDecl);
     end
-    else if (Current.Kind = tkProcedureKeyword) or (Current.Kind = tkFunctionKeyword) then
+    else if Current.Kind in [tkProcedureKeyword, tkFunctionKeyword] then
     begin
       // Conditional alternative implementation signatures are often fully-qualified
       // and should stay as unparsed local declaration tokens before the shared body.
@@ -1611,7 +1600,7 @@ begin
     end;
   end;
   
-  if (Current <> nil) and ((Current.Kind = tkBeginKeyword) or (Current.Kind = tkAsmKeyword)) then
+  if (Current <> nil) and (Current.Kind in [tkBeginKeyword, tkAsmKeyword]) then
   begin
     Result.BeginKeyword := NextToken;
     LNestLevel := 1;
@@ -1638,8 +1627,7 @@ begin
       // Fall through to parse regular statement if end is nested
     end;
 
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or 
-       (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
+    if Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword] then
     begin
        // We keep treating nested blocks as Opaque for now in ParseStatement fallback, 
        // but we increment LNestLevel here if we don't call ParseStatement for blocks.
@@ -1743,7 +1731,7 @@ begin
       LUnparsed := nil; // Reset unparsed stream
       Result.Declarations.Add(ParseMethodImplementation);
     end
-    else if (LDeclBlockNest = 0) and ((Current.Kind = tkVarKeyword) or (Current.Kind = tkConstKeyword) or (Current.Kind = tkTypeKeyword)) then
+    else if (LDeclBlockNest = 0) and (Current.Kind in [tkVarKeyword, tkConstKeyword, tkTypeKeyword]) then
     begin
        LUnparsed := nil;
        Result.Declarations.Add(ParseDeclarationSection);
@@ -1800,7 +1788,7 @@ begin
       end;
       
       var LUnp: TUnparsedDeclarationSyntax := nil;
-      while (Current <> nil) and (Current.Kind <> tkInterfaceKeyword) and (Current.Kind <> tkEOF) do
+      while (Current <> nil) and not (Current.Kind in [tkInterfaceKeyword, tkEOF]) do
       begin
         if LUnp = nil then
         begin
@@ -1814,7 +1802,7 @@ begin
         Result.InterfaceSection := ParseInterfaceSection();
         
       LUnp := nil;
-      while (Current <> nil) and (Current.Kind <> tkImplementationKeyword) and (Current.Kind <> tkEOF) do
+      while (Current <> nil) and not (Current.Kind in [tkImplementationKeyword, tkEOF]) do
       begin
         if LUnp = nil then
         begin
