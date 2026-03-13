@@ -21,7 +21,8 @@ uses
   ParseTree.Lexer;
 
 type
-  { TParseTreeParser is the main entry point to parse Pascal source code into a CST }
+
+  /// <summary>TParseTreeParser is the main entry point to parse Pascal source code into a CST</summary>
   TParseTreeParser = class
   private
     FPosition: Integer;
