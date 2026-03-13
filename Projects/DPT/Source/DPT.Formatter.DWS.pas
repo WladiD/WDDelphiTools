@@ -1,4 +1,4 @@
-unit DPT.Formatter.DWS;
+﻿unit DPT.Formatter.DWS;
 
 interface
 
@@ -22,58 +22,58 @@ uses
   DPT.Formatter;
 
 type
+
   /// <summary>
   ///   Formatter that loads a DWScript file and delegates formatting tasks
   ///   to script functions.
   /// </summary>
   TDptDwsFormatter = class(TDptFormatter)
   private
-    FExec: IdwsProgramExecution;
+    FExec   : IdwsProgramExecution;
     FProgram: IdwsProgram;
-    FScript: TDelphiWebScript;
-    FUnit: TdwsUnit;
+    FScript : TDelphiWebScript;
+    FUnit   : TdwsUnit;
     
     procedure SetupScriptUnit;
     procedure CallScriptProc(const AProcName, AParamName: string; AObj: TObject);
     
     // DWScript function handlers
-    procedure dwsClearTrivia(Info: TProgramInfo);
-    procedure dwsGetLeadingTrivia(Info: TProgramInfo);
     procedure dwsAddLeadingTrivia(Info: TProgramInfo);
     procedure dwsAddTrailingTrivia(Info: TProgramInfo);
-    
+    procedure dwsClearTrivia(Info: TProgramInfo);
+    procedure dwsGetLeadingTrivia(Info: TProgramInfo);
+
     // AST wrappers
-    procedure dwsGetUsesKeyword(Info: TProgramInfo);
-    procedure dwsGetUsesFirstItemToken(Info: TProgramInfo);
-    procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
-    procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
-    procedure dwsGetUnitKeyword(Info: TProgramInfo);
-    procedure dwsGetUnitSemicolon(Info: TProgramInfo);
-    procedure dwsGetUnitName(Info: TProgramInfo);
+    procedure dwsGetImplementationKeyword(Info: TProgramInfo);
+    procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetMethodClassName(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
     procedure dwsGetNextToken(Info: TProgramInfo);
+    procedure dwsGetUnitKeyword(Info: TProgramInfo);
+    procedure dwsGetUnitName(Info: TProgramInfo);
+    procedure dwsGetUnitSemicolon(Info: TProgramInfo);
+    procedure dwsGetUsesFirstItemToken(Info: TProgramInfo);
+    procedure dwsGetUsesKeyword(Info: TProgramInfo);
   protected
-    procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); override;
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
-    procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); override;
-    procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); override;
-    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); override;
-    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); override;
-    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
-    procedure OnVisitVarSection(ASection: TVarSectionSyntax); override;
-    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); override;
+    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); override;
+    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); override;
+    procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); override;
+    procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); override;
+    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); override;
     procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); override;
+    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); override;
+    procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); override;
+    procedure OnVisitVarSection(ASection: TVarSectionSyntax); override;
   public
     constructor Create;
     destructor Destroy; override;
     
     procedure FormatUnit(AUnit: TCompilationUnitSyntax); override;
-    
-    procedure LoadScript(const AScriptFile: string);
+    procedure LoadScript(const AScriptFile: String);
   end;
 
 implementation
@@ -120,85 +120,85 @@ begin
   FUnit.ExposeRTTI(TypeInfo(TConstSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   FUnit.ExposeRTTI(TypeInfo(TVarSectionSyntax), [eoExposePublic, eoNoFreeOnCleanup]);
   
-  var LFunc := FUnit.Functions.Add('ClearTrivia');
-  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
-  LFunc.OnEval := dwsClearTrivia;
+  var Func: TdwsFunction := FUnit.Functions.Add('ClearTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.OnEval := dwsClearTrivia;
 
-  LFunc := FUnit.Functions.Add('GetLeadingTrivia');
-  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
-  LFunc.ResultType := 'String';
-  LFunc.OnEval := dwsGetLeadingTrivia;
+  Func := FUnit.Functions.Add('GetLeadingTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetLeadingTrivia;
 
-  LFunc := FUnit.Functions.Add('AddLeadingTrivia');
-  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
-  LFunc.Parameters.Add('ATriviaText', 'String');
-  LFunc.OnEval := dwsAddLeadingTrivia;
+  Func := FUnit.Functions.Add('AddLeadingTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.Parameters.Add('ATriviaText', 'String');
+  Func.OnEval := dwsAddLeadingTrivia;
   
-  LFunc := FUnit.Functions.Add('AddTrailingTrivia');
-  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
-  LFunc.Parameters.Add('ATriviaText', 'String');
-  LFunc.OnEval := dwsAddTrailingTrivia;
+  Func := FUnit.Functions.Add('AddTrailingTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.Parameters.Add('ATriviaText', 'String');
+  Func.OnEval := dwsAddTrailingTrivia;
 
   // AST Wrappers
-  LFunc := FUnit.Functions.Add('GetUsesKeyword');
-  LFunc.Parameters.Add('ANode', 'TUsesClauseSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetUsesKeyword;
+  Func := FUnit.Functions.Add('GetUsesKeyword');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUsesKeyword;
 
-  LFunc := FUnit.Functions.Add('GetUsesFirstItemToken');
-  LFunc.Parameters.Add('ANode', 'TUsesClauseSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetUsesFirstItemToken;
+  Func := FUnit.Functions.Add('GetUsesFirstItemToken');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUsesFirstItemToken;
 
-  LFunc := FUnit.Functions.Add('GetInterfaceKeyword');
-  LFunc.Parameters.Add('ANode', 'TInterfaceSectionSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetInterfaceKeyword;
+  Func := FUnit.Functions.Add('GetInterfaceKeyword');
+  Func.Parameters.Add('ANode', 'TInterfaceSectionSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetInterfaceKeyword;
 
-  LFunc := FUnit.Functions.Add('GetImplementationKeyword');
-  LFunc.Parameters.Add('ANode', 'TImplementationSectionSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetImplementationKeyword;
+  Func := FUnit.Functions.Add('GetImplementationKeyword');
+  Func.Parameters.Add('ANode', 'TImplementationSectionSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetImplementationKeyword;
 
-  LFunc := FUnit.Functions.Add('GetFinalEndKeyword');
-  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetFinalEndKeyword;
+  Func := FUnit.Functions.Add('GetFinalEndKeyword');
+  Func.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetFinalEndKeyword;
 
-  LFunc := FUnit.Functions.Add('GetUnitKeyword');
-  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetUnitKeyword;
+  Func := FUnit.Functions.Add('GetUnitKeyword');
+  Func.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUnitKeyword;
 
-  LFunc := FUnit.Functions.Add('GetUnitSemicolon');
-  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetUnitSemicolon;
+  Func := FUnit.Functions.Add('GetUnitSemicolon');
+  Func.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUnitSemicolon;
 
-  LFunc := FUnit.Functions.Add('GetUnitName');
-  LFunc.Parameters.Add('ANode', 'TCompilationUnitSyntax');
-  LFunc.ResultType := 'String';
-  LFunc.OnEval := dwsGetUnitName;
+  Func := FUnit.Functions.Add('GetUnitName');
+  Func.Parameters.Add('ANode', 'TCompilationUnitSyntax');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetUnitName;
 
-  LFunc := FUnit.Functions.Add('GetMethodClassName');
-  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
-  LFunc.ResultType := 'String';
-  LFunc.OnEval := dwsGetMethodClassName;
+  Func := FUnit.Functions.Add('GetMethodClassName');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetMethodClassName;
 
-  LFunc := FUnit.Functions.Add('GetMethodName');
-  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
-  LFunc.ResultType := 'String';
-  LFunc.OnEval := dwsGetMethodName;
+  Func := FUnit.Functions.Add('GetMethodName');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetMethodName;
 
-  LFunc := FUnit.Functions.Add('GetMethodStartToken');
-  LFunc.Parameters.Add('ANode', 'TMethodImplementationSyntax');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetMethodStartToken;
+  Func := FUnit.Functions.Add('GetMethodStartToken');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetMethodStartToken;
 
-  LFunc := FUnit.Functions.Add('GetNextToken');
-  LFunc.Parameters.Add('AToken', 'TSyntaxToken');
-  LFunc.ResultType := 'TSyntaxToken';
-  LFunc.OnEval := dwsGetNextToken;
+  Func := FUnit.Functions.Add('GetNextToken');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetNextToken;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -223,143 +223,143 @@ end;
 
 procedure TDptDwsFormatter.dwsGetUsesKeyword(Info: TProgramInfo);
 var
-  LNode: TUsesClauseSyntax;
+  Node: TUsesClauseSyntax;
 begin
-  LNode := TUsesClauseSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.UsesKeyword) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.UsesKeyword, False, False)
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.UsesKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.UsesKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetUsesFirstItemToken(Info: TProgramInfo);
 var
-  LNode: TUsesClauseSyntax;
-  LRef: TUnitReferenceSyntax;
-  LToken: TSyntaxToken;
+  Node : TUsesClauseSyntax;
+  Ref  : TUnitReferenceSyntax;
+  Token: TSyntaxToken;
 begin
-  LNode := TUsesClauseSyntax(Info.ParamAsObject[0]);
-  LToken := nil;
-  if Assigned(LNode) and (LNode.UnitReferences.Count > 0) then
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  Token := nil;
+  if Assigned(Node) and (Node.UnitReferences.Count > 0) then
   begin
-    LRef := LNode.UnitReferences.List[0];
-    if Assigned(LRef) and (LRef.Namespaces.Count > 0) then
-      LToken := LRef.Namespaces.List[0];
+    Ref := Node.UnitReferences.List[0];
+    if Assigned(Ref) and (Ref.Namespaces.Count > 0) then
+      Token := Ref.Namespaces.List[0];
   end;
   
-  if Assigned(LToken) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LToken, False, False)
+  if Assigned(Token) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);
 var
-  LNode: TInterfaceSectionSyntax;
+  Node: TInterfaceSectionSyntax;
 begin
-  LNode := TInterfaceSectionSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.InterfaceKeyword) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.InterfaceKeyword, False, False)
+  Node := TInterfaceSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.InterfaceKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.InterfaceKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetImplementationKeyword(Info: TProgramInfo);
 var
-  LNode: TImplementationSectionSyntax;
+  Node: TImplementationSectionSyntax;
 begin
-  LNode := TImplementationSectionSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.ImplementationKeyword) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.ImplementationKeyword, False, False)
+  Node := TImplementationSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.ImplementationKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.ImplementationKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetFinalEndKeyword(Info: TProgramInfo);
 var
-  LNode: TCompilationUnitSyntax;
+  Node: TCompilationUnitSyntax;
 begin
-  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.FinalEndKeyword) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.FinalEndKeyword, False, False)
+  Node := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.FinalEndKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.FinalEndKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetUnitKeyword(Info: TProgramInfo);
 var
-  LNode: TCompilationUnitSyntax;
+  Node: TCompilationUnitSyntax;
 begin
-  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.UnitKeyword) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.UnitKeyword, False, False)
+  Node := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.UnitKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.UnitKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetUnitSemicolon(Info: TProgramInfo);
 var
-  LNode: TCompilationUnitSyntax;
+  Node: TCompilationUnitSyntax;
 begin
-  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.Semicolon) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LNode.Semicolon, False, False)
+  Node := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.Semicolon) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.Semicolon, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
 procedure TDptDwsFormatter.dwsGetUnitName(Info: TProgramInfo);
 var
-  LNode: TCompilationUnitSyntax;
-  I: Integer;
-  LResultStr: string;
+  Node     : TCompilationUnitSyntax;
+  ResultStr: String;
 begin
-  LNode := TCompilationUnitSyntax(Info.ParamAsObject[0]);
-  LResultStr := '';
-  if Assigned(LNode) and Assigned(LNode.Namespaces) and (LNode.Namespaces.Count > 0) then
+  Node := TCompilationUnitSyntax(Info.ParamAsObject[0]);
+  ResultStr := '';
+  if Assigned(Node) and Assigned(Node.Namespaces) and (Node.Namespaces.Count > 0) then
   begin
-    for I := 0 to LNode.Namespaces.Count - 1 do
+    for var I: Integer := 0 to Node.Namespaces.Count - 1 do
     begin
-      LResultStr := LResultStr + LNode.Namespaces.List[I].Text;
-      if I < LNode.Dots.Count then
-        LResultStr := LResultStr + LNode.Dots.List[I].Text;
+      ResultStr := ResultStr + Node.Namespaces.List[I].Text;
+      if I < Node.Dots.Count then
+        ResultStr := ResultStr + Node.Dots.List[I].Text;
     end;
   end;
-  Info.ResultAsString := LResultStr;
+  Info.ResultAsString := ResultStr;
 end;
 
 procedure TDptDwsFormatter.dwsGetMethodClassName(Info: TProgramInfo);
 var
-  LNode: TMethodImplementationSyntax;
-  I, J, LDotIndex: Integer;
-  LResultStr, LTokenLower: string;
+  DotIndex  : Integer;
+  Node      : TMethodImplementationSyntax;
+  ResultStr : String;
+  TokenLower: String;
 begin
-  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
+  Node := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.SignatureTokens) then
   begin
-    LDotIndex := -1;
-    for I := 0 to LNode.SignatureTokens.Count - 1 do
+    DotIndex := -1;
+    for var I: Integer := 0 to Node.SignatureTokens.Count - 1 do
     begin
-      if (LNode.SignatureTokens[I].Text = '(') or (LNode.SignatureTokens[I].Text = ':') or (LNode.SignatureTokens[I].Text = ';') then
+      if (Node.SignatureTokens[I].Text = '(') or (Node.SignatureTokens[I].Text = ':') or (Node.SignatureTokens[I].Text = ';') then
         Break;
-      if LNode.SignatureTokens[I].Text = '.' then
-        LDotIndex := I;
+      if Node.SignatureTokens[I].Text = '.' then
+        DotIndex := I;
     end;
 
-    if LDotIndex >= 0 then
+    if DotIndex >= 0 then
     begin
-      LResultStr := '';
-      for J := 0 to LDotIndex - 1 do
+      ResultStr := '';
+      for var J: Integer := 0 to DotIndex - 1 do
       begin
-        LTokenLower := LowerCase(LNode.SignatureTokens[J].Text);
-        if (LTokenLower = 'class') or (LTokenLower = 'procedure') or 
-           (LTokenLower = 'function') or (LTokenLower = 'constructor') or 
-           (LTokenLower = 'destructor') or (LTokenLower = 'operator') then
+        TokenLower := LowerCase(Node.SignatureTokens[J].Text);
+        if (TokenLower = 'class') or (TokenLower = 'procedure') or
+           (TokenLower = 'function') or (TokenLower = 'constructor') or
+           (TokenLower = 'destructor') or (TokenLower = 'operator') then
           Continue;
           
-        LResultStr := LResultStr + LNode.SignatureTokens[J].Text;
+        ResultStr := ResultStr + Node.SignatureTokens[J].Text;
       end;
-      Info.ResultAsString := LResultStr;
+      Info.ResultAsString := ResultStr;
       Exit;
     end;
   end;
@@ -368,38 +368,39 @@ end;
 
 procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);
 var
-  LNode: TMethodImplementationSyntax;
-  I, LDotIndex, LEndIndex: Integer;
+  DotIndex: Integer;
+  EndIndex: Integer;
+  Node    : TMethodImplementationSyntax;
 begin
-  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) and Assigned(LNode.SignatureTokens) then
+  Node := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.SignatureTokens) then
   begin
-    LDotIndex := -1;
-    LEndIndex := LNode.SignatureTokens.Count - 1;
-    for I := 0 to LNode.SignatureTokens.Count - 1 do
+    DotIndex := -1;
+    EndIndex := Node.SignatureTokens.Count - 1;
+    for var I: Integer := 0 to Node.SignatureTokens.Count - 1 do
     begin
-      if (LNode.SignatureTokens[I].Text = '(') or (LNode.SignatureTokens[I].Text = ':') or (LNode.SignatureTokens[I].Text = ';') then
+      if (Node.SignatureTokens[I].Text = '(') or (Node.SignatureTokens[I].Text = ':') or (Node.SignatureTokens[I].Text = ';') then
       begin
-        LEndIndex := I - 1;
+        EndIndex := I - 1;
         Break;
       end;
-      if LNode.SignatureTokens[I].Text = '.' then
-        LDotIndex := I;
+      if Node.SignatureTokens[I].Text = '.' then
+        DotIndex := I;
     end;
 
-    if LDotIndex >= 0 then
+    if DotIndex >= 0 then
     begin
-      if LDotIndex < LEndIndex then
-        Info.ResultAsString := LNode.SignatureTokens[LDotIndex + 1].Text
+      if DotIndex < EndIndex then
+        Info.ResultAsString := Node.SignatureTokens[DotIndex + 1].Text
       else
         Info.ResultAsString := '';
     end
     else
     begin
-      if LEndIndex >= 0 then
-        Info.ResultAsString := LNode.SignatureTokens[LEndIndex].Text
-      else if LNode.SignatureTokens.Count > 0 then
-        Info.ResultAsString := LNode.SignatureTokens[0].Text
+      if EndIndex >= 0 then
+        Info.ResultAsString := Node.SignatureTokens[EndIndex].Text
+      else if Node.SignatureTokens.Count > 0 then
+        Info.ResultAsString := Node.SignatureTokens[0].Text
       else
         Info.ResultAsString := '';
     end;
@@ -410,19 +411,19 @@ end;
 
 procedure TDptDwsFormatter.dwsGetMethodStartToken(Info: TProgramInfo);
 var
-  LNode: TMethodImplementationSyntax;
-  LToken: TSyntaxToken;
+  Node : TMethodImplementationSyntax;
+  Token: TSyntaxToken;
 begin
-  LNode := TMethodImplementationSyntax(Info.ParamAsObject[0]);
-  if Assigned(LNode) then
+  Node := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) then
   begin
-    if Assigned(LNode.ClassKeyword) then
-      LToken := LNode.ClassKeyword
+    if Assigned(Node.ClassKeyword) then
+      Token := Node.ClassKeyword
     else
-      LToken := LNode.MethodTypeKeyword;
-      
-    if Assigned(LToken) then
-      Info.ResultAsVariant := Info.RegisterExternalObject(LToken, False, False)
+      Token := Node.MethodTypeKeyword;
+
+    if Assigned(Token) then
+      Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
     else
       Info.ResultAsVariant := IUnknown(nil);
   end
@@ -432,25 +433,24 @@ end;
 
 procedure TDptDwsFormatter.dwsGetNextToken(Info: TProgramInfo);
 var
-  LToken: TSyntaxToken;
+  Token: TSyntaxToken;
 begin
-  LToken := TSyntaxToken(Info.ParamAsObject[0]);
-  if Assigned(LToken) and Assigned(LToken.NextToken) then
-    Info.ResultAsVariant := Info.RegisterExternalObject(LToken.NextToken, False, False)
+  Token := TSyntaxToken(Info.ParamAsObject[0]);
+  if Assigned(Token) and Assigned(Token.NextToken) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token.NextToken, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
-procedure TDptDwsFormatter.LoadScript(const AScriptFile: string);
+procedure TDptDwsFormatter.LoadScript(const AScriptFile: String);
 var
-  LSource: string;
+  Source: String;
 begin
   if not FileExists(AScriptFile) then
     raise Exception.CreateFmt('Script file not found: %s', [AScriptFile]);
     
-  LSource := TFile.ReadAllText(AScriptFile);
-  
-  FProgram := FScript.Compile(LSource);
+  Source := TFile.ReadAllText(AScriptFile);
+  FProgram := FScript.Compile(Source);
   if FProgram.Msgs.HasErrors then
     raise Exception.Create('Script compilation failed: ' + FProgram.Msgs.AsInfo);
 end;
@@ -472,13 +472,13 @@ end;
 
 procedure TDptDwsFormatter.CallScriptProc(const AProcName, AParamName: string; AObj: TObject);
 var
-  LFunc: IInfo;
+  Func: IInfo;
 begin
   if not Assigned(FExec) then 
     Exit;
   
   try
-    LFunc := FExec.Info.Func[AProcName];
+    Func := FExec.Info.Func[AProcName];
   except
     on E: Exception do
       if E.Message.Contains('not found') or E.Message.Contains('Nicht gefunden') then
@@ -487,8 +487,8 @@ begin
         raise;
   end;
 
-  if Assigned(LFunc) then
-    LFunc.Call([FExec.Info.RegisterExternalObject(AObj, False, False)]);
+  if Assigned(Func) then
+    Func.Call([FExec.Info.RegisterExternalObject(AObj, False, False)]);
 end;
 
 procedure TDptDwsFormatter.OnVisitUsesClause(AUses: TUsesClauseSyntax);

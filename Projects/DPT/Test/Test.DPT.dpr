@@ -1,4 +1,4 @@
-program Test.DPT;
+﻿program Test.DPT;
 
 {$IFNDEF TESTINSIGHT}
 {$APPTYPE CONSOLE}
@@ -14,18 +14,18 @@ uses
   {$ENDIF }
   DUnitX.TestFramework,
 
-  Test.DPT.Preprocessor,
   Test.DPT.BuildAndRunTask,
-  Test.DPT.LintTask,
-  Test.DPT.LintFixtures,
-  Test.DPT.Lint.Setup.Task,
-  Test.DPT.DProjAnalyzer,
-  Test.DPT.Workflow,
   Test.DPT.Debugger,
+  Test.DPT.DProjAnalyzer,
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
   Test.DPT.Formatter.Taifun,
-  Test.DPT.MCP.Server;
+  Test.DPT.Lint.Setup.Task,
+  Test.DPT.LintFixtures,
+  Test.DPT.LintTask,
+  Test.DPT.MCP.Server,
+  Test.DPT.Preprocessor,
+  Test.DPT.Workflow;
 
 { keep comment here to protect the following conditional from being removed by the IDE when adding a unit }
 {$IFNDEF TESTINSIGHT}

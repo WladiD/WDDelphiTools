@@ -1,54 +1,60 @@
-unit DPT.Formatter;
+﻿unit DPT.Formatter;
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections,
-  ParseTree.Core, ParseTree.Nodes, ParseTree.Visitor;
+
+  System.Classes,
+  System.Generics.Collections,
+  System.SysUtils,
+
+  ParseTree.Core,
+  ParseTree.Nodes,
+  ParseTree.Visitor;
 
 type
-  {
-    Base class for DPT formatting and DWScript integration,
-    which traverses the ParseTree and calls formatting hooks.
-  }
+
+  /// <summary>
+  ///   Base class for DPT formatting and DWScript integration,
+  ///   which traverses the ParseTree and calls formatting hooks.
+  /// </summary>
   TDptFormatter = class(TParseTreeVisitor)
   private
     FUnit: TCompilationUnitSyntax;
   protected
     // Hooks for descendant classes (e.g. TDptDwsFormatter)
+    procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); virtual;
+    procedure OnVisitConstSection(ASection: TConstSectionSyntax); virtual;
+    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); virtual;
+    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); virtual;
+    procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); virtual;
+    procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); virtual;
+    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); virtual;
+    procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); virtual;
     procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax); virtual;
     procedure OnVisitUsesClause(AUses: TUsesClauseSyntax); virtual;
-    procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); virtual;
-    procedure OnVisitRecordDeclaration(ARecord: TRecordDeclarationSyntax); virtual;
-    procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax); virtual;
-    procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax); virtual;
-    procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax); virtual;
-    procedure OnVisitTypeSection(ASection: TTypeSectionSyntax); virtual;
-    procedure OnVisitConstSection(ASection: TConstSectionSyntax); virtual;
     procedure OnVisitVarSection(ASection: TVarSectionSyntax); virtual;
-    procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax); virtual;
-
   public
     // Overrides from TParseTreeVisitor
-    procedure VisitUsesClause(ANode: TUsesClauseSyntax); override;
     procedure VisitClassDeclaration(ANode: TClassDeclarationSyntax); override;
-    procedure VisitRecordDeclaration(ANode: TRecordDeclarationSyntax); override;
-    procedure VisitMethodImplementation(ANode: TMethodImplementationSyntax); override;
-    procedure VisitInterfaceSection(ANode: TInterfaceSectionSyntax); override;
-    procedure VisitImplementationSection(ANode: TImplementationSectionSyntax); override;
-    procedure VisitTypeSection(ANode: TTypeSectionSyntax); override;
-    procedure VisitConstSection(ANode: TConstSectionSyntax); override;
-    procedure VisitVarSection(ANode: TVarSectionSyntax); override;
     procedure VisitCompilationUnit(ANode: TCompilationUnitSyntax); override;
+    procedure VisitConstSection(ANode: TConstSectionSyntax); override;
+    procedure VisitImplementationSection(ANode: TImplementationSectionSyntax); override;
+    procedure VisitInterfaceSection(ANode: TInterfaceSectionSyntax); override;
+    procedure VisitMethodImplementation(ANode: TMethodImplementationSyntax); override;
+    procedure VisitRecordDeclaration(ANode: TRecordDeclarationSyntax); override;
+    procedure VisitTypeSection(ANode: TTypeSectionSyntax); override;
+    procedure VisitUsesClause(ANode: TUsesClauseSyntax); override;
+    procedure VisitVarSection(ANode: TVarSectionSyntax); override;
 
     // Starts the formatting and traversal
     procedure FormatUnit(AUnit: TCompilationUnitSyntax); virtual;
-    
+
     // Helper methods for token/trivia manipulation
-    class procedure ClearTrivia(AToken: TSyntaxToken);
-    class function GetLeadingTrivia(AToken: TSyntaxToken): string;
     class procedure AddLeadingTrivia(AToken: TSyntaxToken; const ATriviaText: string);
     class procedure AddTrailingTrivia(AToken: TSyntaxToken; const ATriviaText: string);
+    class procedure ClearTrivia(AToken: TSyntaxToken);
+    class function  GetLeadingTrivia(AToken: TSyntaxToken): string;
   end;
 
 implementation
@@ -188,13 +194,11 @@ begin
 end;
 
 class function TDptFormatter.GetLeadingTrivia(AToken: TSyntaxToken): string;
-var
-  LTrivia: TSyntaxTrivia;
 begin
   Result := '';
   if Assigned(AToken) and Assigned(AToken.LeadingTrivia) then
   begin
-    for LTrivia in AToken.LeadingTrivia do
+    for var LTrivia: TSyntaxTrivia in AToken.LeadingTrivia do
       Result := Result + LTrivia.Text;
   end;
 end;
