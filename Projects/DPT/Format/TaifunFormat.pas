@@ -34,6 +34,16 @@ begin
   Result := '{ ' + StringOfChar('-', 71) + ' }' + #13#10;
 end;
 
+function CreateSectionBanner(const AName: string): string;
+begin
+  if AName = '' then
+    Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10
+  else
+    Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+              AName + #13#10 +
+              '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+end;
+
 procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
 var
   LToken, LFirstItem: TSyntaxToken;
@@ -170,6 +180,16 @@ begin
         AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
       LastClassName := LClassName;
     end
+    else if (LClassName = '') and (LastClassName <> '') then
+    begin
+      // Transition from a class method to a global function
+      // Reset LastClassName so we don't treat subsequent global functions as new transitions
+      LastClassName := '';
+      if LastBannerWasDouble then
+        AddLeadingTrivia(LToken, CreateSectionBanner('') + #13#10 + LComments)
+      else
+        AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + LComments);
+    end
     else
     begin
       if not LastBannerWasDouble then
@@ -180,13 +200,6 @@ begin
     // Reset double banner flag after any method implementation starts
     LastBannerWasDouble := False;
   end;
-end;
-
-function CreateSectionBanner(const AName: string): string;
-begin
-  Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
-            AName + #13#10 +
-            '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
 end;
 
 procedure StripBanners(AToken: TSyntaxToken);

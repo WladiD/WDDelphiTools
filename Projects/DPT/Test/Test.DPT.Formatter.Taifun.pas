@@ -68,6 +68,8 @@ type
     procedure TestFormatMethodImplementation_NamespacedReturnType;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLinesBeforeFirstClass;
+    [Test]
+    procedure TestFormatImplementation_ClassToFunctionTransition;
   end;
 
 implementation
@@ -739,6 +741,46 @@ begin
       #13#10 +
       'constructor CMongoBlobService.Create'),
       'Should not have extra blank lines between implementation banner and the first class banner. Actual:' + #13#10 + LResult
+    );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_ClassToFunctionTransition;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure CBlobDelThread.Execute;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      'procedure CBlobDelThread.Execute;' + #13#10 +
+      'begin' + #13#10 +
+      'end;' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;'),
+      'Transition from class method to unit-level function should use a double separator block. Actual:' + #13#10 + LResult
     );
   finally
     LUnit.Free;
