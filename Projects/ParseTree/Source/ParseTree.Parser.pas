@@ -768,59 +768,59 @@ end;
 
 function TParseTreeParser.ParseDeclarationSection: TDeclarationSectionSyntax;
 var
-  LTypeSec: TTypeSectionSyntax;
-  LConstSec: TConstSectionSyntax;
-  LVarSec: TVarSectionSyntax;
+  ConstSec: TConstSectionSyntax;
+  TypeSec : TTypeSectionSyntax;
+  VarSec  : TVarSectionSyntax;
 begin
   Result := nil;
   if Current = nil then Exit;
 
   if Current.Kind = tkTypeKeyword then
   begin
-    LTypeSec := TTypeSectionSyntax.Create;
-    LTypeSec.TypeKeyword := MatchToken(tkTypeKeyword);
+    TypeSec := TTypeSectionSyntax.Create;
+    TypeSec.TypeKeyword := MatchToken(tkTypeKeyword);
     
     while (Current <> nil) and 
           (Current.Kind = tkIdentifier) do
     begin
-      LTypeSec.Declarations.Add(ParseTypeDeclaration);
+      TypeSec.Declarations.Add(ParseTypeDeclaration);
     end;
     
-    Result := LTypeSec;
+    Result := TypeSec;
   end
   else if Current.Kind = tkConstKeyword then
   begin
-    LConstSec := TConstSectionSyntax.Create;
-    LConstSec.ConstKeyword := MatchToken(tkConstKeyword);
+    ConstSec := TConstSectionSyntax.Create;
+    ConstSec.ConstKeyword := MatchToken(tkConstKeyword);
     
     while (Current <> nil) and 
           (Current.Kind = tkIdentifier) do
     begin
-      LConstSec.Declarations.Add(ParseConstDeclaration);
+      ConstSec.Declarations.Add(ParseConstDeclaration);
     end;
     
-    Result := LConstSec;
+    Result := ConstSec;
   end
   else if Current.Kind = tkVarKeyword then
   begin
-    LVarSec := TVarSectionSyntax.Create;
-    LVarSec.VarKeyword := MatchToken(tkVarKeyword);
+    VarSec := TVarSectionSyntax.Create;
+    VarSec.VarKeyword := MatchToken(tkVarKeyword);
 
     while (Current <> nil) and 
           (Current.Kind = tkIdentifier) do
     begin
-      LVarSec.Declarations.Add(ParseVarDeclaration);
+      VarSec.Declarations.Add(ParseVarDeclaration);
     end;
     
-    Result := LVarSec;
+    Result := VarSec;
   end;
 end;
 
 function TParseTreeParser.ParseInterfaceSection: TInterfaceSectionSyntax;
 var
-  LDecl: TDeclarationSectionSyntax;
-  LUnparsed: TUnparsedDeclarationSyntax;
-  LNestLevel: Integer;
+  Decl     : TDeclarationSectionSyntax;
+  NestLevel: Integer;
+  Unparsed : TUnparsedDeclarationSyntax;
 begin
   Result := nil;
   if (Current = nil) or (Current.Kind <> tkInterfaceKeyword) then
@@ -833,48 +833,46 @@ begin
   if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
     Result.UsesClause := ParseUsesClause();
 
-  LUnparsed := nil;
-  LNestLevel := 0; // Track paren nesting
+  Unparsed := nil;
+  NestLevel := 0; // Track paren nesting
   // Parse interface declarations: type, const, var, and other constructs
   while (Current <> nil) and 
         (Current.Kind <> tkImplementationKeyword) and 
         (Current.Kind <> tkEOF) do
   begin
     if Current.Kind = tkOpenParen then
-      Inc(LNestLevel)
+      Inc(NestLevel)
     else if Current.Kind = tkCloseParen then
-      Dec(LNestLevel);
+      Dec(NestLevel);
       
-    if (LNestLevel <= 0) and 
-       ((Current.Kind = tkTypeKeyword) or 
-        (Current.Kind = tkConstKeyword) or 
-        (Current.Kind = tkVarKeyword)) then
+    if (NestLevel <= 0) and (Current.Kind in [tkTypeKeyword, tkConstKeyword, tkVarKeyword]) then
     begin
-      LUnparsed := nil;
-      LDecl := ParseDeclarationSection;
-      if Assigned(LDecl) then
-        Result.Declarations.Add(LDecl);
+      Unparsed := nil;
+      Decl := ParseDeclarationSection;
+      if Assigned(Decl) then
+        Result.Declarations.Add(Decl);
     end
     else
     begin
       // Collect unrecognized tokens (e.g. standalone function/procedure declarations)
       // into TUnparsedDeclarationSyntax to preserve them for roundtrip fidelity
-      if LUnparsed = nil then
+      if Unparsed = nil then
       begin
-        LUnparsed := TUnparsedDeclarationSyntax.Create;
-        Result.Declarations.Add(LUnparsed);
+        Unparsed := TUnparsedDeclarationSyntax.Create;
+        Result.Declarations.Add(Unparsed);
       end;
-      LUnparsed.Tokens.Add(NextToken);
+      Unparsed.Tokens.Add(NextToken);
     end;
   end;
 end;
 
 function TParseTreeParser.ParseStatement: TStatementSyntax;
 var
-  LOpaque: TOpaqueStatementSyntax;
-  LNest: Integer;
+  Opaque: TOpaqueStatementSyntax;
+  Nest: Integer;
 begin
-  if Current = nil then Exit(nil);
+  if Current = nil then
+    Exit(nil);
 
   if Current.Kind = tkSemicolon then
   begin
@@ -883,30 +881,20 @@ begin
     Exit(LEmpty);
   end;
 
-  if Current.Kind = tkWhileKeyword then
-    Exit(ParseWhileStatement)
-  else if Current.Kind = tkRepeatKeyword then
-    Exit(ParseRepeatStatement)
-  else if Current.Kind = tkForKeyword then
-    Exit(ParseForStatement)
-  else if Current.Kind = tkIfKeyword then
-    Exit(ParseIfStatement)
-  else if Current.Kind = tkBeginKeyword then
-    Exit(ParseBeginEndStatement)
-  else if Current.Kind = tkTryKeyword then
-    Exit(ParseTryStatement)
-  else if Current.Kind = tkRaiseKeyword then
-    Exit(ParseRaiseStatement)
-  else if Current.Kind = tkCaseKeyword then
-    Exit(ParseCaseStatement)
-  else if Current.Kind = tkWithKeyword then
-    Exit(ParseWithStatement)
-  else if Current.Kind = tkInheritedKeyword then
-    Exit(ParseInheritedStatement)
-  else if Current.Kind = tkExitKeyword then
-    Exit(ParseExitStatement)
-  else if Current.Kind = tkVarKeyword then
-    Exit(ParseInlineVarStatement);
+  case Current.Kind of
+    tkWhileKeyword:     Exit(ParseWhileStatement);
+    tkRepeatKeyword:    Exit(ParseRepeatStatement);
+    tkForKeyword:       Exit(ParseForStatement);
+    tkIfKeyword:        Exit(ParseIfStatement);
+    tkBeginKeyword:     Exit(ParseBeginEndStatement);
+    tkTryKeyword:       Exit(ParseTryStatement);
+    tkRaiseKeyword:     Exit(ParseRaiseStatement);
+    tkCaseKeyword:      Exit(ParseCaseStatement);
+    tkWithKeyword:      Exit(ParseWithStatement);
+    tkInheritedKeyword: Exit(ParseInheritedStatement);
+    tkExitKeyword:      Exit(ParseExitStatement);
+    tkVarKeyword:       Exit(ParseInlineVarStatement);
+  end;
 
   // Check for assignment: look ahead for := before ; or structural keyword
   var LIdx := 0;
@@ -928,35 +916,33 @@ begin
     Exit(ParseProcedureCallStatement);
 
   // Fallback: collect until semicolon or block end
-  LOpaque := TOpaqueStatementSyntax.Create;
-  LNest := 0;
+  Opaque := TOpaqueStatementSyntax.Create;
+  Nest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if (Current.Kind = tkBeginKeyword) or (Current.Kind = tkTryKeyword) or (Current.Kind = tkCaseKeyword) or (Current.Kind = tkAsmKeyword) then
-      Inc(LNest)
+    if (Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword]) then
+      Inc(Nest)
     else if Current.Kind = tkEndKeyword then
     begin
-      if LNest = 0 then Break;
-      Dec(LNest);
+      if Nest = 0 then Break;
+      Dec(Nest);
     end
-    else if ((Current.Kind = tkFinallyKeyword) or (Current.Kind = tkExceptKeyword)) and (LNest = 0) and (LOpaque.Tokens.Count > 0) then
+    else if ((Current.Kind in [tkFinallyKeyword, tkExceptKeyword])) and (Nest = 0) and (Opaque.Tokens.Count > 0) then
       Break
-    else if (Current.Kind = tkSemicolon) and (LNest = 0) then
+    else if (Current.Kind = tkSemicolon) and (Nest = 0) then
     begin
-      LOpaque.Tokens.Add(NextToken);
+      Opaque.Tokens.Add(NextToken);
       Break;
     end;
-    
+
     // Safety: if we hit another keyword that starts a statement, break if we have ANY tokens
-    if (LNest = 0) and (LOpaque.Tokens.Count > 0) and 
-       ((Current.Kind = tkWhileKeyword) or (Current.Kind = tkForKeyword) or 
-        (Current.Kind = tkRepeatKeyword) or (Current.Kind = tkIfKeyword) or
-        (Current.Kind = tkElseKeyword)) then
+    if (Nest = 0) and (Opaque.Tokens.Count > 0) and
+       (Current.Kind in [tkWhileKeyword, tkForKeyword, tkRepeatKeyword, tkIfKeyword, tkElseKeyword]) then
       Break;
 
-    LOpaque.Tokens.Add(NextToken);
+    Opaque.Tokens.Add(NextToken);
   end;
-  Result := LOpaque;
+  Result := Opaque;
 end;
 
 function TParseTreeParser.ParseWhileStatement: TWhileStatementSyntax;
@@ -964,7 +950,7 @@ begin
   Result := TWhileStatementSyntax.Create;
   Result.WhileKeyword := MatchToken(tkWhileKeyword);
   
-  while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (not (Current.Kind in [tkDoKeyword, tkEOF])) do
     Result.ConditionTokens.Add(NextToken);
     
   if (Current <> nil) and (Current.Kind = tkDoKeyword) then
@@ -978,7 +964,7 @@ begin
   Result := TRepeatStatementSyntax.Create;
   Result.RepeatKeyword := MatchToken(tkRepeatKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkUntilKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (not (Current.Kind in [tkUntilKeyword, tkEOF])) do
   begin
     if Current.Kind in [tkEndKeyword, tkFinallyKeyword, tkExceptKeyword] then
       Break;
@@ -988,7 +974,7 @@ begin
   if (Current <> nil) and (Current.Kind = tkUntilKeyword) then
     Result.UntilKeyword := MatchToken(tkUntilKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkSemicolon) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (not (Current.Kind in [tkSemicolon, tkEOF])) do
   begin
     if Current.Kind in [tkEndKeyword, tkFinallyKeyword, tkExceptKeyword, tkElseKeyword] then
       Break;
@@ -1004,15 +990,14 @@ begin
   Result := TForStatementSyntax.Create;
   Result.ForKeyword := MatchToken(tkForKeyword);
 
-  while (Current <> nil) and (Current.Kind <> tkColonEquals) and
-        (Current.Kind <> tkInKeyword) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (not (Current.Kind in [tkColonEquals, tkInKeyword, tkEOF])) do
     Result.VariableTokens.Add(NextToken);
 
   if (Current <> nil) and (Current.Kind = tkInKeyword) then
   begin
     Result.InKeyword := MatchToken(tkInKeyword);
 
-    while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
+    while (Current <> nil) and (not (Current.Kind in [tkDoKeyword, tkEOF])) do
       Result.CollectionTokens.Add(NextToken);
   end
   else
@@ -1020,11 +1005,10 @@ begin
     if (Current <> nil) and (Current.Kind = tkColonEquals) then
       Result.AssignmentToken := MatchToken(tkColonEquals);
 
-    while (Current <> nil) and (Current.Kind <> tkToKeyword) and
-          (Current.Kind <> tkDowntoKeyword) and (Current.Kind <> tkEOF) do
+    while (Current <> nil) and (not (Current.Kind in [tkToKeyword, tkDowntoKeyword, tkEOF])) do
       Result.StartTokens.Add(NextToken);
 
-    if (Current <> nil) and ((Current.Kind = tkToKeyword) or (Current.Kind = tkDowntoKeyword)) then
+    if (Current <> nil) and (Current.Kind in [tkToKeyword, tkDowntoKeyword]) then
       Result.ToDowntoKeyword := NextToken;
 
     while (Current <> nil) and (Current.Kind <> tkDoKeyword) and (Current.Kind <> tkEOF) do
