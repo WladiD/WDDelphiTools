@@ -12,9 +12,6 @@ uses
 
   mormot.core.collections,
 
-  System.Classes,
-  System.SysUtils,
-
   ParseTree.Core,
   ParseTree.Tokens;
 
@@ -42,6 +39,11 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils;
 
 { TParseTreeLexer }
 

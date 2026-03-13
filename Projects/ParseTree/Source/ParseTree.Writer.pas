@@ -4,9 +4,7 @@ interface
 
 uses
   System.SysUtils,
-  System.Classes,
   ParseTree.Core,
-  ParseTree.Tokens,
   ParseTree.Nodes;
 
 type
@@ -61,6 +59,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+
+  ParseTree.Tokens;
 
 { TSyntaxTreeWriter }
 

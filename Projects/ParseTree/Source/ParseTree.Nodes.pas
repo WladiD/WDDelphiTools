@@ -12,8 +12,7 @@ uses
 
   mormot.core.collections,
 
-  ParseTree.Core,
-  ParseTree.Tokens;
+  ParseTree.Core;
 
 type
 

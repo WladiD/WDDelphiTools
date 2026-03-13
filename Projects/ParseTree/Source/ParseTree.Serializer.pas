@@ -3,7 +3,10 @@ unit ParseTree.Serializer;
 interface
 
 uses
-  System.JSON, ParseTree.Core, ParseTree.Nodes, ParseTree.Tokens;
+
+  System.JSON, 
+  ParseTree.Core, 
+  ParseTree.Nodes;
 
 type
   { Serializes a Syntax Tree representing CST into a JSON structured representation }
@@ -53,7 +56,11 @@ type
 implementation
 
 uses
-  System.Generics.Collections, System.SysUtils;
+
+  System.Generics.Collections, 
+  System.SysUtils, 
+
+  ParseTree.Tokens;
 
 { TSyntaxTreeSerializer }
 
