@@ -26,6 +26,7 @@ uses
   Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
   Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas',
   Test.ParseTree.Roundtrip in 'Test.ParseTree.Roundtrip.pas',
+  Test.ParseTree.Utils in 'Test.ParseTree.Utils.pas',
   Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas',
   Test.ParseTree.Parser.Statements.Loops in 'Test.ParseTree.Parser.Statements.Loops.pas',
   Test.ParseTree.Parser.Statements.ConditionalsBlocks in 'Test.ParseTree.Parser.Statements.ConditionalsBlocks.pas',

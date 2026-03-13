@@ -19,7 +19,8 @@ uses
   ParseTree.Tokens,
   ParseTree.Parser,
   ParseTree.Nodes,
-  ParseTree.Serializer;
+  ParseTree.Serializer,
+  Test.ParseTree.Utils;
 
 type
   [TestFixture]
@@ -434,22 +435,10 @@ begin
                 LLocalTree.Free;
               end;
               try
-                if LTaskFile.StartsWith(LTestProjectDir, True) then
-                  LRelPath := ExtractRelativePath(LTestProjectDir, LTaskFile)
-                else
-                begin
-                  LSanitizedPath := StringReplace(TPath.GetFullPath(LTaskFile), ':', '', [rfReplaceAll]);
-                  while (Length(LSanitizedPath) > 0) and
-                        ((LSanitizedPath[1] = '\') or (LSanitizedPath[1] = '/')) do
-                    Delete(LSanitizedPath, 1, 1);
-                  LRelPath := LSanitizedPath;
-                end;
-                LTargetFile := TPath.Combine(LOutputDir, TPath.ChangeExtension(LRelPath, '.json'));
+                LTargetFile := TPath.ChangeExtension(GetTargetOutputFile(LTaskFile, LTestProjectDir, LOutputDir, LLock), '.json');
 
                 LLock.Enter;
                 try
-                  if not TDirectory.Exists(TPath.GetDirectoryName(LTargetFile)) then
-                    TDirectory.CreateDirectory(TPath.GetDirectoryName(LTargetFile));
                   Writeln('Dump: ' + ExtractFileName(LTargetFile));
                 finally
                   LLock.Leave;
