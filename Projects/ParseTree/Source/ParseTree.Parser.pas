@@ -1128,26 +1128,26 @@ end;
 
 function TParseTreeParser.ParseRaiseStatement: TRaiseStatementSyntax;
 var
-  LNest: Integer;
+  Nest: Integer;
 begin
   Result := TRaiseStatementSyntax.Create;
   Result.RaiseKeyword := MatchToken(tkRaiseKeyword);
 
-  LNest := 0;
+  Nest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
     if Current.Kind = tkOpenParen then
-      Inc(LNest)
+      Inc(Nest)
     else if Current.Kind = tkCloseParen then
-      Dec(LNest);
+      Dec(Nest);
 
-    if (Current.Kind = tkSemicolon) and (LNest <= 0) then
+    if (Current.Kind = tkSemicolon) and (Nest <= 0) then
     begin
       Result.Semicolon := MatchToken(tkSemicolon);
       Break;
     end;
 
-    if (LNest <= 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+    if (Nest <= 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
        tkFinallyKeyword, tkExceptKeyword]) then
       Break;
 
@@ -1157,42 +1157,42 @@ end;
 
 function TParseTreeParser.ParseProcedureCallStatement: TProcedureCallStatementSyntax;
 var
-  LNest: Integer;
-  LDelimiterNest: Integer;
-  LPreviousIsDot: Boolean;
+  DelimiterNest: Integer;
+  Nest         : Integer;
+  PreviousIsDot: Boolean;
 begin
   Result := TProcedureCallStatementSyntax.Create;
-  LNest := 0;
-  LDelimiterNest := 0;
+  Nest := 0;
+  DelimiterNest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
     if Current.Kind in [tkOpenParen, tkOpenBracket] then
-      Inc(LDelimiterNest)
+      Inc(DelimiterNest)
     else if Current.Kind in [tkCloseParen, tkCloseBracket] then
     begin
-      if LDelimiterNest > 0 then
-        Dec(LDelimiterNest);
+      if DelimiterNest > 0 then
+        Dec(DelimiterNest);
     end
     else if Current.Kind in [tkBeginKeyword, tkTryKeyword, tkCaseKeyword, tkAsmKeyword] then
-      Inc(LNest)
+      Inc(Nest)
     else if Current.Kind = tkEndKeyword then
     begin
-      if LNest = 0 then Break;
-      Dec(LNest);
+      if Nest = 0 then Break;
+      Dec(Nest);
     end
     else if (Current.Kind in [tkFinallyKeyword, tkExceptKeyword]) and
-            (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) then
+            (Nest = 0) and (DelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) then
       Break
-    else if (Current.Kind = tkSemicolon) and (LNest = 0) and (LDelimiterNest = 0) then
+    else if (Current.Kind = tkSemicolon) and (Nest = 0) and (DelimiterNest = 0) then
     begin
       Result.Semicolon := MatchToken(tkSemicolon);
       Break;
     end;
 
-    LPreviousIsDot := (Result.ExpressionTokens.Count > 0) and
+    PreviousIsDot := (Result.ExpressionTokens.Count > 0) and
       (Result.ExpressionTokens[Result.ExpressionTokens.Count - 1].Kind = tkDot);
-    if (LNest = 0) and (LDelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) and
-       not LPreviousIsDot and
+    if (Nest = 0) and (DelimiterNest = 0) and (Result.ExpressionTokens.Count > 0) and
+       not PreviousIsDot and
        (Current.Kind in [tkWhileKeyword, tkForKeyword, tkRepeatKeyword, tkIfKeyword, tkElseKeyword, tkCaseKeyword, tkWithKeyword]) then
       Break;
     Result.ExpressionTokens.Add(NextToken);
@@ -1201,8 +1201,8 @@ end;
 
 function TParseTreeParser.ParseCaseStatement: TCaseStatementSyntax;
 var
-  LItem: TCaseItemSyntax;
-  LNest: Integer;
+  Item: TCaseItemSyntax;
+  Nest: Integer;
 begin
   Result := TCaseStatementSyntax.Create;
   Result.CaseKeyword := MatchToken(tkCaseKeyword);
@@ -1215,32 +1215,32 @@ begin
 
   while (Current <> nil) and not (Current.Kind in [tkEndKeyword, tkElseKeyword, tkEOF]) do
   begin
-    LItem := TCaseItemSyntax.Create;
+    Item := TCaseItemSyntax.Create;
 
-    LNest := 0;
+    Nest := 0;
     while (Current <> nil) and (Current.Kind <> tkEOF) do
     begin
       if Current.Kind = tkOpenParen then
-        Inc(LNest)
+        Inc(Nest)
       else if Current.Kind = tkCloseParen then
-        Dec(LNest);
+        Dec(Nest);
 
-      if (Current.Kind = tkColon) and (LNest <= 0) then
+      if (Current.Kind = tkColon) and (Nest <= 0) then
       begin
-        LItem.ColonToken := MatchToken(tkColon);
+        Item.ColonToken := MatchToken(tkColon);
         Break;
       end;
 
       if Current.Kind in [tkEndKeyword, tkElseKeyword] then
         Break;
 
-      LItem.ValueTokens.Add(NextToken);
+      Item.ValueTokens.Add(NextToken);
     end;
 
-    if Assigned(LItem.ColonToken) then
-      LItem.Statement := ParseStatement;
+    if Assigned(Item.ColonToken) then
+      Item.Statement := ParseStatement;
 
-    Result.CaseItems.Add(LItem);
+    Result.CaseItems.Add(Item);
   end;
 
   if (Current <> nil) and (Current.Kind = tkElseKeyword) then
@@ -1279,26 +1279,26 @@ end;
 
 function TParseTreeParser.ParseInheritedStatement: TInheritedStatementSyntax;
 var
-  LNest: Integer;
+  Nest: Integer;
 begin
   Result := TInheritedStatementSyntax.Create;
   Result.InheritedKeyword := MatchToken(tkInheritedKeyword);
 
-  LNest := 0;
+  Nest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
     if Current.Kind = tkOpenParen then
-      Inc(LNest)
+      Inc(Nest)
     else if Current.Kind = tkCloseParen then
-      Dec(LNest);
+      Dec(Nest);
 
-    if (LNest = 0) and (Current.Kind = tkSemicolon) then
+    if (Nest = 0) and (Current.Kind = tkSemicolon) then
     begin
       Result.Semicolon := MatchToken(tkSemicolon);
       Break;
     end;
 
-    if (LNest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+    if (Nest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
        tkFinallyKeyword, tkExceptKeyword]) then
       Break;
 
@@ -1308,26 +1308,26 @@ end;
 
 function TParseTreeParser.ParseExitStatement: TExitStatementSyntax;
 var
-  LNest: Integer;
+  Nest: Integer;
 begin
   Result := TExitStatementSyntax.Create;
   Result.ExitKeyword := MatchToken(tkExitKeyword);
 
-  LNest := 0;
+  Nest := 0;
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
     if Current.Kind = tkOpenParen then
-      Inc(LNest)
+      Inc(Nest)
     else if Current.Kind = tkCloseParen then
-      Dec(LNest);
+      Dec(Nest);
 
-    if (LNest = 0) and (Current.Kind = tkSemicolon) then
+    if (Nest = 0) and (Current.Kind = tkSemicolon) then
     begin
       Result.Semicolon := MatchToken(tkSemicolon);
       Break;
     end;
 
-    if (LNest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
+    if (Nest = 0) and (Current.Kind in [tkEndKeyword, tkElseKeyword,
        tkFinallyKeyword, tkExceptKeyword]) then
       Break;
 
@@ -1376,12 +1376,12 @@ end;
 
 function TParseTreeParser.ParseMethodImplementation(const AFullSource: string): TMethodImplementationSyntax;
 var
-  LNestLevel: Integer;
-  LDecl: TDeclarationSectionSyntax;
-  LUnparsed: TUnparsedDeclarationSyntax;
-  LScan: Integer;
-  LCurrentSignatureName: string;
-  LCurrentSignatureShortName: string;
+  CurrentSignatureName     : string;
+  CurrentSignatureShortName: string;
+  Decl                     : TDeclarationSectionSyntax;
+  NestLevel                : Integer;
+  Scan                     : Integer;
+  Unparsed                 : TUnparsedDeclarationSyntax;
 
   function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
   begin
@@ -1431,14 +1431,14 @@ var
   function HasDotBeforeSemicolon: Boolean;
   begin
     Result := False;
-    LScan := FPosition;
-    while (LScan < FTokens.Count) and (FTokens[LScan].Kind <> tkEOF) do
+    Scan := FPosition;
+    while (Scan < FTokens.Count) and (FTokens[Scan].Kind <> tkEOF) do
     begin
-      if FTokens[LScan].Kind = tkDot then
+      if FTokens[Scan].Kind = tkDot then
         Exit(True);
-      if FTokens[LScan].Kind = tkSemicolon then
+      if FTokens[Scan].Kind = tkSemicolon then
         Exit(False);
-      Inc(LScan);
+      Inc(Scan);
     end;
   end;
 
@@ -1467,6 +1467,7 @@ var
       Exit(Peek(1).Text);
     end;
   end;
+
 begin
   // If source is provided, we need to tokenize it first (used by tests)
   if AFullSource <> '' then
@@ -1481,7 +1482,7 @@ begin
   end;
 
   Result := TMethodImplementationSyntax.Create;
-  LUnparsed := nil;
+  Unparsed := nil;
   
   if (Current <> nil) and (Current.Kind = tkClassKeyword) then
   begin
@@ -1491,13 +1492,13 @@ begin
   Result.MethodTypeKeyword := NextToken; // procedure, function, etc.
   
   // consume signature until semicolon
-  LNestLevel := 0; // Using LNestLevel to track parentheses
+  NestLevel := 0; // Using NestLevel to track parentheses
   while (Current <> nil) and (Current.Kind <> tkEOF) do
   begin
-    if Current.Kind = tkOpenParen then Inc(LNestLevel)
-    else if Current.Kind = tkCloseParen then Dec(LNestLevel);
+    if Current.Kind = tkOpenParen then Inc(NestLevel)
+    else if Current.Kind = tkCloseParen then Dec(NestLevel);
     
-    if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+    if (Current.Kind = tkSemicolon) and (NestLevel <= 0) then
       Break;
       
     Result.SignatureTokens.Add(NextToken);
@@ -1515,81 +1516,81 @@ begin
     Result.SignatureSemicolon := MatchToken(tkSemicolon);
   end;
 
-  LCurrentSignatureName := ExtractSignatureNameFromTokens(Result.SignatureTokens);
-  LCurrentSignatureShortName := LCurrentSignatureName;
-  if Pos('.', LCurrentSignatureShortName) > 0 then
-    LCurrentSignatureShortName := Copy(LCurrentSignatureShortName,
-      Pos('.', LCurrentSignatureShortName) + 1, MaxInt);
+  CurrentSignatureName := ExtractSignatureNameFromTokens(Result.SignatureTokens);
+  CurrentSignatureShortName := CurrentSignatureName;
+  if Pos('.', CurrentSignatureShortName) > 0 then
+    CurrentSignatureShortName := Copy(CurrentSignatureShortName,
+      Pos('.', CurrentSignatureShortName) + 1, MaxInt);
     
   // Local declarations (var, const, type, nested procedures/functions)
   while (Current <> nil) and not (Current.Kind in [tkBeginKeyword, tkAsmKeyword, tkEOF]) do
   begin
     if Current.Kind in [tkVarKeyword, tkConstKeyword, tkTypeKeyword] then
     begin
-      LUnparsed := nil;
-      LDecl := ParseDeclarationSection;
-      if Assigned(LDecl) then
-        Result.LocalDeclarations.Add(LDecl);
+      Unparsed := nil;
+      Decl := ParseDeclarationSection;
+      if Assigned(Decl) then
+        Result.LocalDeclarations.Add(Decl);
     end
     else if Current.Kind in [tkProcedureKeyword, tkFunctionKeyword] then
     begin
       // Conditional alternative implementation signatures are often fully-qualified
       // and should stay as unparsed local declaration tokens before the shared body.
       if HasDotBeforeSemicolon or
-         ((LCurrentSignatureName <> '') and
-          (SameText(UpcomingSignatureName, LCurrentSignatureName) or
-           SameText(UpcomingSignatureName, LCurrentSignatureShortName))) then
+         ((CurrentSignatureName <> '') and
+          (SameText(UpcomingSignatureName, CurrentSignatureName) or
+           SameText(UpcomingSignatureName, CurrentSignatureShortName))) then
       begin
-        LNestLevel := 0;
-        if LUnparsed = nil then
+        NestLevel := 0;
+        if Unparsed = nil then
         begin
-          LUnparsed := TUnparsedDeclarationSyntax.Create;
-          Result.LocalDeclarations.Add(LUnparsed);
+          Unparsed := TUnparsedDeclarationSyntax.Create;
+          Result.LocalDeclarations.Add(Unparsed);
         end;
         while (Current <> nil) and (Current.Kind <> tkEOF) do
         begin
           if Current.Kind = tkOpenParen then
-            Inc(LNestLevel)
+            Inc(NestLevel)
           else if Current.Kind = tkCloseParen then
-            Dec(LNestLevel)
-          else if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) then
+            Dec(NestLevel)
+          else if (Current.Kind = tkSemicolon) and (NestLevel <= 0) then
             Break;
-          LUnparsed.Tokens.Add(NextToken);
+          Unparsed.Tokens.Add(NextToken);
         end;
         if (Current <> nil) and (Current.Kind = tkSemicolon) then
         begin
-          LUnparsed.Tokens.Add(NextToken);
+          Unparsed.Tokens.Add(NextToken);
           while (Current <> nil) and (Current.Kind = tkIdentifier) and
                 IsMethodModifierStart(Current) and (Peek(1) <> nil) and (Peek(1).Kind = tkSemicolon) do
           begin
-            LUnparsed.Tokens.Add(NextToken);
-            LUnparsed.Tokens.Add(NextToken);
+            Unparsed.Tokens.Add(NextToken);
+            Unparsed.Tokens.Add(NextToken);
           end;
         end;
       end
       else
       begin
         // Nested procedure/function - parse recursively
-        LUnparsed := nil;
+        Unparsed := nil;
         Result.LocalDeclarations.Add(ParseMethodImplementation);
       end;
     end
     else
     begin
-      if LUnparsed = nil then
+      if Unparsed = nil then
       begin
-        LUnparsed := TUnparsedDeclarationSyntax.Create;
-        Result.LocalDeclarations.Add(LUnparsed);
+        Unparsed := TUnparsedDeclarationSyntax.Create;
+        Result.LocalDeclarations.Add(Unparsed);
       end;
-      LUnparsed.Tokens.Add(NextToken);
+      Unparsed.Tokens.Add(NextToken);
       
       // Stop if it's external or forward since it won't have a body
-      if (LUnparsed.Tokens[LUnparsed.Tokens.Count - 1].Kind = tkSemicolon) then
+      if (Unparsed.Tokens[Unparsed.Tokens.Count - 1].Kind = tkSemicolon) then
       begin
         var lident := False;
-        for var k := 0 to LUnparsed.Tokens.Count - 1 do
+        for var k := 0 to Unparsed.Tokens.Count - 1 do
         begin
-          if SameText(LUnparsed.Tokens[k].Text, 'external') or SameText(LUnparsed.Tokens[k].Text, 'forward') then
+          if SameText(Unparsed.Tokens[k].Text, 'external') or SameText(Unparsed.Tokens[k].Text, 'forward') then
           begin
             lident := True;
             Break;
@@ -1603,13 +1604,13 @@ begin
   if (Current <> nil) and (Current.Kind in [tkBeginKeyword, tkAsmKeyword]) then
   begin
     Result.BeginKeyword := NextToken;
-    LNestLevel := 1;
+    NestLevel := 1;
   end
   else
-    LNestLevel := 0;
-    
+    NestLevel := 0;
+
   // Body until matched end
-  while (Current <> nil) and (LNestLevel > 0) and (Current.Kind <> tkEOF) do
+  while (Current <> nil) and (NestLevel > 0) and (Current.Kind <> tkEOF) do
   begin
     // Recovery: a qualified method header at this level should belong to the
     // implementation section, not to the current method body.
@@ -1618,8 +1619,8 @@ begin
 
     if Current.Kind = tkEndKeyword then
     begin
-      Dec(LNestLevel);
-      if LNestLevel = 0 then
+      Dec(NestLevel);
+      if NestLevel = 0 then
       begin
         Result.EndKeyword := MatchToken(tkEndKeyword);
         Break;
@@ -1643,9 +1644,9 @@ end;
 
 function TParseTreeParser.ParseImplementationSection: TImplementationSectionSyntax;
 var
-  LUnparsed: TUnparsedDeclarationSyntax;
-  LDeclBlockNest: Integer;
-  LPrevKind: TTokenKind;
+  DeclBlockNest: Integer;
+  PrevKind     : TTokenKind;
+  Unparsed     : TUnparsedDeclarationSyntax;
   
   function IsMethodStartToken(AToken: TSyntaxToken): Boolean;
   begin
@@ -1658,6 +1659,7 @@ var
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
         (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword))));
   end;
+
   function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
   begin
     Result := (AToken <> nil) and (
@@ -1673,48 +1675,48 @@ var
 
   function IsForwardClassLikeDecl: Boolean;
   var
-    LIdx: Integer;
-    LParenNest: Integer;
+    Idx      : Integer;
+    ParenNest: Integer;
   begin
-    LIdx := FPosition + 1; // after class/interface/dispinterface
-    LParenNest := 0;
+    Idx := FPosition + 1; // after class/interface/dispinterface
+    ParenNest := 0;
 
-    if (LIdx < FTokens.Count) and (FTokens[LIdx].Kind = tkOpenParen) then
+    if (Idx < FTokens.Count) and (FTokens[Idx].Kind = tkOpenParen) then
     begin
-      Inc(LParenNest);
-      Inc(LIdx);
-      while (LIdx < FTokens.Count) and (FTokens[LIdx].Kind <> tkEOF) do
+      Inc(ParenNest);
+      Inc(Idx);
+      while (Idx < FTokens.Count) and (FTokens[Idx].Kind <> tkEOF) do
       begin
-        if FTokens[LIdx].Kind = tkOpenParen then
-          Inc(LParenNest)
-        else if FTokens[LIdx].Kind = tkCloseParen then
+        if FTokens[Idx].Kind = tkOpenParen then
+          Inc(ParenNest)
+        else if FTokens[Idx].Kind = tkCloseParen then
         begin
-          Dec(LParenNest);
-          if LParenNest = 0 then
+          Dec(ParenNest);
+          if ParenNest = 0 then
           begin
-            Inc(LIdx);
+            Inc(Idx);
             Break;
           end;
         end;
-        Inc(LIdx);
+        Inc(Idx);
       end;
     end;
 
-    Result := (LIdx < FTokens.Count) and (FTokens[LIdx].Kind = tkSemicolon);
+    Result := (Idx < FTokens.Count) and (FTokens[Idx].Kind = tkSemicolon);
   end;
 
 begin
   Result := TImplementationSectionSyntax.Create;
   Result.ImplementationKeyword := MatchToken(tkImplementationKeyword);
-  LDeclBlockNest := 0;
-  LPrevKind := tkUnknown;
+  DeclBlockNest := 0;
+  PrevKind := tkUnknown;
   
   if (Current <> nil) and (Current.Kind = tkUsesKeyword) then
   begin
     Result.UsesClause := ParseUsesClause();
   end;
   
-  LUnparsed := nil;
+  Unparsed := nil;
   // Parse methods and other declarations
   while (Current <> nil) and 
         not ((Current.Kind = tkEndKeyword) and (Peek(1) <> nil) and (Peek(1).Kind = tkDot)) and 
@@ -1722,55 +1724,55 @@ begin
   begin
     if IsQualifiedMethodStart(Current) then
     begin
-      LDeclBlockNest := 0; // recover from stale nesting in unparsed declaration streams
-      LUnparsed := nil;
+      DeclBlockNest := 0; // recover from stale nesting in unparsed declaration streams
+      Unparsed := nil;
       Result.Declarations.Add(ParseMethodImplementation);
     end
-    else if (LDeclBlockNest = 0) and IsMethodStartToken(Current) then
+    else if (DeclBlockNest = 0) and IsMethodStartToken(Current) then
     begin
-      LUnparsed := nil; // Reset unparsed stream
+      Unparsed := nil; // Reset unparsed stream
       Result.Declarations.Add(ParseMethodImplementation);
     end
-    else if (LDeclBlockNest = 0) and (Current.Kind in [tkVarKeyword, tkConstKeyword, tkTypeKeyword]) then
+    else if (DeclBlockNest = 0) and (Current.Kind in [tkVarKeyword, tkConstKeyword, tkTypeKeyword]) then
     begin
-       LUnparsed := nil;
+       Unparsed := nil;
        Result.Declarations.Add(ParseDeclarationSection);
-       LPrevKind := tkUnknown;
+       PrevKind := tkUnknown;
     end
     else
     begin
-      if LUnparsed = nil then
+      if Unparsed = nil then
       begin
-        LUnparsed := TUnparsedDeclarationSyntax.Create;
-        Result.Declarations.Add(LUnparsed); // Add instantly to maintain order
+        Unparsed := TUnparsedDeclarationSyntax.Create;
+        Result.Declarations.Add(Unparsed); // Add instantly to maintain order
       end;
 
       if (
-           ((Current.Kind = tkClassKeyword) and (LPrevKind in [tkEquals, tkColon]) and
+           ((Current.Kind = tkClassKeyword) and (PrevKind in [tkEquals, tkColon]) and
             ((Peek(1) = nil) or (Peek(1).Kind <> tkOfKeyword)) and not IsForwardClassLikeDecl) or
-           ((Current.Kind = tkInterfaceKeyword) and (LPrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
-           ((Current.Kind = tkDispinterfaceKeyword) and (LPrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
-           ((Current.Kind = tkRecordKeyword) and (LPrevKind in [tkEquals, tkColon])) or
-           ((Current.Kind = tkCaseKeyword) and (LDeclBlockNest > 0))
+           ((Current.Kind = tkInterfaceKeyword) and (PrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
+           ((Current.Kind = tkDispinterfaceKeyword) and (PrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
+           ((Current.Kind = tkRecordKeyword) and (PrevKind in [tkEquals, tkColon])) or
+           ((Current.Kind = tkCaseKeyword) and (DeclBlockNest > 0))
          ) then
-        Inc(LDeclBlockNest)
-      else if (Current.Kind = tkEndKeyword) and (LDeclBlockNest > 0) then
-        Dec(LDeclBlockNest);
+        Inc(DeclBlockNest)
+      else if (Current.Kind = tkEndKeyword) and (DeclBlockNest > 0) then
+        Dec(DeclBlockNest);
 
-      LPrevKind := Current.Kind;
-      LUnparsed.Tokens.Add(NextToken);
+      PrevKind := Current.Kind;
+      Unparsed.Tokens.Add(NextToken);
     end;
   end;
 end;
 
 function TParseTreeParser.Parse(const AText: string): TCompilationUnitSyntax;
 var
-  LLexer: TParseTreeLexer;
+  Lexer: TParseTreeLexer;
 begin
   Result := TCompilationUnitSyntax.Create;
-  LLexer := TParseTreeLexer.Create(AText);
+  Lexer := TParseTreeLexer.Create(AText);
   try
-    FTokens := LLexer.TokenizeAll;
+    FTokens := Lexer.TokenizeAll;
     try
       FPosition := 0;
       
@@ -1853,7 +1855,7 @@ begin
       FTokens := nil;
     end;
   finally
-    LLexer.Free;
+    Lexer.Free;
   end;
 end;
 
