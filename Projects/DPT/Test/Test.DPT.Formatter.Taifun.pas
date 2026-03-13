@@ -70,6 +70,8 @@ type
     procedure TestFormatImplementation_NoExtraEmptyLinesBeforeFirstClass;
     [Test]
     procedure TestFormatImplementation_ClassToFunctionTransition;
+    [Test]
+    procedure TestFormatUnitHeader_PreservesDirectivesAfterInclude;
   end;
 
 implementation
@@ -782,6 +784,43 @@ begin
       'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;'),
       'Transition from class method to unit-level function should use a double separator block. Actual:' + #13#10 + LResult
     );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PreservesDirectivesAfterInclude;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Base.Bootstrapping.Isapi' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Mister X' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Base.Define.pas}' + #13#10 +
+    '{$DENYPACKAGEUNIT} {This unit cannot be part of a package because it contains Web.WebBroker which cannot be part of a package }' + #13#10 +
+    #13#10 +
+    'unit Base.Bootstrapping.Isapi;' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    'interface' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains('{$I Base.Define.pas}' + #13#10 + '{$DENYPACKAGEUNIT}'), 'Compiler directives after include should be preserved. Actual: ' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;

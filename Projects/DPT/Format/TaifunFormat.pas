@@ -314,18 +314,20 @@ begin
   end;
 end;
 
-function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var AInclude: string): Boolean;
+function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string): Boolean;
 var
   S, LLine: string;
   P, P2: Integer;
+  LIsDirective: Boolean;
 begin
   ADescription := 'Kurzbeschreibung der Unit';
   AAuthor := 'Name';
-  AInclude := '{$I Tfw.Define.pas}';
+  ADirectives := '{$I Tfw.Define.pas}';
   Result := Length(ATrivia) > 0;
 
   if not Result then Exit;
 
+  ADirectives := '';
   S := ATrivia;
   while Length(S) > 0 do
   begin
@@ -343,10 +345,24 @@ begin
       S := '';
     end;
 
-    // Check Include
-    if Pos('{$I ', LLine) > 0 then
+    // Check Directives
+    LIsDirective := False;
+    for P2 := 1 to Length(LLine) do
     begin
-      AInclude := LLine;
+      if LLine[P2] <> ' ' then
+      begin
+        if (LLine[P2] = '{') and (P2 < Length(LLine)) and (LLine[P2+1] = '$') then
+          LIsDirective := True;
+        Break;
+      end;
+    end;
+
+    if LIsDirective then
+    begin
+      if ADirectives <> '' then
+        ADirectives := ADirectives + #13#10 + LLine
+      else
+        ADirectives := LLine;
     end;
 
     // Check Author
@@ -369,6 +385,9 @@ begin
       while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1);
     end;
   end;
+  
+  if ADirectives = '' then
+    ADirectives := '{$I Tfw.Define.pas}';
 end;
 
 procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
@@ -376,7 +395,7 @@ var
   LToken, LSemicolon: TSyntaxToken;
   LUnitName: string;
   LTrivia: string;
-  LDesc, LAuthor, LInclude: string;
+  LDesc, LAuthor, LDirectives: string;
   LRule: string;
   LNewBanner: string;
 begin
@@ -386,7 +405,7 @@ begin
     LUnitName := GetUnitName(AUnit);
     LTrivia := GetLeadingTrivia(LToken);
 
-    ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LInclude);
+    ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LDirectives);
 
     LRule := '// ' + StringOfChar('=', 70);
     LNewBanner := LRule + #13#10 +
@@ -397,7 +416,7 @@ begin
                   '//' + #13#10 +
                   LRule + #13#10 +
                   #13#10 +
-                  LInclude + #13#10 +
+                  LDirectives + #13#10 +
                   #13#10;
 
     if LTrivia <> LNewBanner then
