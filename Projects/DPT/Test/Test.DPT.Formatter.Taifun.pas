@@ -100,6 +100,8 @@ type
     procedure TestFormatImplementation_PreservesTrailingComment;
     [Test]
     procedure TestFormatImplementation_PreservesDirectivesBeforeBanner;
+    [Test]
+    procedure TestFormatMethodImplementation_XmlDocNewline;
   end;
 
 implementation
@@ -1393,6 +1395,42 @@ begin
       '{ ======================================================================= }';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_XmlDocNewline;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    '/// <summary> If the fields of this table have GUI (visual) controls assinged to them, reads the data from those GUI controls' + #13#10 +
+    '/// </summary>' + #13#10 +
+    'procedure CBaseTable.GetData;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The XML-DOC summary should end with a newline before the procedure keyword starts
+    var LExpectedPart := 
+      '/// </summary>' + #13#10 +
+      'procedure CBaseTable.GetData;';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), 'There should be a newline between the XML-DOC summary and the procedure declaration. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

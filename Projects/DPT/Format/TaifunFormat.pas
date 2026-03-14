@@ -98,8 +98,6 @@ begin
   LTrailingPart := '';
   S := LOldTrivia;
   
-  // If we just came from a section banner, skip the leading whitespace it provided.
-  // This prevents extra empty lines before the first class/method in implementation.
   if LastBannerWasDouble then
   begin
      while (Length(S) > 0) and ((S[1] = #13) or (S[1] = #10) or (S[1] = ' ')) do Delete(S, 1, 1);
@@ -120,7 +118,6 @@ begin
 
     if LIsText then
     begin
-      // Banner or Redundancy Check
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
@@ -135,7 +132,6 @@ begin
 
       if LCollectingForPrevious then
       begin
-         // Explicit closing directives or inline comments (only if it was the very first part of original trivia)
          if (Pos('{$ENDIF', LLine) > 0) or (Pos('{$ELSE', LLine) > 0) or (Pos('{$ENDREGION', LLine) > 0) or
             ((LTrailingPart = '') and (Length(LOldTrivia) > 0) and (LOldTrivia[1] <> #13) and (LOldTrivia[1] <> #10) and
              (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', LLine) = 0) and not LIsBanner) then
@@ -150,18 +146,17 @@ begin
     end
     else
     begin
-       // Empty lines go to LTrailingPart if we are still collecting for previous, otherwise to LComments
        if LCollectingForPrevious then LTrailingPart := LTrailingPart + LLine
        else LComments := LComments + LLine;
     end;
   end;
 
-  // Cleanup: trim LComments completely, but preserve leading structure of LTrailingPart
   while (Length(LComments) > 0) and ((LComments[1] = #13) or (LComments[1] = #10) or (LComments[1] = ' ')) do Delete(LComments, 1, 1);
   while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10) or (LComments[Length(LComments)] = ' ')) do Delete(LComments, Length(LComments), 1);
-  
-  // For LTrailingPart, we only strip trailing whitespace to keep its leading structure (newlines/indentation)
   while (Length(LTrailingPart) > 0) and ((LTrailingPart[Length(LTrailingPart)] = #13) or (LTrailingPart[Length(LTrailingPart)] = #10) or (LTrailingPart[Length(LTrailingPart)] = ' ')) do Delete(LTrailingPart, Length(LTrailingPart), 1);
+
+  // If we have comments (XML-DOC, etc.), ensure they end with a newline before the procedure starts
+  if LComments <> '' then LComments := LComments + #13#10;
 
   if GetMethodDepth(AMethod) > 1 then
   begin
