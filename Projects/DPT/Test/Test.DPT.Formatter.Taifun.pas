@@ -1,4 +1,4 @@
-﻿unit Test.DPT.Formatter.Taifun;
+unit Test.DPT.Formatter.Taifun;
 
 interface
 
@@ -96,6 +96,8 @@ type
     procedure TestFormatUnitEnd_PreservesTrailingDirectives;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
+    [Test]
+    procedure TestFormatImplementation_PreservesTrailingComment;
   end;
 
 implementation
@@ -1316,5 +1318,39 @@ begin
   end;
 end;
 
-end.
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesTrailingComment;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'const' + #13#10 +
+    '  ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte' + #13#10 +
+    #13#10 +
+    'constructor CMongoGridFsService.Create; begin inherited Create; end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The comment should stay with the constant, NOT move below the class banner
+    var LExpected := 
+      'ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      '{ CMongoGridFsService';
 
+    Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+end.
