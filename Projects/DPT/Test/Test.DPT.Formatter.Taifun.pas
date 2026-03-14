@@ -90,6 +90,12 @@ type
     procedure TestFormatUnitHeader_PreservesDescriptionEvenIfUnitNameMismatched;
     [Test]
     procedure TestFormatImplementation_PreservesLeadingDirectives;
+    [Test]
+    procedure TestFormatImplementation_AvoidDuplicateClassNameComment;
+    [Test]
+    procedure TestFormatUnitEnd_PreservesTrailingDirectives;
+    [Test]
+    procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
   end;
 
 implementation
@@ -1207,6 +1213,104 @@ begin
       'implementation';
 
     Assert.IsTrue(LResult.Contains(LExpectedOrder), 'Compiler directive should preserve leading blank line and be placed before the implementation banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_AvoidDuplicateClassNameComment;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '// CListEnumerator_Integer' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'function CListEnumerator_Integer.GetCurrent: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=0;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should contain the class banner but NOT the duplicate '// CListEnumerator_Integer' comment
+    Assert.IsTrue(LResult.Contains('{ CListEnumerator_Integer'), 'Should contain the class banner');
+    Assert.IsFalse(LResult.Contains('// CListEnumerator_Integer'), 'Should NOT contain the redundant class name comment. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitEnd_PreservesTrailingDirectives;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Test;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    '{$ENDREGION ''PARTIAL''}' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should preserve the directive before the final end. banner
+    Assert.IsTrue(LResult.Contains('{$ENDREGION ''PARTIAL''}'), 'Compiler directive at the end of unit should be preserved. Actual result:'#13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('{$ENDREGION ''PARTIAL''}' + #13#10 + #13#10 + '{ ======================================================================= }' + #13#10 + #13#10 + 'end.'), 'Incorrect order or spacing at unit end. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{$REGION ''TEST''}' + #13#10 +
+    'procedure Test; begin end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Expected: implementation banner then ONE blank line then region
+    var LExpected := 
+      'implementation' + #13#10 + 
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 + 
+      '{$REGION ''TEST''}';
+
+    Assert.IsTrue(LResult.Contains(LExpected), 'Should have exactly ONE blank line between implementation banner and region. Actual result around region:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

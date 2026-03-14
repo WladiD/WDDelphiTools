@@ -116,7 +116,7 @@ procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 var
   LClassName: string;
   LToken: TSyntaxToken;
-  LOldTrivia, LComments, LLine, S: string;
+  LOldTrivia, LComments, LLine, S, S2: string;
   P, I: Integer;
   LIsText, LIsBanner: Boolean;
 begin
@@ -165,6 +165,18 @@ begin
         begin
           // A valid banner line usually has lots of trailing spaces padding it to 71 chars.
           if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+            LIsBanner := True;
+        end;
+        
+        // Check if the comment is just the class name (e.g. "// CClassName" or "{ CClassName }")
+        if not LIsBanner and (LClassName <> '') then
+        begin
+          S2 := LLine;
+          // Strip //, {, }, and spaces
+          while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
+          while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
+          
+          if S2 = LClassName then
             LIsBanner := True;
         end;
         
@@ -279,12 +291,9 @@ begin
     Delete(LNewTrivia, 1, 2);
 
   // If the original token had any leading spaces/newlines before we started stripping banners,
-  // we restore exactly ONE newline so it isn't glued.
-  // LNewTrivia now contains the comments/directives that are NOT banners.
-  // We prepend a single newline only if there is actual text left, or if there was an empty line in the original code.
-  if (Length(LNewTrivia) > 0) then
-    LNewTrivia := #13#10 + LNewTrivia;
-
+  // we restore them but only if we have text left.
+  // We no longer prepend a newline here, because the previous section banner (or method)
+  // already provides the necessary spacing via its trailing trivia.
   ClearTrivia(AToken);
   if Length(LNewTrivia) > 0 then
     AddLeadingTrivia(AToken, LNewTrivia);
@@ -540,11 +549,17 @@ end;
 procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
 var
   LToken: TSyntaxToken;
+  LComments: string;
 begin
   LToken := GetFinalEndKeyword(AUnit);
   if Assigned(LToken) then
   begin
+    LComments := ExtractComments(GetLeadingTrivia(LToken));
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
+    
+    if LComments <> '' then
+      AddLeadingTrivia(LToken, #13#10#13#10 + LComments + #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10)
+    else
+      AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
   end;
 end;
