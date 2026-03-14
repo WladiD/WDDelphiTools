@@ -88,6 +88,8 @@ type
     procedure TestFormatUnitHeader_PlaceholderOnNew;
     [Test]
     procedure TestFormatUnitHeader_PreservesDescriptionEvenIfUnitNameMismatched;
+    [Test]
+    procedure TestFormatImplementation_PreservesLeadingDirectives;
   end;
 
 implementation
@@ -1169,6 +1171,42 @@ begin
     
     // Should have updated unit name AND preserved description
     Assert.IsTrue(LResult.Contains('Base.Db.Check - Basis-Utils für System-Checks'), 'Should update unit name and preserve description. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesLeadingDirectives;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type IList = interface end;' + #13#10 +
+    #13#10 +
+    '{$ENDREGION ''PARTIAL''}' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should preserve the blank line before the directive AND have a blank line before the banner
+    var LExpectedOrder := 
+      'type IList = interface end;' + #13#10 +
+      #13#10 +
+      '{$ENDREGION ''PARTIAL''}' + #13#10 + 
+      #13#10 + 
+      '{ ======================================================================= }' + #13#10 +
+      'implementation';
+
+    Assert.IsTrue(LResult.Contains(LExpectedOrder), 'Compiler directive should preserve leading blank line and be placed before the implementation banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

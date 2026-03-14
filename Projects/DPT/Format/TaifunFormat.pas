@@ -290,15 +290,78 @@ begin
     AddLeadingTrivia(AToken, LNewTrivia);
 end;
 
+function ExtractComments(const ATrivia: string): string;
+var
+  S, LLine: string;
+  P, I: Integer;
+  LIsText, LIsBanner: Boolean;
+begin
+  Result := '';
+  S := ATrivia;
+  while Length(S) > 0 do
+  begin
+    P := Pos(#10, S);
+    if P > 0 then
+    begin
+      LLine := Copy(S, 1, P);
+      Delete(S, 1, P);
+    end
+    else
+    begin
+      LLine := S;
+      S := '';
+    end;
+    
+    LIsText := False;
+    for I := 1 to Length(LLine) do
+    begin
+      if (LLine[I] <> ' ') and (LLine[I] <> #13) and (LLine[I] <> #10) and (LLine[I] <> #9) then
+      begin
+        LIsText := True;
+        Break;
+      end;
+    end;
+
+    LIsBanner := False;
+    if LIsText then
+    begin
+      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
+      
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) then
+      begin
+        if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+          LIsBanner := True;
+      end;
+    end;
+    
+    if not LIsBanner then
+      Result := Result + LLine;
+  end;
+  
+  // Strip leading/trailing newlines and spaces
+  while (Length(Result) > 0) and ((Result[1] = #13) or (Result[1] = #10) or (Result[1] = ' ')) do Delete(Result, 1, 1);
+  while (Length(Result) > 0) and ((Result[Length(Result)] = #13) or (Result[Length(Result)] = #10) or (Result[Length(Result)] = ' ')) do Delete(Result, Length(Result), 1);
+end;
+
 procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
 var
   LToken, LNext: TSyntaxToken;
+  LComments: string;
+  LBanner: string;
 begin
   LToken := GetInterfaceKeyword(ASection);
   if Assigned(LToken) then
   begin
+    LComments := ExtractComments(GetLeadingTrivia(LToken));
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    
+    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    
+    if LComments <> '' then
+      AddLeadingTrivia(LToken, #13#10#13#10 + LComments + #13#10#13#10 + LBanner)
+    else
+      AddLeadingTrivia(LToken, #13#10 + LBanner);
+      
     AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
     LastBannerWasDouble := True;
 
@@ -311,12 +374,22 @@ end;
 procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
 var
   LToken, LNext: TSyntaxToken;
+  LComments: string;
+  LBanner: string;
 begin
   LToken := GetImplementationKeyword(ASection);
   if Assigned(LToken) then
   begin
+    LComments := ExtractComments(GetLeadingTrivia(LToken));
     ClearTrivia(LToken);
-    AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10);
+    
+    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    
+    if LComments <> '' then
+      AddLeadingTrivia(LToken, #13#10#13#10 + LComments + #13#10#13#10 + LBanner)
+    else
+      AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
+
     AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
     LastBannerWasDouble := True;
 
@@ -328,7 +401,7 @@ end;
 
 function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string): Boolean;
 var
-  S, LLine, S2: string;
+  S, LLine: string;
   P, P2, P3: Integer;
   LIsDirective: Boolean;
   LFoundDesc: Boolean;
