@@ -85,7 +85,7 @@ var
   LClassName, LOldTrivia, S, LLine, LComments, LTrailingPart, S2: string;
   LToken: TSyntaxToken;
   P, I: Integer;
-  LIsText, LIsBanner, LFirstLine: Boolean;
+  LIsText, LIsBanner, LCollectingForPrevious: Boolean;
 begin
   LClassName := GetMethodClassName(AMethod);
   LToken := GetMethodStartToken(AMethod);
@@ -97,36 +97,21 @@ begin
   LComments := '';
   LTrailingPart := '';
   S := LOldTrivia;
-  LFirstLine := True;
+  
+  // If we just came from a section banner, skip the leading whitespace it provided.
+  // This prevents extra empty lines before the first class/method in implementation.
+  if LastBannerWasDouble then
+  begin
+     while (Length(S) > 0) and ((S[1] = #13) or (S[1] = #10) or (S[1] = ' ')) do Delete(S, 1, 1);
+  end;
+
+  LCollectingForPrevious := True;
 
   while Length(S) > 0 do
   begin
     P := Pos(#10, S);
     if P > 0 then begin LLine := Copy(S, 1, P); Delete(S, 1, P); end
     else begin LLine := S; S := ''; end;
-
-    if LFirstLine and (Length(LOldTrivia) > 0) and (LOldTrivia[1] <> #13) and (LOldTrivia[1] <> #10) then
-    begin
-       LFirstLine := False;
-       I := 1;
-       while (I <= Length(LLine)) and ((LLine[I] = ' ') or (LLine[I] = #9)) do Inc(I);
-       if (I <= Length(LLine)) and ((LLine[I] = '/') or (LLine[I] = '{')) then
-       begin
-          if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$', LLine) = 0) and
-             (Pos('{ ==', LLine) = 0) and (Pos('{ --', LLine) = 0) then
-          begin
-             S2 := LLine;
-             while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
-             while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
-             if (LClassName = '') or (S2 <> LClassName) then
-             begin
-                LTrailingPart := LLine;
-                Continue;
-             end;
-          end;
-       end;
-    end;
-    LFirstLine := False;
 
     LIsText := False;
     for I := 1 to Length(LLine) do
@@ -135,9 +120,11 @@ begin
 
     if LIsText then
     begin
+      // Banner or Redundancy Check
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
+      
       if not LIsBanner and (LClassName <> '') then
       begin
         S2 := LLine;
@@ -145,39 +132,84 @@ begin
         while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
         if S2 = LClassName then LIsBanner := True;
       end;
+
+      if LCollectingForPrevious then
+      begin
+         // Explicit closing directives or inline comments (only if it was the very first part of original trivia)
+         if (Pos('{$ENDIF', LLine) > 0) or (Pos('{$ELSE', LLine) > 0) or (Pos('{$ENDREGION', LLine) > 0) or
+            ((LTrailingPart = '') and (Length(LOldTrivia) > 0) and (LOldTrivia[1] <> #13) and (LOldTrivia[1] <> #10) and
+             (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', LLine) = 0) and not LIsBanner) then
+         begin
+            LTrailingPart := LTrailingPart + LLine;
+            Continue;
+         end;
+         LCollectingForPrevious := False;
+      end;
+
       if not LIsBanner then LComments := LComments + LLine;
+    end
+    else
+    begin
+       // Empty lines go to LTrailingPart if we are still collecting for previous, otherwise to LComments
+       if LCollectingForPrevious then LTrailingPart := LTrailingPart + LLine
+       else LComments := LComments + LLine;
     end;
   end;
 
+  // Cleanup: trim LComments completely, but preserve leading structure of LTrailingPart
+  while (Length(LComments) > 0) and ((LComments[1] = #13) or (LComments[1] = #10) or (LComments[1] = ' ')) do Delete(LComments, 1, 1);
+  while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10) or (LComments[Length(LComments)] = ' ')) do Delete(LComments, Length(LComments), 1);
+  
+  // For LTrailingPart, we only strip trailing whitespace to keep its leading structure (newlines/indentation)
+  while (Length(LTrailingPart) > 0) and ((LTrailingPart[Length(LTrailingPart)] = #13) or (LTrailingPart[Length(LTrailingPart)] = #10) or (LTrailingPart[Length(LTrailingPart)] = ' ')) do Delete(LTrailingPart, Length(LTrailingPart), 1);
+
   if GetMethodDepth(AMethod) > 1 then
   begin
-    if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10 + CreateNestedMethodBanner() + #13#10 + LComments)
+    if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateNestedMethodBanner() + #13#10 + LComments)
     else AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + #13#10 + LComments);
   end
   else
   begin
     if (LClassName <> '') and (LClassName <> LastClassName) then
     begin
-      if LastBannerWasDouble then AddLeadingTrivia(LToken, LTrailingPart + CreateClassBanner(LClassName) + #13#10 + LComments)
-      else if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10 + CreateClassBanner(LClassName) + #13#10 + LComments)
-      else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
+      if LastBannerWasDouble then 
+      begin
+         if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments)
+         else AddLeadingTrivia(LToken, CreateClassBanner(LClassName) + #13#10 + LComments);
+      end
+      else
+      begin
+         if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments)
+         else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
+      end;
       LastClassName := LClassName;
     end
     else if (LClassName = '') and (LastClassName <> '') then
     begin
       LastClassName := '';
-      if LastBannerWasDouble then AddLeadingTrivia(LToken, LTrailingPart + CreateSectionBanner('') + #13#10 + LComments)
-      else if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10 + CreateSectionBanner('') + #13#10 + LComments)
-      else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + #13#10 + LComments);
+      if LastBannerWasDouble then
+      begin
+         if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + #13#10 + LComments)
+         else AddLeadingTrivia(LToken, CreateSectionBanner('') + #13#10 + LComments);
+      end
+      else
+      begin
+         if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + #13#10 + LComments)
+         else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + #13#10 + LComments);
+      end;
     end
     else
     begin
       if not LastBannerWasDouble then
       begin
-        if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10 + CreateMethodBanner() + #13#10 + LComments)
+        if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
         else AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments);
       end
-      else AddLeadingTrivia(LToken, LTrailingPart + LComments);
+      else
+      begin
+         if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10 + LComments)
+         else if LComments <> '' then AddLeadingTrivia(LToken, LComments);
+      end;
     end;
     LastBannerWasDouble := False;
   end;
@@ -231,7 +263,8 @@ begin
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) then
       begin
-        if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
+        if (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+          LIsBanner := True;
       end;
     end;
     if not LIsBanner then Result := Result + LLine;

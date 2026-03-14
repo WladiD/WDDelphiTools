@@ -98,6 +98,8 @@ type
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
     [Test]
     procedure TestFormatImplementation_PreservesTrailingComment;
+    [Test]
+    procedure TestFormatImplementation_PreservesDirectivesBeforeBanner;
   end;
 
 implementation
@@ -1348,6 +1350,49 @@ begin
       '{ CMongoGridFsService';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesDirectivesBeforeBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'const' + #13#10 +
+    '  {$IFDEF CPUX64}' + #13#10 +
+    '  BtrieveDLLName  = ''W64BTRV.DLL'';' + #13#10 +
+    '  {$ELSE}' + #13#10 +
+    '  BtrieveDLLName  = ''WBTRV32.DLL'';' + #13#10 +
+    '  {$ENDIF CPUX64}' + #13#10 +
+    #13#10 +
+    'constructor CBtrieveSession.Create(AIdPool: CConcurrentBitPool);' + #13#10 +
+    'begin' + #13#10 +
+    '  inherited Create;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The constant should end with a semicolon and a newline,
+    // then the {$ENDIF} should follow on its own indented line.
+    var LExpectedPart := 
+      'BtrieveDLLName  = ''WBTRV32.DLL'';' + #13#10 +
+      '  {$ENDIF CPUX64}' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
