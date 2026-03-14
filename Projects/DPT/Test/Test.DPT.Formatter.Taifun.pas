@@ -102,6 +102,8 @@ type
     procedure TestFormatImplementation_PreservesDirectivesBeforeBanner;
     [Test]
     procedure TestFormatMethodImplementation_XmlDocNewline;
+    [Test]
+    procedure TestFormatUnit_NoExtraLineBeforeDirective;
   end;
 
 implementation
@@ -1431,6 +1433,40 @@ begin
       'procedure CBaseTable.GetData;';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'There should be a newline between the XML-DOC summary and the procedure declaration. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnit_NoExtraLineBeforeDirective;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit Base.WinApi;' + #13#10 +
+    #13#10 +
+    '{$ALIGN ON} // comment' + #13#10 +
+    #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // There should be exactly ONE blank line between the unit declaration and the directive.
+    // unit Base.WinApi;\r\n\r\n{$ALIGN ON}
+    var LExpectedPart := 
+      'unit Base.WinApi;' + #13#10 +
+      #13#10 +
+      '{$ALIGN ON}';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), 'There should be exactly one blank line before the directive. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
