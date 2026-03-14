@@ -82,6 +82,12 @@ type
     procedure TestFormatMethodImplementation_NestedProcedureInClassMethod;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeXmlDoc;
+    [Test]
+    procedure TestFormatUnitHeader_NoPlaceholderOnExisting;
+    [Test]
+    procedure TestFormatUnitHeader_PlaceholderOnNew;
+    [Test]
+    procedure TestFormatUnitHeader_PreservesDescriptionEvenIfUnitNameMismatched;
   end;
 
 implementation
@@ -518,7 +524,7 @@ begin
   LExpectedHeader := '''
     // ======================================================================
     //
-    // MyUnit - Kurzbeschreibung der Unit
+    // MyUnit
     //
     // Autor: John Doe / Jane Doe
     //
@@ -1081,6 +1087,88 @@ begin
       '/// <summary>';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'There should be exactly ONE empty line between implementation banner and XML-DOC. Actual result around implementation:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_NoPlaceholderOnExisting;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: John Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit MyUnit; interface end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Should NOT contain the placeholder 'Kurzbeschreibung der Unit' because a banner already existed
+    Assert.IsFalse(LResult.Contains('Kurzbeschreibung der Unit'), 'Should not add placeholder to existing banner');
+    Assert.IsFalse(LResult.Contains('// MyUnit - '), 'Should not contain the " - " separator when description is empty');
+    Assert.IsTrue(LResult.Contains('// MyUnit' + #13#10), 'Should have description line with only unit name. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PlaceholderOnNew;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // No banner at all
+  LSource := 'unit MyUnit; interface end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // SHOULD contain the placeholder 'Kurzbeschreibung der Unit' because it is a new banner
+    Assert.IsTrue(LResult.Contains('Kurzbeschreibung der Unit'), 'Should add placeholder to new banner');
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PreservesDescriptionEvenIfUnitNameMismatched;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Base.Utils.Check -  Basis-Utils für System-Checks' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Mister X' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit Base.Db.Check; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should have updated unit name AND preserved description
+    Assert.IsTrue(LResult.Contains('Base.Db.Check - Basis-Utils für System-Checks'), 'Should update unit name and preserve description. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

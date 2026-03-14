@@ -328,75 +328,87 @@ end;
 
 function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string): Boolean;
 var
-  S, LLine: string;
-  P, P2: Integer;
+  S, LLine, S2: string;
+  P, P2, P3: Integer;
   LIsDirective: Boolean;
+  LFoundDesc: Boolean;
 begin
-  ADescription := 'Kurzbeschreibung der Unit';
-  AAuthor := 'Name';
-  ADirectives := '{$I Tfw.Define.pas}';
   Result := Length(ATrivia) > 0;
-
-  if not Result then Exit;
-
+  LFoundDesc := False;
+  
+  ADescription := '';
+  AAuthor := 'Name';
   ADirectives := '';
-  S := ATrivia;
-  while Length(S) > 0 do
-  begin
-    P := Pos(#10, S);
-    if P > 0 then
-    begin
-      LLine := Copy(S, 1, P - 1);
-      if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then
-        LLine := Copy(LLine, 1, Length(LLine) - 1);
-      Delete(S, 1, P);
-    end
-    else
-    begin
-      LLine := S;
-      S := '';
-    end;
 
-    // Check Directives
-    LIsDirective := False;
-    for P2 := 1 to Length(LLine) do
+  if Result then
+  begin
+    S := ATrivia;
+    while Length(S) > 0 do
     begin
-      if LLine[P2] <> ' ' then
+      P := Pos(#10, S);
+      if P > 0 then
       begin
-        if (LLine[P2] = '{') and (P2 < Length(LLine)) and (LLine[P2+1] = '$') then
-          LIsDirective := True;
-        Break;
+        LLine := Copy(S, 1, P - 1);
+        if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then
+          LLine := Copy(LLine, 1, Length(LLine) - 1);
+        Delete(S, 1, P);
+      end
+      else
+      begin
+        LLine := S;
+        S := '';
+      end;
+
+      // Check Directives
+      LIsDirective := False;
+      for P2 := 1 to Length(LLine) do
+      begin
+        if LLine[P2] <> ' ' then
+        begin
+          if (LLine[P2] = '{') and (P2 < Length(LLine)) and (LLine[P2+1] = '$') then
+            LIsDirective := True;
+          Break;
+        end;
+      end;
+
+      if LIsDirective then
+      begin
+        if ADirectives <> '' then
+          ADirectives := ADirectives + #13#10 + LLine
+        else
+          ADirectives := LLine;
+      end;
+
+      // Check Author
+      P2 := Pos('Autor:', LLine);
+      if P2 > 0 then
+      begin
+        AAuthor := Copy(LLine, P2 + 6, Length(LLine));
+        // Trim spaces
+        while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1);
+        while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1);
+      end;
+
+      // Check Description
+      // We look for a line starting with '// ' followed by some text, then a hyphen.
+      // But we must skip 'Autor:', '====', and empty '//' lines.
+      if (Pos('// ', LLine) = 1) and (Pos('// Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) and (Length(LLine) > 3) then
+      begin
+        P3 := Pos('-', LLine);
+        if P3 > 0 then
+        begin
+          ADescription := Copy(LLine, P3 + 1, Length(LLine));
+          // Trim spaces
+          while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1);
+          while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1);
+          LFoundDesc := True;
+        end;
       end;
     end;
-
-    if LIsDirective then
-    begin
-      if ADirectives <> '' then
-        ADirectives := ADirectives + #13#10 + LLine
-      else
-        ADirectives := LLine;
-    end;
-
-    // Check Author
-    P2 := Pos('Autor:', LLine);
-    if P2 > 0 then
-    begin
-      AAuthor := Copy(LLine, P2 + 6, Length(LLine));
-      // Trim spaces
-      while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1);
-      while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1);
-    end;
-
-    // Check Description
-    P2 := Pos('// ' + AUnitName + ' - ', LLine);
-    if P2 = 1 then
-    begin
-      ADescription := Copy(LLine, Length('// ' + AUnitName + ' - ') + 1, Length(LLine));
-      // Trim spaces
-      while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1);
-      while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1);
-    end;
   end;
+  
+  if not LFoundDesc and not Result then
+    ADescription := 'Kurzbeschreibung der Unit';
   
   if ADirectives = '' then
     ADirectives := '{$I Tfw.Define.pas}';
@@ -410,6 +422,7 @@ var
   LDesc, LAuthor, LDirectives: string;
   LRule: string;
   LNewBanner: string;
+  LDescLine: string;
 begin
   LToken := GetUnitKeyword(AUnit);
   if Assigned(LToken) then
@@ -420,9 +433,13 @@ begin
     ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LDirectives);
 
     LRule := '// ' + StringOfChar('=', 70);
+    LDescLine := '// ' + LUnitName;
+    if LDesc <> '' then
+      LDescLine := LDescLine + ' - ' + LDesc;
+
     LNewBanner := LRule + #13#10 +
                   '//' + #13#10 +
-                  '// ' + LUnitName + ' - ' + LDesc + #13#10 +
+                  LDescLine + #13#10 +
                   '//' + #13#10 +
                   '// Autor: ' + LAuthor + #13#10 +
                   '//' + #13#10 +
