@@ -22,6 +22,7 @@ type
   private
     FUnit: TCompilationUnitSyntax;
   protected
+    FMethodDepth: Integer;
     // Hooks for descendant classes (e.g. TDptDwsFormatter)
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); virtual;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); virtual;
@@ -64,6 +65,7 @@ implementation
 procedure TDptFormatter.FormatUnit(AUnit: TCompilationUnitSyntax);
 begin
   FUnit := AUnit;
+  FMethodDepth := 0;
   if Assigned(FUnit) then
     Visit(FUnit);
 end;
@@ -131,8 +133,13 @@ end;
 
 procedure TDptFormatter.VisitMethodImplementation(ANode: TMethodImplementationSyntax);
 begin
-  OnVisitMethodImplementation(ANode);
-  inherited;
+  Inc(FMethodDepth);
+  try
+    OnVisitMethodImplementation(ANode);
+    inherited;
+  finally
+    Dec(FMethodDepth);
+  end;
 end;
 
 procedure TDptFormatter.VisitInterfaceSection(ANode: TInterfaceSectionSyntax);

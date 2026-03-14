@@ -34,6 +34,11 @@ begin
   Result := '{ ' + StringOfChar('-', 71) + ' }' + #13#10;
 end;
 
+function CreateNestedMethodBanner: string;
+begin
+  Result := '{ ' + StringOfChar('-', 26) + ' }' + #13#10;
+end;
+
 function CreateSectionBanner(const AName: string): string;
 begin
   if AName = '' then
@@ -168,35 +173,44 @@ begin
       end;
     end;
 
-    if (LClassName <> '') and (LClassName <> LastClassName) then
+    if GetMethodDepth(AMethod) > 1 then
     begin
-      // If we are right after a double banner (e.g. implementation), its trailing trivia already provided #13#10#13#10.
-      // If we add another #13#10#13#10 here, we get too many empty lines.
-      if LastBannerWasDouble then
-        AddLeadingTrivia(LToken, CreateClassBanner(LClassName) + #13#10 + LComments)
-      else
-        AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
-      LastClassName := LClassName;
-    end
-    else if (LClassName = '') and (LastClassName <> '') then
-    begin
-      // Transition from a class method to a global function
-      // Reset LastClassName so we don't treat subsequent global functions as new transitions
-      LastClassName := '';
-      if LastBannerWasDouble then
-        AddLeadingTrivia(LToken, CreateSectionBanner('') + #13#10 + LComments)
-      else
-        AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + LComments);
+      // Nested procedures/functions get a short banner and do NOT affect LastClassName
+      AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + #13#10 + LComments);
     end
     else
     begin
-      if not LastBannerWasDouble then
-        AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
-      else if (Pos(#10, LOldTrivia) > 0) or (LComments <> '') then
-        AddLeadingTrivia(LToken, #13#10 + LComments);
+      // Top-level methods
+      if (LClassName <> '') and (LClassName <> LastClassName) then
+      begin
+        // If we are right after a double banner (e.g. implementation), its trailing trivia already provided #13#10#13#10.
+        // If we add another #13#10#13#10 here, we get too many empty lines.
+        if LastBannerWasDouble then
+          AddLeadingTrivia(LToken, CreateClassBanner(LClassName) + #13#10 + LComments)
+        else
+          AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + #13#10 + LComments);
+        LastClassName := LClassName;
+      end
+      else if (LClassName = '') and (LastClassName <> '') then
+      begin
+        // Transition from a class method to a global function
+        // Reset LastClassName so we don't treat subsequent global functions as new transitions
+        LastClassName := '';
+        if LastBannerWasDouble then
+          AddLeadingTrivia(LToken, CreateSectionBanner('') + #13#10 + LComments)
+        else
+          AddLeadingTrivia(LToken, #13#10#13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + LComments);
+      end
+      else
+      begin
+        if not LastBannerWasDouble then
+          AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
+        else if (Pos(#10, LOldTrivia) > 0) or (LComments <> '') then
+          AddLeadingTrivia(LToken, #13#10 + LComments);
+      end;
+      // Reset double banner flag after any TOP-LEVEL method implementation banner logic
+      LastBannerWasDouble := False;
     end;
-    // Reset double banner flag after any method implementation starts
-    LastBannerWasDouble := False;
   end;
 end;
 

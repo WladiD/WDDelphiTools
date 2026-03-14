@@ -76,6 +76,10 @@ type
     procedure TestFormatMethodImplementation_ClassConstructor;
     [Test]
     procedure TestFormatMethodImplementation_GenericClass;
+    [Test]
+    procedure TestFormatMethodImplementation_NestedProcedure;
+    [Test]
+    procedure TestFormatMethodImplementation_NestedProcedureInClassMethod;
   end;
 
 implementation
@@ -928,6 +932,112 @@ begin
       'function CConcurrentDictionary<TKey,TValue>.Contains(const AKey: TKey): Boolean;'),
       'Third generic class method should get short banner, not a new class banner. Actual:' + #13#10 + LResult
     );
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_NestedProcedure;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'function Outer: Integer;' + #13#10 +
+    '  procedure Inner;' + #13#10 +
+    '  begin' + #13#10 +
+    '  end;' + #13#10 +
+    'begin' + #13#10 +
+    '  Inner;' + #13#10 +
+    '  Result:=0;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Outer should have double banner (transition or first method)
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'function Outer: Integer;'),
+      'Outer function should have a long separator. Actual:' + #13#10 + LResult
+    );
+
+    // Inner should have short banner with empty line BEFORE and AFTER
+    Assert.IsTrue(LResult.Contains(
+      #13#10#13#10 + '{ -------------------------- }' + #13#10 +
+      #13#10 +
+      'procedure Inner;'),
+      'Inner procedure should have a short separator with empty line before and after. Actual:' + #13#10 + LResult
+    );
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Formatting nested procedure should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_NestedProcedureInClassMethod;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'class procedure CBootstrapping.Finit;' + #13#10 +
+    'var' + #13#10 +
+    '  ClassName: String;' + #13#10 +
+    'procedure LogExecution(AProc: TProc);' + #13#10 +
+    'begin' + #13#10 +
+    '  AProc;' + #13#10 +
+    'end;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Finit should have normal class banner (assuming it's the first or just a method)
+    Assert.IsTrue(LResult.Contains('{ CBootstrapping'), 'Finit should have a class banner. Actual result around method:'#13#10 + Copy(LResult, Pos('class procedure CBootstrapping.Finit', LResult) - 200, 400));
+    Assert.IsTrue(LResult.Contains('{ ======================================================================= }' + #13#10 + #13#10 + 'class procedure CBootstrapping.Finit;'), 'Finit should have TWO empty lines before it. Actual result around method:'#13#10 + Copy(LResult, Pos('class procedure CBootstrapping.Finit', LResult) - 200, 400));
+
+    // LogExecution should have SHORT banner, NOT a long transition banner
+    Assert.IsFalse(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'procedure LogExecution(AProc: TProc);'),
+      'Nested procedure should NOT have a long transition banner. Actual:' + #13#10 + LResult);
+
+    Assert.IsTrue(LResult.Contains(
+      #13#10#13#10 + '{ -------------------------- }' + #13#10 +
+      #13#10 +
+      'procedure LogExecution(AProc: TProc);'),
+      'Nested procedure should have a short banner. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;

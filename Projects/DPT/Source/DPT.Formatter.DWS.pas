@@ -1,4 +1,4 @@
-﻿unit DPT.Formatter.DWS;
+unit DPT.Formatter.DWS;
 
 interface
 
@@ -48,6 +48,7 @@ type
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetMethodClassName(Info: TProgramInfo);
+    procedure dwsGetMethodDepth(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
     procedure dwsGetNextToken(Info: TProgramInfo);
@@ -184,6 +185,11 @@ begin
   Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   Func.ResultType := 'String';
   Func.OnEval := dwsGetMethodClassName;
+
+  Func := FUnit.Functions.Add('GetMethodDepth');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsGetMethodDepth;
 
   Func := FUnit.Functions.Add('GetMethodName');
   Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
@@ -352,6 +358,7 @@ begin
       for var J: Integer := 0 to DotIndex - 1 do
       begin
         TokenLower := LowerCase(Node.SignatureTokens[J].Text);
+        // Skip common method prefixes
         if (TokenLower = 'class') or (TokenLower = 'procedure') or
            (TokenLower = 'function') or (TokenLower = 'constructor') or
            (TokenLower = 'destructor') or (TokenLower = 'operator') then
@@ -364,6 +371,11 @@ begin
     end;
   end;
   Info.ResultAsString := '';
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodDepth(Info: TProgramInfo);
+begin
+  Info.ResultAsInteger := FMethodDepth;
 end;
 
 procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);
