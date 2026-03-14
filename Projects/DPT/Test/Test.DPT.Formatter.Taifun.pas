@@ -80,6 +80,8 @@ type
     procedure TestFormatMethodImplementation_NestedProcedure;
     [Test]
     procedure TestFormatMethodImplementation_NestedProcedureInClassMethod;
+    [Test]
+    procedure TestFormatImplementation_NoExtraEmptyLineBeforeXmlDoc;
   end;
 
 implementation
@@ -1043,4 +1045,46 @@ begin
   end;
 end;
 
+procedure TTestTaifunFormatter.TestFormatImplementation_NoExtraEmptyLineBeforeXmlDoc;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '/// <summary>' + #13#10 +
+    '///   Description' + #13#10 +
+    '/// </summary>' + #13#10 +
+    'function ComparePointers(Item1, Item2: Pointer): Integer;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=0;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // After implementation banner, there should be exactly ONE empty line before XML-DOC
+    // implementation trailing trivia has { === }\r\n\r\n
+    // So if the method leading trivia is just the XML-DOC, we get ONE empty line total.
+    var LExpected :=
+      '{ ======================================================================= }' + #13#10 +
+      'implementation' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      '/// <summary>';
+
+    Assert.IsTrue(LResult.Contains(LExpected), 'There should be exactly ONE empty line between implementation banner and XML-DOC. Actual result around implementation:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
 end.
+

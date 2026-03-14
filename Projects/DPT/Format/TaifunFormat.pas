@@ -206,7 +206,7 @@ begin
         if not LastBannerWasDouble then
           AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + #13#10 + LComments)
         else if (Pos(#10, LOldTrivia) > 0) or (LComments <> '') then
-          AddLeadingTrivia(LToken, #13#10 + LComments);
+          AddLeadingTrivia(LToken, LComments);
       end;
       // Reset double banner flag after any TOP-LEVEL method implementation banner logic
       LastBannerWasDouble := False;
