@@ -1,9 +1,49 @@
 // DWScript for formatting Delphi units in the Taifun style
 
-var LastClassName: string;
-var ExpectedTokenTextForSuppressedBanner: string;
+type
+  TTaifunFormatter = class
+  private
+    FLastClassName: string;
+    FExpectedTokenTextForSuppressedBanner: string;
 
-function StringOfChar(C: String; Count: Integer): string;
+    function StringOfChar(C: String; Count: Integer): string;
+    function PadRight(const S: string; ALen: Integer): string;
+
+    function CreateClassBanner(const AClassName: string): string;
+    function CreateMethodBanner: string;
+    function CreateNestedMethodBanner: string;
+    function CreateSectionBanner(const AName: string): string;
+
+    procedure ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer);
+    procedure StripBanners(AToken: TSyntaxToken);
+    function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
+
+  public
+    constructor Create;
+    procedure ClearState;
+
+    procedure FormatUnitStart(AUnit: TCompilationUnitSyntax);
+    procedure FormatUnitEnd(AUnit: TCompilationUnitSyntax);
+    procedure FormatInterfaceSection(ASection: TInterfaceSectionSyntax);
+    procedure FormatImplementationSection(ASection: TImplementationSectionSyntax);
+    procedure FormatUsesClause(AUses: TUsesClauseSyntax);
+    procedure FormatMethodImplementation(AMethod: TMethodImplementationSyntax);
+  end;
+
+{ TTaifunFormatter }
+
+constructor TTaifunFormatter.Create;
+begin
+  ClearState;
+end;
+
+procedure TTaifunFormatter.ClearState;
+begin
+  FLastClassName := '';
+  FExpectedTokenTextForSuppressedBanner := '';
+end;
+
+function TTaifunFormatter.StringOfChar(C: String; Count: Integer): string;
 var
   I: Integer;
 begin
@@ -12,14 +52,14 @@ begin
     Result := Result + C;
 end;
 
-function PadRight(const S: string; ALen: Integer): string;
+function TTaifunFormatter.PadRight(const S: string; ALen: Integer): string;
 begin
   Result := S;
   while Length(Result) < ALen do
     Result := Result + ' ';
 end;
 
-function CreateClassBanner(const AClassName: string): string;
+function TTaifunFormatter.CreateClassBanner(const AClassName: string): string;
 var
   LRule: string;
 begin
@@ -29,17 +69,17 @@ begin
             LRule + #13#10 + #13#10;
 end;
 
-function CreateMethodBanner: string;
+function TTaifunFormatter.CreateMethodBanner: string;
 begin
   Result := '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10;
 end;
 
-function CreateNestedMethodBanner: string;
+function TTaifunFormatter.CreateNestedMethodBanner: string;
 begin
   Result := '{ ' + StringOfChar('-', 26) + ' }' + #13#10 + #13#10;
 end;
 
-function CreateSectionBanner(const AName: string): string;
+function TTaifunFormatter.CreateSectionBanner(const AName: string): string;
 begin
   if AName = '' then
     Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10
@@ -49,7 +89,7 @@ begin
               '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10;
 end;
 
-procedure ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer);
+procedure TTaifunFormatter.ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer);
 var
   S, LLine, S2: string;
   P, I, LIfLevel: Integer;
@@ -92,7 +132,7 @@ begin
         
         if S2 = '' then LIsBanner := True
         else if (AClassName <> '') and ((S2 = AClassName) or (Pos(AClassName + ' ', S2) = 1) or (Pos(AClassName + '.', S2) = 1)) then LIsBanner := True
-        else if (AClassName = '') and (LastClassName <> '') and ((S2 = LastClassName) or (Pos(LastClassName + ' ', S2) = 1)) then LIsBanner := True
+        else if (AClassName = '') and (FLastClassName <> '') and ((S2 = FLastClassName) or (Pos(FLastClassName + ' ', S2) = 1)) then LIsBanner := True
         else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
         else if Pos(' - Class', S2) > 0 then LIsBanner := True
         else 
@@ -147,120 +187,7 @@ begin
   end;
 end;
 
-procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
-var
-  LToken, LFirstItem: TSyntaxToken;
-  LTrivia: string;
-begin
-  LToken := GetUsesKeyword(AUses);
-  if Assigned(LToken) then
-  begin
-    LTrivia := GetLeadingTrivia(LToken);
-    ClearTrivia(LToken);
-    
-    while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
-    AddLeadingTrivia(LToken, #13#10#13#10 + LTrivia);
-    AddTrailingTrivia(LToken, '');
-    
-    LFirstItem := GetUsesFirstItemToken(AUses);
-    if Assigned(LFirstItem) then
-    begin
-      LTrivia := GetLeadingTrivia(LFirstItem);
-      ClearTrivia(LFirstItem);
-      while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
-      AddLeadingTrivia(LFirstItem, #13#10#13#10 + '  ' + LTrivia);
-    end;
-    ExpectedTokenTextForSuppressedBanner := '';
-  end;
-end;
-
-procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
-var
-  LClassName, LOldTrivia, LComments, LTrailingPart, LPrefix: string;
-  LToken: TSyntaxToken;
-  LIsSuppressed: Boolean;
-  LLeadingNewlines: Integer;
-begin
-  LClassName := GetMethodClassName(AMethod);
-  LToken := GetMethodStartToken(AMethod);
-  if not Assigned(LToken) then Exit;
-
-  LIsSuppressed := (ExpectedTokenTextForSuppressedBanner <> '') and (LToken.Text = ExpectedTokenTextForSuppressedBanner);
-  ExpectedTokenTextForSuppressedBanner := ''; 
-
-  LOldTrivia := GetLeadingTrivia(LToken);
-  ClearTrivia(LToken);
-
-  ProcessTrivia(LOldTrivia, LClassName, LTrailingPart, LComments, LLeadingNewlines);
-
-  if (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then LIsSuppressed := True;
-
-  if GetMethodDepth(AMethod) > 1 then
-  begin
-    if LIsSuppressed then
-    begin
-       if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateNestedMethodBanner() + LComments)
-       else AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + LComments);
-    end
-    else
-    begin
-       if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateNestedMethodBanner() + LComments)
-       else AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + LComments);
-    end;
-  end
-  else
-  begin
-    if (LClassName <> '') and (LClassName <> LastClassName) then
-    begin
-       if LIsSuppressed then 
-       begin
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + LComments)
-          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + LComments);
-       end
-       else
-       begin
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + LComments)
-          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + LComments);
-       end;
-       LastClassName := LClassName;
-    end
-    else if (LClassName = '') and (LastClassName <> '') then
-    begin
-       LastClassName := '';
-       if LIsSuppressed then
-       begin
-          LPrefix := ''; if LLeadingNewlines > 0 then LPrefix := #13#10; if LLeadingNewlines > 1 then LPrefix := #13#10#13#10;
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + LComments)
-          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + LComments);
-       end
-       else
-       begin
-          LPrefix := ''; if LLeadingNewlines > 0 then LPrefix := #13#10; if LLeadingNewlines > 1 then LPrefix := #13#10#13#10;
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + LComments)
-          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + LComments);
-       end;
-    end
-    else
-    begin
-       if not LIsSuppressed then
-       begin
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateMethodBanner() + LComments)
-          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + LComments);
-       end
-       else
-       begin
-          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LComments)
-          else
-          begin
-             if LComments <> '' then AddLeadingTrivia(LToken, #13#10#13#10 + LComments)
-             else AddLeadingTrivia(LToken, #13#10#13#10);
-          end;
-       end;
-    end;
-  end;
-end;
-
-procedure StripBanners(AToken: TSyntaxToken);
+procedure TTaifunFormatter.StripBanners(AToken: TSyntaxToken);
 var
   LTrivia, LLine, S, S2, LNewTrivia: string;
   P, I: Integer;
@@ -296,88 +223,10 @@ begin
   ClearTrivia(AToken);
   if Length(LNewTrivia) > 0 then AddLeadingTrivia(AToken, #13#10#13#10 + LNewTrivia)
   else AddLeadingTrivia(AToken, #13#10#13#10);
-  ExpectedTokenTextForSuppressedBanner := AToken.Text;
+  FExpectedTokenTextForSuppressedBanner := AToken.Text;
 end;
 
-procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
-var LToken, LNext: TSyntaxToken; LComments, LTrailingPart, LOldTrivia, LBanner, LPrefix: string;
-  LLeadingNewlines: Integer;
-begin
-  LToken := GetInterfaceKeyword(ASection);
-  if Assigned(LToken) then
-  begin
-    LOldTrivia := GetLeadingTrivia(LToken);
-    ClearTrivia(LToken);
-    ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
-    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
-    
-    LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
-    
-    if LTrailingPart <> '' then 
-    begin
-       if LComments <> '' then 
-       begin
-          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
-          AddLeadingTrivia(LToken, LTrailingPart + LPrefix + LComments + #13#10#13#10 + LBanner);
-       end
-       else AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LBanner);
-    end
-    else 
-    begin
-       if LComments <> '' then 
-       begin
-          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
-          AddLeadingTrivia(LToken, LPrefix + LComments + #13#10#13#10 + LBanner);
-       end
-       else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
-    end;
-    
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
-    LastClassName := '';
-    LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
-  end;
-end;
-
-procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
-var LToken, LNext: TSyntaxToken; LComments, LTrailingPart, LOldTrivia, LBanner, LPrefix, LNewBanner: string;
-  LLeadingNewlines: Integer;
-begin
-  LToken := GetImplementationKeyword(ASection);
-  if Assigned(LToken) then
-  begin
-    LOldTrivia := GetLeadingTrivia(LToken);
-    ClearTrivia(LToken);
-    ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
-    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
-    
-    LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
-    
-    if LTrailingPart <> '' then 
-    begin
-       if LComments <> '' then 
-       begin
-          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
-          AddLeadingTrivia(LToken, LTrailingPart + LPrefix + LComments + #13#10#13#10 + LBanner);
-       end
-       else AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LBanner);
-    end
-    else 
-    begin
-       if LComments <> '' then 
-       begin
-          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
-          AddLeadingTrivia(LToken, LPrefix + LComments + #13#10#13#10 + LBanner);
-       end
-       else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
-    end;
-    
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
-    LastClassName := '';
-    LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
-  end;
-end;
-
-function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
+function TTaifunFormatter.ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
 var S, LLine: string; P, P2, P3: Integer; LIsDirective, LFoundDesc: Boolean;
 begin
   Result := Length(ATrivia) > 0; LFoundDesc := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := '';
@@ -441,7 +290,196 @@ begin
   if ADirectives = '' then ADirectives := '{$I Tfw.Define.pas}';
 end;
 
-procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+procedure TTaifunFormatter.FormatUsesClause(AUses: TUsesClauseSyntax);
+var
+  LToken, LFirstItem: TSyntaxToken;
+  LTrivia: string;
+begin
+  LToken := GetUsesKeyword(AUses);
+  if Assigned(LToken) then
+  begin
+    LTrivia := GetLeadingTrivia(LToken);
+    ClearTrivia(LToken);
+    
+    while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
+    AddLeadingTrivia(LToken, #13#10#13#10 + LTrivia);
+    AddTrailingTrivia(LToken, '');
+    
+    LFirstItem := GetUsesFirstItemToken(AUses);
+    if Assigned(LFirstItem) then
+    begin
+      LTrivia := GetLeadingTrivia(LFirstItem);
+      ClearTrivia(LFirstItem);
+      while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
+      AddLeadingTrivia(LFirstItem, #13#10#13#10 + '  ' + LTrivia);
+    end;
+    FExpectedTokenTextForSuppressedBanner := '';
+  end;
+end;
+
+procedure TTaifunFormatter.FormatMethodImplementation(AMethod: TMethodImplementationSyntax);
+var
+  LClassName, LOldTrivia, LComments, LTrailingPart: string;
+  LToken: TSyntaxToken;
+  LIsSuppressed: Boolean;
+  LLeadingNewlines: Integer;
+begin
+  LClassName := GetMethodClassName(AMethod);
+  LToken := GetMethodStartToken(AMethod);
+  if not Assigned(LToken) then Exit;
+
+  LIsSuppressed := (FExpectedTokenTextForSuppressedBanner <> '') and (LToken.Text = FExpectedTokenTextForSuppressedBanner);
+  FExpectedTokenTextForSuppressedBanner := ''; 
+
+  LOldTrivia := GetLeadingTrivia(LToken);
+  ClearTrivia(LToken);
+
+  ProcessTrivia(LOldTrivia, LClassName, LTrailingPart, LComments, LLeadingNewlines);
+
+  if (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then LIsSuppressed := True;
+
+  if GetMethodDepth(AMethod) > 1 then
+  begin
+    if LIsSuppressed then
+    begin
+       if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateNestedMethodBanner() + LComments)
+       else AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + LComments);
+    end
+    else
+    begin
+       if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateNestedMethodBanner() + LComments)
+       else AddLeadingTrivia(LToken, #13#10#13#10 + CreateNestedMethodBanner() + LComments);
+    end;
+  end
+  else
+  begin
+    if (LClassName <> '') and (LClassName <> FLastClassName) then
+    begin
+       if LIsSuppressed then 
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + LComments)
+          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + LComments);
+       end
+       else
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateClassBanner(LClassName) + LComments)
+          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateClassBanner(LClassName) + LComments);
+       end;
+       FLastClassName := LClassName;
+    end
+    else if (LClassName = '') and (FLastClassName <> '') then
+    begin
+       FLastClassName := '';
+       if LIsSuppressed then
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + LComments)
+          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + LComments);
+       end
+       else
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateSectionBanner('') + LComments)
+          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateSectionBanner('') + LComments);
+       end;
+    end
+    else
+    begin
+       if not LIsSuppressed then
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + CreateMethodBanner() + LComments)
+          else AddLeadingTrivia(LToken, #13#10#13#10 + CreateMethodBanner() + LComments);
+       end
+       else
+       begin
+          if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LComments)
+          else
+          begin
+             if LComments <> '' then AddLeadingTrivia(LToken, #13#10#13#10 + LComments)
+             else AddLeadingTrivia(LToken, #13#10#13#10);
+          end;
+       end;
+    end;
+  end;
+end;
+
+procedure TTaifunFormatter.FormatInterfaceSection(ASection: TInterfaceSectionSyntax);
+var LToken, LNext: TSyntaxToken; LComments, LTrailingPart, LOldTrivia, LBanner, LPrefix: string;
+  LLeadingNewlines: Integer;
+begin
+  LToken := GetInterfaceKeyword(ASection);
+  if Assigned(LToken) then
+  begin
+    LOldTrivia := GetLeadingTrivia(LToken);
+    ClearTrivia(LToken);
+    ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
+    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    
+    LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
+    
+    if LTrailingPart <> '' then 
+    begin
+       if LComments <> '' then 
+       begin
+          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
+          AddLeadingTrivia(LToken, LTrailingPart + LPrefix + LComments + #13#10#13#10 + LBanner);
+       end
+       else AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LBanner);
+    end
+    else 
+    begin
+       if LComments <> '' then 
+       begin
+          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
+          AddLeadingTrivia(LToken, LPrefix + LComments + #13#10#13#10 + LBanner);
+       end
+       else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
+    end;
+    
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+    FLastClassName := '';
+    LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
+  end;
+end;
+
+procedure TTaifunFormatter.FormatImplementationSection(ASection: TImplementationSectionSyntax);
+var LToken, LNext: TSyntaxToken; LComments, LTrailingPart, LOldTrivia, LBanner, LPrefix: string;
+  LLeadingNewlines: Integer;
+begin
+  LToken := GetImplementationKeyword(ASection);
+  if Assigned(LToken) then
+  begin
+    LOldTrivia := GetLeadingTrivia(LToken);
+    ClearTrivia(LToken);
+    ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
+    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    
+    LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
+    
+    if LTrailingPart <> '' then 
+    begin
+       if LComments <> '' then 
+       begin
+          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
+          AddLeadingTrivia(LToken, LTrailingPart + LPrefix + LComments + #13#10#13#10 + LBanner);
+       end
+       else AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LBanner);
+    end
+    else 
+    begin
+       if LComments <> '' then 
+       begin
+          while (Length(LComments) > 0) and ((LComments[Length(LComments)] = #13) or (LComments[Length(LComments)] = #10)) do Delete(LComments, Length(LComments), 1);
+          AddLeadingTrivia(LToken, LPrefix + LComments + #13#10#13#10 + LBanner);
+       end
+       else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
+    end;
+    
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+    FLastClassName := '';
+    LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
+  end;
+end;
+
+procedure TTaifunFormatter.FormatUnitStart(AUnit: TCompilationUnitSyntax);
 var LToken, LSemicolon: TSyntaxToken; LUnitName, LTrivia, LDesc, LAuthor, LDirectives, LRule, LNewBanner, LDescLine, LExtra: string;
 begin
   LToken := GetUnitKeyword(AUnit);
@@ -458,8 +496,8 @@ begin
   end;
 end;
 
-procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
-var LToken: TSyntaxToken; LComments, LTrailingPart, LOldTrivia, LPrefix: string;
+procedure TTaifunFormatter.FormatUnitEnd(AUnit: TCompilationUnitSyntax);
+var LToken: TSyntaxToken; LComments, LTrailingPart, LOldTrivia: string;
   LLeadingNewlines: Integer;
 begin
   LToken := GetFinalEndKeyword(AUnit);
@@ -470,5 +508,50 @@ begin
     ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
 
     if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LComments + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10)
-    else AddLeadingTrivia(LToken, #13#10#13#10 + LComments + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);  end;
+    else AddLeadingTrivia(LToken, #13#10#13#10 + LComments + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
+  end;
+end;
+
+// -----------------------------------------------------------------------
+// Global Instance and Entry Points
+// -----------------------------------------------------------------------
+
+var GlobalFormatter: TTaifunFormatter;
+
+function GetFormatter: TTaifunFormatter;
+begin
+  if not Assigned(GlobalFormatter) then
+    GlobalFormatter := TTaifunFormatter.Create;
+  Result := GlobalFormatter;
+end;
+
+procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+begin
+  GetFormatter.ClearState;
+  GetFormatter.FormatUnitStart(AUnit);
+end;
+
+procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
+begin
+  GetFormatter.FormatUsesClause(AUses);
+end;
+
+procedure OnVisitInterfaceSection(ASection: TInterfaceSectionSyntax);
+begin
+  GetFormatter.FormatInterfaceSection(ASection);
+end;
+
+procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
+begin
+  GetFormatter.FormatImplementationSection(ASection);
+end;
+
+procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
+begin
+  GetFormatter.FormatMethodImplementation(AMethod);
+end;
+
+procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);
+begin
+  GetFormatter.FormatUnitEnd(AUnit);
 end;
