@@ -20,6 +20,7 @@ uses
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
   Test.DPT.Formatter.Taifun,
+  Test.DPT.Formatter.Taifun.Batch,
   Test.DPT.Lint.Setup.Task,
   Test.DPT.LintFixtures,
   Test.DPT.LintTask,
