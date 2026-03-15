@@ -6,7 +6,7 @@ type
     FLastClassName: string;
     FExpectedTokenTextForSuppressedBanner: string;
 
-    function StringOfChar(C: String; Count: Integer): string;
+    function GetSep(const C: string; Count: Integer): string;
     function PadRight(const S: string; ALen: Integer): string;
 
     function CreateClassBanner(const AClassName: string): string;
@@ -43,10 +43,15 @@ begin
   FExpectedTokenTextForSuppressedBanner := '';
 end;
 
-function TTaifunFormatter.StringOfChar(C: String; Count: Integer): string;
+function TTaifunFormatter.GetSep(const C: string; Count: Integer): string;
 var
   I: Integer;
 begin
+  if (Count = 71) and (C = '=') then Exit('=======================================================================');
+  if (Count = 71) and (C = '-') then Exit('-----------------------------------------------------------------------');
+  if (Count = 70) and (C = '=') then Exit('======================================================================');
+  if (Count = 26) and (C = '-') then Exit('--------------------------');
+
   Result := '';
   for I := 1 to Count do
     Result := Result + C;
@@ -63,7 +68,7 @@ function TTaifunFormatter.CreateClassBanner(const AClassName: string): string;
 var
   LRule: string;
 begin
-  LRule := '{ ' + StringOfChar('=', 71) + ' }';
+  LRule := '{ ' + GetSep('=', 71) + ' }';
   Result := LRule + #13#10 +
             '{ ' + PadRight(AClassName, 71) + ' }' + #13#10 +
             LRule + #13#10 + #13#10;
@@ -71,22 +76,22 @@ end;
 
 function TTaifunFormatter.CreateMethodBanner: string;
 begin
-  Result := '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10;
+  Result := '{ ' + GetSep('-', 71) + ' }' + #13#10 + #13#10;
 end;
 
 function TTaifunFormatter.CreateNestedMethodBanner: string;
 begin
-  Result := '{ ' + StringOfChar('-', 26) + ' }' + #13#10 + #13#10;
+  Result := '{ ' + GetSep('-', 26) + ' }' + #13#10 + #13#10;
 end;
 
 function TTaifunFormatter.CreateSectionBanner(const AName: string): string;
 begin
   if AName = '' then
-    Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10
+    Result := '{ ' + GetSep('=', 71) + ' }' + #13#10 + #13#10
   else
-    Result := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    Result := '{ ' + GetSep('=', 71) + ' }' + #13#10 +
               AName + #13#10 +
-              '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10;
+              '{ ' + GetSep('=', 71) + ' }' + #13#10 + #13#10;
 end;
 
 procedure TTaifunFormatter.ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer);
@@ -138,7 +143,7 @@ begin
         else 
         begin
           // Custom Inline-Banner: keep and format it
-          LLine := '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + StringOfChar('-', 71) + ' }' + #13#10;
+          LLine := '{ ' + GetSep('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + GetSep('-', 71) + ' }' + #13#10;
         end;
       end
       else if not LIsBanner and (AClassName <> '') then
@@ -426,7 +431,7 @@ begin
     LOldTrivia := GetLeadingTrivia(LToken);
     ClearTrivia(LToken);
     ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
-    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    LBanner := '{ ' + GetSep('=', 71) + ' }' + #13#10;
     
     LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
     
@@ -449,7 +454,7 @@ begin
        else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
     end;
     
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + GetSep('=', 71) + ' }');
     FLastClassName := '';
     LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
   end;
@@ -465,7 +470,7 @@ begin
     LOldTrivia := GetLeadingTrivia(LToken);
     ClearTrivia(LToken);
     ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
-    LBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10;
+    LBanner := '{ ' + GetSep('=', 71) + ' }' + #13#10;
     
     LPrefix := #13#10; if LLeadingNewlines >= 2 then LPrefix := #13#10#13#10;
     
@@ -488,7 +493,7 @@ begin
        else AddLeadingTrivia(LToken, #13#10#13#10 + LBanner);
     end;
     
-    AddTrailingTrivia(LToken, #13#10 + '{ ' + StringOfChar('=', 71) + ' }');
+    AddTrailingTrivia(LToken, #13#10 + '{ ' + GetSep('=', 71) + ' }');
     FLastClassName := '';
     LNext := GetNextToken(LToken); if Assigned(LNext) then StripBanners(LNext);
   end;
@@ -502,7 +507,7 @@ begin
   begin
     LUnitName := GetUnitName(AUnit); LTrivia := GetLeadingTrivia(LToken);
     ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LDirectives, LExtra);
-    LRule := '// ' + StringOfChar('=', 70); LDescLine := '// ' + LUnitName; if LDesc <> '' then LDescLine := LDescLine + ' - ' + LDesc;
+    LRule := '// ' + GetSep('=', 70); LDescLine := '// ' + LUnitName; if LDesc <> '' then LDescLine := LDescLine + ' - ' + LDesc;
     LNewBanner := LRule + #13#10 + '//' + #13#10 + LDescLine + #13#10 + '//' + #13#10 + '// Autor: ' + LAuthor + #13#10 + '//';
     if LExtra <> '' then LNewBanner := LNewBanner + #13#10 + LExtra + #13#10 + '//';
     LNewBanner := LNewBanner + #13#10 + LRule + #13#10 + #13#10 + LDirectives + #13#10 + #13#10;
@@ -522,8 +527,8 @@ begin
     ClearTrivia(LToken);
     ProcessTrivia(LOldTrivia, '', LTrailingPart, LComments, LLeadingNewlines);
 
-    if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LComments + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10)
-    else AddLeadingTrivia(LToken, #13#10#13#10 + LComments + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10);
+    if LTrailingPart <> '' then AddLeadingTrivia(LToken, LTrailingPart + #13#10#13#10 + LComments + '{ ' + GetSep('=', 71) + ' }' + #13#10#13#10)
+    else AddLeadingTrivia(LToken, #13#10#13#10 + LComments + '{ ' + GetSep('=', 71) + ' }' + #13#10#13#10);
   end;
 end;
 
