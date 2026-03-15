@@ -122,6 +122,8 @@ type
     procedure TestFormatUnitHeader_ExtractsMultilineDescription;
     [Test]
     procedure TestFormatUnitHeader_ExtractsDescriptionWithEnDash;
+    [Test]
+    procedure TestFormatInterface_ReplacesSlashesBanner;
   end;
 
 implementation
@@ -1790,6 +1792,34 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     Assert.IsTrue(LResult.Contains('// MyUnit.Validator - JWT/JWKS Validation'), 'Description with en-dash should be preserved and normalized. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatInterface_ReplacesSlashesBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'interface' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Check if the slash banner before and after the interface section was successfully replaced by the curly brace banner.
+    Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface'), 'Slashes banner before interface should be replaced by standard curly brace banner. Actual result:'#13#10 + LResult);
+    // The unit header also uses // ====, so we just make sure there's no // ==== directly before the interface banner
+    Assert.IsFalse(LResult.Contains('// ======================================================================' + #13#10 + '{ ' + StringOfChar('=', 71)), 'The old slashes banner should be completely removed from the interface trivia. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
