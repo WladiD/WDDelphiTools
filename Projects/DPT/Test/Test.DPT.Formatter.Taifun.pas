@@ -118,6 +118,8 @@ type
     procedure TestFormatImplementation_PreservesInlineBanners;
     [Test]
     procedure TestFormatUnitHeader_ExtractsDescriptionWithHyphen;
+    [Test]
+    procedure TestFormatUnitHeader_ExtractsMultilineDescription;
   end;
 
 implementation
@@ -1729,6 +1731,35 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     Assert.IsTrue(LResult.Contains('// Base.Kons.Common.Typ - Typdeklarationen: Konstanten (Programmübergreifend)'), 'Description with hyphen should be preserved correctly. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_ExtractsMultilineDescription;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit.Foo - The first line of the description.' + #13#10 +
+    '//              The second line of the description.' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: John Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit MyUnit.Foo; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    Assert.IsTrue(LResult.Contains('// MyUnit.Foo - The first line of the description.' + #13#10 + '//              The second line of the description.'), 'Multiline description should be preserved correctly under the unit name. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

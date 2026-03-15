@@ -227,9 +227,9 @@ begin
 end;
 
 function TTaifunFormatter.ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
-var S, LLine: string; P, P2, P3: Integer; LIsDirective, LFoundDesc: Boolean;
+var S, LLine: string; P, P2, P3: Integer; LIsDirective, LFoundDesc, LFoundAuthor: Boolean;
 begin
-  Result := Length(ATrivia) > 0; LFoundDesc := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := '';
+  Result := Length(ATrivia) > 0; LFoundDesc := False; LFoundAuthor := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := '';
   if Result then
   begin
     S := ATrivia;
@@ -248,6 +248,7 @@ begin
           AAuthor := Copy(LLine, P2 + 6, Length(LLine)); 
           while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1); 
           while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1); 
+          LFoundAuthor := True;
         end
         else if (Pos('//', LLine) = 1) and (Pos('// Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) then
         begin
@@ -268,7 +269,14 @@ begin
           end
           else if (LLine <> '// ' + AUnitName) and (Pos('// ' + AUnitName + ' -', LLine) <> 1) then
           begin
-            if AExtraComments <> '' then AExtraComments := AExtraComments + #13#10 + LLine else AExtraComments := LLine;
+            if LFoundDesc and not LFoundAuthor and (LLine <> '//') and (LLine <> '// ') then
+            begin
+              ADescription := ADescription + #13#10 + LLine;
+            end
+            else
+            begin
+              if AExtraComments <> '' then AExtraComments := AExtraComments + #13#10 + LLine else AExtraComments := LLine;
+            end;
           end;
         end;
       end;
