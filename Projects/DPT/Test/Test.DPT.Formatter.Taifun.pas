@@ -109,6 +109,8 @@ type
     [Test]
     procedure TestFormatImplementation_PreservesDirectivesBeforeBanner;
     [Test]
+    procedure TestFormatImplementation_PreservesIfDirectiveBlockBeforeBanner;
+    [Test]
     procedure TestFormatMethodImplementation_XmlDocNewline;
     [Test]
     procedure TestFormatUnit_NoExtraLineBeforeDirective;
@@ -1550,6 +1552,50 @@ begin
       '{ ======================================================================= }';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesIfDirectiveBlockBeforeBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{$IF DEFINED(DEBUG)}' + #13#10 +
+    '  {$SetPEFlags $20}' + #13#10 +
+    '{$ENDIF}' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CMyClass                                                                }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'procedure CMyClass.DoSomething;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    var LExpectedPart := 
+      '{$IF DEFINED(DEBUG)}' + #13#10 +
+      '  {$SetPEFlags $20}' + #13#10 +
+      '{$ENDIF}' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      '{ CMyClass';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), 'The $IF block should stay strictly above the class banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
