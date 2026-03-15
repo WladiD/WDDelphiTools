@@ -101,6 +101,8 @@ type
     [Test]
     procedure TestFormatImplementation_PreservesTrailingComment;
     [Test]
+    procedure TestFormatImplementation_PreservesCommentIndentation;
+    [Test]
     procedure TestFormatImplementation_PreservesDirectivesBeforeBanner;
     [Test]
     procedure TestFormatMethodImplementation_XmlDocNewline;
@@ -1399,6 +1401,43 @@ begin
       '{ CMongoGridFsService';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesCommentIndentation;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    '  PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,' + #13#10 +
+    '                                      //dieser Kommentar ist eingerückt,' + #13#10 +
+    '                                      //das weiß ich genau.' + #13#10 +
+    #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The indentation of the second comment line should be perfectly preserved
+    var LExpected := 
+      '  PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,' + #13#10 +
+      '                                      //dieser Kommentar ist eingerückt,' + #13#10 +
+      '                                      //das weiß ich genau.' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      'implementation';
+
+    Assert.IsTrue(LResult.Contains(LExpected), 'The indentation of multi-line comments before the implementation banner should be preserved. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

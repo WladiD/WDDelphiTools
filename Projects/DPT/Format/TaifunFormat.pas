@@ -129,7 +129,7 @@ begin
     end;
   end;
 
-  while (Length(AComments) > 0) and ((AComments[1] = #13) or (AComments[1] = #10) or (AComments[1] = ' ')) do Delete(AComments, 1, 1);
+  while (Length(AComments) > 0) and ((AComments[1] = #13) or (AComments[1] = #10)) do Delete(AComments, 1, 1);
   while (Length(AComments) > 0) and ((AComments[Length(AComments)] = #13) or (AComments[Length(AComments)] = #10) or (AComments[Length(AComments)] = ' ')) do Delete(AComments, Length(AComments), 1);
   
   while (Length(ATrailingPart) > 0) and ((ATrailingPart[Length(ATrailingPart)] = #13) or (ATrailingPart[Length(ATrailingPart)] = #10) or (ATrailingPart[Length(ATrailingPart)] = ' ')) do Delete(ATrailingPart, Length(ATrailingPart), 1);
@@ -284,7 +284,7 @@ begin
     end;
     if not LIsBanner then LNewTrivia := LNewTrivia + LLine;
   end;
-  while (Length(LNewTrivia) > 0) and ((LNewTrivia[1] = #13) or (LNewTrivia[1] = #10) or (LNewTrivia[1] = ' ')) do Delete(LNewTrivia, 1, 1);
+  while (Length(LNewTrivia) > 0) and ((LNewTrivia[1] = #13) or (LNewTrivia[1] = #10)) do Delete(LNewTrivia, 1, 1);
   ClearTrivia(AToken);
   if Length(LNewTrivia) > 0 then AddLeadingTrivia(AToken, #13#10#13#10 + LNewTrivia)
   else AddLeadingTrivia(AToken, #13#10#13#10);
