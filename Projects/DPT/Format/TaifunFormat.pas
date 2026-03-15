@@ -259,6 +259,13 @@ begin
             while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
             LFoundDesc := True; 
           end
+          else if (Length(LLine) > Length('// ' + AUnitName + ' ')) and not LFoundDesc and (Pos('// ' + AUnitName + ' ', LLine) = 1) then
+          begin
+            ADescription := Copy(LLine, Length('// ' + AUnitName + ' ') + 1, Length(LLine)); 
+            while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1); 
+            while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
+            if ADescription <> '' then LFoundDesc := True;
+          end
           else if (LLine <> '// ' + AUnitName) and (Pos('// ' + AUnitName + ' -', LLine) <> 1) then
           begin
             if AExtraComments <> '' then AExtraComments := AExtraComments + #13#10 + LLine else AExtraComments := LLine;

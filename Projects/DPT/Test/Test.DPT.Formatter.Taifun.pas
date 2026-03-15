@@ -116,6 +116,8 @@ type
     procedure TestFormatUnit_NoExtraLineBeforeDirective;
     [Test]
     procedure TestFormatImplementation_PreservesInlineBanners;
+    [Test]
+    procedure TestFormatUnitHeader_ExtractsDescriptionWithHyphen;
   end;
 
 implementation
@@ -1699,6 +1701,34 @@ begin
     Assert.IsTrue(LResult.Contains('{ Prüfsummenberechnung'), 'Inline banner text should be preserved. Actual result:'#13#10 + LResult);
     // The dashed lines around it should either be preserved or nicely formatted
     Assert.IsTrue(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 + '{ Prüfsummenberechnung'), 'Inline banner should be formatted correctly. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_ExtractsDescriptionWithHyphen;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Base.Kons.Common.Typ - Typdeklarationen: Konstanten (Programmübergreifend)' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: WDE' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit Base.Kons.Common.Typ; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    Assert.IsTrue(LResult.Contains('// Base.Kons.Common.Typ - Typdeklarationen: Konstanten (Programmübergreifend)'), 'Description with hyphen should be preserved correctly. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
