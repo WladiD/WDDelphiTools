@@ -95,12 +95,12 @@ begin
     for I := 0 to Min(Lines1.Count, Lines2.Count) - 1 do
     begin
       if Lines1[I] <> Lines2[I] then
-        Assert.Fail(Format('Datei %s unterscheidet sich in Zeile %d:'#13#10'B-Output  : %s'#13#10'C-Idempotent: %s', 
+        Assert.Fail(Format('File %s differs at line %d:'#13#10'B-Output  : %s'#13#10'C-Idempotent: %s', 
           [ExtractFileName(AFile1), I + 1, Lines1[I], Lines2[I]]));
     end;
     
     if Lines1.Count <> Lines2.Count then
-      Assert.Fail(Format('Dateien haben unterschiedliche Zeilenanzahl: %s (%d vs %d)', 
+      Assert.Fail(Format('Files have different line counts: %s (%d vs %d)', 
         [ExtractFileName(AFile1), Lines1.Count, Lines2.Count]));
   finally
     Lines1.Free;
@@ -117,14 +117,14 @@ var
 begin
   if not TDirectory.Exists(FInputDir) then
   begin
-    Assert.IsTrue(True, 'Eingabeordner existiert nicht.');
+    Assert.IsTrue(True, 'Input folder does not exist.');
     Exit;
   end;
 
   LFiles := TDirectory.GetFiles(FInputDir, '*.pas');
   if Length(LFiles) = 0 then
   begin
-    Assert.IsTrue(True, 'Keine Dateien in A-Input gefunden.');
+    Assert.IsTrue(True, 'No files found in A-Input.');
     Exit;
   end;
     
@@ -141,7 +141,7 @@ begin
 
     LSource := TFile.ReadAllText(LInputFile, TEncoding.UTF8);
 
-    // Erster Durchlauf: A -> B
+    // First pass: A -> B
     LUnit1 := FParser.Parse(LSource);
     try
       FFormatter.FormatUnit(LUnit1);
@@ -151,7 +151,7 @@ begin
       LUnit1.Free;
     end;
 
-    // Zweiter Durchlauf: B -> C
+    // Second pass: B -> C
     LUnit2 := FParser.Parse(LFormatted1);
     try
       FFormatter.FormatUnit(LUnit2);
@@ -161,11 +161,18 @@ begin
       LUnit2.Free;
     end;
 
-    // Vergleich
+    // Comparison
     CompareFilesLineByLine(LOutputFile, LIdempotentFile);
+
+    // Delete files that were not changed by formatting
+    if LSource = LFormatted1 then
+    begin
+      if TFile.Exists(LOutputFile) then
+        TFile.Delete(LOutputFile);
+    end;
   end;
 
-  // Cleanup bei Erfolg
+  // Cleanup on success
   ClearDirectory(FIdempotentDir);
 end;
 
@@ -178,14 +185,14 @@ var
 begin
   if not TDirectory.Exists(FGoodDir) then
   begin
-    Assert.IsTrue(True, 'Good-Ordner existiert nicht.');
+    Assert.IsTrue(True, 'Good folder does not exist.');
     Exit;
   end;
 
   LFiles := TDirectory.GetFiles(FGoodDir, '*.pas');
   if Length(LFiles) = 0 then
   begin
-    Assert.IsTrue(True, 'Keine Dateien im Good-Ordner gefunden.');
+    Assert.IsTrue(True, 'No files found in the Good folder.');
     Exit;
   end;
 
@@ -198,7 +205,7 @@ begin
     LOutputFile := TPath.Combine(FOutputDir, LFileName);
 
     if not TFile.Exists(LInputFile) then
-      Assert.Fail('Gegenstück in A-Input fehlt für: ' + LFileName);
+      Assert.Fail('Counterpart in A-Input missing for: ' + LFileName);
 
     LSource := TFile.ReadAllText(LInputFile, TEncoding.UTF8);
 
@@ -211,7 +218,7 @@ begin
       LUnit.Free;
     end;
 
-    // Vergleich der formatierten Ausgabe mit der Good-Datei
+    // Compare the formatted output with the Good file
     CompareFilesLineByLine(LOutputFile, LGoodFile);
   end;
 end;
