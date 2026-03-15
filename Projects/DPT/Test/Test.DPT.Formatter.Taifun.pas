@@ -53,6 +53,10 @@ type
     [Test]
     procedure TestFormatUnitHeader_PreservesPerfect;
     [Test]
+    procedure TestFormatUnitHeader_DoesNotOverwriteDescriptionWithLaterHyphens;
+    [Test]
+    procedure TestFormatUnitHeader_PreservesExtraComments;
+    [Test]
     procedure TestFormatInterface_PreservesEmptyLineBeforeType;
     [Test]
     procedure TestFormatInterface_NoExtraEmptyLineBeforeUses;
@@ -639,6 +643,71 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     // Should preserve 'Special description', 'The Real Author', and 'Base.Define.pas' exactly
     Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Perfect header was modified: '#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_DoesNotOverwriteDescriptionWithLaterHyphens;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - The real description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: John Doe' + #13#10 +
+    '//' + #13#10 +
+    '// This is a multi-line comment.' + #13#10 +
+    '// It has a - hyphen later on.' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit MyUnit; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should extract "The real description" and NOT "hyphen later on."
+    Assert.IsTrue(LResult.Contains('// MyUnit - The real description'), 'Should extract the correct description. Actual result:'#13#10 + LResult);
+    Assert.IsFalse(LResult.Contains('// MyUnit - hyphen later on.'), 'Should not overwrite description with later hyphens. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PreservesExtraComments;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some valid description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Max Mustermann' + #13#10 +
+    '//' + #13#10 +
+    '// The unicorn jumped over the rainbow' + #13#10 +
+    '// finding a pot of pure gold.' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit MyUnit; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Check if the extra comments about the unicorn were preserved
+    Assert.IsTrue(LResult.Contains('// The unicorn jumped over the rainbow' + #13#10 + '// finding a pot of pure gold.'), 'Should preserve extra comments in the header banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
