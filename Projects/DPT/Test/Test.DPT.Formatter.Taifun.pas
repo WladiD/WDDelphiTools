@@ -45,6 +45,8 @@ type
     [Test]
     procedure TestFormatImplementation_OldClassBannerIsReplacedProperly;
     [Test]
+    procedure TestFormatImplementation_OldClassBannerWithTypoIsReplacedProperly;
+    [Test]
     procedure TestFormatUnitHeader_CreatesNew;
     [Test]
     procedure TestFormatUnitHeader_CorrectsExisting;
@@ -488,6 +490,47 @@ begin
       #13#10 +
       'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);'
     ), 'Old banner with suffixes like "- Class" must be completely replaced and no extra empty lines should be present before the new banner. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_OldClassBannerWithTypoIsReplacedProperly;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit;' + #13#10 +
+             'interface' + #13#10 +
+             'implementation' + #13#10 +
+             '{ ======================================================================= }' + #13#10 +
+             '{ CHierachyObject - Class                                                 }' + #13#10 +
+             '{ ======================================================================= }' + #13#10 +
+             #13#10 +
+             'constructor CHierarchyObject.Create(AOwner: CHierarchyObject);' + #13#10 +
+             'begin' + #13#10 +
+             '  inherited Create;' + #13#10 +
+             'end;' + #13#10 +
+             'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ======================================================================= }' + #13#10 +
+      'implementation' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      '{ CHierarchyObject                                                        }' + #13#10 +
+      '{ ======================================================================= }' + #13#10 +
+      #13#10 +
+      'constructor CHierarchyObject.Create(AOwner: CHierarchyObject);'
+    ), 'Old banner with typos and "- Class" suffix must be replaced by the correct new banner. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;

@@ -93,6 +93,7 @@ begin
         else if (AClassName <> '') and ((S2 = AClassName) or (Pos(AClassName + ' ', S2) = 1) or (Pos(AClassName + '.', S2) = 1)) then LIsBanner := True
         else if (AClassName = '') and (LastClassName <> '') and ((S2 = LastClassName) or (Pos(LastClassName + ' ', S2) = 1)) then LIsBanner := True
         else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
+        else if Pos(' - Class', S2) > 0 then LIsBanner := True
         else 
         begin
           // Custom Inline-Banner: keep and format it
@@ -277,7 +278,8 @@ begin
         while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
         while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
         if S2 = '' then LIsBanner := True
-        else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True;
+        else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
+        else if Pos(' - Class', S2) > 0 then LIsBanner := True;
       end;
     end;
     if not LIsBanner then LNewTrivia := LNewTrivia + LLine;
