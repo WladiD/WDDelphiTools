@@ -83,9 +83,23 @@ begin
     begin
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
-      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
-      
-      if not LIsBanner and (AClassName <> '') then
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+      begin
+        S2 := LLine;
+        while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
+        while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
+        
+        if S2 = '' then LIsBanner := True
+        else if (AClassName <> '') and ((S2 = AClassName) or (Pos(AClassName + ' ', S2) = 1) or (Pos(AClassName + '.', S2) = 1)) then LIsBanner := True
+        else if (AClassName = '') and (LastClassName <> '') and ((S2 = LastClassName) or (Pos(LastClassName + ' ', S2) = 1)) then LIsBanner := True
+        else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
+        else 
+        begin
+          // Custom Inline-Banner: keep and format it
+          LLine := '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + StringOfChar('-', 71) + ' }' + #13#10;
+        end;
+      end
+      else if not LIsBanner and (AClassName <> '') then
       begin
         S2 := LLine;
         while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
@@ -119,7 +133,11 @@ begin
   
   while (Length(ATrailingPart) > 0) and ((ATrailingPart[Length(ATrailingPart)] = #13) or (ATrailingPart[Length(ATrailingPart)] = #10) or (ATrailingPart[Length(ATrailingPart)] = ' ')) do Delete(ATrailingPart, Length(ATrailingPart), 1);
 
-  if AComments <> '' then AComments := AComments + #13#10;
+  if AComments <> '' then 
+  begin
+    if AComments[Length(AComments)] = '}' then AComments := AComments + #13#10#13#10
+    else AComments := AComments + #13#10;
+  end;
 end;
 
 procedure OnVisitUsesClause(AUses: TUsesClauseSyntax);
@@ -167,6 +185,8 @@ begin
   ClearTrivia(LToken);
 
   ProcessTrivia(LOldTrivia, LClassName, LTrailingPart, LComments, LLeadingNewlines);
+
+  if (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then LIsSuppressed := True;
 
   if GetMethodDepth(AMethod) > 1 then
   begin
@@ -233,7 +253,7 @@ end;
 
 procedure StripBanners(AToken: TSyntaxToken);
 var
-  LTrivia, LLine, S, LNewTrivia: string;
+  LTrivia, LLine, S, S2, LNewTrivia: string;
   P, I: Integer;
   LIsText, LIsBanner: Boolean;
 begin
@@ -251,7 +271,14 @@ begin
     if LIsText then
     begin
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) then LIsBanner := True;
-      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then LIsBanner := True;
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+      begin
+        S2 := LLine;
+        while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
+        while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
+        if S2 = '' then LIsBanner := True
+        else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True;
+      end;
     end;
     if not LIsBanner then LNewTrivia := LNewTrivia + LLine;
   end;

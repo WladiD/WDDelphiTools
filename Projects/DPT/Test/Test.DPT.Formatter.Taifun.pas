@@ -104,6 +104,8 @@ type
     procedure TestFormatMethodImplementation_XmlDocNewline;
     [Test]
     procedure TestFormatUnit_NoExtraLineBeforeDirective;
+    [Test]
+    procedure TestFormatImplementation_PreservesInlineBanners;
   end;
 
 implementation
@@ -1467,6 +1469,39 @@ begin
       '{$ALIGN ON}';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'There should be exactly one blank line before the directive. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesInlineBanners;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    '{ Prüfsummenberechnung                                                    }' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    'procedure Test;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The text inside the inline banner should be preserved
+    Assert.IsTrue(LResult.Contains('{ Prüfsummenberechnung'), 'Inline banner text should be preserved. Actual result:'#13#10 + LResult);
+    // The dashed lines around it should either be preserved or nicely formatted
+    Assert.IsTrue(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 + '{ Prüfsummenberechnung'), 'Inline banner should be formatted correctly. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

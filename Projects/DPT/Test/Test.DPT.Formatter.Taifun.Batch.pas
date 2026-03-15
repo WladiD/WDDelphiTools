@@ -85,6 +85,7 @@ procedure TTestTaifunFormatterBatch.CompareFilesLineByLine(const AFile1, AFile2:
 var
   Lines1, Lines2: TStringList;
   I: Integer;
+  Dir1, Dir2: string;
 begin
   Lines1 := TStringList.Create;
   Lines2 := TStringList.Create;
@@ -92,11 +93,14 @@ begin
     Lines1.LoadFromFile(AFile1, TEncoding.UTF8);
     Lines2.LoadFromFile(AFile2, TEncoding.UTF8);
     
+    Dir1 := ExtractFileName(ExtractFileDir(AFile1));
+    Dir2 := ExtractFileName(ExtractFileDir(AFile2));
+    
     for I := 0 to Min(Lines1.Count, Lines2.Count) - 1 do
     begin
       if Lines1[I] <> Lines2[I] then
-        Assert.Fail(Format('File %s differs at line %d:'#13#10'B-Output  : %s'#13#10'C-Idempotent: %s', 
-          [ExtractFileName(AFile1), I + 1, Lines1[I], Lines2[I]]));
+        Assert.Fail(Format('File %s differs at line %d:'#13#10'%-12s: %s'#13#10'%-12s: %s', 
+          [ExtractFileName(AFile1), I + 1, Dir1, Lines1[I], Dir2, Lines2[I]]));
     end;
     
     if Lines1.Count <> Lines2.Count then
