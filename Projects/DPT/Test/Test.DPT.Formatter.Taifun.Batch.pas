@@ -25,6 +25,7 @@ type
     FInputDir: string;
     FOutputDir: string;
     FIdempotentDir: string;
+    FGoodDir: string;
     procedure ClearDirectory(const ADir: string);
     procedure CompareFilesLineByLine(const AFile1, AFile2: string);
   public
@@ -34,7 +35,9 @@ type
     procedure TearDown;
 
     [Test]
-    procedure TestBatchFormat;
+    procedure TestIdempotence;
+    [Test]
+    procedure TestGoodFormat;
   end;
 
 implementation
@@ -55,6 +58,7 @@ begin
   FInputDir := TPath.Combine(LTestDir, 'FormatTaifunData\A-Input');
   FOutputDir := TPath.Combine(LTestDir, 'FormatTaifunData\B-Output');
   FIdempotentDir := TPath.Combine(LTestDir, 'FormatTaifunData\C-Idempotent');
+  FGoodDir := TPath.Combine(LTestDir, 'FormatTaifunData\Good');
 end;
 
 procedure TTestTaifunFormatterBatch.TearDown;
@@ -104,7 +108,7 @@ begin
   end;
 end;
 
-procedure TTestTaifunFormatterBatch.TestBatchFormat;
+procedure TTestTaifunFormatterBatch.TestIdempotence;
 var
   LFiles: TArray<string>;
   LInputFile, LFileName, LOutputFile, LIdempotentFile: string;
@@ -159,6 +163,56 @@ begin
 
     // Vergleich
     CompareFilesLineByLine(LOutputFile, LIdempotentFile);
+  end;
+
+  // Cleanup bei Erfolg
+  ClearDirectory(FIdempotentDir);
+end;
+
+procedure TTestTaifunFormatterBatch.TestGoodFormat;
+var
+  LFiles: TArray<string>;
+  LGoodFile, LFileName, LInputFile, LOutputFile: string;
+  LSource, LFormatted: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  if not TDirectory.Exists(FGoodDir) then
+  begin
+    Assert.IsTrue(True, 'Good-Ordner existiert nicht.');
+    Exit;
+  end;
+
+  LFiles := TDirectory.GetFiles(FGoodDir, '*.pas');
+  if Length(LFiles) = 0 then
+  begin
+    Assert.IsTrue(True, 'Keine Dateien im Good-Ordner gefunden.');
+    Exit;
+  end;
+
+  FFormatter.LoadScript(FScriptPath);
+
+  for LGoodFile in LFiles do
+  begin
+    LFileName := ExtractFileName(LGoodFile);
+    LInputFile := TPath.Combine(FInputDir, LFileName);
+    LOutputFile := TPath.Combine(FOutputDir, LFileName);
+
+    if not TFile.Exists(LInputFile) then
+      Assert.Fail('Gegenstück in A-Input fehlt für: ' + LFileName);
+
+    LSource := TFile.ReadAllText(LInputFile, TEncoding.UTF8);
+
+    LUnit := FParser.Parse(LSource);
+    try
+      FFormatter.FormatUnit(LUnit);
+      LFormatted := FWriter.GenerateSource(LUnit);
+      TFile.WriteAllText(LOutputFile, LFormatted, TEncoding.UTF8);
+    finally
+      LUnit.Free;
+    end;
+
+    // Vergleich der formatierten Ausgabe mit der Good-Datei
+    CompareFilesLineByLine(LOutputFile, LGoodFile);
   end;
 end;
 
