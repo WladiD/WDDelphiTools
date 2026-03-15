@@ -257,10 +257,20 @@ begin
         end
         else if (Pos('//', LLine) = 1) and (Pos('// Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) then
         begin
-          if (Length(LLine) > 3) and not LFoundDesc and (Pos('-', LLine) > 0) then
+          if (Length(LLine) > 3) and not LFoundDesc and ((Pos('-', LLine) > 0) or (Pos('–', LLine) > 0) or (Pos('â€', LLine) > 0)) then
           begin
             P3 := Pos('-', LLine); 
-            ADescription := Copy(LLine, P3 + 1, Length(LLine)); 
+            if P3 = 0 then P3 := Pos('–', LLine);
+            if P3 = 0 then P3 := Pos('â€', LLine);
+
+            // Find the character index after the dash. We handle the 3-byte 'â€“' if it was matched by 'â€'.
+            if Pos('â€', LLine) = P3 then
+              ADescription := Copy(LLine, P3 + Length('â€“'), Length(LLine))
+            else if Pos('–', LLine) = P3 then
+              ADescription := Copy(LLine, P3 + Length('–'), Length(LLine))
+            else
+              ADescription := Copy(LLine, P3 + 1, Length(LLine)); 
+            
             while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1); 
             while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
             LFoundDesc := True; 

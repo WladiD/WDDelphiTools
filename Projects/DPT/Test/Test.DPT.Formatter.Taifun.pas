@@ -120,6 +120,8 @@ type
     procedure TestFormatUnitHeader_ExtractsDescriptionWithHyphen;
     [Test]
     procedure TestFormatUnitHeader_ExtractsMultilineDescription;
+    [Test]
+    procedure TestFormatUnitHeader_ExtractsDescriptionWithEnDash;
   end;
 
 implementation
@@ -1760,6 +1762,34 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     Assert.IsTrue(LResult.Contains('// MyUnit.Foo - The first line of the description.' + #13#10 + '//              The second line of the description.'), 'Multiline description should be preserved correctly under the unit name. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_ExtractsDescriptionWithEnDash;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit.Validator – JWT/JWKS Validation' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Alice' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    'unit MyUnit.Validator; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    Assert.IsTrue(LResult.Contains('// MyUnit.Validator - JWT/JWKS Validation'), 'Description with en-dash should be preserved and normalized. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
