@@ -105,6 +105,8 @@ type
     [Test]
     procedure TestFormatImplementation_ReplacesIncorrectGenericClassBanner;
     [Test]
+    procedure TestFormatImplementation_AvoidsBannersOnBodylessMethods;
+    [Test]
     procedure TestFormatUnitEnd_PreservesTrailingDirectives;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
@@ -1493,6 +1495,34 @@ begin
     // We expect the old incorrect generic banner to be completely replaced by the correct non-generic banner
     Assert.IsTrue(LResult.Contains('{ CRecordTableCacheBase' + StringOfChar(' ', 50) + ' }'), 'Should generate correct non-generic class banner. Actual result:'#13#10 + LResult);
     Assert.IsFalse(LResult.Contains('{ CRecordTableCacheBase<TIdx, TRec>'), 'Should completely remove the old incorrect generic banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_AvoidsBannersOnBodylessMethods;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetApiBufferFree'';' + #13#10 +
+    'function NetShareEnum(ServerName: PWideChar; Level: DWORD; var BufPtr: Pointer; PrefMaxLen: DWORD; var EntriesRead: DWORD; var TotalEntries: DWORD; var ResumeHandle: DWORD): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetShareEnum'';' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should NOT contain a short separator between these bodyless methods
+    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT generate banners for bodyless methods like external functions. Actual result:'#13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetApiBufferFree'';' + #13#10 + 'function NetShareEnum'), 'Should keep external functions close together without empty lines inserted. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

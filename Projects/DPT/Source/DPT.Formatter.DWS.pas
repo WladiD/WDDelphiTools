@@ -49,6 +49,7 @@ type
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
     procedure dwsGetMethodClassName(Info: TProgramInfo);
     procedure dwsGetMethodDepth(Info: TProgramInfo);
+    procedure dwsGetMethodHasBody(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
     procedure dwsGetMethodEndToken(Info: TProgramInfo);
@@ -191,6 +192,11 @@ begin
   Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   Func.ResultType := 'Integer';
   Func.OnEval := dwsGetMethodDepth;
+
+  Func := FUnit.Functions.Add('GetMethodHasBody');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsGetMethodHasBody;
 
   Func := FUnit.Functions.Add('GetMethodName');
   Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
@@ -382,6 +388,19 @@ end;
 procedure TDptDwsFormatter.dwsGetMethodDepth(Info: TProgramInfo);
 begin
   Info.ResultAsInteger := FMethodDepth;
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodHasBody(Info: TProgramInfo);
+var
+  Node : TMethodImplementationSyntax;
+begin
+  Node := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) then
+  begin
+    Info.ResultAsBoolean := Assigned(Node.BeginKeyword);
+  end
+  else
+    Info.ResultAsBoolean := False;
 end;
 
 procedure TDptDwsFormatter.dwsGetMethodName(Info: TProgramInfo);

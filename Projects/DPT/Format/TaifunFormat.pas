@@ -415,6 +415,8 @@ var
   LIsSuppressed: Boolean;
   LLeadingNewlines: Integer;
 begin
+  if not GetMethodHasBody(AMethod) then Exit;
+
   LClassName := GetMethodClassName(AMethod);
   LToken := GetMethodStartToken(AMethod);
   if not Assigned(LToken) then Exit;
