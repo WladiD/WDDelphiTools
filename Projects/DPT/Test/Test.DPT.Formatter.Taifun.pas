@@ -117,6 +117,8 @@ type
     [Test]
     procedure TestFormatImplementation_PreservesInlineBanners;
     [Test]
+    procedure TestFormatImplementation_PreservesMultiLineCommentsWrappedInSeparators;
+    [Test]
     procedure TestFormatUnitHeader_ExtractsDescriptionWithHyphen;
     [Test]
     procedure TestFormatUnitHeader_ExtractsMultilineDescription;
@@ -1712,6 +1714,45 @@ begin
     Assert.IsTrue(LResult.Contains('{ Prüfsummenberechnung'), 'Inline banner text should be preserved. Actual result:'#13#10 + LResult);
     // The dashed lines around it should either be preserved or nicely formatted
     Assert.IsTrue(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 + '{ Prüfsummenberechnung'), 'Inline banner should be formatted correctly. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesMultiLineCommentsWrappedInSeparators;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    '{ Category A: XXX01234567890123456 (cpAlpha)                              }' + #13#10 +
+    '{             XXX01234567890123457 (cpBeta)                               }' + #13#10 +
+    '{             XXX01234567890123458 (cpGamma)                              }' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    'procedure Test;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    var LExpectedBlock := 
+      '{ ----------------------------------------------------------------------- }' + #13#10 +
+      '{ Category A: XXX01234567890123456 (cpAlpha)                              }' + #13#10 +
+      '{             XXX01234567890123457 (cpBeta)                               }' + #13#10 +
+      '{             XXX01234567890123458 (cpGamma)                              }' + #13#10 +
+      '{ ----------------------------------------------------------------------- }';
+
+    Assert.IsTrue(LResult.Contains(LExpectedBlock), 'The entire block should be preserved perfectly. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

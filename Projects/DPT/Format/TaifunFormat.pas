@@ -96,9 +96,9 @@ end;
 
 procedure TTaifunFormatter.ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
 var
-  S, LLine, S2: string;
-  P, I, LIfLevel: Integer;
-  LCollectingForPrevious, LIsBanner, LIsText: Boolean;
+  S, LLine, S2, LPeek: string;
+  P, I, LIfLevel, LPeekIdx: Integer;
+  LCollectingForPrevious, LIsBanner, LIsText, LWasBraceComment, LIsBraceComment, LNextIsBrace: Boolean;
 begin
   AComments := '';
   ATrailingPart := '';
@@ -123,6 +123,7 @@ begin
 
   LCollectingForPrevious := True;
   LIfLevel := 0;
+  LWasBraceComment := False;
 
   while Length(S) > 0 do
   begin
@@ -137,10 +138,12 @@ begin
 
     if LIsText then
     begin
+      LIsBraceComment := False;
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then LIsBanner := True;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
       begin
+        LIsBraceComment := True;
         S2 := LLine;
         while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
         while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
@@ -152,8 +155,40 @@ begin
         else if Pos(' - Class', S2) > 0 then LIsBanner := True
         else 
         begin
-          // Custom Inline-Banner: keep and format it
-          LLine := '{ ' + GetSep('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + GetSep('-', 71) + ' }' + #13#10;
+          LPeekIdx := 1;
+          while (LPeekIdx <= Length(S)) and ((S[LPeekIdx] = ' ') or (S[LPeekIdx] = #13) or (S[LPeekIdx] = #10) or (S[LPeekIdx] = #9)) do Inc(LPeekIdx);
+          LNextIsBrace := (LPeekIdx <= Length(S)) and (S[LPeekIdx] = '{') and 
+            (Copy(S, LPeekIdx, 3) <> '{ -') and (Copy(S, LPeekIdx, 3) <> '{ =') and 
+            (Copy(S, LPeekIdx, 2) <> '{!');
+            
+          var LPrevIsBrace: Boolean := False;
+          var LLenA: Integer := Length(AComments);
+          if (LLenA >= 3) and (AComments[LLenA - 1] = #13) and (AComments[LLenA] = #10) then
+          begin
+             var LCheckIdx: Integer := LLenA - 2;
+             while (LCheckIdx > 0) and (AComments[LCheckIdx] = ' ') do Dec(LCheckIdx);
+             if (LCheckIdx > 0) and (AComments[LCheckIdx] = '}') then LPrevIsBrace := True;
+          end
+          else if LLenA > 0 then
+          begin
+             var LCheckIdx: Integer := LLenA;
+             while (LCheckIdx > 0) and (AComments[LCheckIdx] = ' ') do Dec(LCheckIdx);
+             if (LCheckIdx > 0) and (AComments[LCheckIdx] = '}') then LPrevIsBrace := True;
+          end;
+
+          if LPrevIsBrace or LNextIsBrace then
+          begin
+             // It's a multiline comment block, keep as is, but ensure it's wrapped in separators
+             if not LPrevIsBrace then
+                LLine := '{ ' + GetSep('-', 71) + ' }' + #13#10 + LLine;
+             if not LNextIsBrace then
+                LLine := LLine + '{ ' + GetSep('-', 71) + ' }' + #13#10;
+          end
+          else
+          begin
+            // Custom Inline-Banner: keep and format it
+            LLine := '{ ' + GetSep('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + GetSep('-', 71) + ' }' + #13#10;
+          end;
         end;
       end
       else if not LIsBanner and (AClassName <> '') then
@@ -174,6 +209,7 @@ begin
          begin
             ATrailingPart := ATrailingPart + LLine;
             if Pos('{$ENDIF', LLine) > 0 then Dec(LIfLevel);
+            LWasBraceComment := LIsBraceComment;
             Continue;
          end;
          LCollectingForPrevious := False;
