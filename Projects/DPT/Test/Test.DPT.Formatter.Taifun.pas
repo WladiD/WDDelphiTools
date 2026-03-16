@@ -101,6 +101,8 @@ type
     [Test]
     procedure TestFormatImplementation_AvoidDuplicateClassNameComment_WithSpacesInGenerics;
     [Test]
+    procedure TestFormatImplementation_PreservesClassBannerWithDescriptiveText;
+    [Test]
     procedure TestFormatUnitEnd_PreservesTrailingDirectives;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
@@ -1424,6 +1426,38 @@ begin
     // Should NOT contain a duplicate banner when the old one had spaces inside generics
     Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT contain a short separator since the class banner should replace the old one. Actual result:'#13#10 + LResult);
     Assert.IsTrue(LResult.Contains('{ CThreadPoolResult<TInput,TOutput>'), 'Should contain the class banner without spaces inside generics');
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesClassBannerWithDescriptiveText;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ TVersionNumber - Operatoren                                             }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'class operator TVersionNumber.Implicit(AValue: Cardinal): TVersionNumber;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    Assert.IsTrue(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'), 'Old banner with descriptive text should be replaced by a standard class banner. Actual result:'#13#10 + LResult);
+    Assert.IsFalse(LResult.Contains('{ TVersionNumber - Operatoren'), 'The descriptive text "- Operatoren" should NOT be preserved. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

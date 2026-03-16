@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -1395,7 +1395,8 @@ var
        (Peek(2) <> nil) and (Peek(2).Kind = tkDot)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
-        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword)) and
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword) or
+        ((Peek(1).Kind = tkIdentifier) and SameText(Peek(1).Text, 'operator'))) and
        (Peek(2) <> nil) and (Peek(2).Kind = tkIdentifier) and
        (Peek(3) <> nil) and (Peek(3).Kind = tkDot))
     );
@@ -1661,7 +1662,8 @@ var
       ((AToken.Kind = tkDestructorKeyword) and HasDotAfterIdentifierOrGeneric(1)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
-        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword))));
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword) or
+        ((Peek(1).Kind = tkIdentifier) and SameText(Peek(1).Text, 'operator')))));
   end;
 
   function IsQualifiedMethodStart(AToken: TSyntaxToken): Boolean;
@@ -1672,7 +1674,8 @@ var
        HasDotAfterIdentifierOrGeneric(1)) or
       ((AToken.Kind = tkClassKeyword) and (Peek(1) <> nil) and
        ((Peek(1).Kind = tkProcedureKeyword) or (Peek(1).Kind = tkFunctionKeyword) or
-        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword)) and
+        (Peek(1).Kind = tkConstructorKeyword) or (Peek(1).Kind = tkDestructorKeyword) or
+        ((Peek(1).Kind = tkIdentifier) and SameText(Peek(1).Text, 'operator'))) and
        HasDotAfterIdentifierOrGeneric(2))
     );
   end;
