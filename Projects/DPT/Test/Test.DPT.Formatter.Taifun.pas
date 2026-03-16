@@ -103,6 +103,8 @@ type
     [Test]
     procedure TestFormatImplementation_PreservesClassBannerWithDescriptiveText;
     [Test]
+    procedure TestFormatImplementation_ReplacesIncorrectGenericClassBanner;
+    [Test]
     procedure TestFormatUnitEnd_PreservesTrailingDirectives;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
@@ -1458,6 +1460,39 @@ begin
     
     Assert.IsTrue(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'), 'Old banner with descriptive text should be replaced by a standard class banner. Actual result:'#13#10 + LResult);
     Assert.IsFalse(LResult.Contains('{ TVersionNumber - Operatoren'), 'The descriptive text "- Operatoren" should NOT be preserved. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_ReplacesIncorrectGenericClassBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CRecordTableCacheBase<TIdx, TRec>                                       }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'constructor CRecordTableCacheBase.Create(ATblNo: Word);' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // We expect the old incorrect generic banner to be completely replaced by the correct non-generic banner
+    Assert.IsTrue(LResult.Contains('{ CRecordTableCacheBase' + StringOfChar(' ', 50) + ' }'), 'Should generate correct non-generic class banner. Actual result:'#13#10 + LResult);
+    Assert.IsFalse(LResult.Contains('{ CRecordTableCacheBase<TIdx, TRec>'), 'Should completely remove the old incorrect generic banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
