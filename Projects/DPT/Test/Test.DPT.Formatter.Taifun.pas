@@ -99,6 +99,8 @@ type
     [Test]
     procedure TestFormatImplementation_AvoidDuplicateClassNameComment;
     [Test]
+    procedure TestFormatImplementation_AvoidDuplicateClassNameComment_WithSpacesInGenerics;
+    [Test]
     procedure TestFormatUnitEnd_PreservesTrailingDirectives;
     [Test]
     procedure TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
@@ -1388,6 +1390,40 @@ begin
     // Should contain the class banner but NOT the duplicate '// CListEnumerator_Integer' comment
     Assert.IsTrue(LResult.Contains('{ CListEnumerator_Integer'), 'Should contain the class banner');
     Assert.IsFalse(LResult.Contains('// CListEnumerator_Integer'), 'Should NOT contain the redundant class name comment. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_AvoidDuplicateClassNameComment_WithSpacesInGenerics;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CThreadPoolResult<TInput, TOutput>                                      }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'function CThreadPoolResult<TInput,TOutput>.IsFaulted: Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=False;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // Should NOT contain a duplicate banner when the old one had spaces inside generics
+    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT contain a short separator since the class banner should replace the old one. Actual result:'#13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('{ CThreadPoolResult<TInput,TOutput>'), 'Should contain the class banner without spaces inside generics');
   finally
     LUnit.Free;
   end;

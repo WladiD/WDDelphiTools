@@ -13,6 +13,7 @@ type
     function CreateMethodBanner: string;
     function CreateNestedMethodBanner: string;
     function CreateSectionBanner(const AName: string): string;
+    function RemoveSpaces(const S: string): string;
 
     procedure ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
     procedure StripBanners(AToken: TSyntaxToken);
@@ -94,6 +95,15 @@ begin
               '{ ' + GetSep('=', 71) + ' }' + #13#10 + #13#10;
 end;
 
+function TTaifunFormatter.RemoveSpaces(const S: string): string;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 1 to Length(S) do
+    if S[I] <> ' ' then Result := Result + S[I];
+end;
+
 procedure TTaifunFormatter.ProcessTrivia(const AOldTrivia: string; const AClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
 var
   S, LLine, S2, LPeek: string;
@@ -148,9 +158,13 @@ begin
         while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
         while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
         
+        var S2NoSpaces: string := RemoveSpaces(S2);
+        var AClassNoSpaces: string := RemoveSpaces(AClassName);
+        var FLastClassNoSpaces: string := RemoveSpaces(FLastClassName);
+
         if S2 = '' then LIsBanner := True
-        else if (AClassName <> '') and ((S2 = AClassName) or (Pos(AClassName + ' ', S2) = 1) or (Pos(AClassName + '.', S2) = 1)) then LIsBanner := True
-        else if (AClassName = '') and (FLastClassName <> '') and ((S2 = FLastClassName) or (Pos(FLastClassName + ' ', S2) = 1)) then LIsBanner := True
+        else if (AClassName <> '') and ((S2NoSpaces = AClassNoSpaces) or (Pos(AClassNoSpaces + ' ', S2) = 1) or (Pos(AClassNoSpaces + '.', S2NoSpaces) = 1)) then LIsBanner := True
+        else if (AClassName = '') and (FLastClassName <> '') and ((S2NoSpaces = FLastClassNoSpaces) or (Pos(FLastClassNoSpaces + ' ', S2) = 1)) then LIsBanner := True
         else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
         else if Pos(' - Class', S2) > 0 then LIsBanner := True
         else 
