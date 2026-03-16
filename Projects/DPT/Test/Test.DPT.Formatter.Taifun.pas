@@ -1127,9 +1127,14 @@ begin
     Assert.IsTrue(LResult.Contains(
       #13#10#13#10 + '{ -------------------------- }' + #13#10 +
       #13#10 +
-      'procedure Inner;'),
-      'Inner procedure should have a short separator with empty line before and after. Actual:' + #13#10 + LResult
-    );
+      '  procedure Inner;'),
+      'Inner procedure should have a short separator with empty line before and after. Actual:' + #13#10 + LResult);
+
+    Assert.IsTrue(LResult.Contains(
+      '  end;' + #13#10 + #13#10 +
+      '{ -------------------------- }' + #13#10 + #13#10 +
+      'begin'),
+      'Nested procedure should have a trailing short separator before the outer method block begins.');
 
     // Idempotence check
     LUnit2 := FParser.Parse(LResult);

@@ -51,6 +51,7 @@ type
     procedure dwsGetMethodDepth(Info: TProgramInfo);
     procedure dwsGetMethodName(Info: TProgramInfo);
     procedure dwsGetMethodStartToken(Info: TProgramInfo);
+    procedure dwsGetMethodEndToken(Info: TProgramInfo);
     procedure dwsGetNextToken(Info: TProgramInfo);
     procedure dwsGetUnitKeyword(Info: TProgramInfo);
     procedure dwsGetUnitName(Info: TProgramInfo);
@@ -200,6 +201,11 @@ begin
   Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   Func.ResultType := 'TSyntaxToken';
   Func.OnEval := dwsGetMethodStartToken;
+
+  Func := FUnit.Functions.Add('GetMethodEndToken');
+  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetMethodEndToken;
 
   Func := FUnit.Functions.Add('GetNextToken');
   Func.Parameters.Add('AToken', 'TSyntaxToken');
@@ -433,6 +439,28 @@ begin
       Token := Node.ClassKeyword
     else
       Token := Node.MethodTypeKeyword;
+
+    if Assigned(Token) then
+      Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
+    else
+      Info.ResultAsVariant := IUnknown(nil);
+  end
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetMethodEndToken(Info: TProgramInfo);
+var
+  Node : TMethodImplementationSyntax;
+  Token: TSyntaxToken;
+begin
+  Node := TMethodImplementationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) then
+  begin
+    if Assigned(Node.FinalSemicolon) then
+      Token := Node.FinalSemicolon
+    else
+      Token := Node.EndKeyword;
 
     if Assigned(Token) then
       Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
