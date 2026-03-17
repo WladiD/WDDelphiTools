@@ -41,6 +41,8 @@ begin
   var LClassNoSpaces: string := RemoveSpaces(AClassName);
   var LLastClassNoSpaces: string := RemoveSpaces(ALastClassName);
 
+  var LPrevWasSepBanner: Boolean := False;
+
   LCollectingForPrevious := True;
   LIfLevel := 0;
   LWasBraceComment := False;
@@ -60,7 +62,18 @@ begin
     begin
       LIsBraceComment := False;
       LIsBanner := False;
-      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then LIsBanner := True;
+      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then
+      begin
+        LIsBanner := True;
+        LPrevWasSepBanner := Pos('{ ==', LLine) > 0;
+      end
+      else if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+      begin
+        LIsBanner := True;
+        LPrevWasSepBanner := False;
+      end
+      else
+        LPrevWasSepBanner := False;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
       begin
         LIsBraceComment := True;
@@ -139,6 +152,7 @@ begin
     end
     else
     begin
+       LPrevWasSepBanner := False;
        if LCollectingForPrevious then ATrailingPart := ATrailingPart + LLine
        else AComments := AComments + LLine;
     end;

@@ -60,13 +60,14 @@ function TTaifunBannerHelper.StripBanners(AToken: TSyntaxToken): string;
 var
   LTrivia, LLine, S, S2, LNewTrivia: string;
   P, I: Integer;
-  LIsText, LIsBanner: Boolean;
+  LIsText, LIsBanner, LPrevWasSepBanner: Boolean;
 begin
   Result := '';
   if not Assigned(AToken) then Exit;
   LTrivia := GetLeadingTrivia(AToken);
   if LTrivia = '' then Exit;
   LNewTrivia := ''; S := LTrivia;
+  LPrevWasSepBanner := False;
   while Length(S) > 0 do
   begin
     P := Pos(#10, S);
@@ -76,16 +77,28 @@ begin
     LIsBanner := False;
     if LIsText then
     begin
-      if (Pos('{ ==', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then LIsBanner := True;
-      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+      if (Pos('{ ==', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then
       begin
-        S2 := TrimCommentChars(LLine);
-        if S2 = '' then LIsBanner := True
-        else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
-        else if Pos(' - Class', S2) > 0 then LIsBanner := True
-        else if (Pos(' - ', S2) > 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True;
+        LIsBanner := True;
+        LPrevWasSepBanner := Pos('{ ==', LLine) > 0;
+      end
+      else
+      begin
+        if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+          LIsBanner := True;
+        LPrevWasSepBanner := False;
+        if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+        begin
+          S2 := TrimCommentChars(LLine);
+          if S2 = '' then LIsBanner := True
+          else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
+          else if Pos(' - Class', S2) > 0 then LIsBanner := True
+          else if (Pos(' - ', S2) > 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True;
+        end;
       end;
-    end;
+    end
+    else
+      LPrevWasSepBanner := False;
     if not LIsBanner then LNewTrivia := LNewTrivia + LLine;
   end;
   LNewTrivia := TrimLeadingCRLF(LNewTrivia);

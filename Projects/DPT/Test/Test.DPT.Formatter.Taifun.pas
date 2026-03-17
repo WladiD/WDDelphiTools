@@ -138,6 +138,10 @@ type
     procedure TestFormatImplementation_PreservesResourceDirectiveBeforeBanner;
     [Test]
     procedure TestFormatImplementation_PreservesDashSeparatorBeforeResourcestring;
+    [Test]
+    procedure TestFormatImplementation_StripsOrphanedClassNameFromOldBanner;
+    [Test]
+    procedure TestFormatImplementation_InsertsSectionBannerBeforeStandaloneProc;
   end;
 
 implementation
@@ -2090,6 +2094,78 @@ begin
       #13#10 +
       'resourcestring'),
       '{ --- } separator before resourcestring should be preserved. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_StripsOrphanedClassNameFromOldBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TMyActualClass = class' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ OldWrongClassName                                                       }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'procedure TMyActualClass.DoSomething;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsFalse(LResult.Contains('OldWrongClassName'),
+      'Orphaned class name from old banner should be stripped. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_InsertsSectionBannerBeforeStandaloneProc;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit.Form;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{$R *.dfm}' + #13#10 +
+    #13#10 +
+    'procedure DoSomething;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{$R *.dfm}' + #13#10 +
+      #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      #13#10 +
+      'procedure DoSomething;'),
+      'Section banner { === } should be inserted before standalone procedure. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

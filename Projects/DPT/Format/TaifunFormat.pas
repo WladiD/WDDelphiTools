@@ -89,7 +89,9 @@ begin
   LToken := GetMethodStartToken(AMethod);
   if not Assigned(LToken) then Exit;
 
-  LIsSuppressed := (FExpectedTokenTextForSuppressedBanner <> '') and (LToken.Text = FExpectedTokenTextForSuppressedBanner);
+  var LIsFirstAfterSection: Boolean;
+  LIsFirstAfterSection := (FExpectedTokenTextForSuppressedBanner <> '') and (LToken.Text = FExpectedTokenTextForSuppressedBanner);
+  LIsSuppressed := LIsFirstAfterSection;
   FExpectedTokenTextForSuppressedBanner := '';
 
   LOldTrivia := GetLeadingTrivia(LToken);
@@ -112,7 +114,7 @@ begin
       LBannerText := FBanner.CreateClassBanner(LClassName);
       FLastClassName := LClassName;
     end
-    else if (LClassName = '') and (FLastClassName <> '') then
+    else if (LClassName = '') and ((FLastClassName <> '') or (LIsFirstAfterSection and (LTrailingPart <> ''))) then
     begin
       LBannerText := FBanner.CreateSectionBanner('');
       FLastClassName := '';
