@@ -15,6 +15,7 @@ uses
   dwsExprs,
   dwsInfo,
   dwsRTTIExposer,
+  dwsUnitSymbols,
 
   ParseTree.Core,
   ParseTree.Nodes,
@@ -29,13 +30,15 @@ type
   /// </summary>
   TDptDwsFormatter = class(TDptFormatter)
   private
-    FExec   : IdwsProgramExecution;
-    FProgram: IdwsProgram;
-    FScript : TDelphiWebScript;
-    FUnit   : TdwsUnit;
+    FExec     : IdwsProgramExecution;
+    FProgram  : IdwsProgram;
+    FScript   : TDelphiWebScript;
+    FScriptDir: string;
+    FUnit     : TdwsUnit;
     
     procedure SetupScriptUnit;
     procedure CallScriptProc(const AProcName, AParamName: string; AObj: TObject);
+    function HandleNeedUnit(const AUnitName: string; var AUnitSource: string): IdwsUnit;
     
     // DWScript function handlers
     procedure dwsAddLeadingTrivia(Info: TProgramInfo);
@@ -501,13 +504,27 @@ begin
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
+function TDptDwsFormatter.HandleNeedUnit(const AUnitName: string; var AUnitSource: string): IdwsUnit;
+var
+  LPath: string;
+begin
+  Result := nil;
+  LPath := TPath.Combine(FScriptDir, AUnitName + '.pas');
+  if not FileExists(LPath) then
+    LPath := TPath.Combine(TPath.Combine(FScriptDir, 'TaifunFormat'), AUnitName + '.pas');
+  if FileExists(LPath) then
+    AUnitSource := TFile.ReadAllText(LPath);
+end;
+
 procedure TDptDwsFormatter.LoadScript(const AScriptFile: String);
 var
   Source: String;
 begin
   if not FileExists(AScriptFile) then
     raise Exception.CreateFmt('Script file not found: %s', [AScriptFile]);
-    
+
+  FScriptDir := ExtractFilePath(AScriptFile);
+  FScript.OnNeedUnit := HandleNeedUnit;
   Source := TFile.ReadAllText(AScriptFile);
   FProgram := FScript.Compile(Source);
   if FProgram.Msgs.HasErrors then
