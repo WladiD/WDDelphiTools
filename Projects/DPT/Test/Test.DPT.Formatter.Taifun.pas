@@ -134,6 +134,8 @@ type
     procedure TestFormatUnitHeader_ExtractsDescriptionWithEnDash;
     [Test]
     procedure TestFormatInterface_ReplacesSlashesBanner;
+    [Test]
+    procedure TestFormatImplementation_PreservesResourceDirectiveBeforeBanner;
   end;
 
 implementation
@@ -2001,6 +2003,47 @@ begin
     Assert.IsTrue(LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'interface'), 'Slashes banner before interface should be replaced by standard curly brace banner. Actual result:'#13#10 + LResult);
     // The unit header also uses // ====, so we just make sure there's no // ==== directly before the interface banner
     Assert.IsFalse(LResult.Contains('// ======================================================================' + #13#10 + '{ ' + StringOfChar('=', 71)), 'The old slashes banner should be completely removed from the interface trivia. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesResourceDirectiveBeforeBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit.Form;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{$R *.dfm}' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ TMyForm                                                                 }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'class function TMyForm.CanOpenForm: Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result := True;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    var LExpectedPart :=
+      '{$R *.dfm}' + #13#10 +
+      #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      '{ TMyForm';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), '{$R *.dfm} should stay above the class banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

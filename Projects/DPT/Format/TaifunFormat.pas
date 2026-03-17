@@ -217,7 +217,7 @@ begin
 
       if LCollectingForPrevious then
       begin
-         if (not LIsBanner) and ((LIfLevel > 0) or (Pos('{$ENDIF', LLine) > 0) or (Pos('{$ELSE', LLine) > 0) or (Pos('{$ENDREGION', LLine) > 0) or
+         if (not LIsBanner) and ((LIfLevel > 0) or (Pos('{$ENDIF', LLine) > 0) or (Pos('{$ELSE', LLine) > 0) or (Pos('{$ENDREGION', LLine) > 0) or (Pos('{$R ', LLine) > 0) or
             ((ATrailingPart = '') and (Length(AOldTrivia) > 0) and (AOldTrivia[1] <> #13) and (AOldTrivia[1] <> #10) and
              (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', LLine) = 0))) then
          begin
