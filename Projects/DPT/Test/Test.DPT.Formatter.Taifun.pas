@@ -142,6 +142,8 @@ type
     procedure TestFormatImplementation_StripsOrphanedClassNameFromOldBanner;
     [Test]
     procedure TestFormatImplementation_InsertsSectionBannerBeforeStandaloneProc;
+    [Test]
+    procedure TestFormatImplementation_CleansClassBannerInConstSection;
   end;
 
 implementation
@@ -2166,6 +2168,68 @@ begin
       #13#10 +
       'procedure DoSomething;'),
       'Section banner { === } should be inserted before standalone procedure. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_CleansClassBannerInConstSection;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    'procedure TFoo.Bar;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CToolButton - Class                                                     }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'const' + #13#10 +
+    '  InitRepeatPause = 400;' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'constructor CToolButton.Create;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'destructor CToolButton.Destroy;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    var LExpectedBanner :=
+      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+      '{ CToolButton' + StringOfChar(' ', 60) + ' }' + #13#10 +
+      '{ ' + StringOfChar('=', 71) + ' }';
+
+    Assert.IsTrue(LResult.Contains(LExpectedBanner),
+      'Class banner should be { CToolButton } (without - Class suffix). Actual result:'#13#10 + LResult);
+
+    Assert.IsFalse(LResult.Contains('CToolButton - Class'),
+      '- Class suffix should be stripped from banner. Actual result:'#13#10 + LResult);
+
+    var LBannerLine := '{ CToolButton' + StringOfChar(' ', 60) + ' }';
+    var LFirstPos := Pos(LBannerLine, LResult);
+    var LSecondPos := Pos(LBannerLine, LResult, LFirstPos + 1);
+    Assert.AreEqual(0, LSecondPos,
+      'CToolButton class banner should appear only once (no duplicate). Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

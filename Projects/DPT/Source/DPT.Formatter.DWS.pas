@@ -50,6 +50,7 @@ type
     procedure dwsGetLeadingTrivia(Info: TProgramInfo);
 
     // AST wrappers
+    procedure dwsGetConstKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
@@ -151,6 +152,11 @@ begin
   Func.OnEval := dwsAddTrailingTrivia;
 
   // AST Wrappers
+  Func := FUnit.Functions.Add('GetConstKeyword');
+  Func.Parameters.Add('ANode', 'TConstSectionSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetConstKeyword;
+
   Func := FUnit.Functions.Add('GetUsesKeyword');
   Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
   Func.ResultType := 'TSyntaxToken';
@@ -286,6 +292,17 @@ begin
   Node := TInterfaceSectionSyntax(Info.ParamAsObject[0]);
   if Assigned(Node) and Assigned(Node.InterfaceKeyword) then
     Info.ResultAsVariant := Info.RegisterExternalObject(Node.InterfaceKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetConstKeyword(Info: TProgramInfo);
+var
+  Node: TConstSectionSyntax;
+begin
+  Node := TConstSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.ConstKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.ConstKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;

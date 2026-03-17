@@ -13,6 +13,7 @@ type
   private
     FLastClassName: string;
     FExpectedTokenTextForSuppressedBanner: string;
+    FSuppressNextMethodBanner: Boolean;
     FBanner: TTaifunBannerHelper;
     FTrivia: TTaifunTriviaHelper;
     FHeader: TTaifunHeaderHelper;
@@ -27,6 +28,7 @@ type
     procedure FormatImplementationSection(ASection: TImplementationSectionSyntax);
     procedure FormatUsesClause(AUses: TUsesClauseSyntax);
     procedure FormatMethodImplementation(AMethod: TMethodImplementationSyntax);
+    procedure FormatConstSection(ASection: TConstSectionSyntax);
     procedure InsertNestedMethodEndBanner(AMethod: TMethodImplementationSyntax);
   end;
 
@@ -44,6 +46,7 @@ procedure TTaifunFormatter.ClearState;
 begin
   FLastClassName := '';
   FExpectedTokenTextForSuppressedBanner := '';
+  FSuppressNextMethodBanner := False;
 end;
 
 procedure TTaifunFormatter.FormatUsesClause(AUses: TUsesClauseSyntax);
@@ -94,6 +97,12 @@ begin
   LIsSuppressed := LIsFirstAfterSection;
   FExpectedTokenTextForSuppressedBanner := '';
 
+  if FSuppressNextMethodBanner then
+  begin
+    LIsSuppressed := True;
+    FSuppressNextMethodBanner := False;
+  end;
+
   LOldTrivia := GetLeadingTrivia(LToken);
   ClearTrivia(LToken);
   FTrivia.ProcessTrivia(LOldTrivia, LClassName, FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
@@ -126,6 +135,69 @@ begin
 
     AddLeadingTrivia(LToken, LPrefix + LBannerText + LComments);
   end;
+end;
+
+procedure TTaifunFormatter.FormatConstSection(ASection: TConstSectionSyntax);
+var
+  LToken: TSyntaxToken;
+  LOldTrivia: string;
+  LComments: string;
+  LTrailingPart: string;
+  LIndent: string;
+  LLeadingNewlines: Integer;
+  LExtractedClass: string;
+  S: string;
+  LLine: string;
+  S2: string;
+  P: Integer;
+  I: Integer;
+  LIsText: Boolean;
+  LInBanner: Boolean;
+  LPrefix: string;
+begin
+  LToken := GetConstKeyword(ASection);
+  if not Assigned(LToken) then Exit;
+  LOldTrivia := GetLeadingTrivia(LToken);
+  if LOldTrivia = '' then Exit;
+
+  LExtractedClass := '';
+  S := LOldTrivia;
+  LInBanner := False;
+  while Length(S) > 0 do
+  begin
+    P := Pos(#10, S);
+    if P > 0 then begin LLine := Copy(S, 1, P); Delete(S, 1, P); end
+    else begin LLine := S; S := ''; end;
+
+    LIsText := False;
+    for I := 1 to Length(LLine) do
+      if (LLine[I] <> ' ') and (LLine[I] <> #13) and (LLine[I] <> #10) and (LLine[I] <> #9) then
+        begin LIsText := True; Break; end;
+
+    if not LIsText then begin LInBanner := False; Continue; end;
+    if Pos('{ ==', LLine) > 0 then begin LInBanner := True; Continue; end;
+
+    if LInBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) then
+    begin
+      S2 := TrimCommentChars(LLine);
+      if (S2 <> '') and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then
+      begin
+        P := Pos(' - ', S2);
+        if P > 0 then S2 := Copy(S2, 1, P - 1);
+        LExtractedClass := S2;
+      end;
+      LInBanner := False;
+    end;
+  end;
+
+  if LExtractedClass = '' then Exit;
+
+  ClearTrivia(LToken);
+  FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
+  LPrefix := LTrailingPart + #13#10#13#10;
+  AddLeadingTrivia(LToken, LPrefix + FBanner.CreateClassBanner(LExtractedClass) + LComments);
+  FLastClassName := LExtractedClass;
+  FSuppressNextMethodBanner := True;
 end;
 
 procedure TTaifunFormatter.InsertNestedMethodEndBanner(AMethod: TMethodImplementationSyntax);
@@ -331,6 +403,11 @@ end;
 procedure OnVisitImplementationSection(ASection: TImplementationSectionSyntax);
 begin
   GetFormatter.FormatImplementationSection(ASection);
+end;
+
+procedure OnVisitConstSection(ASection: TConstSectionSyntax);
+begin
+  GetFormatter.FormatConstSection(ASection);
 end;
 
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
