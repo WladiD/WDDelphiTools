@@ -54,19 +54,16 @@ begin
   LToken := GetUsesKeyword(AUses);
   if Assigned(LToken) then
   begin
-    LTrivia := GetLeadingTrivia(LToken);
+    LTrivia := TrimLeadingCRLFSpace(GetLeadingTrivia(LToken));
     ClearTrivia(LToken);
-    
-    while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
     AddLeadingTrivia(LToken, #13#10#13#10 + LTrivia);
     AddTrailingTrivia(LToken, '');
     
     LFirstItem := GetUsesFirstItemToken(AUses);
     if Assigned(LFirstItem) then
     begin
-      LTrivia := GetLeadingTrivia(LFirstItem);
+      LTrivia := TrimLeadingCRLFSpace(GetLeadingTrivia(LFirstItem));
       ClearTrivia(LFirstItem);
-      while (Length(LTrivia) > 0) and ((LTrivia[1] = #13) or (LTrivia[1] = #10) or (LTrivia[1] = ' ')) do Delete(LTrivia, 1, 1);
       AddLeadingTrivia(LFirstItem, #13#10#13#10 + '  ' + LTrivia);
     end;
     FExpectedTokenTextForSuppressedBanner := '';

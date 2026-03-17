@@ -30,13 +30,16 @@ type
   /// </summary>
   TDptDwsFormatter = class(TDptFormatter)
   private
-    FExec     : IdwsProgramExecution;
-    FProgram  : IdwsProgram;
-    FScript   : TDelphiWebScript;
-    FScriptDir: string;
-    FUnit     : TdwsUnit;
+    FAvailableProcs: TDictionary<string, Boolean>;
+    FExec          : IdwsProgramExecution;
+    FProgram       : IdwsProgram;
+    FProcsCached   : Boolean;
+    FScript        : TDelphiWebScript;
+    FScriptDir     : string;
+    FUnit          : TdwsUnit;
     
     procedure SetupScriptUnit;
+    procedure CacheAvailableProcs;
     procedure CallScriptProc(const AProcName, AParamName: string; AObj: TObject);
     function HandleNeedUnit(const AUnitName: string; var AUnitSource: string): IdwsUnit;
     
@@ -89,6 +92,7 @@ implementation
 constructor TDptDwsFormatter.Create;
 begin
   inherited Create;
+  FAvailableProcs := TDictionary<string, Boolean>.Create;
   FScript := TDelphiWebScript.Create(nil);
   FUnit := TdwsUnit.Create(nil);
   FUnit.UnitName := 'DptFormatterAPI';
@@ -100,6 +104,7 @@ destructor TDptDwsFormatter.Destroy;
 begin
   FExec := nil;
   FProgram := nil;
+  FAvailableProcs.Free;
   FUnit.Free;
   FScript.Free;
   inherited Destroy;
@@ -524,6 +529,7 @@ begin
     raise Exception.CreateFmt('Script file not found: %s', [AScriptFile]);
 
   FScriptDir := ExtractFilePath(AScriptFile);
+  FProcsCached := False;
   FScript.OnNeedUnit := HandleNeedUnit;
   Source := TFile.ReadAllText(AScriptFile);
   FProgram := FScript.Compile(Source);
@@ -539,6 +545,8 @@ begin
   FExec := FProgram.BeginNewExecution;
   FExec.BeginProgram;
   try
+    if not FProcsCached then
+      CacheAvailableProcs;
     inherited FormatUnit(AUnit);
   finally
     FExec.EndProgram;
@@ -546,23 +554,40 @@ begin
   end;
 end;
 
+procedure TDptDwsFormatter.CacheAvailableProcs;
+const
+  CProcNames: array[0..10] of string = (
+    'OnVisitUnitStart', 'OnVisitUnitEnd', 'OnVisitUsesClause',
+    'OnVisitInterfaceSection', 'OnVisitImplementationSection',
+    'OnVisitMethodImplementation', 'OnVisitClassDeclaration',
+    'OnVisitRecordDeclaration', 'OnVisitTypeSection',
+    'OnVisitConstSection', 'OnVisitVarSection'
+  );
+begin
+  FAvailableProcs.Clear;
+  for var LName: string in CProcNames do
+  begin
+    try
+      var LFunc: IInfo := FExec.Info.Func[LName];
+      FAvailableProcs.Add(LName, Assigned(LFunc));
+    except
+      FAvailableProcs.Add(LName, False);
+    end;
+  end;
+  FProcsCached := True;
+end;
+
 procedure TDptDwsFormatter.CallScriptProc(const AProcName, AParamName: string; AObj: TObject);
 var
+  LAvailable: Boolean;
   Func: IInfo;
 begin
-  if not Assigned(FExec) then 
+  if not Assigned(FExec) then
     Exit;
-  
-  try
-    Func := FExec.Info.Func[AProcName];
-  except
-    on E: Exception do
-      if E.Message.Contains('not found') or E.Message.Contains('Nicht gefunden') then
-        Exit
-      else
-        raise;
-  end;
+  if not FAvailableProcs.TryGetValue(AProcName, LAvailable) or not LAvailable then
+    Exit;
 
+  Func := FExec.Info.Func[AProcName];
   if Assigned(Func) then
     Func.Call([FExec.Info.RegisterExternalObject(AObj, False, False)]);
 end;

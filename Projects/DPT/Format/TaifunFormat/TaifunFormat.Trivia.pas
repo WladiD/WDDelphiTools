@@ -38,6 +38,9 @@ begin
     S := Copy(AOldTrivia, 1, I);
   end;
 
+  var LClassNoSpaces: string := RemoveSpaces(AClassName);
+  var LLastClassNoSpaces: string := RemoveSpaces(ALastClassName);
+
   LCollectingForPrevious := True;
   LIfLevel := 0;
   LWasBraceComment := False;
@@ -61,16 +64,12 @@ begin
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
       begin
         LIsBraceComment := True;
-        S2 := LLine;
-        while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
-        while (Length(S2) > 0) and ((S2[Length(S2)] = '}') or (S2[Length(S2)] = #13) or (S2[Length(S2)] = #10) or (S2[Length(S2)] = ' ')) do Delete(S2, Length(S2), 1);
+        S2 := TrimCommentChars(LLine);
         
         var S2NoSpaces: string := RemoveSpaces(S2);
-        var AClassNoSpaces: string := RemoveSpaces(AClassName);
-        var LLastClassNoSpaces: string := RemoveSpaces(ALastClassName);
 
         if S2 = '' then LIsBanner := True
-        else if (AClassName <> '') and ((S2NoSpaces = AClassNoSpaces) or (Pos(AClassNoSpaces + ' ', S2) = 1) or (Pos(AClassNoSpaces + '.', S2NoSpaces) = 1) or (Pos(AClassName + ' -', S2) = 1) or (Pos(AClassNoSpaces + '<', S2NoSpaces) = 1)) then LIsBanner := True
+        else if (AClassName <> '') and ((S2NoSpaces = LClassNoSpaces) or (Pos(LClassNoSpaces + ' ', S2) = 1) or (Pos(LClassNoSpaces + '.', S2NoSpaces) = 1) or (Pos(AClassName + ' -', S2) = 1) or (Pos(LClassNoSpaces + '<', S2NoSpaces) = 1)) then LIsBanner := True
         else if (AClassName = '') and (ALastClassName <> '') and ((S2NoSpaces = LLastClassNoSpaces) or (Pos(LLastClassNoSpaces + ' ', S2) = 1) or (Pos(ALastClassName + ' -', S2) = 1) or (Pos(LLastClassNoSpaces + '<', S2NoSpaces) = 1)) then LIsBanner := True
         else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
         else if Pos(' - Class', S2) > 0 then LIsBanner := True
@@ -145,10 +144,9 @@ begin
     end;
   end;
 
-  while (Length(AComments) > 0) and ((AComments[1] = #13) or (AComments[1] = #10)) do Delete(AComments, 1, 1);
-  while (Length(AComments) > 0) and ((AComments[Length(AComments)] = #13) or (AComments[Length(AComments)] = #10) or (AComments[Length(AComments)] = ' ')) do Delete(AComments, Length(AComments), 1);
-
-  while (Length(ATrailingPart) > 0) and ((ATrailingPart[Length(ATrailingPart)] = #13) or (ATrailingPart[Length(ATrailingPart)] = #10) or (ATrailingPart[Length(ATrailingPart)] = ' ')) do Delete(ATrailingPart, Length(ATrailingPart), 1);
+  AComments := TrimLeadingCRLF(AComments);
+  AComments := TrimTrailingCRLFSpace(AComments);
+  ATrailingPart := TrimTrailingCRLFSpace(ATrailingPart);
 
   if AComments <> '' then 
   begin
