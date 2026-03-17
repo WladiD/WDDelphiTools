@@ -136,6 +136,8 @@ type
     procedure TestFormatInterface_ReplacesSlashesBanner;
     [Test]
     procedure TestFormatImplementation_PreservesResourceDirectiveBeforeBanner;
+    [Test]
+    procedure TestFormatImplementation_PreservesDashSeparatorBeforeResourcestring;
   end;
 
 implementation
@@ -2044,6 +2046,50 @@ begin
       '{ TMyForm';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), '{$R *.dfm} should stay above the class banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_PreservesDashSeparatorBeforeResourcestring;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit.Form;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{$R *.DFM}' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'resourcestring' + #13#10 +
+    #13#10 +
+    '  txtBack = ''&Back'';' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ TMyForm                                                                 }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'procedure TMyForm.DoSomething;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '{ ' + StringOfChar('-', 71) + ' }' + #13#10 +
+      #13#10 +
+      'resourcestring'),
+      '{ --- } separator before resourcestring should be preserved. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

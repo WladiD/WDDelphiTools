@@ -76,7 +76,7 @@ begin
     LIsBanner := False;
     if LIsText then
     begin
-      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then LIsBanner := True;
+      if (Pos('{ ==', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then LIsBanner := True;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
       begin
         S2 := TrimCommentChars(LLine);
