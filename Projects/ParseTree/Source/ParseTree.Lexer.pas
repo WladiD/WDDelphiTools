@@ -1,33 +1,49 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit ParseTree.Lexer;
 
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections, ParseTree.Core, ParseTree.Tokens;
+
+  mormot.core.collections,
+
+  ParseTree.Core,
+  ParseTree.Tokens;
 
 type
-  { Reads characters from source text and groups them into Tokens and Trivia }
+
+  /// <summary>Reads characters from source text and groups them into Tokens and Trivia</summary>
   TParseTreeLexer = class
   private
-    FText: string;
-    FPosition: Integer;
+    FPosition  : Integer;
+    FText      : String;
     FTextLength: Integer;
 
-    function Peek(AOffset: Integer = 0): Char;
-    function Current: Char;
+    function  Current: Char;
     procedure Next;
-    function ScanIdentifierOrKeyword: TSyntaxToken;
-    function ScanNumericLiteral: TSyntaxToken;
-    function ScanStringLiteral: TSyntaxToken;
-    function ScanWhitespace: TSyntaxTrivia;
-    function ScanComment: TSyntaxTrivia;
+    function  Peek(AOffset: Integer = 0): Char;
+    function  ScanComment: TSyntaxTrivia;
+    function  ScanIdentifierOrKeyword: TSyntaxToken;
+    function  ScanNumericLiteral: TSyntaxToken;
+    function  ScanStringLiteral: TSyntaxToken;
+    function  ScanWhitespace: TSyntaxTrivia;
   public
     constructor Create(const AText: string);
     function NextToken: TSyntaxToken;
-    function TokenizeAll: TList<TSyntaxToken>;
+    function TokenizeAll: IList<TSyntaxToken>;
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils;
 
 { TParseTreeLexer }
 
@@ -35,7 +51,6 @@ constructor TParseTreeLexer.Create(const AText: string);
 begin
   FText := AText;
   FTextLength := Length(FText);
-  // Delphi strings are 1-based, we'll use 1-based index
   FPosition := 1;
 end;
 
@@ -62,35 +77,33 @@ end;
 
 function TParseTreeLexer.ScanWhitespace: TSyntaxTrivia;
 var
-  LStartPos: Integer;
+  StartPos: Integer;
 begin
-  LStartPos := FPosition;
+  StartPos := FPosition;
   while (Current = ' ') or (Current = #9) or (Current = #13) or (Current = #10) do
     Next;
 
-  Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
+  Result := TSyntaxTrivia.Create(Copy(FText, StartPos, FPosition - StartPos));
 end;
 
 function TParseTreeLexer.ScanComment: TSyntaxTrivia;
 var
-  LStartPos: Integer;
-  LIsMultiLine: Boolean;
+  IsMultiLine: Boolean;
+  StartPos   : Integer;
 begin
-  LStartPos := FPosition;
-  
-  if (Current = '/') and (Peek(1) = '/') then
+  StartPos := FPosition;
+
+  if (Current = '/') and (Peek(1) = '/') then // Single-line comment
   begin
-    // Single-line comment
     Next;
     Next;
     while (Current <> #0) and (Current <> #13) and (Current <> #10) do
       Next;
   end
-  else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then
+  else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then // Multi-line comment
   begin
-    // Multi-line comment
-    LIsMultiLine := (Current = '(');
-    if LIsMultiLine then
+    IsMultiLine := (Current = '(');
+    if IsMultiLine then
     begin
       Next; // '('
       Next; // '*'
@@ -102,13 +115,13 @@ begin
 
     while Current <> #0 do
     begin
-      if LIsMultiLine and (Current = '*') and (Peek(1) = ')') then
+      if IsMultiLine and (Current = '*') and (Peek(1) = ')') then
       begin
         Next;
         Next;
         Break;
       end
-      else if (not LIsMultiLine) and (Current = '}') then
+      else if (not IsMultiLine) and (Current = '}') then
       begin
         Next;
         Break;
@@ -117,14 +130,14 @@ begin
     end;
   end;
 
-  Result := TSyntaxTrivia.Create(Copy(FText, LStartPos, FPosition - LStartPos));
+  Result := TSyntaxTrivia.Create(Copy(FText, StartPos, FPosition - StartPos));
 end;
 
 function TParseTreeLexer.ScanNumericLiteral: TSyntaxToken;
 var
-  LStartPos: Integer;
+  StartPos: Integer;
 begin
-  LStartPos := FPosition;
+  StartPos := FPosition;
   if Current = '$' then
   begin
     Next;
@@ -146,22 +159,23 @@ begin
           Next;
       end;
     end;
-    if (Current = 'E') or (Current = 'e') then
+    if CharInSet(Current, ['E', 'e']) then
     begin
       Next;
-      if (Current = '+') or (Current = '-') then Next;
+      if CharInSet(Current, ['+', '-']) then
+        Next;
       while (Current >= '0') and (Current <= '9') do
         Next;
     end;
   end;
-  Result := TSyntaxToken.Create(tkNumericLiteral, Copy(FText, LStartPos, FPosition - LStartPos));
+  Result := TSyntaxToken.Create(tkNumericLiteral, Copy(FText, StartPos, FPosition - StartPos));
 end;
 
 function TParseTreeLexer.ScanStringLiteral: TSyntaxToken;
 var
-  LStartPos: Integer;
+  StartPos: Integer;
 begin
-  LStartPos := FPosition;
+  StartPos := FPosition;
   Next; // consume opening quote
   while (Current <> #0) do
   begin
@@ -176,17 +190,17 @@ begin
     else
       Next;
   end;
-  Result := TSyntaxToken.Create(tkStringLiteral, Copy(FText, LStartPos, FPosition - LStartPos));
+  Result := TSyntaxToken.Create(tkStringLiteral, Copy(FText, StartPos, FPosition - StartPos));
 end;
 
 function TParseTreeLexer.ScanIdentifierOrKeyword: TSyntaxToken;
 var
-  LStartPos: Integer;
-  LText: string;
-  LKind: TTokenKind;
-  LUpper: string;
+  Kind    : TTokenKind;
+  StartPos: Integer;
+  Text    : String;
+  Upper   : String;
 begin
-  LStartPos := FPosition;
+  StartPos := FPosition;
   // Advance past letters, digits, and underscores
   while ((Current >= 'A') and (Current <= 'Z')) or
         ((Current >= 'a') and (Current <= 'z')) or
@@ -196,199 +210,214 @@ begin
     Next;
   end;
 
-  LText := Copy(FText, LStartPos, FPosition - LStartPos);
-  LUpper := UpperCase(LText);
-  
-  // Very basic keyword check. This matches TTokenKind mapping
-  if LUpper = 'UNIT' then LKind := tkUnitKeyword
-  else if LUpper = 'INTERFACE' then LKind := tkInterfaceKeyword
-  else if LUpper = 'DISPINTERFACE' then LKind := tkDispinterfaceKeyword
-  else if LUpper = 'IMPLEMENTATION' then LKind := tkImplementationKeyword
-  else if LUpper = 'USES' then LKind := tkUsesKeyword
-  else if LUpper = 'IN' then LKind := tkInKeyword
-  else if LUpper = 'TYPE' then LKind := tkTypeKeyword
-  else if LUpper = 'CONST' then LKind := tkConstKeyword
-  else if LUpper = 'VAR' then LKind := tkVarKeyword
-  else if LUpper = 'CLASS' then LKind := tkClassKeyword
-  else if LUpper = 'RECORD' then LKind := tkRecordKeyword
-  else if LUpper = 'BEGIN' then LKind := tkBeginKeyword
-  else if LUpper = 'TRY' then LKind := tkTryKeyword
-  else if LUpper = 'CASE' then LKind := tkCaseKeyword
-  else if LUpper = 'ASM' then LKind := tkAsmKeyword
-  else if LUpper = 'END' then LKind := tkEndKeyword
-  else if LUpper = 'PRIVATE' then LKind := tkPrivateKeyword
-  else if LUpper = 'PROTECTED' then LKind := tkProtectedKeyword
-  else if LUpper = 'PUBLIC' then LKind := tkPublicKeyword
-  else if LUpper = 'PUBLISHED' then LKind := tkPublishedKeyword
-  else if LUpper = 'STRICT' then LKind := tkStrictKeyword
-  else if LUpper = 'PROCEDURE' then LKind := tkProcedureKeyword
-  else if LUpper = 'FUNCTION' then LKind := tkFunctionKeyword
-  else if LUpper = 'CONSTRUCTOR' then LKind := tkConstructorKeyword
-  else if LUpper = 'DESTRUCTOR' then LKind := tkDestructorKeyword
-  else if LUpper = 'PROPERTY' then LKind := tkPropertyKeyword
-  else if LUpper = 'READ' then LKind := tkReadKeyword
-  else if LUpper = 'WRITE' then LKind := tkWriteKeyword
-  else if LUpper = 'OVERRIDE' then LKind := tkOverrideKeyword
-  else if LUpper = 'WHILE' then LKind := tkWhileKeyword
-  else if LUpper = 'FOR' then LKind := tkForKeyword
-  else if LUpper = 'TO' then LKind := tkToKeyword
-  else if LUpper = 'DOWNTO' then LKind := tkDowntoKeyword
-  else if LUpper = 'DO' then LKind := tkDoKeyword
-  else if LUpper = 'REPEAT' then LKind := tkRepeatKeyword
-  else if LUpper = 'UNTIL' then LKind := tkUntilKeyword
-  else if LUpper = 'IF' then LKind := tkIfKeyword
-  else if LUpper = 'THEN' then LKind := tkThenKeyword
-  else if LUpper = 'ELSE' then LKind := tkElseKeyword
-  else if LUpper = 'FINALLY' then LKind := tkFinallyKeyword
-  else if LUpper = 'EXCEPT' then LKind := tkExceptKeyword
-  else if LUpper = 'RAISE' then LKind := tkRaiseKeyword
-  else if LUpper = 'OF' then LKind := tkOfKeyword
-  else if LUpper = 'WITH' then LKind := tkWithKeyword
-  else if LUpper = 'INHERITED' then LKind := tkInheritedKeyword
-  else if LUpper = 'EXIT' then LKind := tkExitKeyword
-  else LKind := tkIdentifier;
+  Text := Copy(FText, StartPos, FPosition - StartPos);
+  Upper := UpperCase(Text);
 
-  Result := TSyntaxToken.Create(LKind, LText);
+  // Very basic keyword check. This matches TTokenKind mapping
+  if Upper = 'UNIT'                then Kind := tkUnitKeyword
+  else if Upper = 'INTERFACE'      then Kind := tkInterfaceKeyword
+  else if Upper = 'DISPINTERFACE'  then Kind := tkDispinterfaceKeyword
+  else if Upper = 'IMPLEMENTATION' then Kind := tkImplementationKeyword
+  else if Upper = 'USES'           then Kind := tkUsesKeyword
+  else if Upper = 'IN'             then Kind := tkInKeyword
+  else if Upper = 'TYPE'           then Kind := tkTypeKeyword
+  else if Upper = 'CONST'          then Kind := tkConstKeyword
+  else if Upper = 'VAR'            then Kind := tkVarKeyword
+  else if Upper = 'CLASS'          then Kind := tkClassKeyword
+  else if Upper = 'RECORD'         then Kind := tkRecordKeyword
+  else if Upper = 'BEGIN'          then Kind := tkBeginKeyword
+  else if Upper = 'TRY'            then Kind := tkTryKeyword
+  else if Upper = 'CASE'           then Kind := tkCaseKeyword
+  else if Upper = 'ASM'            then Kind := tkAsmKeyword
+  else if Upper = 'END'            then Kind := tkEndKeyword
+  else if Upper = 'PRIVATE'        then Kind := tkPrivateKeyword
+  else if Upper = 'PROTECTED'      then Kind := tkProtectedKeyword
+  else if Upper = 'PUBLIC'         then Kind := tkPublicKeyword
+  else if Upper = 'PUBLISHED'      then Kind := tkPublishedKeyword
+  else if Upper = 'STRICT'         then Kind := tkStrictKeyword
+  else if Upper = 'PROCEDURE'      then Kind := tkProcedureKeyword
+  else if Upper = 'FUNCTION'       then Kind := tkFunctionKeyword
+  else if Upper = 'CONSTRUCTOR'    then Kind := tkConstructorKeyword
+  else if Upper = 'DESTRUCTOR'     then Kind := tkDestructorKeyword
+  else if Upper = 'PROPERTY'       then Kind := tkPropertyKeyword
+  else if Upper = 'READ'           then Kind := tkReadKeyword
+  else if Upper = 'WRITE'          then Kind := tkWriteKeyword
+  else if Upper = 'OVERRIDE'       then Kind := tkOverrideKeyword
+  else if Upper = 'WHILE'          then Kind := tkWhileKeyword
+  else if Upper = 'FOR'            then Kind := tkForKeyword
+  else if Upper = 'TO'             then Kind := tkToKeyword
+  else if Upper = 'DOWNTO'         then Kind := tkDowntoKeyword
+  else if Upper = 'DO'             then Kind := tkDoKeyword
+  else if Upper = 'REPEAT'         then Kind := tkRepeatKeyword
+  else if Upper = 'UNTIL'          then Kind := tkUntilKeyword
+  else if Upper = 'IF'             then Kind := tkIfKeyword
+  else if Upper = 'THEN'           then Kind := tkThenKeyword
+  else if Upper = 'ELSE'           then Kind := tkElseKeyword
+  else if Upper = 'FINALLY'        then Kind := tkFinallyKeyword
+  else if Upper = 'EXCEPT'         then Kind := tkExceptKeyword
+  else if Upper = 'RAISE'          then Kind := tkRaiseKeyword
+  else if Upper = 'OF'             then Kind := tkOfKeyword
+  else if Upper = 'WITH'           then Kind := tkWithKeyword
+  else if Upper = 'INHERITED'      then Kind := tkInheritedKeyword
+  else if Upper = 'EXIT'           then Kind := tkExitKeyword
+  else Kind := tkIdentifier;
+
+  Result := TSyntaxToken.Create(Kind, Text);
 end;
 
 function TParseTreeLexer.NextToken: TSyntaxToken;
 var
-  LLeadingTrivia: TList<TSyntaxTrivia>;
-  LTrailingTrivia: TList<TSyntaxTrivia>;
-  LTokenText: string;
+  LeadingTrivia: IList<TSyntaxTrivia>;
+  TokenText    : String;
+
+  procedure InitLeadingTrivia;
+  begin
+    if not Assigned(LeadingTrivia) then
+      LeadingTrivia := Collections.NewList<TSyntaxTrivia>([loNoFinalize]);
+  end;
+
+  procedure AddRange(const ASourceList, ATargetList: IList<TSyntaxTrivia>);
+  begin
+    for var Entry: TSyntaxTrivia in ASourceList do
+      ATargetList.Add(Entry);
+  end;
+
 begin
   if Current = #0 then
     Exit(TSyntaxToken.Create(tkEOF, ''));
 
-  LLeadingTrivia := nil;
-  try
-    // Scan leading trivia (whitespace and comments)
-    while True do
+  // Scan leading trivia (whitespace and comments)
+  while True do
+  begin
+    var LCurrent: Char := Current;
+    if CharInSet(LCurrent, [' ', #9, #13, #10]) then
     begin
-      if (Current = ' ') or (Current = #9) or (Current = #13) or (Current = #10) then
-      begin
-        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
-        LLeadingTrivia.Add(ScanWhitespace);
-      end
-      else if (Current = '/') and (Peek(1) = '/') then
-      begin
-        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
-        LLeadingTrivia.Add(ScanComment);
-      end
-      else if (Current = '{') or ((Current = '(') and (Peek(1) = '*')) then
-      begin
-        if LLeadingTrivia = nil then LLeadingTrivia := TList<TSyntaxTrivia>.Create;
-        LLeadingTrivia.Add(ScanComment);
-      end
-      else
-        Break;
-    end;
-
-    if Current = #0 then
-    begin
-      Result := TSyntaxToken.Create(tkEOF, '');
-      if LLeadingTrivia <> nil then
-        Result.LeadingTrivia.AddRange(LLeadingTrivia);
-      Exit;
-    end;
-
-    // Scan actual token
-    if ((Current >= 'A') and (Current <= 'Z')) or
-       ((Current >= 'a') and (Current <= 'z')) or
-       (Current = '_') then
-    begin
-      Result := ScanIdentifierOrKeyword;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanWhitespace);
     end
-    else if ((Current >= '0') and (Current <= '9')) or (Current = '$') then
+    else if (LCurrent = '/') and (Peek(1) = '/') then
     begin
-      Result := ScanNumericLiteral;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanComment);
     end
-    else if Current = '''' then // String literal start
+    else if (LCurrent = '{') or ((LCurrent = '(') and (Peek(1) = '*')) then
     begin
-      Result := ScanStringLiteral;
+      InitLeadingTrivia;
+      LeadingTrivia.Add(ScanComment);
     end
     else
+      Break;
+  end;
+
+  if Current = #0 then
+  begin
+    Result := TSyntaxToken.Create(tkEOF, '');
+    if Assigned(LeadingTrivia) then
+      AddRange(LeadingTrivia, Result.LeadingTrivia);
+    Exit;
+  end;
+
+  // Scan actual token
+  if ((Current >= 'A') and (Current <= 'Z')) or
+     ((Current >= 'a') and (Current <= 'z')) or
+     (Current = '_') then
+  begin
+    Result := ScanIdentifierOrKeyword;
+  end
+  else if ((Current >= '0') and (Current <= '9')) or (Current = '$') then
+  begin
+    Result := ScanNumericLiteral;
+  end
+  else if Current = '''' then // String literal start
+  begin
+    Result := ScanStringLiteral;
+  end
+  else
+  begin
+    // Fallback: Just consume one char as some punctuation
+    TokenText := Current;
+    Next;
+
+    if TokenText = ';' then
+      Result := TSyntaxToken.Create(tkSemicolon, TokenText)
+    else if TokenText = '.' then
+      Result := TSyntaxToken.Create(tkDot, TokenText)
+    else if TokenText = ',' then
+      Result := TSyntaxToken.Create(tkComma, TokenText)
+    else if TokenText = ':' then
     begin
-      // Fallback: Just consume one char as some punctuation
-      LTokenText := Current;
-      Next;
-      
-      if LTokenText = ';' then
-        Result := TSyntaxToken.Create(tkSemicolon, LTokenText)
-      else if LTokenText = '.' then
-        Result := TSyntaxToken.Create(tkDot, LTokenText)
-      else if LTokenText = ',' then
-        Result := TSyntaxToken.Create(tkComma, LTokenText)
-      else if LTokenText = ':' then
+      if Current = '=' then
       begin
-        if Current = '=' then
-        begin
-          LTokenText := LTokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkColonEquals, LTokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkColon, LTokenText);
-      end
-      else if LTokenText = '=' then
-        Result := TSyntaxToken.Create(tkEquals, LTokenText)
-      else if LTokenText = '(' then
-        Result := TSyntaxToken.Create(tkOpenParen, LTokenText)
-      else if LTokenText = ')' then
-        Result := TSyntaxToken.Create(tkCloseParen, LTokenText)
-      else if LTokenText = '[' then
-        Result := TSyntaxToken.Create(tkOpenBracket, LTokenText)
-      else if LTokenText = ']' then
-        Result := TSyntaxToken.Create(tkCloseBracket, LTokenText)
-      else if LTokenText = '<' then
-      begin
-        if Current = '>' then
-        begin
-          LTokenText := LTokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkNotEquals, LTokenText);
-        end
-        else if Current = '=' then
-        begin
-          LTokenText := LTokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkLessOrEquals, LTokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkLessThan, LTokenText);
-      end
-      else if LTokenText = '>' then
-      begin
-        if Current = '=' then
-        begin
-          LTokenText := LTokenText + Current;
-          Next;
-          Result := TSyntaxToken.Create(tkGreaterOrEquals, LTokenText);
-        end
-        else
-          Result := TSyntaxToken.Create(tkGreaterThan, LTokenText);
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkColonEquals, TokenText);
       end
       else
-        Result := TSyntaxToken.Create(tkUnknown, LTokenText);
-    end;
-
-    if LLeadingTrivia <> nil then
-      Result.LeadingTrivia.AddRange(LLeadingTrivia);
-
-  finally
-    LLeadingTrivia.Free;
+        Result := TSyntaxToken.Create(tkColon, TokenText);
+    end
+    else if TokenText = '=' then
+      Result := TSyntaxToken.Create(tkEquals, TokenText)
+    else if TokenText = '(' then
+      Result := TSyntaxToken.Create(tkOpenParen, TokenText)
+    else if TokenText = ')' then
+      Result := TSyntaxToken.Create(tkCloseParen, TokenText)
+    else if TokenText = '[' then
+      Result := TSyntaxToken.Create(tkOpenBracket, TokenText)
+    else if TokenText = ']' then
+      Result := TSyntaxToken.Create(tkCloseBracket, TokenText)
+    else if TokenText = '<' then
+    begin
+      if Current = '>' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkNotEquals, TokenText);
+      end
+      else if Current = '=' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkLessOrEquals, TokenText);
+      end
+      else
+        Result := TSyntaxToken.Create(tkLessThan, TokenText);
+    end
+    else if TokenText = '>' then
+    begin
+      if Current = '=' then
+      begin
+        TokenText := TokenText + Current;
+        Next;
+        Result := TSyntaxToken.Create(tkGreaterOrEquals, TokenText);
+      end
+      else
+        Result := TSyntaxToken.Create(tkGreaterThan, TokenText);
+    end
+    else
+      Result := TSyntaxToken.Create(tkUnknown, TokenText);
   end;
+
+  if Assigned(LeadingTrivia) then
+    AddRange(LeadingTrivia, Result.LeadingTrivia);
 end;
 
-function TParseTreeLexer.TokenizeAll: TList<TSyntaxToken>;
+function TParseTreeLexer.TokenizeAll: IList<TSyntaxToken>;
 var
-  LToken: TSyntaxToken;
+  Token: TSyntaxToken;
+  Prev : TSyntaxToken;
 begin
-  Result := TList<TSyntaxToken>.Create;
+  Result := Collections.NewList<TSyntaxToken>([loNoFinalize]);
+  Prev := nil;
   repeat
-    LToken := NextToken;
-    Result.Add(LToken);
-  until LToken.Kind = tkEOF;
+    Token := NextToken;
+    if Assigned(Prev) then
+    begin
+      Prev.NextToken := Token;
+      Token.PrevToken := Prev;
+    end;
+    Prev := Token;
+    Result.Add(Token);
+  until Token.Kind = tkEOF;
 end;
 
 end.

@@ -1,4 +1,4 @@
-program Test.ParseTree;
+﻿program Test.ParseTree;
 
 {$IFNDEF TESTINSIGHT}
 {$APPTYPE CONSOLE}
@@ -22,9 +22,11 @@ uses
   ParseTree.Writer in '..\Source\ParseTree.Writer.pas',
   ParseTree.Parser in '..\Source\ParseTree.Parser.pas',
   ParseTree.Lexer in '..\Source\ParseTree.Lexer.pas',
+  ParseTree.Visitor in '..\Source\ParseTree.Visitor.pas',
   Test.ParseTree.Nodes in 'Test.ParseTree.Nodes.pas',
   Test.ParseTree.Parser in 'Test.ParseTree.Parser.pas',
   Test.ParseTree.Roundtrip in 'Test.ParseTree.Roundtrip.pas',
+  Test.ParseTree.Utils in 'Test.ParseTree.Utils.pas',
   Test.ParseTree.Parser.ClassDecl in 'Test.ParseTree.Parser.ClassDecl.pas',
   Test.ParseTree.Parser.Statements.Loops in 'Test.ParseTree.Parser.Statements.Loops.pas',
   Test.ParseTree.Parser.Statements.ConditionalsBlocks in 'Test.ParseTree.Parser.Statements.ConditionalsBlocks.pas',
@@ -34,7 +36,8 @@ uses
   Test.ParseTree.Parser.Statements.InheritedExit in 'Test.ParseTree.Parser.Statements.InheritedExit.pas',
   Test.ParseTree.Parser.Statements.InlineVar in 'Test.ParseTree.Parser.Statements.InlineVar.pas',
   Test.ParseTree.Parser.Statements.ProcCall.Advanced in 'Test.ParseTree.Parser.Statements.ProcCall.Advanced.pas',
-  Test.ParseTree.Lexer in 'Test.ParseTree.Lexer.pas';
+  Test.ParseTree.Lexer in 'Test.ParseTree.Lexer.pas',
+  Test.ParseTree.Visitor in 'Test.ParseTree.Visitor.pas';
 
 {$IFNDEF TESTINSIGHT}
 var

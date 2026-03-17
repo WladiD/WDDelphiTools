@@ -14,13 +14,14 @@ uses
   ParseTree.Tokens,
   ParseTree.Nodes,
   ParseTree.Parser,
-  ParseTree.Writer;
+  ParseTree.Writer,
+  Test.ParseTree.Utils;
 
 type
   [TestFixture]
   TParseTreeRoundtripTest = class
   private
-    procedure DoRoundtripTest(const AFilePath: string);
+    procedure DoRoundtripTest(const AFilePath: string; const ABaseDir: string; const ALock: TCriticalSection);
   public
     [Test]
     procedure TestConfiguredPathsParallel;
@@ -30,14 +31,13 @@ implementation
 
 { TParseTreeRoundtripTest }
 
-procedure TParseTreeRoundtripTest.DoRoundtripTest(const AFilePath: string);
+procedure TParseTreeRoundtripTest.DoRoundtripTest(const AFilePath: string; const ABaseDir: string; const ALock: TCriticalSection);
 var
   LParser: TParseTreeParser;
   LOriContent: string;
   LTree: TCompilationUnitSyntax;
   LTreeWriter: TSyntaxTreeWriter;
   LNewContent: string;
-  LBaseDir: string;
   LOutputFolder: string;
   LOutputFile: string;
   LOriLines: TArray<string>;
@@ -72,13 +72,9 @@ begin
     LParser.Free;
   end;
 
-  // Save to RoundTripTest output folder
-  LBaseDir := ExtractFilePath(ParamStr(0));
-  LOutputFolder := TPath.Combine(LBaseDir, 'RoundTripTest');
-  if not TDirectory.Exists(LOutputFolder) then
-    TDirectory.CreateDirectory(LOutputFolder);
-    
-  LOutputFile := TPath.Combine(LOutputFolder, ExtractFileName(AFilePath));
+  // Save to RoundTripTest output folder - mimic source structure to avoid collisions
+  LOutputFolder := TPath.Combine(ExtractFilePath(ParamStr(0)), 'RoundTripTest');
+  LOutputFile := GetTargetOutputFile(AFilePath, ABaseDir, LOutputFolder, ALock);
   TFile.WriteAllText(LOutputFile, LNewContent, TEncoding.UTF8);
 
   // Find and report first difference
@@ -207,7 +203,7 @@ begin
             finally
               LLock.Leave;
             end;
-            DoRoundtripTest(LAllFiles[I]);
+            DoRoundtripTest(LAllFiles[I], LTestProjectDir, LLock);
           except
             on E: Exception do
             begin

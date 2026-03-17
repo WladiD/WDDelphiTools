@@ -49,7 +49,6 @@ procedure TDebuggerTests.TestBreakpointInTarget;
 var
   Debugger: TDebugger;
   ExePath, MapFile: string;
-  Thread: TDebuggerThread;
 begin
   ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
   if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
@@ -64,7 +63,7 @@ begin
     // Line 17 is Writeln('Target') in TargetProcedure
     Debugger.SetBreakpoint('DebugTarget.dpr', 17);
 
-    Thread := TDebuggerThread.Create(Debugger, ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
     Debugger.ResumeExecution;
 
@@ -81,7 +80,6 @@ procedure TDebuggerTests.TestStackTrace;
 var
   Debugger: TDebugger;
   ExePath, MapFile: string;
-  Thread: TDebuggerThread;
   FoundDeep, FoundTarget: Boolean;
   Frame: TStackFrame;
 begin
@@ -99,7 +97,7 @@ begin
     // Line 13 is Writeln('Deep') in DeepProcedure
     Debugger.SetBreakpoint('DebugTarget.dpr', 13);
 
-    Thread := TDebuggerThread.Create(Debugger, ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
     Debugger.ResumeExecution;
 

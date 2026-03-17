@@ -1,4 +1,4 @@
-<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+﻿<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
     <PropertyGroup>
         <Base>True</Base>
         <AppType>Console</AppType>
@@ -20,6 +20,12 @@
         <CfgParent>Base</CfgParent>
         <Base>true</Base>
     </PropertyGroup>
+    <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_1)'=='true') or '$(Cfg_1_Win32)'!=''">
+        <Cfg_1_Win32>true</Cfg_1_Win32>
+        <CfgParent>Cfg_1</CfgParent>
+        <Cfg_1>true</Cfg_1>
+        <Base>true</Base>
+    </PropertyGroup>
     <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_2)'!=''">
         <Cfg_2>true</Cfg_2>
         <CfgParent>Base</CfgParent>
@@ -30,13 +36,17 @@
         <DCC_DcuOutput>.\Win32\$(Config)</DCC_DcuOutput>
         <DCC_DependencyCheckOutputName>Win32\$(Config)\Test.ParseTree.exe</DCC_DependencyCheckOutputName>
         <DCC_ExeOutput>.\Win32\$(Config)</DCC_ExeOutput>
-        <DCC_UnitSearchPath>..\Source;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+        <DCC_Namespace>System;Winapi;$(DCC_Namespace)</DCC_Namespace>
+        <DCC_UnitSearchPath>..\Source;..\..\..\Lib\mORMot\src\core\;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
         <Icon_MainIcon>$(BDS)\bin\delphi_PROJECTICON.ico</Icon_MainIcon>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
         <DCC_Optimize>false</DCC_Optimize>
+    </PropertyGroup>
+    <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_2)'!=''">
         <DCC_Define>RELEASE;$(DCC_Define)</DCC_Define>
@@ -53,6 +63,7 @@
         <DCCReference Include="..\Source\ParseTree.Writer.pas"/>
         <DCCReference Include="..\Source\ParseTree.Parser.pas"/>
         <DCCReference Include="..\Source\ParseTree.Lexer.pas"/>
+        <DCCReference Include="..\Source\ParseTree.Visitor.pas"/>
         <DCCReference Include="Test.ParseTree.Nodes.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.pas"/>
         <DCCReference Include="Test.ParseTree.Roundtrip.pas"/>
@@ -66,6 +77,7 @@
         <DCCReference Include="Test.ParseTree.Parser.Statements.InlineVar.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.Statements.ProcCall.Advanced.pas"/>
         <DCCReference Include="Test.ParseTree.Lexer.pas"/>
+        <DCCReference Include="Test.ParseTree.Visitor.pas"/>
         <BuildConfiguration Include="Base">
             <Key>Base</Key>
         </BuildConfiguration>
@@ -87,6 +99,7 @@
                 <Source>
                     <Source Name="MainSource">Test.ParseTree.dpr</Source>
                 </Source>
+                <Excluded_Packages/>
             </Delphi.Personality>
             <Platforms>
                 <Platform value="Win32">True</Platform>

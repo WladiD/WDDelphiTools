@@ -1,9 +1,16 @@
+﻿// ======================================================================
+// Copyright (c) 2026 Waldemar Derr. All rights reserved.
+//
+// Licensed under the MIT license. See included LICENSE file for details.
+// ======================================================================
+
 unit ParseTree.Tokens;
 
 interface
 
 type
-  { Defines the different types of tokens in the language }
+
+  /// <summary>Defines the different types of tokens in the language</summary>
   TTokenKind = (
     tkUnknown,
     tkEOF,
@@ -80,7 +87,9 @@ type
 implementation
 
 uses
-  System.SysUtils, System.TypInfo;
+
+  System.SysUtils,
+  System.TypInfo;
 
 { TTokenKindHelper }
 
