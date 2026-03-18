@@ -130,23 +130,24 @@ begin
         if S2 = AClassName then LIsBanner := True;
       end;
 
-      if Pos('{$IF', LLine) > 0 then Inc(LIfLevel);
+      var ULine: string := UpperCase(LLine);
+      if Pos('{$IF', ULine) > 0 then Inc(LIfLevel);
 
       if LCollectingForPrevious then
       begin
-         if (not LIsBanner) and ((LIfLevel > 0) or (Pos('{$ENDIF', LLine) > 0) or (Pos('{$ELSE', LLine) > 0) or (Pos('{$ENDREGION', LLine) > 0) or (Pos('{$R ', LLine) > 0) or
+         if (not LIsBanner) and ((LIfLevel > 0) or (Pos('{$ENDIF', ULine) > 0) or (Pos('{$ELSE', ULine) > 0) or (Pos('{$ENDREGION', ULine) > 0) or (Pos('{$R ', ULine) > 0) or
             ((ATrailingPart = '') and (Length(AOldTrivia) > 0) and (AOldTrivia[1] <> #13) and (AOldTrivia[1] <> #10) and
-             (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', LLine) = 0))) then
+             (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', ULine) = 0))) then
          begin
             ATrailingPart := ATrailingPart + LLine;
-            if Pos('{$ENDIF', LLine) > 0 then Dec(LIfLevel);
+            if Pos('{$ENDIF', ULine) > 0 then Dec(LIfLevel);
             LWasBraceComment := LIsBraceComment;
             Continue;
          end;
          LCollectingForPrevious := False;
       end;
       
-      if Pos('{$ENDIF', LLine) > 0 then Dec(LIfLevel);
+      if Pos('{$ENDIF', ULine) > 0 then Dec(LIfLevel);
 
       if not LIsBanner then AComments := AComments + LLine;
     end

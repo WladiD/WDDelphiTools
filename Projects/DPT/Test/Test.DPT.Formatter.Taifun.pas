@@ -146,6 +146,8 @@ type
     procedure TestFormatImplementation_CleansClassBannerInConstSection;
     [Test]
     procedure TestFormatUnitHeader_PreservesCommentsOutsideBanner;
+    [Test]
+    procedure TestFormatImplementation_LowercaseEndif;
   end;
 
 implementation
@@ -2271,6 +2273,49 @@ begin
     
     // The banner should not contain the comment
     Assert.IsFalse(LResult.Contains('//' + #13#10 + '// This comment should not be pulled into the banner' + #13#10 + '//' + #13#10 + '// ===='), 'The banner should not have absorbed the comment.');
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_LowercaseEndif;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{$if CompilerVersion >= 29}' + #13#10 +
+    'function TApp.GetVersionString: string;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    '{$endif}' + #13#10 +
+    #13#10 +
+    '{$if CompilerVersion >= 32}' + #13#10 +
+    'function TApp.Running: Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    '{$endif}' + #13#10 +
+    'end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The short separator for the second method should come AFTER the {$endif}
+    var LExpectedPart := 
+      '{$endif}' + #13#10 +
+      #13#10 +
+      '{ ----------------------------------------------------------------------- }' + #13#10 +
+      #13#10 +
+      '{$if CompilerVersion >= 32}';
+
+    Assert.IsTrue(LResult.Contains(LExpectedPart), 'The short separator should be placed AFTER the {$endif} of the previous method. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
