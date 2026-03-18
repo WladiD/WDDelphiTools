@@ -144,6 +144,8 @@ type
     procedure TestFormatImplementation_InsertsSectionBannerBeforeStandaloneProc;
     [Test]
     procedure TestFormatImplementation_CleansClassBannerInConstSection;
+    [Test]
+    procedure TestFormatUnitHeader_PreservesCommentsOutsideBanner;
   end;
 
 implementation
@@ -2230,6 +2232,45 @@ begin
     var LSecondPos := Pos(LBannerLine, LResult, LFirstPos + 1);
     Assert.AreEqual(0, LSecondPos,
       'CToolButton class banner should appear only once (no duplicate). Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_PreservesCommentsOutsideBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$REGION ''Some region''}' + #13#10 +
+    '// This comment should not be pulled into the banner' + #13#10 +
+    '{$ENDREGION}' + #13#10 +
+    'unit MyUnit; interface end.';
+    
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+    
+    // The comment should stay inside the region block, NOT inside the banner
+    var LExpectedRegion := 
+      '{$REGION ''Some region''}' + #13#10 +
+      '// This comment should not be pulled into the banner' + #13#10 +
+      '{$ENDREGION}';
+
+    Assert.IsTrue(LResult.Contains(LExpectedRegion), 'The comment inside the $REGION should be preserved exactly outside the banner. Actual result:'#13#10 + LResult);
+    
+    // The banner should not contain the comment
+    Assert.IsFalse(LResult.Contains('//' + #13#10 + '// This comment should not be pulled into the banner' + #13#10 + '//' + #13#10 + '// ===='), 'The banner should not have absorbed the comment.');
   finally
     LUnit.Free;
   end;

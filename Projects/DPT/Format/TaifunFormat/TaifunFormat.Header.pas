@@ -13,9 +13,9 @@ type
 implementation
 
 function TTaifunHeaderHelper.ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
-var S, LLine: string; P, P2, P3: Integer; LIsDirective, LFoundDesc, LFoundAuthor: Boolean;
+var S, LLine, LTrimmed: string; P, P2, P3: Integer; LFoundDesc, LFoundAuthor, LInBanner: Boolean;
 begin
-  Result := Length(ATrivia) > 0; LFoundDesc := False; LFoundAuthor := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := '';
+  Result := Length(ATrivia) > 0; LFoundDesc := False; LFoundAuthor := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := ''; LInBanner := True;
   if Result then
   begin
     S := ATrivia;
@@ -23,9 +23,18 @@ begin
     begin
       P := Pos(#10, S);
       if P > 0 then begin LLine := Copy(S, 1, P - 1); if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then LLine := Copy(LLine, 1, Length(LLine) - 1); Delete(S, 1, P); end else begin LLine := S; S := ''; end;
-      LIsDirective := False;
-      for P2 := 1 to Length(LLine) do if LLine[P2] <> ' ' then begin if (LLine[P2] = '{') and (P2 < Length(LLine)) and (LLine[P2+1] = '$') then LIsDirective := True; Break; end;
-      if LIsDirective then begin if ADirectives <> '' then ADirectives := ADirectives + #13#10 + LLine else ADirectives := LLine; end
+      
+      if LInBanner then
+      begin
+        LTrimmed := LLine;
+        while (Length(LTrimmed) > 0) and (LTrimmed[1] = ' ') do Delete(LTrimmed, 1, 1);
+        if (Length(LTrimmed) = 0) or (Pos('//', LTrimmed) <> 1) then LInBanner := False;
+      end;
+      
+      if not LInBanner then
+      begin
+        if ADirectives <> '' then ADirectives := ADirectives + #13#10 + LLine else ADirectives := LLine;
+      end
       else
       begin
         P2 := Pos('Autor:', LLine); 
@@ -36,7 +45,7 @@ begin
           while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1); 
           LFoundAuthor := True;
         end
-        else if (Pos('//', LLine) = 1) and (Pos('// Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) then
+        else if (Pos('//', LTrimmed) = 1) and (Pos('Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) then
         begin
           if (Length(LLine) > 3) and not LFoundDesc and ((Pos('-', LLine) > 0) or (Pos('–', LLine) > 0) or (Pos('â€', LLine) > 0)) then
           begin
@@ -95,6 +104,9 @@ begin
   end;
   
   if (AExtraComments = '//') or (AExtraComments = '// ') then AExtraComments := '';
+
+  while (ADirectives <> '') and (Pos(#13#10, ADirectives) = 1) do Delete(ADirectives, 1, 2);
+  while (ADirectives <> '') and (Copy(ADirectives, Length(ADirectives) - 1, 2) = #13#10) do Delete(ADirectives, Length(ADirectives) - 1, 2);
 
   if not LFoundDesc and not Result then ADescription := 'Kurzbeschreibung der Unit';
   if ADirectives = '' then ADirectives := '{$I Tfw.Define.pas}';
