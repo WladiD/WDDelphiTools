@@ -90,21 +90,21 @@ begin
       ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
         'Lists all build configurations defined in the specified .dproj file.',
-        'Example: DPT D12 DProjPrintConfigs MyProject.dproj'
+        'Example: DPT D13 DProjPrintConfigs MyProject.dproj'
       ]),
       TActionInfo.Create('DProjPrintCurConfig', '<ProjectFile>', [
         'Displays the default/active build configuration of the specified .dproj file.',
-        'Example: DPT D12 DProjPrintCurConfig MyProject.dproj'
+        'Example: DPT D13 DProjPrintCurConfig MyProject.dproj'
       ]),
       TActionInfo.Create('DProjPrintOutputFile', '<ProjectFile> [Config] [Platform]', [
         'Displays the output executable file path for the project based on current configuration and platform.',
-        'Example: DPT D12 DProjPrintOutputFile MyProject.dproj Release Win64'
+        'Example: DPT D13 DProjPrintOutputFile MyProject.dproj Release Win64'
       ]),
       TActionInfo.Create('DProjPrintSearchPaths', '<ProjectFile> [Config] [Platform]', [
         'Displays the effective unit search path for the project.',
         'Combines the project''s specific search path (resolving variables) with the IDE''s global library path.',
         'Defaults: Config=<ActiveConfig>, Platform=Win32.',
-        'Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64'
+        'Example: DPT D13 DProjPrintSearchPaths MyProject.dproj Release Win64'
       ]),
       TActionInfo.Create('ExportBuildEnvironment', '<TargetPath>', [
         'Exports a minimal Delphi build environment to the specified directory.',
@@ -112,7 +112,7 @@ begin
         'Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.',
         'Generates a smart Init...bat script that handles Admin rights and Unattended mode.',
         'WARNING: The target machine still requires a valid license/activation.',
-        'Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build'
+        'Example: DPT D13 ExportBuildEnvironment C:\Temp\Delphi12Build'
       ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
@@ -124,7 +124,7 @@ begin
         'Copies BDS files to Program Files, restores AppData, and imports Registry settings.',
         'The target paths are determined automatically based on the DelphiVersion parameter.',
         'Intended to be called by the generated Init...bat script.',
-        'Example: DPT D12 ImportBuildEnvironment'
+        'Example: DPT D13 ImportBuildEnvironment'
       ]),
       TActionInfo.Create('IsPackageRegistered', '<PackageFileName>', [
         'Checks if a specific BPL package is currently registered in the IDE.',
