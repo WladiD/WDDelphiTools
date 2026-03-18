@@ -129,7 +129,11 @@ begin
     CmdLine.ConsumeParameter;
   end
   else
-    DelphiVersion := dvUnknown;
+  begin
+    DelphiVersion := FindMostRecentDelphiVersion;
+    if DelphiVersion = dvUnknown then
+      raise Exception.Create('No supported Delphi version found on this machine');
+  end;
 
   // 2. Action
   Action := CmdLine.CheckParameter('Action');
@@ -352,8 +356,8 @@ begin
           end
           else if SameText(LAction, 'Lint') then
           begin
-            var LLintTargetIdx := 3;
-            if not IsLatestVersionAlias(ParamStr(1)) then LLintTargetIdx := 2;
+            var LLintTargetIdx := 2;
+            if IsLatestVersionAlias(ParamStr(1)) or IsValidDelphiVersion(ParamStr(1), LDummyVersion) then LLintTargetIdx := 3;
             if ParamCount >= LLintTargetIdx + 1 then
               WorkflowEngine.SetLintTarget(ParamStr(LLintTargetIdx + 1));
           end;
@@ -446,6 +450,8 @@ begin
       end
       else if E is EInvalidParameter then
       begin
+        Writeln('ERROR: ', E.Message);
+        Writeln;
         TDptInstructionScreen.ShowCompact;
       end
       else

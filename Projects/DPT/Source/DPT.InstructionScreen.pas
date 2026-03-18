@@ -251,7 +251,7 @@ class procedure TDptInstructionScreen.ShowCompact;
 begin
   PrintHeader;
   Writeln('Usage:');
-  Writeln('  ' + ExtractFileName(ParamStr(0)) + ' DelphiVersion Action [Parameters]');
+  Writeln('  ' + ExtractFileName(ParamStr(0)) + ' [DelphiVersion] Action [Parameters]');
   Writeln('  ' + ExtractFileName(ParamStr(0)) + ' Help [Action]');
   Writeln;
 
