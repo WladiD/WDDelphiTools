@@ -49,6 +49,7 @@ type
     FExitRequested         : Boolean;
     FHostPID               : DWORD;
     FIgnorePatterns        : TStringList;
+    FLintTarget            : String;
     FLastFixedFiles        : TStringList;
     FLastFormattedFiles    : TStringList;
     FWorkflowFile          : String;
@@ -77,6 +78,7 @@ type
     function  CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
     procedure SetCurrentProjectFile(const AFile: string);
     procedure SetExitCode(ACode: Integer);
+    procedure SetLintTarget(const ATarget: string);
     procedure SetProjectFiles(const AFiles: TArray<string>);
     property WorkflowFile: string read FWorkflowFile;
     property HostPID: DWORD read FHostPID;
@@ -756,6 +758,11 @@ end;
 procedure TDptWorkflowEngine.SetExitCode(ACode: Integer);
 begin
   FExitCode := ACode;
+end;
+
+procedure TDptWorkflowEngine.SetLintTarget(const ATarget: string);
+begin
+  FLintTarget := ATarget;
 end;
 
 end.

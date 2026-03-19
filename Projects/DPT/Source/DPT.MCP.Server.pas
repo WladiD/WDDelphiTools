@@ -32,6 +32,7 @@ type
     FDebugger          : TDebugger;
     FExitRequest       : Boolean;
     FInputReader       : TTextReader;
+    FOwnsDebugger      : Boolean;
     FOutputLock        : TCriticalSection;
     FOutputWriter      : TTextWriter;
     FPendingBreakpoints: IList<TBreakpoint>;
@@ -102,6 +103,7 @@ constructor TMcpServer.Create(ADebugger: TDebugger; AInput: TTextReader; AOutput
 begin
   inherited Create;
   FDebugger := ADebugger;
+  FOwnsDebugger := False;
   FExitRequest := False;
   FInputReader := AInput;
   FOutputWriter := AOutput;
@@ -120,6 +122,8 @@ end;
 destructor TMcpServer.Destroy;
 begin
   DisconnectDebuggerEvents;
+  if FOwnsDebugger then
+    FDebugger.Free;
   FOutputLock.Free;
   inherited Destroy;
 end;
@@ -769,7 +773,11 @@ begin
   else
     Args := '';
 
+  if FOwnsDebugger then
+    FreeAndNil(FDebugger);
+
   FDebugger := TDebugger.Create;
+  FOwnsDebugger := True;
   ConnectDebuggerEvents;
 
   MapFile := ChangeFileExt(ExePath, '.map');
@@ -896,7 +904,11 @@ begin
   DisconnectDebuggerEvents;
   FDebugger.Detach;
   FState := dsNoSession;
-  FDebugger := nil;
+  if FOwnsDebugger then
+    FreeAndNil(FDebugger)
+  else
+    FDebugger := nil;
+  FOwnsDebugger := False;
   Result := MakeTextResult('Debug session stopped. The process continues running.');
 end;
 
@@ -908,7 +920,11 @@ begin
   DisconnectDebuggerEvents;
   FDebugger.Terminate;
   FState := dsNoSession;
-  FDebugger := nil;
+  if FOwnsDebugger then
+    FreeAndNil(FDebugger)
+  else
+    FDebugger := nil;
+  FOwnsDebugger := False;
   Result := MakeTextResult('Debug session terminated. The process has been killed.');
 end;
 
