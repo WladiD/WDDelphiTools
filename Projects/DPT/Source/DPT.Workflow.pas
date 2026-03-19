@@ -55,7 +55,7 @@ type
     procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
     function  ExprParserFixLineEndingsWindowsInGitModifiedFiles: Variant;
     function  ExprParserFixUtf8BomInGitModifiedFiles: Variant;
-    function  ExprParserFormatGitModifiedFiles: Variant;
+    function  ExprParserFormatGitModifiedFiles(const Args: Variant): Variant;
     function  ExprParserGetCurrentProjectFiles: Variant;
     function  ExprParserGetExitCode: Variant;
     function  ExprParserGetLastFixedFiles: Variant;
@@ -94,6 +94,11 @@ uses
 
   ExprParserTools,
 
+  ParseTree.Nodes,
+  ParseTree.Parser,
+  ParseTree.Writer,
+  DPT.Formatter.DWS,
+
   DPT.Detection;
 
 const
@@ -115,6 +120,7 @@ begin
   FLastFixedFiles := TStringList.Create;
   FLastFormattedFiles := TStringList.Create;
   FCurrentAction := AAction;
+  FHostPID := GetCurrentProcessId;
   
   FAIMode := DetectAIMode(FHostPID);
   if FAIMode <> amNone then
@@ -309,7 +315,7 @@ begin
   else if SameText(FuncName, 'IgnoreFormatPattern') then
     ResVal := ExprParserIgnoreFormatPattern(Args)
   else if SameText(FuncName, 'FormatGitModifiedFiles') then
-    ResVal := ExprParserFormatGitModifiedFiles
+    ResVal := ExprParserFormatGitModifiedFiles(Args)
   else if SameText(FuncName, 'GetLastFormattedFiles') then
     ResVal := ExprParserGetLastFormattedFiles
   else
@@ -335,7 +341,7 @@ begin
     FIgnorePatterns.Add(VarToStr(Args));
 end;
 
-function TDptWorkflowEngine.ExprParserFormatGitModifiedFiles: Variant;
+function TDptWorkflowEngine.ExprParserFormatGitModifiedFiles(const Args: Variant): Variant;
 var
   ModifiedFiles: TArray<string>;
   FileName: string;
@@ -343,54 +349,96 @@ var
   SkipFile: Boolean;
   Content: string;
   NewContent: string;
+  ScriptFile: string;
+  Formatter: TDptDwsFormatter;
+  PTParser: TParseTreeParser;
+  PTWriter: TSyntaxTreeWriter;
+  PTUnit: TCompilationUnitSyntax;
 begin
   FLastFormattedFiles.Clear;
   Result := False;
-  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
-  for FileName in ModifiedFiles do
+
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+    ScriptFile := VarToStr(Args[0])
+  else
+    Exit; // Script file is required
+
+  if not TFile.Exists(ScriptFile) then
   begin
-    if not TFile.Exists(FileName) then Continue;
-    
-    // Nur Delphi Dateien
-    var Ext := LowerCase(ExtractFileExt(FileName));
-    if (Ext <> '.pas') and (Ext <> '.dpr') and (Ext <> '.dpk') then
-      Continue;
-
-    SkipFile := False;
-    for IgnorePattern in FIgnorePatterns do
+    // Try to find it relative to the workflow file or app dir
+    var Candidate := TPath.Combine(ExtractFilePath(FWorkflowFile), ScriptFile);
+    if TFile.Exists(Candidate) then
+      ScriptFile := Candidate
+    else
     begin
-      if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
-      begin
-        SkipFile := True;
-        Break;
-      end;
+      Candidate := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Format'), ScriptFile);
+      if TFile.Exists(Candidate) then
+        ScriptFile := Candidate;
     end;
+  end;
 
-    if SkipFile then Continue;
+  if not TFile.Exists(ScriptFile) then
+    Exit;
 
-    try
-      Content := TFile.ReadAllText(FileName, TEncoding.UTF8);
+  Formatter := TDptDwsFormatter.Create;
+  try
+    Formatter.LoadScript(ScriptFile);
+
+    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+    for FileName in ModifiedFiles do
+    begin
+      if not TFile.Exists(FileName) then Continue;
       
-      // Minimaler Formatter: Trailing Spaces entfernen (um testbar zu sein)
-      var Lines := TStringList.Create;
+      // Nur Delphi Dateien
+      var Ext := LowerCase(ExtractFileExt(FileName));
+      if (Ext <> '.pas') and (Ext <> '.dpr') and (Ext <> '.dpk') then
+        Continue;
+
+      SkipFile := False;
+      for IgnorePattern in FIgnorePatterns do
+      begin
+        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
+        begin
+          SkipFile := True;
+          Break;
+        end;
+      end;
+
+      if SkipFile then Continue;
+
       try
-        Lines.Text := Content;
-        for var i := 0 to Lines.Count - 1 do
-          Lines[i] := TrimRight(Lines[i]);
-        NewContent := Lines.Text;
-      finally
-        Lines.Free;
+        Content := TFile.ReadAllText(FileName, TEncoding.UTF8);
+        
+        PTParser := TParseTreeParser.Create;
+        try
+          PTUnit := PTParser.Parse(Content);
+          try
+            Formatter.FormatUnit(PTUnit);
+            PTWriter := TSyntaxTreeWriter.Create;
+            try
+              NewContent := PTWriter.GenerateSource(PTUnit);
+            finally
+              PTWriter.Free;
+            end;
+          finally
+            PTUnit.Free;
+          end;
+        finally
+          PTParser.Free;
+        end;
+        
+        if Content <> NewContent then
+        begin
+          TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
+          FLastFormattedFiles.Add(ExtractFileName(FileName));
+          Result := True;
+        end;
+      except
+        // Fehler beim Formatieren ignorieren
       end;
-      
-      if Content <> NewContent then
-      begin
-        TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
-        FLastFormattedFiles.Add(ExtractFileName(FileName));
-        Result := True;
-      end;
-    except
-      // Fehler beim Formatieren ignorieren
     end;
+  finally
+    Formatter.Free;
   end;
 end;
 
@@ -530,6 +578,80 @@ begin
   end;
 end;
 
+procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
+var
+  Block: TDptWorkflowBlock;
+  InstrLines: TStringList;
+  Line: string;
+begin
+  for Block in ABlocks do
+  begin
+    if FExitRequested then Exit;
+
+    if (Block.GuardType = AGuardType) and AParser.Eval(Block.Condition) then
+    begin
+      if AParser.Value <> 0 then
+      begin
+        var RawInstructions := Block.Instructions;
+        // Remove only purely empty lines at the very beginning or end
+        while (RawInstructions <> '') and ((RawInstructions[1] = #13) or (RawInstructions[1] = #10)) do
+          Delete(RawInstructions, 1, 1);
+        while (RawInstructions <> '') and ((RawInstructions[Length(RawInstructions)] = #13) or (RawInstructions[Length(RawInstructions)] = #10)) do
+          Delete(RawInstructions, Length(RawInstructions), 1);
+
+        if RawInstructions <> '' then
+        begin
+          // Execute commands (lines without backticks)
+          InstrLines := TStringList.Create;
+          try
+            InstrLines.Text := RawInstructions;
+            for Line in InstrLines do
+            begin
+              var TrimmedLine := Trim(Line);
+              if (TrimmedLine <> '') and (Pos('`', TrimmedLine) = 0) then
+                AParser.Eval(TrimmedLine);
+            end;
+          finally
+            InstrLines.Free;
+          end;
+
+          var Processed := ProcessInstructions(AParser, RawInstructions);
+          if Processed <> '' then
+            AInstructions := AInstructions + Processed + sLineBreak;
+        end;
+        
+        if Block.NestedBlocks.Count > 0 then
+          EvalBlocks(AParser, Block.NestedBlocks, AGuardType, AInstructions);
+      end
+    end;
+    
+    if FExitRequested then Exit;
+  end;
+end;
+
+function TDptWorkflowEngine.CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
+var
+  Parser: TExprParser;
+begin
+  Result := waNone;
+  AInstructions := '';
+  FExitRequested := False;
+  if FBlocks.Count = 0 then Exit;
+
+  Parser := TExprParser.Create;
+  try
+    Parser.OnGetVariable := OnGetVariableCallback;
+    Parser.OnExecuteFunction := OnExecuteFunctionCallback;
+    
+    EvalBlocks(Parser, FBlocks, AGuardType, AInstructions);
+    
+    if FExitRequested then
+      Result := waExit;
+  finally
+    Parser.Free;
+  end;
+end;
+
 function TDptWorkflowEngine.ProcessInstructions(AParser: TExprParser; const AStr: string): string;
 var
   I, Start: Integer;
@@ -618,80 +740,6 @@ begin
     end;
   finally
     InstrLines.Free;
-  end;
-end;
-
-procedure TDptWorkflowEngine.EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
-var
-  Block: TDptWorkflowBlock;
-  InstrLines: TStringList;
-  Line: string;
-begin
-  for Block in ABlocks do
-  begin
-    if FExitRequested then Exit;
-
-    if (Block.GuardType = AGuardType) and AParser.Eval(Block.Condition) then
-    begin
-      if AParser.Value <> 0 then
-      begin
-        var RawInstructions := Block.Instructions;
-        // Remove only purely empty lines at the very beginning or end
-        while (RawInstructions <> '') and ((RawInstructions[1] = #13) or (RawInstructions[1] = #10)) do
-          Delete(RawInstructions, 1, 1);
-        while (RawInstructions <> '') and ((RawInstructions[Length(RawInstructions)] = #13) or (RawInstructions[Length(RawInstructions)] = #10)) do
-          Delete(RawInstructions, Length(RawInstructions), 1);
-
-        if RawInstructions <> '' then
-        begin
-          // Execute commands (lines without backticks)
-          InstrLines := TStringList.Create;
-          try
-            InstrLines.Text := RawInstructions;
-            for Line in InstrLines do
-            begin
-              var TrimmedLine := Trim(Line);
-              if (TrimmedLine <> '') and (Pos('`', TrimmedLine) = 0) then
-                AParser.Eval(TrimmedLine);
-            end;
-          finally
-            InstrLines.Free;
-          end;
-
-          var Processed := ProcessInstructions(AParser, RawInstructions);
-          if Processed <> '' then
-            AInstructions := AInstructions + Processed + sLineBreak;
-        end;
-        
-        if Block.NestedBlocks.Count > 0 then
-          EvalBlocks(AParser, Block.NestedBlocks, AGuardType, AInstructions);
-      end
-    end;
-    
-    if FExitRequested then Exit;
-  end;
-end;
-
-function TDptWorkflowEngine.CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
-var
-  Parser: TExprParser;
-begin
-  Result := waNone;
-  AInstructions := '';
-  FExitRequested := False;
-  if FBlocks.Count = 0 then Exit;
-
-  Parser := TExprParser.Create;
-  try
-    Parser.OnGetVariable := OnGetVariableCallback;
-    Parser.OnExecuteFunction := OnExecuteFunctionCallback;
-    
-    EvalBlocks(Parser, FBlocks, AGuardType, AInstructions);
-    
-    if FExitRequested then
-      Result := waExit;
-  finally
-    Parser.Free;
   end;
 end;
 

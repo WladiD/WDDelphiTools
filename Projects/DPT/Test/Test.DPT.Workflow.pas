@@ -295,18 +295,29 @@ procedure TTestDptWorkflow.TestFormatterAndIgnore;
 var
   FileToFormat: String;
   FileToIgnore: String;
+  ScriptFile: String;
   Instructions: String;
 begin
-  // 1. Create files with trailing spaces
-  FileToFormat := CreateTestFile('ToFormat.pas', 'Line1  ');
-  FileToIgnore := CreateTestFile('ToIgnore.pas', 'Line1  ');
+  // 1. Create a minimal DWS script that does something visible
+  // We'll just use a simple script that can be compiled.
+  // To actually "format", we'd need to use the API exposed by TDptDwsFormatter.
+  ScriptFile := TPath.Combine(FTestDir, 'TestFormat.pas');
+  TFile.WriteAllText(ScriptFile, 
+    'procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);' + sLineBreak +
+    'begin' + sLineBreak +
+    '  AddLeadingTrivia(GetUnitKeyword(AUnit), "{ Formatted } ");' + sLineBreak +
+    'end;');
 
-  // 2. Workflow: Ignore ToIgnore.pas and run formatter
+  // 2. Create files
+  FileToFormat := CreateTestFile('ToFormat.pas', 'unit ToFormat; implementation end.');
+  FileToIgnore := CreateTestFile('ToIgnore.pas', 'unit ToIgnore; implementation end.');
+
+  // 3. Workflow: Ignore ToIgnore.pas and run formatter with our test script
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
     '  BeforeDptGuard: IgnoreFormatPattern("ToIgnore.pas")' + sLineBreak +
-    '  BeforeDptGuard: FormatGitModifiedFiles()' + sLineBreak +
+    '  BeforeDptGuard: FormatGitModifiedFiles("TestFormat.pas")' + sLineBreak +
     '  {' + sLineBreak +
     '    Formatted: `GetLastFormattedFiles()`' + sLineBreak +
     '  }' + sLineBreak +
@@ -315,12 +326,15 @@ begin
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
 
-  // 3. Run
+  // 4. Run
   FEngine.CheckConditions(Instructions);
   
-  // 4. Verify
-  Assert.AreEqual('Line1', TFile.ReadAllText(FileToFormat).Trim, 'ToFormat.pas should be formatted (trimmed)');
-  Assert.AreEqual('Line1  ', TFile.ReadAllText(FileToIgnore), 'ToIgnore.pas should NOT be formatted');
+  // 5. Verify
+  var Content := TFile.ReadAllText(FileToFormat);
+  Assert.IsTrue(Content.Contains('{ Formatted }'), 'ToFormat.pas should be formatted (added comment)');
+  
+  Content := TFile.ReadAllText(FileToIgnore);
+  Assert.IsFalse(Content.Contains('{ Formatted }'), 'ToIgnore.pas should NOT be formatted');
   
   Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
   Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
