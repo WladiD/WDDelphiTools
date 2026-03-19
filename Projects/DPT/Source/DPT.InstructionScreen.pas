@@ -206,7 +206,7 @@ end;
 class procedure TDptInstructionScreen.PrintHeader;
 begin
   Writeln('Delphi Processing Tools (DPT)');
-  Writeln('Version 0.5 - 2026 - Waldemar Derr');
+  Writeln('Version 0.6 - 2026 - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
 end;

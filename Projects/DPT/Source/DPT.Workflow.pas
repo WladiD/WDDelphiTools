@@ -125,21 +125,18 @@ begin
   FHostPID := GetCurrentProcessId;
   
   FAIMode := DetectAIMode(FHostPID);
-  if FAIMode <> amNone then
-  begin
-    FWorkflowFile := FindWorkflowFile;
-    var IsMcpDebugger := False;
-    for var i := 1 to ParamCount do
-      if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
+  FWorkflowFile := FindWorkflowFile;
+  var IsMcpDebugger := False;
+  for var i := 1 to ParamCount do
+    if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
 
-    if FWorkflowFile <> '' then
-    begin
-      if not IsMcpDebugger then Writeln('AI Workflow file FOUND: ', FWorkflowFile);
-      LoadWorkflow;
-    end
-    else
-      if not IsMcpDebugger then Writeln('AI Workflow file NOT found. Searched up from: ', GetCurrentDir);
-  end;
+  if FWorkflowFile <> '' then
+  begin
+    if not IsMcpDebugger then Writeln('Workflow file FOUND: ', FWorkflowFile);
+    LoadWorkflow;
+  end
+  else
+    if not IsMcpDebugger then Writeln('Workflow file NOT found. Searched up from: ', GetCurrentDir);
 end;
 
 destructor TDptWorkflowEngine.Destroy;
@@ -367,26 +364,47 @@ begin
 
   if not TFile.Exists(ScriptFile) then
   begin
-    // Try to find it relative to the workflow file or app dir
+    // Try to find it relative to the workflow file
     var Candidate := TPath.Combine(ExtractFilePath(FWorkflowFile), ScriptFile);
     if TFile.Exists(Candidate) then
       ScriptFile := Candidate
     else
     begin
+      // Try Format subfolder next to EXE
       Candidate := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Format'), ScriptFile);
       if TFile.Exists(Candidate) then
-        ScriptFile := Candidate;
+        ScriptFile := Candidate
+      else
+      begin
+        // Try directly next to EXE
+        Candidate := TPath.Combine(ExtractFilePath(ParamStr(0)), ScriptFile);
+        if TFile.Exists(Candidate) then
+          ScriptFile := Candidate;
+      end;
     end;
   end;
 
   if not TFile.Exists(ScriptFile) then
+  begin
+    Writeln('DPT Formatter: Script file not found! Searched for: ', ScriptFile);
     Exit;
+  end;
+
+  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  if Length(ModifiedFiles) = 0 then Exit;
 
   Formatter := TDptDwsFormatter.Create;
   try
-    Formatter.LoadScript(ScriptFile);
+    try
+      Formatter.LoadScript(ScriptFile);
+    except
+      on E: Exception do
+      begin
+        Writeln('DPT Formatter: Failed to load script ', ScriptFile, ' - ', E.Message);
+        Exit;
+      end;
+    end;
 
-    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
     for FileName in ModifiedFiles do
     begin
       if not TFile.Exists(FileName) then Continue;
@@ -436,7 +454,8 @@ begin
           Result := True;
         end;
       except
-        // Fehler beim Formatieren ignorieren
+        on E: Exception do
+          Writeln('DPT Formatter Error in ', FileName, ': ', E.Message);
       end;
     end;
   finally
