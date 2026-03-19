@@ -642,7 +642,7 @@ end;
 
 function TDptWorkflowEngine.ExprParserFixLineEndingsWindowsInAiSessionFiles: Variant;
 var
-  Entry: TDptSessionFileEntry;
+  ModifiedFiles: TArray<string>;
   Content: string;
   NewContent: string;
   FileName: string;
@@ -651,9 +651,9 @@ begin
   Result := False;
   if Assigned(FSession) then
   begin
-    for Entry in FSession.Files do
+    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+    for FileName in ModifiedFiles do
     begin
-      FileName := Entry.Path;
       if TFile.Exists(FileName) then
       begin
         try
@@ -676,7 +676,7 @@ end;
 
 function TDptWorkflowEngine.ExprParserFixUtf8BomInAiSessionFiles: Variant;
 var
-  Entry: TDptSessionFileEntry;
+  ModifiedFiles: TArray<string>;
   FileName: string;
   Bytes: TBytes;
   BOM: TBytes;
@@ -686,9 +686,9 @@ begin
   if Assigned(FSession) then
   begin
     BOM := TEncoding.UTF8.GetPreamble;
-    for Entry in FSession.Files do
+    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+    for FileName in ModifiedFiles do
     begin
-      FileName := Entry.Path;
       if TFile.Exists(FileName) then
       begin
         try

@@ -93,7 +93,7 @@ begin
           if BytesRead > 0 then
           begin
             Buffer[BytesRead] := #0;
-            AOutput := AOutput + string(AnsiString(Buffer));
+            AOutput := AOutput + string(PAnsiChar(@Buffer));
           end;
         until not WasOK or (BytesRead = 0);
         
@@ -124,6 +124,8 @@ var
   FilePathShort: String;
   AbsolutePath : String;
   ResultList   : TStringList;
+  LRootDirStr  : string;
+  LCmdRet      : Integer;
 begin
   SetLength(Result, 0);
   
@@ -142,6 +144,19 @@ begin
   if Trim(OutputStr) = '' then
     Exit;
 
+  // Retrieve root directory once
+  LRootDirStr := '';
+  if Assigned(MockRunCommand) then
+    LCmdRet := MockRunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr)
+  else
+    LCmdRet := RunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr);
+
+  if LCmdRet <> 0 then
+    Exit;
+
+  LRootDirStr := Trim(LRootDirStr);
+  LRootDirStr := StringReplace(LRootDirStr, '/', '\', [rfReplaceAll]);
+
   OutputLines := TStringList.Create;
   ResultList := TStringList.Create;
   try
@@ -155,34 +170,14 @@ begin
       // Quick parsing: Remove the first three characters (status codes + space)
       FilePathShort := Copy(StatusLine, 4, MaxInt);
 
-      // Path is relative to the root of the repo. 
-      // To correctly build the full path, it's safer to use git rev-parse to get the root dir, 
-      // but 'git status --porcelain' usually returns paths relative to the current dir if run inside the repo, 
-      // unless specified otherwise. Let's force it relative to the root or resolve correctly.
-      
-      var LRootDirStr: string;
-      LRootDirStr := '';
-      var LCmdRet: Integer;
-      if Assigned(MockRunCommand) then
-        LCmdRet := MockRunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr)
-      else
-        LCmdRet := RunCommand('git rev-parse --show-toplevel', ADirectory, LRootDirStr);
-        
-      if LCmdRet = 0 then
-      begin
-        LRootDirStr := Trim(LRootDirStr);
-        // Replace forward slashes with system specific if necessary
-        LRootDirStr := StringReplace(LRootDirStr, '/', '\', [rfReplaceAll]);
-        
-        AbsolutePath := TPath.Combine(LRootDirStr, FilePathShort);
-        
-        // Let's normalize it to have consistent cases and slashes
-        AbsolutePath := StringReplace(AbsolutePath, '/', '\', [rfReplaceAll]);
-        
-        // Add only files, skip directories if they somehow sneak in
-        if TFile.Exists(AbsolutePath) then
-          ResultList.Add(AbsolutePath);
-      end;
+      AbsolutePath := TPath.Combine(LRootDirStr, FilePathShort);
+
+      // Let's normalize it to have consistent cases and slashes
+      AbsolutePath := StringReplace(AbsolutePath, '/', '\', [rfReplaceAll]);
+
+      // Add only files, skip directories if they somehow sneak in
+      if TFile.Exists(AbsolutePath) then
+        ResultList.Add(AbsolutePath);
     end;
     
     SetLength(Result, ResultList.Count);

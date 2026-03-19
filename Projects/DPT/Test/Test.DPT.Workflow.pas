@@ -19,6 +19,7 @@ uses
 
   DUnitX.TestFramework,
 
+  DPT.Git,
   DPT.Types,
   DPT.Workflow,
   DPT.Workflow.Session;
@@ -33,6 +34,7 @@ type
     FEngine: TDptWorkflowEngine;
     FOldGeminiVar: String;
     function CreateTestFile(const AName, AContent: String; AEncoding: TEncoding = nil): String;
+    function MockGitRunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
   public
     [Setup]
     procedure Setup;
@@ -57,6 +59,27 @@ begin
     TFile.WriteAllText(Result, AContent, AEncoding);
 end;
 
+function TTestDptWorkflow.MockGitRunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
+var
+  Files: TArray<string>;
+  I: Integer;
+begin
+  Result := 0;
+  if Pos('rev-parse', ACommand) > 0 then
+  begin
+    AOutput := FTestDir;
+  end
+  else if Pos('status', ACommand) > 0 then
+  begin
+    AOutput := '';
+    Files := TDirectory.GetFiles(FTestDir, '*.*', TSearchOption.soAllDirectories);
+    for I := 0 to High(Files) do
+    begin
+      AOutput := AOutput + ' M ' + ExtractRelativePath(FTestDir + '\', Files[I]).Replace('\', '/') + sLineBreak;
+    end;
+  end;
+end;
+
 procedure TTestDptWorkflow.Setup;
 begin
   FTestDir := TPath.Combine(TPath.GetTempPath, 'DptWorkflowTest_' + TGUID.NewGuid.ToString);
@@ -64,6 +87,8 @@ begin
   FWorkflowFile := TPath.Combine(FTestDir, '.DptAiWorkflow');
   TFile.WriteAllText(FWorkflowFile, ''); // Empty workflow file needed for discovery
   
+  TDptGit.MockRunCommand := MockGitRunCommand;
+
   // Force AI Mode via Environment Variable
   FOldGeminiVar := GetEnvironmentVariable('GEMINI_CLI');
   SetEnvironmentVariable('GEMINI_CLI', '1');
@@ -76,6 +101,7 @@ end;
 
 procedure TTestDptWorkflow.TearDown;
 begin
+  TDptGit.MockRunCommand := nil;
   FEngine.Free;
   if FOldGeminiVar <> '' then
     SetEnvironmentVariable('GEMINI_CLI', PChar(FOldGeminiVar))
