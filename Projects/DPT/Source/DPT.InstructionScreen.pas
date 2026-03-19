@@ -59,16 +59,6 @@ begin
   if Length(FActions) = 0 then
   begin
     FActions := [
-      TActionInfo.Create('AiSession', '<Start|Stop|Reset|Status> [Files...]', [
-        'Controls an AI tracking session. A session is used to monitor changes',
-        'made by an AI agent and ensure all modified code files are linted.',
-        '  Start:  Starts a new session and baseline time. Only files modified after',
-        '          this time and newly untracked/modified git files need a lint pass.',
-        '  Stop:   Stops the session and deletes the session state file.',
-        '  Reset:  Clears the lint success state but keeps the baseline time.',
-        '  Status: Prints the current status and tracked lint results.',
-        'Example: DPT LATEST AiSession Status'
-      ]),
       TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [ExtraArgs]', [
         'Builds the specified project using MSBuild.',
         'Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.',

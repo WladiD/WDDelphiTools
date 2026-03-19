@@ -21,8 +21,7 @@ uses
 
   DPT.Git,
   DPT.Types,
-  DPT.Workflow,
-  DPT.Workflow.Session;
+  DPT.Workflow;
 
 type
 
@@ -46,6 +45,8 @@ type
     procedure FixUtf8Bom;
     [Test]
     procedure FixBothLineEndingsAndBom;
+    [Test]
+    procedure TestFormatterAndIgnore;
   end;
 
 implementation
@@ -96,7 +97,7 @@ begin
   // We need to set the current dir to test dir so it finds the workflow file
   SetCurrentDir(FTestDir);
   
-  FEngine := TDptWorkflowEngine.Create('Test', 'Test');
+  FEngine := TDptWorkflowEngine.Create('Test');
 end;
 
 procedure TTestDptWorkflow.TearDown;
@@ -124,22 +125,11 @@ begin
   FileUnix := CreateTestFile('Unix.txt', 'Line1'#10'Line2'#10'Line3');
   FileWin := CreateTestFile('Windows.txt', 'Line1'#13#10'Line2'#13#10'Line3');
 
-  // 2. Add files directly to Session instance for dummy purposes, as AddFilesToSession is removed
-  FEngine.StartSession; // Creates session file
-  var LEntry: TDptSessionFileEntry;
-  LEntry.Path := FileMixed;
-  FEngine.Session.Files.Add(LEntry);
-  LEntry.Path := FileUnix;
-  FEngine.Session.Files.Add(LEntry);
-  LEntry.Path := FileWin;
-  FEngine.Session.Files.Add(LEntry);
-  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
-
-  // 3. Inject a workflow block that calls the fix function
+  // 2. Inject a workflow block that calls the fix function
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
-    '  BeforeDptGuard: FixLineEndingsWindowsInAiSessionFiles()' + sLineBreak +
+    '  BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
     '  {' + sLineBreak +
     '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
     '  }' + sLineBreak +
@@ -147,7 +137,7 @@ begin
   
   // Reload workflow
   FEngine.Free;
-  FEngine := TDptWorkflowEngine.Create('Test', 'Test');
+  FEngine := TDptWorkflowEngine.Create('Test');
 
   // 4. Run CheckConditions
   FEngine.CheckConditions(Instructions);
@@ -179,32 +169,23 @@ begin
   
   FileWithBom := CreateTestFile('WithBom.txt', 'Content', TEncoding.UTF8);
 
-  // 2. Add files directly to Session instance for dummy purposes
-  FEngine.StartSession;
-  var LEntry: TDptSessionFileEntry;
-  LEntry.Path := FileNoBom;
-  FEngine.Session.Files.Add(LEntry);
-  LEntry.Path := FileWithBom;
-  FEngine.Session.Files.Add(LEntry);
-  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
-
-  // 3. Workflow
+  // 2. Workflow
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
-    '  BeforeDptGuard: FixUtf8BomInAiSessionFiles()' + sLineBreak +
+    '  BeforeDptGuard: FixUtf8BomInGitModifiedFiles()' + sLineBreak +
     '  {' + sLineBreak +
     '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
     '  }' + sLineBreak +
     '}');
 
   FEngine.Free;
-  FEngine := TDptWorkflowEngine.Create('Test', 'Test');
+  FEngine := TDptWorkflowEngine.Create('Test');
 
-  // 4. Run
+  // 3. Run
   FEngine.CheckConditions(Instructions);
 
-  // 5. Verify Content
+  // 4. Verify Content
   Bytes := TFile.ReadAllBytes(FileNoBom);
   
   Assert.IsTrue((Length(Bytes) >= 3) and 
@@ -212,7 +193,7 @@ begin
                 (Bytes[1] = BOM[1]) and 
                 (Bytes[2] = BOM[2]), 'NoBom should now have BOM');
 
-  // 6. Verify Output
+  // 5. Verify Output
   Assert.IsTrue(Instructions.Contains('NoBom.txt'), 'Output should contain NoBom.txt');
   Assert.IsFalse(Instructions.Contains('WithBom.txt'), 'Output should NOT contain WithBom.txt');
 end;
@@ -240,28 +221,17 @@ begin
   FileBadBoth := TPath.Combine(FTestDir, 'BadBoth.txt');
   TFile.WriteAllText(FileBadBoth, 'Line1'#10'Line2', TEncoding.ASCII); // Writes without BOM
 
-  // 4. Register files
-  FEngine.StartSession;
-  var LEntry: TDptSessionFileEntry;
-  LEntry.Path := FileBadLines;
-  FEngine.Session.Files.Add(LEntry);
-  LEntry.Path := FileBadBom;
-  FEngine.Session.Files.Add(LEntry);
-  LEntry.Path := FileBadBoth;
-  FEngine.Session.Files.Add(LEntry);
-  FEngine.Session.SaveToFile(FWorkflowFile + '.Session0.json');
-
   // 5. Workflow
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
-    '  BeforeDptGuard: FixLineEndingsWindowsInAiSessionFiles()' + sLineBreak +
+    '  BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
     '  {' + sLineBreak +
     '    - In folgenden Dateien wurden die Lineendings auf CRLF (Windows) gefixt:' + sLineBreak +
     '      - `GetLastFixedFiles()`' + sLineBreak +
     '  }' + sLineBreak +
     sLineBreak +
-    '  BeforeDptGuard: FixUtf8BomInAiSessionFiles()' + sLineBreak +
+    '  BeforeDptGuard: FixUtf8BomInGitModifiedFiles()' + sLineBreak +
     '  {' + sLineBreak +
     '    - In folgenden Dateien wurde die fehlende UTF-8-BOM gefixt:' + sLineBreak +
     '      - `GetLastFixedFiles()`' + sLineBreak +
@@ -269,7 +239,7 @@ begin
     '}');
 
   FEngine.Free;
-  FEngine := TDptWorkflowEngine.Create('Test', 'Test');
+  FEngine := TDptWorkflowEngine.Create('Test');
 
   // 6. Run
   FEngine.CheckConditions(Instructions);
@@ -319,6 +289,41 @@ begin
 
   // BadBom: BOM list
   Assert.IsTrue(PosBadBom > PosBom, 'BadBom should be after BOM header');
+end;
+
+procedure TTestDptWorkflow.TestFormatterAndIgnore;
+var
+  FileToFormat: String;
+  FileToIgnore: String;
+  Instructions: String;
+begin
+  // 1. Create files with trailing spaces
+  FileToFormat := CreateTestFile('ToFormat.pas', 'Line1  ');
+  FileToIgnore := CreateTestFile('ToIgnore.pas', 'Line1  ');
+
+  // 2. Workflow: Ignore ToIgnore.pas and run formatter
+  TFile.WriteAllText(FWorkflowFile, 
+    'BeforeDptGuard: 1' + sLineBreak +
+    '{' + sLineBreak +
+    '  BeforeDptGuard: IgnoreFormatPattern("ToIgnore.pas")' + sLineBreak +
+    '  BeforeDptGuard: FormatGitModifiedFiles()' + sLineBreak +
+    '  {' + sLineBreak +
+    '    Formatted: `GetLastFormattedFiles()`' + sLineBreak +
+    '  }' + sLineBreak +
+    '}');
+
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // 3. Run
+  FEngine.CheckConditions(Instructions);
+  
+  // 4. Verify
+  Assert.AreEqual('Line1', TFile.ReadAllText(FileToFormat).Trim, 'ToFormat.pas should be formatted (trimmed)');
+  Assert.AreEqual('Line1  ', TFile.ReadAllText(FileToIgnore), 'ToIgnore.pas should NOT be formatted');
+  
+  Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
+  Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
 end;
 
 end.

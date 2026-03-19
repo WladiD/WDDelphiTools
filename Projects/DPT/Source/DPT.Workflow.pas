@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -21,7 +21,6 @@ uses
   ExprParser,
 
   DPT.Types,
-  DPT.Workflow.Session,
   DPT.Git;
 
 type
@@ -44,30 +43,25 @@ type
     FAIMode                : TAIMode;
     FBlocks                : IList<TDptWorkflowBlock>;
     FCurrentAction         : String;
-    FCurrentAiSessionAction: String;
-    FCurrentLintTargetFile : String;
     FCurrentProjectFile    : String;
     FCurrentProjectFiles   : TArray<String>;
     FExitCode              : Integer;
     FExitRequested         : Boolean;
     FHostPID               : DWORD;
+    FIgnorePatterns        : TStringList;
     FLastFixedFiles        : TStringList;
-    FSession               : TDptSessionData;
-    FSessionFile           : String;
+    FLastFormattedFiles    : TStringList;
     FWorkflowFile          : String;
     procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
-    function  ExprParserAiSessionStarted: Variant;
-    function  ExprParserFixLineEndingsWindowsInAiSessionFiles: Variant;
-    function  ExprParserFixUtf8BomInAiSessionFiles: Variant;
-    function  ExprParserGetCurrentLintTargetFile: Variant;
+    function  ExprParserFixLineEndingsWindowsInGitModifiedFiles: Variant;
+    function  ExprParserFixUtf8BomInGitModifiedFiles: Variant;
+    function  ExprParserFormatGitModifiedFiles: Variant;
     function  ExprParserGetCurrentProjectFiles: Variant;
     function  ExprParserGetExitCode: Variant;
-    function  ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
     function  ExprParserGetLastFixedFiles: Variant;
-    function  ExprParserHasValidLintResult(const Args: Variant): Variant;
-    function  ExprParserHasValidRunResult(const Args: Variant): Variant;
+    function  ExprParserGetLastFormattedFiles: Variant;
+    function  ExprParserIgnoreFormatPattern(const Args: Variant): Variant;
     function  ExprParserIsCurrentAction(const Args: Variant): Variant;
-    function  ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
     function  ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
     function  ExprParserRequestDptExit: Variant;
     function  ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
@@ -78,20 +72,12 @@ type
     procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
     function  ProcessInstructions(AParser: TExprParser; const AStr: string): string;
   public
-    constructor Create(const AAction, AAiSessionAction: string);
+    constructor Create(const AAction: string);
     destructor  Destroy; override;
     function  CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
-    procedure RegisterRunResult(const ATarget: string; AExitCode: Integer);
-    procedure ReportLintResult(const AFileName: string; ASuccess: Boolean);
-    procedure ResetSession;
     procedure SetCurrentProjectFile(const AFile: string);
     procedure SetExitCode(ACode: Integer);
-    procedure SetLintTarget(const AFile: string);
     procedure SetProjectFiles(const AFiles: TArray<string>);
-    procedure ShowStatus;
-    procedure StartSession;
-    procedure StopSession;
-    property Session: TDptSessionData read FSession;
     property WorkflowFile: string read FWorkflowFile;
     property HostPID: DWORD read FHostPID;
     property ExitCode: Integer read FExitCode write SetExitCode;
@@ -104,6 +90,7 @@ uses
   System.IOUtils,
   System.Math,
   System.StrUtils,
+  System.Masks,
 
   ExprParserTools,
 
@@ -121,12 +108,13 @@ end;
 
 { TDptWorkflowEngine }
 
-constructor TDptWorkflowEngine.Create(const AAction, AAiSessionAction: string);
+constructor TDptWorkflowEngine.Create(const AAction: string);
 begin
   FBlocks := Collections.NewList<TDptWorkflowBlock>;
+  FIgnorePatterns := TStringList.Create;
   FLastFixedFiles := TStringList.Create;
+  FLastFormattedFiles := TStringList.Create;
   FCurrentAction := AAction;
-  FCurrentAiSessionAction := AAiSessionAction;
   
   FAIMode := DetectAIMode(FHostPID);
   if FAIMode <> amNone then
@@ -139,11 +127,6 @@ begin
     if FWorkflowFile <> '' then
     begin
       if not IsMcpDebugger then Writeln('AI Workflow file FOUND: ', FWorkflowFile);
-      FSessionFile := FWorkflowFile + '.Session' + IntToStr(FHostPID) + '.json';
-      FSession := TDptSessionData.Create;
-      FSession.HostPID := FHostPID;
-      if TFile.Exists(FSessionFile) then
-        FSession.LoadFromFile(FSessionFile);
       LoadWorkflow;
     end
     else
@@ -153,8 +136,9 @@ end;
 
 destructor TDptWorkflowEngine.Destroy;
 begin
+  FIgnorePatterns.Free;
   FLastFixedFiles.Free;
-  FSession.Free;
+  FLastFormattedFiles.Free;
   inherited;
 end;
 
@@ -299,56 +283,127 @@ end;
 
 function TDptWorkflowEngine.OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
 begin
-  Result := True;
-  if SameText(VarName, 'AiSessionStarted') then
-  begin
-    Value := Assigned(FSession) and TFile.Exists(FSessionFile);
-  end
-  else
-    Result := False;
+  Result := False;
 end;
 
 function TDptWorkflowEngine.OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
 begin
-  if SameText(FuncName, 'AiSessionStarted') then
-    ResVal := ExprParserAiSessionStarted
-  else if SameText(FuncName, 'IsCurrentAction') then
+  if SameText(FuncName, 'IsCurrentAction') then
     ResVal := ExprParserIsCurrentAction(Args)
-  else if SameText(FuncName, 'IsCurrentAiSessionAction') then
-    ResVal := ExprParserIsCurrentAiSessionAction(Args)
   else if SameText(FuncName, 'IsCurrentBuildProjectFile') then
     ResVal := ExprParserIsCurrentBuildProjectFile(Args)
-  else if SameText(FuncName, 'GetCurrentLintTargetFile') then
-    ResVal := ExprParserGetCurrentLintTargetFile
   else if SameText(FuncName, 'GetCurrentProjectFiles') then
     ResVal := ExprParserGetCurrentProjectFiles
-  else if SameText(FuncName, 'HasValidLintResult') then
-    ResVal := ExprParserHasValidLintResult(Args)
-  else if SameText(FuncName, 'HasValidRunResult') then
-    ResVal := ExprParserHasValidRunResult(Args)
-  else if SameText(FuncName, 'GetInvalidLintFiles') then
-    ResVal := ExprParserGetInvalidLintFiles(Args)
   else if SameText(FuncName, 'RequestDptExit') then
     ResVal := ExprParserRequestDptExit
   else if SameText(FuncName, 'RequestDptExitWithCode') then
     ResVal := ExprParserRequestDptExitWithCode(Args)
   else if SameText(FuncName, 'GetExitCode') then
     ResVal := ExprParserGetExitCode
-  else if SameText(FuncName, 'FixLineEndingsWindowsInAiSessionFiles') then
-    ResVal := ExprParserFixLineEndingsWindowsInAiSessionFiles
-  else if SameText(FuncName, 'FixUtf8BomInAiSessionFiles') then
-    ResVal := ExprParserFixUtf8BomInAiSessionFiles
+  else if SameText(FuncName, 'FixLineEndingsWindowsInGitModifiedFiles') then
+    ResVal := ExprParserFixLineEndingsWindowsInGitModifiedFiles
+  else if SameText(FuncName, 'FixUtf8BomInGitModifiedFiles') then
+    ResVal := ExprParserFixUtf8BomInGitModifiedFiles
   else if SameText(FuncName, 'GetLastFixedFiles') then
     ResVal := ExprParserGetLastFixedFiles
+  else if SameText(FuncName, 'IgnoreFormatPattern') then
+    ResVal := ExprParserIgnoreFormatPattern(Args)
+  else if SameText(FuncName, 'FormatGitModifiedFiles') then
+    ResVal := ExprParserFormatGitModifiedFiles
+  else if SameText(FuncName, 'GetLastFormattedFiles') then
+    ResVal := ExprParserGetLastFormattedFiles
   else
     Exit(False);
 
   Result := True;
 end;
 
-function TDptWorkflowEngine.ExprParserAiSessionStarted: Variant;
+function TDptWorkflowEngine.ExprParserIgnoreFormatPattern(const Args: Variant): Variant;
+var
+  I: Integer;
 begin
-  Result := Assigned(FSession) and TFile.Exists(FSessionFile);
+  Result := True;
+  if VarIsArray(Args) then
+  begin
+    for I := 0 to VarArrayHighBound(Args, 1) do
+    begin
+      if not VarIsClear(Args[I]) then
+        FIgnorePatterns.Add(VarToStr(Args[I]));
+    end;
+  end
+  else if not VarIsClear(Args) then
+    FIgnorePatterns.Add(VarToStr(Args));
+end;
+
+function TDptWorkflowEngine.ExprParserFormatGitModifiedFiles: Variant;
+var
+  ModifiedFiles: TArray<string>;
+  FileName: string;
+  IgnorePattern: string;
+  SkipFile: Boolean;
+  Content: string;
+  NewContent: string;
+begin
+  FLastFormattedFiles.Clear;
+  Result := False;
+  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  for FileName in ModifiedFiles do
+  begin
+    if not TFile.Exists(FileName) then Continue;
+    
+    // Nur Delphi Dateien
+    var Ext := LowerCase(ExtractFileExt(FileName));
+    if (Ext <> '.pas') and (Ext <> '.dpr') and (Ext <> '.dpk') then
+      Continue;
+
+    SkipFile := False;
+    for IgnorePattern in FIgnorePatterns do
+    begin
+      if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
+      begin
+        SkipFile := True;
+        Break;
+      end;
+    end;
+
+    if SkipFile then Continue;
+
+    try
+      Content := TFile.ReadAllText(FileName, TEncoding.UTF8);
+      
+      // Minimaler Formatter: Trailing Spaces entfernen (um testbar zu sein)
+      var Lines := TStringList.Create;
+      try
+        Lines.Text := Content;
+        for var i := 0 to Lines.Count - 1 do
+          Lines[i] := TrimRight(Lines[i]);
+        NewContent := Lines.Text;
+      finally
+        Lines.Free;
+      end;
+      
+      if Content <> NewContent then
+      begin
+        TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
+        FLastFormattedFiles.Add(ExtractFileName(FileName));
+        Result := True;
+      end;
+    except
+      // Fehler beim Formatieren ignorieren
+    end;
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserGetLastFormattedFiles: Variant;
+var
+  I: Integer;
+begin
+  Result := '';
+  for I := 0 to FLastFormattedFiles.Count - 1 do
+  begin
+    if I > 0 then Result := Result + sLineBreak;
+    Result := Result + FLastFormattedFiles[I];
+  end;
 end;
 
 function TDptWorkflowEngine.ExprParserRequestDptExit: Variant;
@@ -377,23 +432,11 @@ begin
     Result := SameText(VarToStr(Args[0]), FCurrentAction);
 end;
 
-function TDptWorkflowEngine.ExprParserIsCurrentAiSessionAction(const Args: Variant): Variant;
-begin
-  Result := False;
-  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-    Result := SameText(VarToStr(Args[0]), FCurrentAiSessionAction);
-end;
-
 function TDptWorkflowEngine.ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
 begin
   Result := False;
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
     Result := SameText(ExtractFileName(VarToStr(Args[0])), ExtractFileName(FCurrentProjectFile));
-end;
-
-function TDptWorkflowEngine.ExprParserGetCurrentLintTargetFile: Variant;
-begin
-  Result := FCurrentLintTargetFile;
 end;
 
 function TDptWorkflowEngine.ExprParserGetCurrentProjectFiles: Variant;
@@ -410,237 +453,7 @@ begin
   end;
 end;
 
-function TDptWorkflowEngine.ExprParserHasValidLintResult(const Args: Variant): Variant;
-var
-  FilesVar: Variant;
-  I: Integer;
-  FileName: string;
-  Found: Boolean;
-  Entry: TDptSessionFileEntry;
-  AllValid: Boolean;
-  LGitModifiedFiles: TArray<string>;
-  LGitModifiedMatch: Boolean;
-begin
-  Result := True; // Default to valid if no session or no files
-  if Assigned(FSession) then
-  begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-      FilesVar := Args[0]
-    else
-      FilesVar := ExprParserGetCurrentProjectFiles;
-
-    AllValid := True;
-    LGitModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
-
-    if VarIsArray(FilesVar) then
-    begin
-      for I := 0 to VarArrayHighBound(FilesVar, 1) do
-      begin
-        FileName := VarToStr(FilesVar[I]);
-        if not TFile.Exists(FileName) then Continue;
-        FileName := ExpandFileName(FileName);
-        
-        // Prüfen, ob die Datei im Git-Status (modified/untracked) auftaucht
-        LGitModifiedMatch := False;
-        for var LModifiedFile in LGitModifiedFiles do
-        begin
-          if SameText(LModifiedFile, FileName) then
-          begin
-            LGitModifiedMatch := True;
-            Break;
-          end;
-        end;
-
-        // Wenn nicht in Git und auch nicht nach Sessionstart geändert, dann OK (kein Lint nötig)
-        var FileTime := TFile.GetLastWriteTime(FileName);
-        if not LGitModifiedMatch and (FileTime < (FSession.StartTime - EncodeTime(0, 0, 1, 0))) then
-          Continue;
-
-        Found := False;
-        for Entry in FSession.Files do
-        begin
-          if SameText(Entry.Path, FileName) then
-          begin
-            // Check if lint was successful and file hasn't changed since lint
-            if Entry.LintSuccess and (Entry.LastLintTime >= FileTime) then
-              Found := True;
-            Break;
-          end;
-        end;
-
-        if not Found then
-        begin
-          AllValid := False;
-          Break;
-        end;
-      end;
-    end;
-    Result := AllValid;
-  end;
-end;
-
-function TDptWorkflowEngine.ExprParserHasValidRunResult(const Args: Variant): Variant;
-var
-  TargetName: string;
-  FilesVar: Variant;
-  I: Integer;
-  FileName: string;
-  RunEntry: TDptSessionRunResult;
-  Found: Boolean;
-begin
-  Result := True; // Default to valid if no session or bad args
-  if Assigned(FSession) and VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) then
-  begin
-    TargetName := VarToStr(Args[0]); // Project file or Target name
-
-    if VarArrayHighBound(Args, 1) >= 1 then
-      FilesVar := Args[1] // Dependent files
-    else
-      FilesVar := ExprParserGetCurrentProjectFiles;
-
-    // 1. Find Run Result
-    Found := False;
-    for RunEntry in FSession.RunResults do
-    begin
-      if SameText(RunEntry.Target, TargetName) then
-      begin
-        Found := True;
-        break;
-      end;
-    end;
-
-    if not Found or
-       (RunEntry.ExitCode <> 0) then
-      Exit(False);
-
-    // 3. Check Timestamps
-    if VarIsArray(FilesVar) then
-    begin
-      for I := 0 to VarArrayHighBound(FilesVar, 1) do
-      begin
-        FileName := VarToStr(FilesVar[I]);
-        if not TFile.Exists(FileName) then Continue;
-        FileName := ExpandFileName(FileName);
-        
-        // Use a small tolerance
-        var Limit := RunEntry.RunTime + EncodeTime(0, 0, 1, 0);
-        var FileTime := TFile.GetLastWriteTime(FileName);
-        
-        if FileTime > Limit then
-          Exit(False);
-      end;
-    end;
-  end;
-end;
-
-procedure TDptWorkflowEngine.RegisterRunResult(const ATarget: string; AExitCode: Integer);
-var
-  I: Integer;
-  Entry: TDptSessionRunResult;
-  Found: Boolean;
-begin
-  if not Assigned(FSession) then
-    Exit;
-
-  Found := False;
-  for I := 0 to FSession.RunResults.Count - 1 do
-  begin
-    if SameText(FSession.RunResults[I].Target, ATarget) then
-    begin
-      Entry := FSession.RunResults[I];
-      Entry.ExitCode := AExitCode;
-      Entry.RunTime := Now;
-      FSession.RunResults[I] := Entry;
-      Found := True;
-      Break;
-    end;
-  end;
-
-  if not Found then
-  begin
-    Entry.Target := ATarget;
-    Entry.ExitCode := AExitCode;
-    Entry.RunTime := Now;
-    FSession.RunResults.Add(Entry);
-  end;
-
-  FSession.SaveToFile(FSessionFile);
-end;
-
-function TDptWorkflowEngine.ExprParserGetInvalidLintFiles(const Args: Variant): Variant;
-var
-  FileName: string;
-  FilesVar: Variant;
-  InvalidFiles: TStringList;
-  Found: Boolean;
-  Entry: TDptSessionFileEntry;
-  I: Integer;
-  LGitModifiedFiles: TArray<string>;
-  LGitModifiedMatch: Boolean;
-begin
-  Result := '';
-  if Assigned(FSession) then
-  begin
-    if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-      FilesVar := Args[0]
-    else
-      FilesVar := ExprParserGetCurrentProjectFiles;
-
-    LGitModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
-    InvalidFiles := TStringList.Create;
-    try
-      if VarIsArray(FilesVar) then
-      begin
-        for I := 0 to VarArrayHighBound(FilesVar, 1) do
-        begin
-          FileName := VarToStr(FilesVar[I]);
-          if not TFile.Exists(FileName) then Continue;
-          FileName := ExpandFileName(FileName);
-          
-          LGitModifiedMatch := False;
-          for var LModifiedFile in LGitModifiedFiles do
-          begin
-            if SameText(LModifiedFile, FileName) then
-            begin
-              LGitModifiedMatch := True;
-              Break;
-            end;
-          end;
-
-          var FileTime := TFile.GetLastWriteTime(FileName);
-          // Only check files modified or created since session start OR present in git status
-          if not LGitModifiedMatch and (FileTime < FSession.StartTime) then
-            Continue;
-
-          Found := False;
-          for Entry in FSession.Files do
-          begin
-            if SameText(Entry.Path, FileName) then
-            begin
-              if Entry.LintSuccess and (Entry.LastLintTime >= FileTime) then
-                Found := True;
-              Break;
-            end;
-          end;
-
-          if not Found then
-            InvalidFiles.Add(ExtractFileName(FileName));
-        end;
-      end;
-      
-      Result := '';
-      for I := 0 to InvalidFiles.Count - 1 do
-      begin
-        if I > 0 then Result := Result + sLineBreak;
-        Result := Result + InvalidFiles[I];
-      end;
-    finally
-      InvalidFiles.Free;
-    end;
-  end;
-end;
-
-function TDptWorkflowEngine.ExprParserFixLineEndingsWindowsInAiSessionFiles: Variant;
+function TDptWorkflowEngine.ExprParserFixLineEndingsWindowsInGitModifiedFiles: Variant;
 var
   ModifiedFiles: TArray<string>;
   Content: string;
@@ -649,32 +462,29 @@ var
 begin
   FLastFixedFiles.Clear;
   Result := False;
-  if Assigned(FSession) then
+  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  for FileName in ModifiedFiles do
   begin
-    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
-    for FileName in ModifiedFiles do
+    if TFile.Exists(FileName) then
     begin
-      if TFile.Exists(FileName) then
-      begin
-        try
-          Content := TFile.ReadAllText(FileName);
-          // Standardize to CRLF
-          NewContent := AdjustLineBreaks(Content, tlbsCRLF);
-          if Content <> NewContent then
-          begin
-            TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
-            FLastFixedFiles.Add(ExtractFileName(FileName));
-            Result := True;
-          end;
-        except
-          // Ignore errors during fix
+      try
+        Content := TFile.ReadAllText(FileName);
+        // Standardize to CRLF
+        NewContent := AdjustLineBreaks(Content, tlbsCRLF);
+        if Content <> NewContent then
+        begin
+          TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
+          FLastFixedFiles.Add(ExtractFileName(FileName));
+          Result := True;
         end;
+      except
+        // Ignore errors during fix
       end;
     end;
   end;
 end;
 
-function TDptWorkflowEngine.ExprParserFixUtf8BomInAiSessionFiles: Variant;
+function TDptWorkflowEngine.ExprParserFixUtf8BomInGitModifiedFiles: Variant;
 var
   ModifiedFiles: TArray<string>;
   FileName: string;
@@ -683,32 +493,26 @@ var
 begin
   FLastFixedFiles.Clear;
   Result := False;
-  if Assigned(FSession) then
+  BOM := TEncoding.UTF8.GetPreamble;
+  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  for FileName in ModifiedFiles do
   begin
-    BOM := TEncoding.UTF8.GetPreamble;
-    ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
-    for FileName in ModifiedFiles do
+    if TFile.Exists(FileName) then
     begin
-      if TFile.Exists(FileName) then
-      begin
-        try
-          Bytes := TFile.ReadAllBytes(FileName);
-          if (Length(Bytes) < Length(BOM)) or
-             (Bytes[0] <> BOM[0]) or
-             (Bytes[1] <> BOM[1]) or
-             (Bytes[2] <> BOM[2]) then
-          begin
-            // Write back with UTF8 encoding which adds BOM
-            // We use WriteAllText to ensure BOM is written, but we read as bytes to check
-            // Alternatively, insert BOM to bytes and write bytes.
-            // Using WriteAllText(..., TEncoding.UTF8) adds BOM.
-            TFile.WriteAllText(FileName, TFile.ReadAllText(FileName), TEncoding.UTF8);
-            FLastFixedFiles.Add(ExtractFileName(FileName));
-            Result := True;
-          end;
-        except
-          // Ignore
+      try
+        Bytes := TFile.ReadAllBytes(FileName);
+        if (Length(Bytes) < Length(BOM)) or
+           (Bytes[0] <> BOM[0]) or
+           (Bytes[1] <> BOM[1]) or
+           (Bytes[2] <> BOM[2]) then
+        begin
+          // Write back with UTF8 encoding which adds BOM
+          TFile.WriteAllText(FileName, TFile.ReadAllText(FileName), TEncoding.UTF8);
+          FLastFixedFiles.Add(ExtractFileName(FileName));
+          Result := True;
         end;
+      except
+        // Ignore
       end;
     end;
   end;
@@ -889,110 +693,6 @@ begin
   finally
     Parser.Free;
   end;
-end;
-
-procedure TDptWorkflowEngine.StartSession;
-begin
-  if FSessionFile = '' then
-    raise Exception.Create('No workflow file found. Cannot start session.');
-
-  if TFile.Exists(FSessionFile) then
-  begin
-    Writeln('AI session is already active for PID ', FHostPID);
-    Writeln('To restart the session and reset the baseline time, use:');
-    Writeln('  DPT.exe LATEST AiSession Reset');
-    Exit;
-  end;
-    
-  if not Assigned(FSession) then
-    FSession := TDptSessionData.Create;
-    
-  FSession.HostPID := FHostPID;
-  FSession.StartTime := Now;
-  FSession.SaveToFile(FSessionFile);
-  Writeln('AI session started for PID ', FHostPID);
-  Writeln('Session file: ', FSessionFile);
-end;
-
-procedure TDptWorkflowEngine.StopSession;
-begin
-  if TFile.Exists(FSessionFile) then
-  begin
-    TFile.Delete(FSessionFile);
-    Writeln('AI session stopped for PID ', FHostPID);
-  end
-  else
-    Writeln('No active AI session found for PID ', FHostPID);
-end;
-
-procedure TDptWorkflowEngine.ResetSession;
-begin
-  if Assigned(FSession) then
-  begin
-    FSession.Files.Clear;
-    // We explicitly keep the StartTime to prevent cheating the baseline
-    FSession.SaveToFile(FSessionFile);
-    Writeln('AI session reset. Success list cleared, but baseline time remains: ', DateTimeToStr(FSession.StartTime));
-  end;
-end;
-
-procedure TDptWorkflowEngine.ShowStatus;
-var
-  I: Integer;
-begin
-  if not TFile.Exists(FSessionFile) then
-  begin
-    Writeln('No active AI session.');
-    Exit;
-  end;
-  
-  Writeln('AI Session Status:');
-  Writeln('  Host PID:   ', FSession.HostPID);
-  Writeln('  Started:    ', DateTimeToStr(FSession.StartTime));
-  Writeln('  Recorded lint results: ', FSession.Files.Count);
-  for I := 0 to FSession.Files.Count - 1 do
-    Writeln('    - ', FSession.Files[I].Path, ' [Lint: ', IfThen(FSession.Files[I].LintSuccess, 'OK', 'FAILED'), ']');
-end;
-
-procedure TDptWorkflowEngine.ReportLintResult(const AFileName: string; ASuccess: Boolean);
-var
-  I: Integer;
-  Entry: TDptSessionFileEntry;
-  FullName: string;
-  Found: Boolean;
-begin
-  if not Assigned(FSession) or (FSessionFile = '') then Exit;
-  
-  FullName := ExpandFileName(AFileName);
-  Found := False;
-  for I := 0 to FSession.Files.Count - 1 do
-  begin
-    Entry := FSession.Files[I];
-    if SameText(Entry.Path, FullName) then
-    begin
-      Entry.LintSuccess := ASuccess;
-      Entry.LastLintTime := Now;
-      FSession.Files[I] := Entry;
-      Found := True;
-      Break;
-    end;
-  end;
-
-  if not Found then
-  begin
-    Entry.Path := FullName;
-    Entry.LintSuccess := ASuccess;
-    Entry.LastLintTime := Now;
-    Entry.Hash := '';
-    FSession.Files.Add(Entry);
-  end;
-
-  FSession.SaveToFile(FSessionFile);
-end;
-
-procedure TDptWorkflowEngine.SetLintTarget(const AFile: string);
-begin
-  FCurrentLintTargetFile := AFile;
 end;
 
 procedure TDptWorkflowEngine.SetCurrentProjectFile(const AFile: string);

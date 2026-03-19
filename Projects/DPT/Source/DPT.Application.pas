@@ -317,16 +317,8 @@ begin
               LArg := '';
           end;
           LAction := LArg;
-          
-          LAiSessionAction := '';
-          if SameText(LAction, 'AiSession') and LCmdLine.HasParameter then
-          begin
-            LCmdLine.ConsumeParameter;
-            if LCmdLine.HasParameter then
-              LAiSessionAction := LCmdLine.CheckParameter('AiAction');
-          end;
 
-          WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+          WorkflowEngine := TDptWorkflowEngine.Create(LAction);
           
           // Reset LCmdLine for Dispatcher
           LCmdLine.Free;
@@ -382,17 +374,6 @@ begin
             end;
 
             System.ExitCode := LFinalExitCode;
-            Exit;
-          end;
-
-          if SameText(LAction, 'AiSession') then
-          begin
-            if SameText(LAiSessionAction, 'Start') then WorkflowEngine.StartSession
-            else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
-            else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
-            else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
-            else
-              Writeln('Unknown AiSession action: ', LAiSessionAction);
             Exit;
           end;
 
