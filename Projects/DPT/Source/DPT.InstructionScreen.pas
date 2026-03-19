@@ -88,21 +88,21 @@ begin
       ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
         'Lists all build configurations defined in the specified .dproj file.',
-        'Example: DPT D12 DProjPrintConfigs MyProject.dproj'
+        'Example: DPT D13 DProjPrintConfigs MyProject.dproj'
       ]),
       TActionInfo.Create('DProjPrintCurConfig', '<ProjectFile>', [
         'Displays the default/active build configuration of the specified .dproj file.',
-        'Example: DPT D12 DProjPrintCurConfig MyProject.dproj'
+        'Example: DPT D13 DProjPrintCurConfig MyProject.dproj'
       ]),
       TActionInfo.Create('DProjPrintOutputFile', '<ProjectFile> [Config] [Platform]', [
         'Displays the output executable file path for the project based on current configuration and platform.',
-        'Example: DPT D12 DProjPrintOutputFile MyProject.dproj Release Win64'
+        'Example: DPT D13 DProjPrintOutputFile MyProject.dproj Release Win64'
       ]),
       TActionInfo.Create('DProjPrintSearchPaths', '<ProjectFile> [Config] [Platform]', [
         'Displays the effective unit search path for the project.',
         'Combines the project''s specific search path (resolving variables) with the IDE''s global library path.',
         'Defaults: Config=<ActiveConfig>, Platform=Win32.',
-        'Example: DPT D12 DProjPrintSearchPaths MyProject.dproj Release Win64'
+        'Example: DPT D13 DProjPrintSearchPaths MyProject.dproj Release Win64'
       ]),
       TActionInfo.Create('ExportBuildEnvironment', '<TargetPath>', [
         'Exports a minimal Delphi build environment to the specified directory.',
@@ -110,7 +110,7 @@ begin
         'Includes required BDS files, registry settings (HKCU/HKLM), DPT.exe and initialization scripts.',
         'Generates a smart Init...bat script that handles Admin rights and Unattended mode.',
         'WARNING: The target machine still requires a valid license/activation.',
-        'Example: DPT D12 ExportBuildEnvironment C:\Temp\Delphi12Build'
+        'Example: DPT D13 ExportBuildEnvironment C:\Temp\Delphi12Build'
       ]),
       TActionInfo.Create('HandleProtocol', '<dpt://URL>', [
         'Internal handler for "dpt://" URI schemes.',
@@ -122,7 +122,7 @@ begin
         'Copies BDS files to Program Files, restores AppData, and imports Registry settings.',
         'The target paths are determined automatically based on the DelphiVersion parameter.',
         'Intended to be called by the generated Init...bat script.',
-        'Example: DPT D12 ImportBuildEnvironment'
+        'Example: DPT D13 ImportBuildEnvironment'
       ]),
       TActionInfo.Create('IsPackageRegistered', '<PackageFileName>', [
         'Checks if a specific BPL package is currently registered in the IDE.',
@@ -148,23 +148,33 @@ begin
         'Or joins them back into a single aligned style file.',
         'Example: DPT LATEST LintSetup Split Lint\TaifunUnitStyle.pas'
       ]),
+      TActionInfo.Create('Format', '<ScriptFile> <TargetFiles...>', [
+        'Formats one or more target files based on the rules defined in a DWScript script.',
+        'The script can inspect the ParseTree CST and manipulate tokens or trivia.',
+        'TargetFiles supports glob wildcards (* and ?).',
+        'Example: DPT LATEST Format Format\TaifunFormat.pas Projects\DPT\Source\*.pas'
+      ]),
       TActionInfo.Create('McpDebugger', '', [
         'Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.',
         'The server runs continuously in the background and provides the following tools for AI agents:',
-        '  - start_debug_session:   Starts a new debug session for the specified executable',
-        '  - set_breakpoint:        Sets a hardware breakpoint in a Delphi unit at a specific line',
-        '  - list_breakpoints:      Lists all currently set hardware breakpoints',
-        '  - remove_breakpoint:     Removes an existing hardware breakpoint',
-        '  - continue:              Continues execution of the debugged process (asynchronous)',
-        '  - step_into:             Steps into the next source line, entering function calls',
-        '  - step_over:             Steps over the current source line, skipping function calls',
-        '  - get_stack_trace:       Returns the current call stack of the debugged process',
-        '  - get_registers:         Returns the current CPU registers',
-        '  - get_stack_slots:       Returns a list of stack slots with interpretation',
-        '  - get_stack_memory:      Reads the memory of the current stack frame',
-        '  - read_memory:           Reads a range of memory from the debugged process',
-        '  - read_global_variable:  Reads the value of a global variable by name',
-        '  - get_proc_asm:          Returns the assembly bytes of the current procedure',
+        '  - start_debug_session:     Starts a new debug session for the specified executable',
+        '  - stop_debug_session:      Detaches from the debugged process and ends the session',
+        '  - terminate_debug_session: Kills the debugged process and ends the session',
+        '  - set_breakpoint:          Sets a hardware breakpoint in a Delphi unit',
+        '  - list_breakpoints:        Lists all currently set hardware breakpoints',
+        '  - remove_breakpoint:       Removes an existing hardware breakpoint',
+        '  - continue:                Continues execution of the debugged process',
+        '  - step_into:               Steps into the next source line, entering function calls',
+        '  - step_over:               Steps over the current source line, skipping function calls',
+        '  - wait_until_paused:       Waits for the debug session to pause and returns state',
+        '  - get_state:               Returns the current debugger state instantly',
+        '  - get_stack_trace:         Returns the current call stack of the debugged process',
+        '  - get_registers:           Returns the current CPU registers',
+        '  - get_stack_slots:         Returns a list of stack slots with interpretation',
+        '  - get_stack_memory:        Reads the memory of the current stack frame',
+        '  - read_memory:             Reads a range of memory from the debugged process',
+        '  - read_global_variable:    Reads the value of a global variable by name',
+        '  - get_proc_asm:            Returns the assembly bytes of the current procedure',
         'Example: DPT LATEST McpDebugger'
       ]),
       TActionInfo.Create('OpenUnit', '<FullPathToUnit> [GoToLine <Line>] [GoToMemberImplementation <Name>]', [
@@ -239,7 +249,7 @@ class procedure TDptInstructionScreen.ShowCompact;
 begin
   PrintHeader;
   Writeln('Usage:');
-  Writeln('  ' + ExtractFileName(ParamStr(0)) + ' DelphiVersion Action [Parameters]');
+  Writeln('  ' + ExtractFileName(ParamStr(0)) + ' [DelphiVersion] Action [Parameters]');
   Writeln('  ' + ExtractFileName(ParamStr(0)) + ' Help [Action]');
   Writeln;
 

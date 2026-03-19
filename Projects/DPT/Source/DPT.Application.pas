@@ -1,4 +1,4 @@
-﻿// ======================================================================
+// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -55,6 +55,7 @@ uses
   DPT.Detection,
   DPT.DProj.Task,
   DPT.DProjAnalyzer,
+  DPT.Format.Task,
   DPT.McpDebugger.Task,
   DPT.Fixtures,
   DPT.IdeControl.Task,
@@ -85,6 +86,7 @@ begin
   RegisterTask('IsPackageRegistered', TDptIsPackageRegisteredTask);
   RegisterTask('Lint', TDptLintTask);
   RegisterTask('LintSetup', TDptLintSetupTask);
+  RegisterTask('Format', TDptFormatTask);
   RegisterTask('PrintPath', TDptPrintPathTask);
   RegisterTask('OpenUnit', TDptOpenUnitTask);
   RegisterTask('DProjPrintConfigs', TDptDProjPrintConfigsTask);
@@ -127,7 +129,11 @@ begin
     CmdLine.ConsumeParameter;
   end
   else
-    DelphiVersion := dvUnknown;
+  begin
+    DelphiVersion := FindMostRecentDelphiVersion;
+    if DelphiVersion = dvUnknown then
+      raise Exception.Create('No supported Delphi version found on this machine');
+  end;
 
   // 2. Action
   Action := CmdLine.CheckParameter('Action');
@@ -350,8 +356,8 @@ begin
           end
           else if SameText(LAction, 'Lint') then
           begin
-            var LLintTargetIdx := 3;
-            if not IsLatestVersionAlias(ParamStr(1)) then LLintTargetIdx := 2;
+            var LLintTargetIdx := 2;
+            if IsLatestVersionAlias(ParamStr(1)) or IsValidDelphiVersion(ParamStr(1), LDummyVersion) then LLintTargetIdx := 3;
             if ParamCount >= LLintTargetIdx + 1 then
               WorkflowEngine.SetLintTarget(ParamStr(LLintTargetIdx + 1));
           end;
@@ -434,11 +440,15 @@ begin
       begin
         // Silent exit
       end
+      else if E is EInvalidParameter then
+      begin
+        Writeln('ERROR: ', E.Message);
+        Writeln;
+        TDptInstructionScreen.ShowCompact;
+      end
       else
       begin
-        if not (E is EInvalidParameter) then
-          Writeln(E.Classname, ': ', E.Message);
-        TDptInstructionScreen.ShowCompact;
+        Writeln(E.Classname, ': ', E.Message);
       end;
       System.ExitCode := 1;
     end;

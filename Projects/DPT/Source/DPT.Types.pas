@@ -17,7 +17,7 @@ type
   EInvalidParameter = class(Exception);
   EDptRuntimeError = class(Exception);
 
-  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12);
+  TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12, dvD13);
 
   TAIMode = (amNone, amCursor, amGemini);
 
@@ -43,7 +43,8 @@ const
     { dvD10_1   } 'D10.1',
     { dvD10_3   } 'D10.3',
     { dvD11     } 'D11',
-    { dvD12     } 'D12');
+    { dvD12     } 'D12',
+    { dvD13     } 'D13');
 
   DelphiVersionIntegerArray: Array [TDelphiVersion] of Integer = (
     { dvUnknown } 0,
@@ -51,7 +52,8 @@ const
     { dvD10_1   } 24,
     { dvD10_3   } 26,
     { dvD11     } 28,
-    { dvD12     } 29);
+    { dvD12     } 29,
+    { dvD13     } 30);
 
 implementation
 

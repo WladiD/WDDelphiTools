@@ -281,6 +281,9 @@ begin
   if not TFile.Exists(FitNesseJar) then
     raise Exception.Create('FitNesse JAR not found: ' + FitNesseJar);
 
+  if FileSearch('java.exe', GetEnvironmentVariable('PATH')) = '' then
+    raise Exception.Create('Java is not installed or not in the PATH. FitNesse requires at least Java 21 to run.');
+
   if FVerbose then
     Writeln('Executing FitNesse suite "' + ASuiteName + '" against Slim server on port ' + APort.ToString + '...');
 
@@ -289,6 +292,12 @@ begin
 
   var LJavaCmd: String := Format('java -Dtest.system=slim -Dslim.port=%d -Dslim.pool.size=1 -jar "%s" -d "%s" -c "%s?suite&format=text"', [APort, FitNesseJar, FFitNesseDir, ASuiteName]);
   var LRunResult: Cardinal := JclSysUtils.Execute(LJavaCmd, Output);
+
+  if Output.Contains('UnsupportedClassVersionError') then
+    raise Exception.Create('The installed Java version is too old to run FitNesse. FitNesse requires at least Java 21 to run. Please update Java.');
+  
+  if (LRunResult <> 0) and Output.Contains('Exception in thread') and not FVerbose then
+    Writeln('Java Error: ' + Output.Trim);
 
   FailedTests := Collections.NewList<String>;
   if FVerbose then

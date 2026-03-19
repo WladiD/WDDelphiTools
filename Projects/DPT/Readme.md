@@ -13,10 +13,10 @@ Run `DPT.exe Help <Action>` for detailed information on any specific command. Be
 DPT provides special support for AI agents through rule-based workflows and the Model Context Protocol (MCP).
 
 *   **`McpDebugger`**: Starts a standalone MCP server for debugging Delphi applications. It runs continuously in the background and provides tools for AI agents (like Gemini, Claude) to:
-    *   Start debug sessions dynamically (`start_debug_session`)
+    *   Manage debug sessions (`start_debug_session`, `stop_debug_session`, `terminate_debug_session`)
     *   Set/remove hardware breakpoints (`set_breakpoint`, `remove_breakpoint`, `list_breakpoints`)
-    *   Control asynchronous execution (`continue`, `step_into`, `step_over`)
-    *   Inspect state and memory (`get_stack_trace`, `get_registers`, `get_stack_slots`, `read_memory`, `read_global_variable`)
+    *   Control asynchronous execution (`continue`, `step_into`, `step_over`, `wait_until_paused`)
+    *   Inspect state and memory (`get_state`, `get_stack_trace`, `get_registers`, `get_stack_slots`, `get_stack_memory`, `read_memory`, `read_global_variable`, `get_proc_asm`)
 *   **`AiSession`**: Manages an AI session for the current process hierarchy. Uses an internal workflow engine to provide instructions and track state (e.g., Lint results). See [AiWorkflow.md](AiWorkflow.md) for details.
 
 ### 🏗️ Build-Management & CI/CD

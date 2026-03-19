@@ -58,6 +58,7 @@ begin
   case AVersion of
     dvD11: Result := 9011;
     dvD12: Result := 9012;
+    dvD13: Result := 9013;
     // Older versions?
     dvD10_3: Result := 9000 + (33 - 24); // 9009?
     dvD10_1: Result := 9000 + (31 - 24); // 9007?
