@@ -396,11 +396,6 @@ begin
   if (LRunResult = 0) and (TDptLintContext.Violations.Count = 0) then
   begin
     Writeln('Linting passed.');
-    if Assigned(WorkflowEngine) then
-    begin
-      for var LFile in FTargetFiles do
-        TDptWorkflowEngine(WorkflowEngine).ReportLintResult(LFile, True);
-    end;
   end
   else
   begin

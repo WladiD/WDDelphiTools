@@ -29,6 +29,8 @@ type
     procedure FormatUsesClause(AUses: TUsesClauseSyntax);
     procedure FormatMethodImplementation(AMethod: TMethodImplementationSyntax);
     procedure FormatConstSection(ASection: TConstSectionSyntax);
+    procedure FormatTypeSection(ASection: TTypeSectionSyntax);
+    procedure FormatVarSection(ASection: TVarSectionSyntax);
     procedure InsertNestedMethodEndBanner(AMethod: TMethodImplementationSyntax);
   end;
 
@@ -198,6 +200,54 @@ begin
   AddLeadingTrivia(LToken, LPrefix + FBanner.CreateClassBanner(LExtractedClass) + LComments);
   FLastClassName := LExtractedClass;
   FSuppressNextMethodBanner := True;
+end;
+
+procedure TTaifunFormatter.FormatTypeSection(ASection: TTypeSectionSyntax);
+var
+  LToken: TSyntaxToken;
+  LOldTrivia, LComments, LTrailingPart, LIndent, LPrefix: string;
+  LLeadingNewlines: Integer;
+begin
+  if not IsUnitLevel(ASection) then Exit;
+  LToken := GetTypeKeyword(ASection);
+  if not Assigned(LToken) then Exit;
+  
+  LOldTrivia := GetLeadingTrivia(LToken);
+  ClearTrivia(LToken);
+  FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
+  
+  LPrefix := LTrailingPart + #13#10#13#10;
+  if FExpectedTokenTextForSuppressedBanner = LToken.Text then
+    AddLeadingTrivia(LToken, LPrefix + LComments + LIndent)
+  else
+    AddLeadingTrivia(LToken, LPrefix + FBanner.CreateMethodBanner() + LComments + LIndent);
+    
+  FLastClassName := '';
+  FExpectedTokenTextForSuppressedBanner := '';
+end;
+
+procedure TTaifunFormatter.FormatVarSection(ASection: TVarSectionSyntax);
+var
+  LToken: TSyntaxToken;
+  LOldTrivia, LComments, LTrailingPart, LIndent, LPrefix: string;
+  LLeadingNewlines: Integer;
+begin
+  if not IsUnitLevel(ASection) then Exit;
+  LToken := GetVarKeyword(ASection);
+  if not Assigned(LToken) then Exit;
+  
+  LOldTrivia := GetLeadingTrivia(LToken);
+  ClearTrivia(LToken);
+  FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
+  
+  LPrefix := LTrailingPart + #13#10#13#10;
+  if FExpectedTokenTextForSuppressedBanner = LToken.Text then
+    AddLeadingTrivia(LToken, LPrefix + LComments + LIndent)
+  else
+    AddLeadingTrivia(LToken, LPrefix + FBanner.CreateMethodBanner() + LComments + LIndent);
+    
+  FLastClassName := '';
+  FExpectedTokenTextForSuppressedBanner := '';
 end;
 
 procedure TTaifunFormatter.InsertNestedMethodEndBanner(AMethod: TMethodImplementationSyntax);
@@ -413,6 +463,16 @@ end;
 procedure OnVisitMethodImplementation(AMethod: TMethodImplementationSyntax);
 begin
   GetFormatter.FormatMethodImplementation(AMethod);
+end;
+
+procedure OnVisitTypeSection(ASection: TTypeSectionSyntax);
+begin
+  GetFormatter.FormatTypeSection(ASection);
+end;
+
+procedure OnVisitVarSection(ASection: TVarSectionSyntax);
+begin
+  GetFormatter.FormatVarSection(ASection);
 end;
 
 procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);

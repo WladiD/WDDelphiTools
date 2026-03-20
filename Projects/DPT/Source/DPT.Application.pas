@@ -317,16 +317,8 @@ begin
               LArg := '';
           end;
           LAction := LArg;
-          
-          LAiSessionAction := '';
-          if SameText(LAction, 'AiSession') and LCmdLine.HasParameter then
-          begin
-            LCmdLine.ConsumeParameter;
-            if LCmdLine.HasParameter then
-              LAiSessionAction := LCmdLine.CheckParameter('AiAction');
-          end;
 
-          WorkflowEngine := TDptWorkflowEngine.Create(LAction, LAiSessionAction);
+          WorkflowEngine := TDptWorkflowEngine.Create(LAction);
           
           // Reset LCmdLine for Dispatcher
           LCmdLine.Free;
@@ -363,45 +355,34 @@ begin
           end;
 
           var Instructions: string;
-          if Assigned(WorkflowEngine) and (WorkflowEngine.CheckConditions(Instructions, gtBefore) = waExit) then
+          if Assigned(WorkflowEngine) then
           begin
-            Writeln('-------------------------------------------------------------------------------');
-            Writeln('DPT WORKFLOW VIOLATION:');
-            Writeln(Instructions);
-            Writeln('-------------------------------------------------------------------------------');
-            
-            var LFinalExitCode := WorkflowEngine.ExitCode;
-            if LFinalExitCode = 0 then LFinalExitCode := 1;
-
-            var AfterInstructions: string;
-            WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
-            if AfterInstructions <> '' then
+            var LWorkflowResult := WorkflowEngine.CheckConditions(Instructions, gtBefore);
+            if Instructions <> '' then
             begin
-              Writeln(AfterInstructions);
+              Writeln('-------------------------------------------------------------------------------');
+              if LWorkflowResult = waExit then
+                Writeln('DPT WORKFLOW VIOLATION:');
+              Writeln(Instructions);
               Writeln('-------------------------------------------------------------------------------');
             end;
 
-            System.ExitCode := LFinalExitCode;
-            Exit;
-          end;
-
-          if SameText(LAction, 'AiSession') then
-          begin
-            if SameText(LAiSessionAction, 'Start') then WorkflowEngine.StartSession
-            else if SameText(LAiSessionAction, 'Stop') then WorkflowEngine.StopSession
-            else if SameText(LAiSessionAction, 'Reset') then WorkflowEngine.ResetSession
-            else if SameText(LAiSessionAction, 'Status') then WorkflowEngine.ShowStatus
-            else if SameText(LAiSessionAction, 'RegisterFiles') then
+            if LWorkflowResult = waExit then
             begin
-              var LFiles: TArray<string>;
-              SetLength(LFiles, ParamCount - 3);
-              for var I := 4 to ParamCount do
-                LFiles[I-4] := ParamStr(I);
-              WorkflowEngine.AddFilesToSession(LFiles);
-            end
-            else
-              Writeln('Unknown AiSession action: ', LAiSessionAction);
-            Exit;
+              var LFinalExitCode := WorkflowEngine.ExitCode;
+              if LFinalExitCode = 0 then LFinalExitCode := 1;
+
+              var AfterInstructions: string;
+              WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
+              if AfterInstructions <> '' then
+              begin
+                Writeln(AfterInstructions);
+                Writeln('-------------------------------------------------------------------------------');
+              end;
+
+              System.ExitCode := LFinalExitCode;
+              Exit;
+            end;
           end;
 
           // Dispatch CLI command

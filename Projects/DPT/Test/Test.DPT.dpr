@@ -24,6 +24,7 @@ uses
   Test.DPT.Lint.Setup.Task,
   Test.DPT.LintFixtures,
   Test.DPT.LintTask,
+  Test.DPT.Git,
   Test.DPT.MCP.Server,
   Test.DPT.Preprocessor,
   Test.DPT.Workflow;

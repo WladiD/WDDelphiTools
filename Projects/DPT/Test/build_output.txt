@@ -1,0 +1,61 @@
+Setting up Delphi environment from: C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\rsvars.bat
+PRODUCTVERSION: 23.0
+BuildinMicrosoft (R)-Buildmodul, Version 4.8.9221.0
+[Microsoft .NET Framework, Version 4.0.30319.42000]
+Copyright (C) Microsoft Corporation. Alle Rechte vorbehalten.
+
+Der Buildvorgang wurde am 03.03.2026 15:47:02 gestartet.
+Projekt "c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" auf Knoten "1", Build Ziel(e).
+BuildVersionResource:
+  C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\cgrc.exe -c65001 Test.DPT.vrc -foTest.DPT.res 
+  CodeGear Resource Compiler/Binder
+  Version 1.2.2 Copyright (c) 2008-2012 Embarcadero Technologies Inc.
+  
+  Microsoft (R) Windows (R) Resource Compiler Version 6.0.5724.0
+  
+  Copyright (C) Microsoft Corporation.  All rights reserved.
+  
+  
+  Die Datei Test.DPT.vrc wird gelöscht.
+  del "Test.DPT.vrc"
+PreBuildEvent:
+  "C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe" -GD -O- -V "c:\WDC\WDDelphiTools\Projects\DPT\Test\DebugTarget.dpr"
+  "C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe" -GD -O- -V "c:\WDC\WDDelphiTools\Projects\DPT\Test\ExceptionTarget.dpr"
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+  DebugTarget.dpr(8) Warnung: W1012 Konstantenausdruck verletzt untere Grenzen
+  DebugTarget.dpr(12) Hinweis: H2077 Auf 'LocalInt' zugewiesener Wert wird niemals benutzt
+  25 Zeilen, 0.06 Sekunden, 130408 Byte-Code, 29724 Byte-Daten.
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+  31 Zeilen, 0.06 Sekunden, 131412 Byte-Code, 29724 Byte-Daten.
+_PasCoreCompile:
+  C:\Program Files (x86)\Embarcadero\Studio\23.0\bin\dcc32.exe -$O- -$W+ -$R+ -$Q+ --no-config -B -Q -TX.exe -AGenerics.Collections=System.Generics.Collections;Generics.Defaults=System.Generics.Defaults;WinTypes=Winapi.Windows;WinProcs=Winapi.Windows;DbiTypes=BDE;DbiProcs=BDE;DbiErrs=BDE -DDEBUG -E.\Win32\Debug -I"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug\DE";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Debug\Studio29";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -LEC:\Users\Public\Documents\Embarcadero\Studio\23.0\Bpl -LNC:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp -NU.\Win32\Debug -NSWinapi;System.Win;Data.Win;Datasnap.Win;Web.Win;Soap.Win;Xml.Win;Bde;System;Xml;Data;Datasnap;Web;Soap; -O..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -R"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -U"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug\DE";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\debug";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Debug\Studio29";"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release\DE";..\Source;..\..\..;..\..\..\Lib\JclConfig;..\..\..\Lib\jcl\jcl\source\common;..\..\..\Lib\jcl\jcl\source\include;..\..\..\Lib\jcl\jcl\source\windows;..\..\..\Lib\SendInputHelper;..\..\..\Lib\ExprParser;..\..\..\..\SlimForDelphi\Source;..\..\..\Lib\mORMot\src;..\..\..\Lib\mORMot\src\core;..\..\..\Projects\StaticGenerics\Source;..\..\..\Projects\TmplCodeGen\Source;"c:\program files (x86)\embarcadero\studio\23.0\lib\Win32\release";C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports;C:\Users\wderr\Documents\Embarcadero\Studio\23.0\Imports\Win32;"C:\Program Files (x86)\Embarcadero\Studio\23.0\Imports";C:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp;"C:\Program Files (x86)\Embarcadero\Studio\23.0\include";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Common";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Lib\Win32\Release\Studio29";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Source\Extras";"C:\Program Files (x86)\Neos Eureka S.r.l\EurekaLog 7\Packages\Studio29";C:\Users\wderr\AppData\Local\Programs\TestInsight\Source -V -VN -NBC:\Users\Public\Documents\Embarcadero\Studio\23.0\Dcp -NHC:\Users\Public\Documents\Embarcadero\Studio\23.0\hpp\Win32 -NO.\Win32\Debug  Test.DPT.dpr   
+  Embarcadero Delphi for Win32 compiler version 36.0
+  Copyright (c) 1983,2025 Embarcadero Technologies, Inc.
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2003: Undeklarierter Bezeichner: 'RunCommand' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2001: Ordinaltyp erforderlich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2010: Inkompatible Typen: 'Integer' und 'string' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(79): error E2001: Ordinaltyp erforderlich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(79): error E2010: Inkompatible Typen: 'Integer' und 'string' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Workflow.pas(25): error F2063: Verwendete Unit 'DPT.Git.pas' kann nicht compiliert werden [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+Die Erstellung des Projekts "c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" ist abgeschlossen, Build Ziel(e) -- FEHLER.
+
+Fehler beim Buildvorgang.
+
+"c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj" (Build Ziel) (1) ->
+(_PasCoreCompile Ziel) -> 
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2003: Undeklarierter Bezeichner: 'RunCommand' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2001: Ordinaltyp erforderlich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(47): error E2010: Inkompatible Typen: 'Integer' und 'string' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(79): error E2001: Ordinaltyp erforderlich [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Git.pas(79): error E2010: Inkompatible Typen: 'Integer' und 'string' [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+  C:\WDC\WDDelphiTools\Projects\DPT\Source\DPT.Workflow.pas(25): error F2063: Verwendete Unit 'DPT.Git.pas' kann nicht compiliert werden [c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj]
+
+    0 Warnung(en)
+    6 Fehler
+
+Verstrichene Zeit 00:00:01.64
+g c:\WDC\WDDelphiTools\Projects\DPT\Test\Test.DPT.dproj...
+ERROR: Build failed with exit code 1
+Build or Run failed.

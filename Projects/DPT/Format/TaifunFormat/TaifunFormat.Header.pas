@@ -109,7 +109,13 @@ begin
   while (ADirectives <> '') and (Copy(ADirectives, Length(ADirectives) - 1, 2) = #13#10) do Delete(ADirectives, Length(ADirectives) - 1, 2);
 
   if not LFoundDesc and not Result then ADescription := 'Kurzbeschreibung der Unit';
-  if ADirectives = '' then ADirectives := '{$I Tfw.Define.pas}';
+  if ADirectives = '' then
+  begin
+    if (Pos('Base.', AUnitName) = 1) or (AUnitName = 'Base') then
+      ADirectives := '{$I Base.Define.pas}'
+    else
+      ADirectives := '{$I Tfw.Define.pas}';
+  end;
 end;
 
 end.

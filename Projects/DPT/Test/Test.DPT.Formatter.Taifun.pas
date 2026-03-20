@@ -148,6 +148,10 @@ type
     procedure TestFormatUnitHeader_PreservesCommentsOutsideBanner;
     [Test]
     procedure TestFormatImplementation_LowercaseEndif;
+    [Test]
+    procedure TestFormatUnitHeader_UsesBaseDefineForBaseUnits;
+    [Test]
+    procedure TestFormatTypeSection_UsesShortBanner;
   end;
 
 implementation
@@ -2316,6 +2320,77 @@ begin
       '{$if CompilerVersion >= 32}';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'The short separator should be placed AFTER the {$endif} of the previous method. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_UsesBaseDefineForBaseUnits;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LExpectedHeader: string;
+begin
+  LSource := 'unit Base.Minimum; interface end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // Base.Minimum - Kurzbeschreibung der Unit
+    //
+    // Autor: Name
+    //
+    // ======================================================================
+
+    {$I Base.Define.pas}
+
+    unit Base.Minimum;
+    ''';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.StartsWith(LExpectedHeader), 'Should generate header with Base.Define.pas. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatTypeSection_UsesShortBanner;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit Base.Minimum;' + #13#10 +
+             'interface' + #13#10 +
+             'uses' + #13#10 +
+             '  System.Classes;' + #13#10 +
+             'type' + #13#10 +
+             '  TFormAbort = class' + #13#10 +
+             '  end;' + #13#10 +
+             'implementation' + #13#10 +
+             'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // It should use a short banner `{ --- }` instead of a long one `{ === }` before `type` when following a uses clause
+    Assert.IsTrue(LResult.Contains(
+      #13#10 + '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 + 'type' + #13#10
+    ), 'Type section should have a short banner when not suppressed. Actual result:'#13#10 + LResult);
+    
+    // Ensure it does not contain the long banner before type
+    Assert.IsFalse(LResult.Contains(
+      #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 + 'type' + #13#10
+    ), 'Type section should not have a long banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

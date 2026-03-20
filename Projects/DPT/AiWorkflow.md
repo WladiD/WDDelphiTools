@@ -44,47 +44,31 @@ The guards use an internal expression parser with access to the current DPT stat
 
 | Function | Description |
 | :--- | :--- |
-| `AiSessionStarted()` | Returns `True` if an active AI session exists. |
 | `IsCurrentAction("Name")` | Checks the current DPT action (e.g., "Build", "Lint", "BuildAndRun"). |
-| `IsCurrentAiSessionAction("Sub")` | Checks the sub-action of `AiSession` (e.g., "Start", "Status", "Reset"). |
 | `IsCurrentBuildProjectFile("File.dproj")` | Checks if the current project file name matches the provided name (case-insensitive). |
-| `GetCurrentLintTargetFile()` | Returns the path of the file currently being processed by `Lint`. |
 | `GetCurrentProjectFiles()` | Returns an array of all source files for the project currently being processed by `Build` or `BuildAndRun`. |
-| `IsFileRegisteredInAiSession(File)` | Checks if a file has already been registered in the session. |
-| `HasValidLintResult([Files])` | Checks if successful lint results exist for the provided files (defaults to `GetCurrentProjectFiles()`). |
-| `GetInvalidLintFiles([Files])` | Returns a newline-separated string of files that changed since session start but lack a valid lint result (defaults to `GetCurrentProjectFiles()`). |
-| `HasValidRunResult(Target, [Files])` | Checks if a target (e.g., a test project) was executed successfully (ExitCode 0) and no provided files (defaults to `GetCurrentProjectFiles()`) have changed since that run. |
 | `RequestDptExit()` | Signals the engine to exit the process after the guard phase. |
 | `RequestDptExitWithCode(Code)` | Signals an exit and sets the process exit code. |
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
-| `FixLineEndingsWindowsInAiSessionFiles()` | Converts line endings of all registered session files to CRLF (Windows). Returns `True` if any file was changed. |
-| `FixUtf8BomInAiSessionFiles()` | Ensures all registered session files are encoded in UTF-8 with BOM. Returns `True` if any file was changed. |
+| `FixLineEndingsWindowsInGitModifiedFiles()` | Converts line endings of all uncommitted files in Git to CRLF (Windows), respecting active `IgnorePattern`. Returns `True` if any file was changed. |
+| `FixUtf8BomInGitModifiedFiles()` | Ensures all uncommitted files in Git are encoded in UTF-8 with BOM, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
 | `GetLastFixedFiles()` | Returns a newline-separated list of files that were modified by the last executed Fix function. |
+| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
+| `GetLastFormattedFiles()` | Returns a newline-separated list of files that were modified by `FormatGitModifiedFiles`. |
+| `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`) to the ignore list used by Fix and Format functions. Always returns `True` for chaining. |
+| `ClearIgnorePatterns()` | Clears the current list of ignore patterns. Always returns `True` for chaining. |
 
-## Example Workflow: Mandatory Lint and Tests before Build
+## Example Workflow
 
-A complex scenario ensuring code quality before a main application build:
+A scenario ensuring code quality before a build or running fix scripts:
 
 ```text
-# Ensure Linting for changed files
-BeforeDptGuard: IsCurrentAction("Build") and not HasValidLintResult()
+# Abort if the user tries to run a build without specifying a project
+BeforeDptGuard: IsCurrentAction("Build") and IsCurrentBuildProjectFile("")
 {
-  - A valid lint result must exist for all changed files before building!
-  - Missing lint for:
-    `GetInvalidLintFiles()`
+  - Please specify a .dproj file to build!
     
-  BeforeDptGuard: RequestDptExitWithCode(13)
-}
-
-# Ensure Unit Tests passed if code changed
-BeforeDptGuard: IsCurrentAction("Build") and 
-                IsCurrentBuildProjectFile("App.dproj") and
-                not HasValidRunResult("Test.dproj")
-{
-  - Unit Tests required! The code changed since the last successful test run.
-  - Run: `DPT LATEST BuildAndRun Test.dproj`
-    
-  BeforeDptGuard: RequestDptExitWithCode(14)
+  BeforeDptGuard: RequestDptExitWithCode(1)
 }
 
 AfterDptGuard: GetExitCode() > 0
@@ -92,17 +76,16 @@ AfterDptGuard: GetExitCode() > 0
   Process stopped with ExitCode `GetExitCode()`.
 }
 
-# Auto-Fix Line Endings and BOM after successful Lint
-AfterDptGuard: IsCurrentAction("Lint") and
-               (GetExitCode()=0)
+# Auto-Fix Line Endings and BOM
+BeforeDptGuard: IsCurrentAction("Build")
 {
-  AfterDptGuard: FixLineEndingsWindowsInAiSessionFiles()
+  BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()
   {
     - Fixed CRLF line endings in:
       - `GetLastFixedFiles()`
   }
   
-  AfterDptGuard: FixUtf8BomInAiSessionFiles()
+  BeforeDptGuard: FixUtf8BomInGitModifiedFiles()
   {
     - Fixed missing UTF-8 BOM in:
       - `GetLastFixedFiles()`
@@ -114,8 +97,6 @@ AfterDptGuard: IsCurrentAction("Lint") and
 To persist state (e.g., lint results) across multiple DPT calls, a session file (`.DptAiWorkflow.Session<PID>.json`) is used. This is controlled via the `AiSession` action:
 
 1. `DPT LATEST AiSession Start`: Initializes the session and sets the baseline time for change detection.
-2. `DPT LATEST AiSession RegisterFiles <Files>`: Registers files for tracking.
-3. `DPT LATEST AiSession Status`: Displays the current status, including registration and lint results.
-4. `DPT LATEST AiSession Reset`: Clears all success results (Lint/Run) but keeps the session start time.
-5. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.
-
+2. `DPT LATEST AiSession Reset`: Reset session without changing the baseline point (Useful if testing goes wrong)
+3. `DPT LATEST AiSession Status`: Show current session details
+4. `DPT LATEST AiSession Stop`: Ends the session and deletes temporary data.

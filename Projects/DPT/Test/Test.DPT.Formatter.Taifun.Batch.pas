@@ -25,7 +25,7 @@ type
     FInputDir: string;
     FOutputDir: string;
     FIdempotentDir: string;
-    FGoodDir: string;
+    FExpectedDir: string;
     procedure ClearDirectory(const ADir: string);
     procedure CompareFilesLineByLine(const AFile1, AFile2: string);
   public
@@ -37,7 +37,7 @@ type
     [Test]
     procedure TestIdempotence;
     [Test]
-    procedure TestGoodFormat;
+    procedure TestExpectedFormat;
   end;
 
 implementation
@@ -58,7 +58,7 @@ begin
   FInputDir := TPath.Combine(LTestDir, 'FormatTaifunData\A-Input');
   FOutputDir := TPath.Combine(LTestDir, 'FormatTaifunData\B-Output');
   FIdempotentDir := TPath.Combine(LTestDir, 'FormatTaifunData\C-Idempotent');
-  FGoodDir := TPath.Combine(LTestDir, 'FormatTaifunData\Good');
+  FExpectedDir := TPath.Combine(LTestDir, 'FormatTaifunData\D-Expected');
 end;
 
 procedure TTestTaifunFormatterBatch.TearDown;
@@ -180,31 +180,31 @@ begin
   ClearDirectory(FIdempotentDir);
 end;
 
-procedure TTestTaifunFormatterBatch.TestGoodFormat;
+procedure TTestTaifunFormatterBatch.TestExpectedFormat;
 var
   LFiles: TArray<string>;
-  LGoodFile, LFileName, LInputFile, LOutputFile: string;
+  LExpectedFile, LFileName, LInputFile, LOutputFile: string;
   LSource, LFormatted: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  if not TDirectory.Exists(FGoodDir) then
+  if not TDirectory.Exists(FExpectedDir) then
   begin
-    Assert.IsTrue(True, 'Good folder does not exist.');
+    Assert.IsTrue(True, 'D-Expected folder does not exist.');
     Exit;
   end;
 
-  LFiles := TDirectory.GetFiles(FGoodDir, '*.pas');
+  LFiles := TDirectory.GetFiles(FExpectedDir, '*.pas');
   if Length(LFiles) = 0 then
   begin
-    Assert.IsTrue(True, 'No files found in the Good folder.');
+    Assert.IsTrue(True, 'No files found in the D-Expected folder.');
     Exit;
   end;
 
   FFormatter.LoadScript(FScriptPath);
 
-  for LGoodFile in LFiles do
+  for LExpectedFile in LFiles do
   begin
-    LFileName := ExtractFileName(LGoodFile);
+    LFileName := ExtractFileName(LExpectedFile);
     LInputFile := TPath.Combine(FInputDir, LFileName);
     LOutputFile := TPath.Combine(FOutputDir, LFileName);
 
@@ -222,8 +222,8 @@ begin
       LUnit.Free;
     end;
 
-    // Compare the formatted output with the Good file
-    CompareFilesLineByLine(LOutputFile, LGoodFile);
+    // Compare the formatted output with the Expected file
+    CompareFilesLineByLine(LOutputFile, LExpectedFile);
   end;
 end;
 
