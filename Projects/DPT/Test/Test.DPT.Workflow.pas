@@ -313,12 +313,13 @@ begin
   // 2. Create files
   FileToFormat := CreateTestFile('ToFormat.pas', 'unit ToFormat; implementation end.');
   FileToIgnore := CreateTestFile('ToIgnore.pas', 'unit ToIgnore; implementation end.');
+  var FileToIgnore2 := CreateTestFile('AlsoIgnore.pas', 'unit AlsoIgnore; implementation end.');
 
-  // 3. Workflow: Ignore ToIgnore.pas and run formatter with our test script
+  // 3. Workflow: Ignore ToIgnore.pas and AlsoIgnore.pas and run formatter with our test script
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
-    '  BeforeDptGuard: IgnoreFormatPattern("ToIgnore.pas")' + sLineBreak +
+    '  BeforeDptGuard: IgnoreFormatPattern("ToIgnore.pas", "AlsoIgnore.pas")' + sLineBreak +
     '  BeforeDptGuard: FormatGitModifiedFiles("TestFormat.pas")' + sLineBreak +
     '  {' + sLineBreak +
     '    Formatted: `GetLastFormattedFiles()`' + sLineBreak +
@@ -338,8 +339,12 @@ begin
   Content := TFile.ReadAllText(FileToIgnore);
   Assert.IsFalse(Content.Contains('{ Formatted }'), 'ToIgnore.pas should NOT be formatted');
   
+  Content := TFile.ReadAllText(FileToIgnore2);
+  Assert.IsFalse(Content.Contains('{ Formatted }'), 'AlsoIgnore.pas should NOT be formatted');
+
   Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
   Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
+  Assert.IsFalse(Instructions.Contains('AlsoIgnore.pas'), 'Output should NOT list AlsoIgnore.pas');
 end;
 
 procedure TTestDptWorkflow.ProcessInstructions_PreservesTextWithParentheses;
