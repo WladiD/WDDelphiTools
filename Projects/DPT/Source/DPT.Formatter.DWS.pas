@@ -51,6 +51,8 @@ type
 
     // AST wrappers
     procedure dwsGetConstKeyword(Info: TProgramInfo);
+    procedure dwsGetTypeKeyword(Info: TProgramInfo);
+    procedure dwsGetVarKeyword(Info: TProgramInfo);
     procedure dwsGetFinalEndKeyword(Info: TProgramInfo);
     procedure dwsGetImplementationKeyword(Info: TProgramInfo);
     procedure dwsGetInterfaceKeyword(Info: TProgramInfo);
@@ -66,6 +68,7 @@ type
     procedure dwsGetUnitSemicolon(Info: TProgramInfo);
     procedure dwsGetUsesFirstItemToken(Info: TProgramInfo);
     procedure dwsGetUsesKeyword(Info: TProgramInfo);
+    procedure dwsIsUnitLevel(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -157,10 +160,25 @@ begin
   Func.ResultType := 'TSyntaxToken';
   Func.OnEval := dwsGetConstKeyword;
 
+  Func := FUnit.Functions.Add('GetTypeKeyword');
+  Func.Parameters.Add('ANode', 'TTypeSectionSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetTypeKeyword;
+
+  Func := FUnit.Functions.Add('GetVarKeyword');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetVarKeyword;
+
   Func := FUnit.Functions.Add('GetUsesKeyword');
   Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
   Func.ResultType := 'TSyntaxToken';
   Func.OnEval := dwsGetUsesKeyword;
+
+  Func := FUnit.Functions.Add('IsUnitLevel');
+  Func.Parameters.Add('ANode', 'TObject');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsIsUnitLevel;
 
   Func := FUnit.Functions.Add('GetUsesFirstItemToken');
   Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
@@ -264,6 +282,11 @@ begin
     Info.ResultAsVariant := IUnknown(nil);
 end;
 
+procedure TDptDwsFormatter.dwsIsUnitLevel(Info: TProgramInfo);
+begin
+  Info.ResultAsBoolean := (FMethodDepth = 0);
+end;
+
 procedure TDptDwsFormatter.dwsGetUsesFirstItemToken(Info: TProgramInfo);
 var
   Node : TUsesClauseSyntax;
@@ -303,6 +326,28 @@ begin
   Node := TConstSectionSyntax(Info.ParamAsObject[0]);
   if Assigned(Node) and Assigned(Node.ConstKeyword) then
     Info.ResultAsVariant := Info.RegisterExternalObject(Node.ConstKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetTypeKeyword(Info: TProgramInfo);
+var
+  Node: TTypeSectionSyntax;
+begin
+  Node := TTypeSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.TypeKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.TypeKeyword, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetVarKeyword(Info: TProgramInfo);
+var
+  Node: TVarSectionSyntax;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.VarKeyword) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.VarKeyword, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
 end;
