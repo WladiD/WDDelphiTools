@@ -48,6 +48,8 @@ type
     [Test]
     procedure TestFormatterAndIgnore;
     [Test]
+    procedure FixWithIgnorePatternAndClear;
+    [Test]
     procedure ProcessInstructions_PreservesTextWithParentheses;
   end;
 
@@ -319,7 +321,7 @@ begin
   TFile.WriteAllText(FWorkflowFile, 
     'BeforeDptGuard: 1' + sLineBreak +
     '{' + sLineBreak +
-    '  BeforeDptGuard: IgnoreFormatPattern("ToIgnore.pas", "AlsoIgnore.pas")' + sLineBreak +
+    '  BeforeDptGuard: IgnorePattern("ToIgnore.pas", "AlsoIgnore.pas")' + sLineBreak +
     '  BeforeDptGuard: FormatGitModifiedFiles("TestFormat.pas")' + sLineBreak +
     '  {' + sLineBreak +
     '    Formatted: `GetLastFormattedFiles()`' + sLineBreak +
@@ -345,6 +347,41 @@ begin
   Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
   Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
   Assert.IsFalse(Instructions.Contains('AlsoIgnore.pas'), 'Output should NOT list AlsoIgnore.pas');
+end;
+
+procedure TTestDptWorkflow.FixWithIgnorePatternAndClear;
+var
+  FileToFix: String;
+  FileToIgnore: String;
+  Instructions: String;
+begin
+  // 1. Create files
+  FileToFix := CreateTestFile('ToFix.txt', 'Line1'#10'Line2');
+  FileToIgnore := CreateTestFile('ToIgnore.txt', 'Line1'#10'Line2');
+
+  // 2. Workflow
+  TFile.WriteAllText(FWorkflowFile, 
+    'BeforeDptGuard: 1' + sLineBreak +
+    '{' + sLineBreak +
+    '  BeforeDptGuard: ClearIgnorePatterns() and IgnorePattern("ToIgnore.txt") and FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
+    '  {' + sLineBreak +
+    '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
+    '  }' + sLineBreak +
+    '}');
+
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // 3. Run
+  FEngine.CheckConditions(Instructions);
+
+  // 4. Verify Content
+  Assert.AreEqual('Line1'#13#10'Line2', TFile.ReadAllText(FileToFix), 'ToFix should be CRLF');
+  Assert.AreEqual('Line1'#10'Line2', TFile.ReadAllText(FileToIgnore), 'ToIgnore should NOT be fixed');
+
+  // 5. Verify Output
+  Assert.IsTrue(Instructions.Contains('ToFix.txt'), 'Output should contain ToFix.txt');
+  Assert.IsFalse(Instructions.Contains('ToIgnore.txt'), 'Output should NOT contain ToIgnore.txt');
 end;
 
 procedure TTestDptWorkflow.ProcessInstructions_PreservesTextWithParentheses;

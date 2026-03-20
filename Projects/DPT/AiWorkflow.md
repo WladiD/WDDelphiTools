@@ -57,9 +57,13 @@ The guards use an internal expression parser with access to the current DPT stat
 | `RequestDptExit()` | Signals the engine to exit the process after the guard phase. |
 | `RequestDptExitWithCode(Code)` | Signals an exit and sets the process exit code. |
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
-| `FixLineEndingsWindowsInAiSessionFiles()` | Converts line endings of all registered session files to CRLF (Windows). Returns `True` if any file was changed. |
-| `FixUtf8BomInAiSessionFiles()` | Ensures all registered session files are encoded in UTF-8 with BOM. Returns `True` if any file was changed. |
+| `FixLineEndingsWindowsInGitModifiedFiles()` | Converts line endings of all uncommitted files in Git to CRLF (Windows), respecting active `IgnorePattern`. Returns `True` if any file was changed. |
+| `FixUtf8BomInGitModifiedFiles()` | Ensures all uncommitted files in Git are encoded in UTF-8 with BOM, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
 | `GetLastFixedFiles()` | Returns a newline-separated list of files that were modified by the last executed Fix function. |
+| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
+| `GetLastFormattedFiles()` | Returns a newline-separated list of files that were modified by `FormatGitModifiedFiles`. |
+| `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`) to the ignore list used by Fix and Format functions. Always returns `True` for chaining. |
+| `ClearIgnorePatterns()` | Clears the current list of ignore patterns. Always returns `True` for chaining. |
 
 ## Example Workflow: Mandatory Lint and Tests before Build
 

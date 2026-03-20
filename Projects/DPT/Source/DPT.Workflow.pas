@@ -61,7 +61,8 @@ type
     function  ExprParserGetExitCode: Variant;
     function  ExprParserGetLastFixedFiles: Variant;
     function  ExprParserGetLastFormattedFiles: Variant;
-    function  ExprParserIgnoreFormatPattern(const Args: Variant): Variant;
+    function  ExprParserIgnorePattern(const Args: Variant): Variant;
+    function  ExprParserClearIgnorePatterns: Variant;
     function  ExprParserIsCurrentAction(const Args: Variant): Variant;
     function  ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
     function  ExprParserRequestDptExit: Variant;
@@ -311,8 +312,10 @@ begin
     ResVal := ExprParserFixUtf8BomInGitModifiedFiles
   else if SameText(FuncName, 'GetLastFixedFiles') then
     ResVal := ExprParserGetLastFixedFiles
-  else if SameText(FuncName, 'IgnoreFormatPattern') then
-    ResVal := ExprParserIgnoreFormatPattern(Args)
+  else if SameText(FuncName, 'IgnoreFormatPattern') or SameText(FuncName, 'IgnorePattern') then
+    ResVal := ExprParserIgnorePattern(Args)
+  else if SameText(FuncName, 'ClearIgnorePatterns') then
+    ResVal := ExprParserClearIgnorePatterns
   else if SameText(FuncName, 'FormatGitModifiedFiles') then
     ResVal := ExprParserFormatGitModifiedFiles(Args)
   else if SameText(FuncName, 'GetLastFormattedFiles') then
@@ -323,7 +326,7 @@ begin
   Result := True;
 end;
 
-function TDptWorkflowEngine.ExprParserIgnoreFormatPattern(const Args: Variant): Variant;
+function TDptWorkflowEngine.ExprParserIgnorePattern(const Args: Variant): Variant;
 var
   I: Integer;
 begin
@@ -338,6 +341,12 @@ begin
   end
   else if not VarIsClear(Args) then
     FIgnorePatterns.Add(VarToStr(Args));
+end;
+
+function TDptWorkflowEngine.ExprParserClearIgnorePatterns: Variant;
+begin
+  FIgnorePatterns.Clear;
+  Result := True;
 end;
 
 function TDptWorkflowEngine.ExprParserFormatGitModifiedFiles(const Args: Variant): Variant;
@@ -528,6 +537,8 @@ var
   Content: string;
   NewContent: string;
   FileName: string;
+  IgnorePattern: string;
+  SkipFile: Boolean;
 begin
   FLastFixedFiles.Clear;
   Result := False;
@@ -536,6 +547,18 @@ begin
   begin
     if TFile.Exists(FileName) then
     begin
+      SkipFile := False;
+      for IgnorePattern in FIgnorePatterns do
+      begin
+        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
+        begin
+          SkipFile := True;
+          Break;
+        end;
+      end;
+
+      if SkipFile then Continue;
+
       try
         Content := TFile.ReadAllText(FileName);
         // Standardize to CRLF
@@ -559,6 +582,8 @@ var
   FileName: string;
   Bytes: TBytes;
   BOM: TBytes;
+  IgnorePattern: string;
+  SkipFile: Boolean;
 begin
   FLastFixedFiles.Clear;
   Result := False;
@@ -568,6 +593,18 @@ begin
   begin
     if TFile.Exists(FileName) then
     begin
+      SkipFile := False;
+      for IgnorePattern in FIgnorePatterns do
+      begin
+        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
+        begin
+          SkipFile := True;
+          Break;
+        end;
+      end;
+
+      if SkipFile then Continue;
+
       try
         Bytes := TFile.ReadAllBytes(FileName);
         if (Length(Bytes) < Length(BOM)) or
@@ -661,6 +698,7 @@ begin
   Result := waNone;
   AInstructions := '';
   FExitRequested := False;
+  FIgnorePatterns.Clear;
   if FBlocks.Count = 0 then Exit;
 
   Parser := TExprParser.Create;
