@@ -47,6 +47,8 @@ type
     procedure FixBothLineEndingsAndBom;
     [Test]
     procedure TestFormatterAndIgnore;
+    [Test]
+    procedure ProcessInstructions_PreservesTextWithParentheses;
   end;
 
 implementation
@@ -338,6 +340,32 @@ begin
   
   Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
   Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
+end;
+
+procedure TTestDptWorkflow.ProcessInstructions_PreservesTextWithParentheses;
+var
+  Instructions: String;
+begin
+  // Workflow with text containing parentheses that looks similar to a function call if spaces aren't checked
+  TFile.WriteAllText(FWorkflowFile,
+    'BeforeDptGuard: 1' + sLineBreak +
+    '{' + sLineBreak +
+    '  BeforeDptGuard: 1' + sLineBreak +
+    '  {' + sLineBreak +
+    '    Dies ist Text mit (Klammern):' + sLineBreak +
+    '      - `1 + 1`' + sLineBreak +
+    '  }' + sLineBreak +
+    '}');
+
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // Run
+  FEngine.CheckConditions(Instructions);
+
+  // Verify
+  Assert.IsTrue(Instructions.Contains('Dies ist Text mit (Klammern):'), 'Text with parentheses should be preserved in instructions.');
+  Assert.IsTrue(Instructions.Contains('- 2'), 'Backtick expression should still be evaluated.');
 end;
 
 end.

@@ -355,26 +355,34 @@ begin
           end;
 
           var Instructions: string;
-          if Assigned(WorkflowEngine) and (WorkflowEngine.CheckConditions(Instructions, gtBefore) = waExit) then
+          if Assigned(WorkflowEngine) then
           begin
-            Writeln('-------------------------------------------------------------------------------');
-            Writeln('DPT WORKFLOW VIOLATION:');
-            Writeln(Instructions);
-            Writeln('-------------------------------------------------------------------------------');
-            
-            var LFinalExitCode := WorkflowEngine.ExitCode;
-            if LFinalExitCode = 0 then LFinalExitCode := 1;
-
-            var AfterInstructions: string;
-            WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
-            if AfterInstructions <> '' then
+            var LWorkflowResult := WorkflowEngine.CheckConditions(Instructions, gtBefore);
+            if Instructions <> '' then
             begin
-              Writeln(AfterInstructions);
+              Writeln('-------------------------------------------------------------------------------');
+              if LWorkflowResult = waExit then
+                Writeln('DPT WORKFLOW VIOLATION:');
+              Writeln(Instructions);
               Writeln('-------------------------------------------------------------------------------');
             end;
 
-            System.ExitCode := LFinalExitCode;
-            Exit;
+            if LWorkflowResult = waExit then
+            begin
+              var LFinalExitCode := WorkflowEngine.ExitCode;
+              if LFinalExitCode = 0 then LFinalExitCode := 1;
+
+              var AfterInstructions: string;
+              WorkflowEngine.CheckConditions(AfterInstructions, gtAfter);
+              if AfterInstructions <> '' then
+              begin
+                Writeln(AfterInstructions);
+                Writeln('-------------------------------------------------------------------------------');
+              end;
+
+              System.ExitCode := LFinalExitCode;
+              Exit;
+            end;
           end;
 
           // Dispatch CLI command

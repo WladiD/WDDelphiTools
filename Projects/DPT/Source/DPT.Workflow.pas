@@ -622,7 +622,7 @@ begin
 
         if RawInstructions <> '' then
         begin
-          // Execute commands (lines without backticks)
+          // Execute commands (lines without backticks and formatted as function calls)
           InstrLines := TStringList.Create;
           try
             InstrLines.Text := RawInstructions;
@@ -630,7 +630,11 @@ begin
             begin
               var TrimmedLine := Trim(Line);
               if (TrimmedLine <> '') and (Pos('`', TrimmedLine) = 0) then
-                AParser.Eval(TrimmedLine);
+              begin
+                var FirstParen := Pos('(', TrimmedLine);
+                if (FirstParen > 1) and (Pos(' ', Copy(TrimmedLine, 1, FirstParen)) = 0) then
+                  AParser.Eval(TrimmedLine);
+              end;
             end;
           finally
             InstrLines.Free;
@@ -686,11 +690,12 @@ begin
     InstrLines.Text := AStr;
     for Line in InstrLines do
     begin
-      // Skip lines that are likely commands (no backticks, but contain function calls)
+      // Skip lines that are likely commands (no backticks, and formatted as function calls)
       if (Line <> '') and (Pos('`', Line) = 0) and (Pos('(', Line) > 0) and (Pos(')', Line) > 0) then
       begin
-        // Exception: If it looks like a list item, treat as text
-        if not Trim(Line).StartsWith('-') then
+        var IdentStr := Trim(Line);
+        var FirstParen := Pos('(', IdentStr);
+        if (FirstParen > 1) and (Pos(' ', Copy(IdentStr, 1, FirstParen)) = 0) then
           Continue;
       end;
 
