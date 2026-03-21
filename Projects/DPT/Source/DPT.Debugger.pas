@@ -146,6 +146,7 @@ type
     procedure WaitForReady(Timeout: DWORD = INFINITE);
     property  BreakpointLock: TCriticalSection read FBreakpointLock;
     property  Breakpoints: IList<TBreakpoint> read FBreakpoints;
+    property  IgnoredExceptions: IList<String> read FIgnoredExceptions;
     property  LastException: TExceptionRecord read FLastException;
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;

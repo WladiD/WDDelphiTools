@@ -61,6 +61,7 @@ type
     function HandleGetState(AParams: TJSONObject): TJSONObject;
     function HandleIgnoreException(AParams: TJSONObject): TJSONObject;
     function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
+    function HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
     function HandleListTools(AParams: TJSONObject): TJSONObject;
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
     function HandleReadMemory(AParams: TJSONObject): TJSONObject;
@@ -444,6 +445,8 @@ begin
           SendResponse(ID, HandleIgnoreException(ToolParams))
         else if ToolName = 'unignore_exception' then
           SendResponse(ID, HandleUnignoreException(ToolParams))
+        else if ToolName = 'list_ignored_exceptions' then
+          SendResponse(ID, HandleListIgnoredExceptions(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
         else if ToolName = 'get_stack_trace' then
@@ -557,6 +560,12 @@ begin
   SchemaUnignoreExc.AddPair('required', ReqUnignoreExc);
   ToolUnignoreExc.AddPair('inputSchema', SchemaUnignoreExc);
   ToolsArr.Add(ToolUnignoreExc);
+
+  var ToolListIgnoredExc := TJSONObject.Create;
+  ToolListIgnoredExc.AddPair('name', 'list_ignored_exceptions');
+  ToolListIgnoredExc.AddPair('description', 'Lists all Delphi exception classes that are currently being ignored by the debugger.');
+  ToolListIgnoredExc.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolListIgnoredExc);
 
   var ToolContinue := TJSONObject.Create;
   ToolContinue.AddPair('name', 'continue');
@@ -831,6 +840,54 @@ begin
     if not RequireState([dsPaused, dsRunning], Result) then Exit;
     FDebugger.UnignoreException(LClass);
     Result := MakeTextResult(Format('Exception %s is no longer ignored', [LClass]));
+  end;
+end;
+
+function TMcpServer.HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
+var
+  Arr     : TJSONArray;
+  Defaults: IList<String>;
+  I, J    : Integer;
+  Found   : Boolean;
+begin
+  Arr := TJSONArray.Create;
+  try
+    if FState = dsNoSession then
+    begin
+      Defaults := Collections.NewList<String>;
+      Defaults.Add('EAbort');
+      for I := 0 to FPendingIgnoredExceptions.Count - 1 do
+      begin
+        Found := False;
+        for J := 0 to Defaults.Count - 1 do
+          if SameText(Defaults[J], FPendingIgnoredExceptions[I]) then
+          begin
+            Found := True;
+            Break;
+          end;
+        if not Found then
+          Defaults.Add(FPendingIgnoredExceptions[I]);
+      end;
+
+      for I := 0 to FPendingUnignoredExceptions.Count - 1 do
+      begin
+        for J := Defaults.Count - 1 downto 0 do
+          if SameText(Defaults[J], FPendingUnignoredExceptions[I]) then
+            Defaults.Delete(J);
+      end;
+
+      for I := 0 to Defaults.Count - 1 do
+        Arr.Add(Defaults[I]);
+    end
+    else
+    begin
+      for I := 0 to FDebugger.IgnoredExceptions.Count - 1 do
+        Arr.Add(FDebugger.IgnoredExceptions[I]);
+    end;
+
+    Result := MakeTextResult(Arr.ToJSON);
+  finally
+    Arr.Free;
   end;
 end;
 

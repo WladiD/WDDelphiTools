@@ -43,6 +43,8 @@ type
     procedure TestMcpStartSessionWithoutMapFile;
     [Test]
     procedure TestMcpWaitUntilPaused;
+    [Test]
+    procedure TestMcpIgnoredExceptions;
   end;
 
 implementation
@@ -1037,6 +1039,66 @@ begin
     end;
   finally
     Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpIgnoredExceptions;
+var
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+begin
+  // We don't even need a running debugger process, we can just test the MCP list management
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    // 1. Check default list (should contain EAbort)
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "list_ignored_exceptions", "arguments": {}}}' + sLineBreak +
+    // 2. Add an exception
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "EZeroDivide"}}}' + sLineBreak +
+    // 3. Add another
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "EAccessViolation"}}}' + sLineBreak +
+    // 4. Check list again (should have EAbort, EZeroDivide, EAccessViolation)
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_ignored_exceptions", "arguments": {}}}' + sLineBreak +
+    // 5. Remove an exception
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "unignore_exception", "arguments": {"class_name": "EZeroDivide"}}}' + sLineBreak +
+    // 6. Check list again (EZeroDivide should be gone)
+    '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "list_ignored_exceptions", "arguments": {}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    Assert.AreEqual(1, OutputWriter.GetCount);
+
+    Server.RunOnce; // list defaults
+    Assert.AreEqual(2, OutputWriter.GetCount);
+    Assert.IsTrue(OutputWriter.GetLine(1).Contains('EAbort'), 'Default EAbort is missing');
+
+    Server.RunOnce; // add EZeroDivide
+    Assert.AreEqual(3, OutputWriter.GetCount);
+
+    Server.RunOnce; // add EAccessViolation
+    Assert.AreEqual(4, OutputWriter.GetCount);
+
+    Server.RunOnce; // list after adds
+    Assert.AreEqual(5, OutputWriter.GetCount);
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('EAbort'), 'EAbort missing after adds');
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('EZeroDivide'), 'EZeroDivide missing');
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('EAccessViolation'), 'EAccessViolation missing');
+
+    Server.RunOnce; // remove EZeroDivide
+    Assert.AreEqual(6, OutputWriter.GetCount);
+
+    Server.RunOnce; // list after removal
+    Assert.AreEqual(7, OutputWriter.GetCount);
+    Assert.IsTrue(OutputWriter.GetLine(6).Contains('EAbort'), 'EAbort missing after removal');
+    Assert.IsFalse(OutputWriter.GetLine(6).Contains('EZeroDivide'), 'EZeroDivide should be removed');
+    Assert.IsTrue(OutputWriter.GetLine(6).Contains('EAccessViolation'), 'EAccessViolation missing after removal');
+
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
   end;
 end;
 
