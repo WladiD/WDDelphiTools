@@ -53,9 +53,11 @@ The guards use an internal expression parser with access to the current DPT stat
 | `FixLineEndingsWindowsInGitModifiedFiles()` | Converts line endings of all uncommitted files in Git to CRLF (Windows), respecting active `IgnorePattern`. Returns `True` if any file was changed. |
 | `FixUtf8BomInGitModifiedFiles()` | Ensures all uncommitted files in Git are encoded in UTF-8 with BOM, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
 | `GetLastFixedFiles()` | Returns a newline-separated list of files that were modified by the last executed Fix function. |
-| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
+| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern` and `IncludePattern`. Returns `True` if any file was changed. |
 | `GetLastFormattedFiles()` | Returns a newline-separated list of files that were modified by `FormatGitModifiedFiles`. |
-| `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`) to the ignore list used by Fix and Format functions. Always returns `True` for chaining. |
+| `IncludePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*.txt`, `*.md`) to the include list used by Fix and Format functions. If the include list is not empty, only files matching at least one pattern are processed. Always returns `True` for chaining. |
+| `ClearIncludePatterns()` | Clears the current list of include patterns. Always returns `True` for chaining. |
+| `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`, `*.dfm`) to the ignore list used by Fix and Format functions. Files matching these patterns are excluded, even if they match an `IncludePattern`. Always returns `True` for chaining. |
 | `ClearIgnorePatterns()` | Clears the current list of ignore patterns. Always returns `True` for chaining. |
 
 ## Example Workflow

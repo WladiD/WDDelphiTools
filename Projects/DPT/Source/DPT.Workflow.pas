@@ -49,6 +49,7 @@ type
     FExitRequested         : Boolean;
     FHostPID               : DWORD;
     FIgnorePatterns        : TStringList;
+    FIncludePatterns       : TStringList;
     FLintTarget            : String;
     FLastFixedFiles        : TStringList;
     FLastFormattedFiles    : TStringList;
@@ -63,11 +64,14 @@ type
     function  ExprParserGetLastFormattedFiles: Variant;
     function  ExprParserIgnorePattern(const Args: Variant): Variant;
     function  ExprParserClearIgnorePatterns: Variant;
+    function  ExprParserIncludePattern(const Args: Variant): Variant;
+    function  ExprParserClearIncludePatterns: Variant;
     function  ExprParserIsCurrentAction(const Args: Variant): Variant;
     function  ExprParserIsCurrentBuildProjectFile(const Args: Variant): Variant;
     function  ExprParserRequestDptExit: Variant;
     function  ExprParserRequestDptExitWithCode(const Args: Variant): Variant;
     function  FindWorkflowFile: String;
+    function  IsFileIncluded(const AFileName: string): Boolean;
     procedure LoadWorkflow;
     function  OnExecuteFunctionCallback(Sender: TObject; const FuncName: string; const Args: Variant; var ResVal: Variant): Boolean;
     function  OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
@@ -120,6 +124,7 @@ constructor TDptWorkflowEngine.Create(const AAction: string);
 begin
   FBlocks := Collections.NewList<TDptWorkflowBlock>;
   FIgnorePatterns := TStringList.Create;
+  FIncludePatterns := TStringList.Create;
   FLastFixedFiles := TStringList.Create;
   FLastFormattedFiles := TStringList.Create;
   FCurrentAction := AAction;
@@ -143,6 +148,7 @@ end;
 destructor TDptWorkflowEngine.Destroy;
 begin
   FIgnorePatterns.Free;
+  FIncludePatterns.Free;
   FLastFixedFiles.Free;
   FLastFormattedFiles.Free;
   inherited;
@@ -179,6 +185,36 @@ begin
     Candidate := TPath.Combine(ExtractFilePath(ParamStr(0)), WorkflowFileName);
     if TFile.Exists(Candidate) then
       Result := Candidate;
+  end;
+end;
+
+function TDptWorkflowEngine.IsFileIncluded(const AFileName: string): Boolean;
+var
+  Pattern: string;
+begin
+  Result := True;
+
+  if FIncludePatterns.Count > 0 then
+  begin
+    Result := False;
+    for Pattern in FIncludePatterns do
+    begin
+      if MatchesMask(AFileName, Pattern) or MatchesMask(ExtractFileName(AFileName), Pattern) then
+      begin
+        Result := True;
+        Break;
+      end;
+    end;
+    if not Result then Exit;
+  end;
+
+  for Pattern in FIgnorePatterns do
+  begin
+    if MatchesMask(AFileName, Pattern) or MatchesMask(ExtractFileName(AFileName), Pattern) then
+    begin
+      Result := False;
+      Exit;
+    end;
   end;
 end;
 
@@ -316,6 +352,10 @@ begin
     ResVal := ExprParserIgnorePattern(Args)
   else if SameText(FuncName, 'ClearIgnorePatterns') then
     ResVal := ExprParserClearIgnorePatterns
+  else if SameText(FuncName, 'IncludePattern') then
+    ResVal := ExprParserIncludePattern(Args)
+  else if SameText(FuncName, 'ClearIncludePatterns') then
+    ResVal := ExprParserClearIncludePatterns
   else if SameText(FuncName, 'FormatGitModifiedFiles') then
     ResVal := ExprParserFormatGitModifiedFiles(Args)
   else if SameText(FuncName, 'GetLastFormattedFiles') then
@@ -323,6 +363,29 @@ begin
   else
     Exit(False);
 
+  Result := True;
+end;
+
+function TDptWorkflowEngine.ExprParserIncludePattern(const Args: Variant): Variant;
+var
+  I: Integer;
+begin
+  Result := True;
+  if VarIsArray(Args) then
+  begin
+    for I := 0 to VarArrayHighBound(Args, 1) do
+    begin
+      if not VarIsClear(Args[I]) then
+        FIncludePatterns.Add(VarToStr(Args[I]));
+    end;
+  end
+  else if not VarIsClear(Args) then
+    FIncludePatterns.Add(VarToStr(Args));
+end;
+
+function TDptWorkflowEngine.ExprParserClearIncludePatterns: Variant;
+begin
+  FIncludePatterns.Clear;
   Result := True;
 end;
 
@@ -353,8 +416,6 @@ function TDptWorkflowEngine.ExprParserFormatGitModifiedFiles(const Args: Variant
 var
   ModifiedFiles: TArray<string>;
   FileName: string;
-  IgnorePattern: string;
-  SkipFile: Boolean;
   Content: string;
   NewContent: string;
   ScriptFile: string;
@@ -423,17 +484,7 @@ begin
       if (Ext <> '.pas') and (Ext <> '.dpr') and (Ext <> '.dpk') then
         Continue;
 
-      SkipFile := False;
-      for IgnorePattern in FIgnorePatterns do
-      begin
-        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
-        begin
-          SkipFile := True;
-          Break;
-        end;
-      end;
-
-      if SkipFile then Continue;
+      if not IsFileIncluded(FileName) then Continue;
 
       try
         Content := TFile.ReadAllText(FileName, TEncoding.UTF8);
@@ -537,8 +588,6 @@ var
   Content: string;
   NewContent: string;
   FileName: string;
-  IgnorePattern: string;
-  SkipFile: Boolean;
 begin
   FLastFixedFiles.Clear;
   Result := False;
@@ -547,17 +596,7 @@ begin
   begin
     if TFile.Exists(FileName) then
     begin
-      SkipFile := False;
-      for IgnorePattern in FIgnorePatterns do
-      begin
-        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
-        begin
-          SkipFile := True;
-          Break;
-        end;
-      end;
-
-      if SkipFile then Continue;
+      if not IsFileIncluded(FileName) then Continue;
 
       try
         Content := TFile.ReadAllText(FileName);
@@ -582,8 +621,6 @@ var
   FileName: string;
   Bytes: TBytes;
   BOM: TBytes;
-  IgnorePattern: string;
-  SkipFile: Boolean;
 begin
   FLastFixedFiles.Clear;
   Result := False;
@@ -593,17 +630,7 @@ begin
   begin
     if TFile.Exists(FileName) then
     begin
-      SkipFile := False;
-      for IgnorePattern in FIgnorePatterns do
-      begin
-        if MatchesMask(FileName, IgnorePattern) or MatchesMask(ExtractFileName(FileName), IgnorePattern) then
-        begin
-          SkipFile := True;
-          Break;
-        end;
-      end;
-
-      if SkipFile then Continue;
+      if not IsFileIncluded(FileName) then Continue;
 
       try
         Bytes := TFile.ReadAllBytes(FileName);
@@ -699,6 +726,7 @@ begin
   AInstructions := '';
   FExitRequested := False;
   FIgnorePatterns.Clear;
+  FIncludePatterns.Clear;
   if FBlocks.Count = 0 then Exit;
 
   Parser := TExprParser.Create;

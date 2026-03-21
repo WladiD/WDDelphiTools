@@ -1,4 +1,4 @@
-// ======================================================================
+﻿// ======================================================================
 // Copyright (c) 2026 Waldemar Derr. All rights reserved.
 //
 // Licensed under the MIT license. See included LICENSE file for details.
@@ -49,6 +49,10 @@ type
     procedure TestFormatterAndIgnore;
     [Test]
     procedure FixWithIgnorePatternAndClear;
+    [Test]
+    procedure IncludeAndIgnorePatterns;
+    [Test]
+    procedure TestComplexWorkflow_IncludeIgnoreAndFormat;
     [Test]
     procedure ProcessInstructions_PreservesTextWithParentheses;
   end;
@@ -130,14 +134,15 @@ begin
   FileWin := CreateTestFile('Windows.txt', 'Line1'#13#10'Line2'#13#10'Line3');
 
   // 2. Inject a workflow block that calls the fix function
-  TFile.WriteAllText(FWorkflowFile, 
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
-    '  {' + sLineBreak +
-    '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+    }
+    ''');
   
   // Reload workflow
   FEngine.Free;
@@ -174,14 +179,15 @@ begin
   FileWithBom := CreateTestFile('WithBom.txt', 'Content', TEncoding.UTF8);
 
   // 2. Workflow
-  TFile.WriteAllText(FWorkflowFile, 
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: FixUtf8BomInGitModifiedFiles()' + sLineBreak +
-    '  {' + sLineBreak +
-    '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: FixUtf8BomInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+    }
+    ''');
 
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
@@ -226,21 +232,22 @@ begin
   TFile.WriteAllText(FileBadBoth, 'Line1'#10'Line2', TEncoding.ASCII); // Writes without BOM
 
   // 5. Workflow
-  TFile.WriteAllText(FWorkflowFile, 
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
-    '  {' + sLineBreak +
-    '    - In folgenden Dateien wurden die Lineendings auf CRLF (Windows) gefixt:' + sLineBreak +
-    '      - `GetLastFixedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    sLineBreak +
-    '  BeforeDptGuard: FixUtf8BomInGitModifiedFiles()' + sLineBreak +
-    '  {' + sLineBreak +
-    '    - In folgenden Dateien wurde die fehlende UTF-8-BOM gefixt:' + sLineBreak +
-    '      - `GetLastFixedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        - In folgenden Dateien wurden die Lineendings auf CRLF (Windows) gefixt:
+          - `GetLastFixedFiles()`
+      }
+
+      BeforeDptGuard: FixUtf8BomInGitModifiedFiles()
+      {
+        - In folgenden Dateien wurde die fehlende UTF-8-BOM gefixt:
+          - `GetLastFixedFiles()`
+      }
+    }
+    ''');
 
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
@@ -306,11 +313,12 @@ begin
   // We'll just use a simple script that can be compiled.
   // To actually "format", we'd need to use the API exposed by TDptDwsFormatter.
   ScriptFile := TPath.Combine(FTestDir, 'TestFormat.pas');
-  TFile.WriteAllText(ScriptFile, 
-    'procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);' + sLineBreak +
-    'begin' + sLineBreak +
-    '  AddLeadingTrivia(GetUnitKeyword(AUnit), "{ Formatted } ");' + sLineBreak +
-    'end;');
+  TFile.WriteAllText(ScriptFile, '''
+    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+    begin
+      AddLeadingTrivia(GetUnitKeyword(AUnit), "{ Formatted } ");
+    end;
+    ''');
 
   // 2. Create files
   FileToFormat := CreateTestFile('ToFormat.pas', 'unit ToFormat; implementation end.');
@@ -318,15 +326,16 @@ begin
   var FileToIgnore2 := CreateTestFile('AlsoIgnore.pas', 'unit AlsoIgnore; implementation end.');
 
   // 3. Workflow: Ignore ToIgnore.pas and AlsoIgnore.pas and run formatter with our test script
-  TFile.WriteAllText(FWorkflowFile, 
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: IgnorePattern("ToIgnore.pas", "AlsoIgnore.pas")' + sLineBreak +
-    '  BeforeDptGuard: FormatGitModifiedFiles("TestFormat.pas")' + sLineBreak +
-    '  {' + sLineBreak +
-    '    Formatted: `GetLastFormattedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: IgnorePattern("ToIgnore.pas", "AlsoIgnore.pas")
+      BeforeDptGuard: FormatGitModifiedFiles("TestFormat.pas")
+      {
+        Formatted: `GetLastFormattedFiles()`
+      }
+    }
+    ''');
 
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
@@ -360,14 +369,15 @@ begin
   FileToIgnore := CreateTestFile('ToIgnore.txt', 'Line1'#10'Line2');
 
   // 2. Workflow
-  TFile.WriteAllText(FWorkflowFile, 
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: ClearIgnorePatterns() and IgnorePattern("ToIgnore.txt") and FixLineEndingsWindowsInGitModifiedFiles()' + sLineBreak +
-    '  {' + sLineBreak +
-    '    Fixed: `GetLastFixedFiles()`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: ClearIgnorePatterns() and IgnorePattern("ToIgnore.txt") and FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+    }
+    ''');
 
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
@@ -384,20 +394,61 @@ begin
   Assert.IsFalse(Instructions.Contains('ToIgnore.txt'), 'Output should NOT contain ToIgnore.txt');
 end;
 
+procedure TTestDptWorkflow.IncludeAndIgnorePatterns;
+var
+  FileToFix: String;
+  FileToIgnore: String;
+  FileNotIncluded: String;
+  Instructions: String;
+begin
+  // 1. Create files
+  FileToFix := CreateTestFile('ToFix.txt', 'Line1'#10'Line2');
+  FileToIgnore := CreateTestFile('ToIgnore.txt', 'Line1'#10'Line2');
+  FileNotIncluded := CreateTestFile('NotIncluded.md', 'Line1'#10'Line2');
+
+  // 2. Workflow
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: ClearIncludePatterns() and IncludePattern("*.txt") and IgnorePattern("ToIgnore.txt") and FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+    }
+    ''');
+
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // 3. Run
+  FEngine.CheckConditions(Instructions);
+
+  // 4. Verify Content
+  Assert.AreEqual('Line1'#13#10'Line2', TFile.ReadAllText(FileToFix), 'ToFix should be CRLF');
+  Assert.AreEqual('Line1'#10'Line2', TFile.ReadAllText(FileToIgnore), 'ToIgnore should NOT be fixed');
+  Assert.AreEqual('Line1'#10'Line2', TFile.ReadAllText(FileNotIncluded), 'NotIncluded should NOT be fixed');
+
+  // 5. Verify Output
+  Assert.IsTrue(Instructions.Contains('ToFix.txt'), 'Output should contain ToFix.txt');
+  Assert.IsFalse(Instructions.Contains('ToIgnore.txt'), 'Output should NOT contain ToIgnore.txt');
+  Assert.IsFalse(Instructions.Contains('NotIncluded.md'), 'Output should NOT contain NotIncluded.md');
+end;
+
 procedure TTestDptWorkflow.ProcessInstructions_PreservesTextWithParentheses;
 var
   Instructions: String;
 begin
   // Workflow with text containing parentheses that looks similar to a function call if spaces aren't checked
-  TFile.WriteAllText(FWorkflowFile,
-    'BeforeDptGuard: 1' + sLineBreak +
-    '{' + sLineBreak +
-    '  BeforeDptGuard: 1' + sLineBreak +
-    '  {' + sLineBreak +
-    '    Dies ist Text mit (Klammern):' + sLineBreak +
-    '      - `1 + 1`' + sLineBreak +
-    '  }' + sLineBreak +
-    '}');
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: 1
+      {
+        Dies ist Text mit (Klammern):
+          - `1 + 1`
+      }
+    }
+    ''');
 
   FEngine.Free;
   FEngine := TDptWorkflowEngine.Create('Test');
@@ -408,6 +459,84 @@ begin
   // Verify
   Assert.IsTrue(Instructions.Contains('Dies ist Text mit (Klammern):'), 'Text with parentheses should be preserved in instructions.');
   Assert.IsTrue(Instructions.Contains('- 2'), 'Backtick expression should still be evaluated.');
+end;
+
+procedure TTestDptWorkflow.TestComplexWorkflow_IncludeIgnoreAndFormat;
+var
+  FilePas: String;
+  FileDpr: String;
+  FileDfm: String;
+  FileTxt: String;
+  ScriptFile: String;
+  Instructions: String;
+begin
+  // Create a minimal DWS script that does something visible
+  ScriptFile := TPath.Combine(FTestDir, 'TaifunFormat.pas');
+  TFile.WriteAllText(ScriptFile, '''
+    procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);
+    begin
+      AddLeadingTrivia(GetUnitKeyword(AUnit), "{ Formatted } ");
+    end;
+    ''');
+
+  // Create files with LF only
+  FilePas := CreateTestFile('Test.pas', 'unit Test;'#10'implementation'#10'end.');
+  FileDpr := CreateTestFile('Test.dpr', 'program Test;'#10'begin'#10'end.');
+  // These should be ignored by the filter
+  FileDfm := CreateTestFile('Test.dfm', 'object Test: TTest'#10'end');
+  FileTxt := CreateTestFile('Test.txt', 'Line1'#10'Line2');
+
+  // Workflow
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: IsCurrentAction("Build") and
+                    IncludePattern("*.pas", "*.dpr") and
+                    IgnorePattern("*\TOOLS\*", "TOOLS\*") and
+                    IgnorePattern("*\MISC\*", "MISC\*")
+    {
+      BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        - In folgenden geänderten Dateien wurden die Lineendings auf 
+          CRLF (Windows) gefixt:
+          - `GetLastFixedFiles()`
+      }
+
+      BeforeDptGuard: FixUtf8BomInGitModifiedFiles()
+      {
+        - In folgenden geänderten Dateien wurde die fehlende UTF-8-BOM ergänzt:
+          - `GetLastFixedFiles()`
+      }
+
+      BeforeDptGuard: FormatGitModifiedFiles("TaifunFormat.pas")
+      {
+        - Der DPT-Formatter hat folgende Dateien automatisch formatiert:
+          - `GetLastFormattedFiles()`
+      }
+    }
+    ''');
+
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Build'); // Must match IsCurrentAction("Build")
+
+  // Run
+  FEngine.CheckConditions(Instructions);
+
+  // Verify Content
+  // PAS should be formatted and CRLF
+  Assert.IsTrue(TFile.ReadAllText(FilePas).Contains('{ Formatted }'), 'PAS should be formatted');
+  
+  // DPR should have its line endings fixed (CRLF)
+  Assert.AreEqual('program Test;'#13#10'begin'#13#10'end.', TFile.ReadAllText(FileDpr), 'DPR should be CRLF');
+  
+  // DFM and TXT should NOT be modified
+  Assert.IsFalse(TFile.ReadAllText(FileDfm).Contains('{ Formatted }'), 'DFM should NOT be formatted');
+  Assert.AreEqual('object Test: TTest'#10'end', TFile.ReadAllText(FileDfm), 'DFM should NOT have CRLF');
+  Assert.AreEqual('Line1'#10'Line2', TFile.ReadAllText(FileTxt), 'TXT should NOT have CRLF');
+
+  // Verify Output
+  Assert.IsTrue(Instructions.Contains('Test.pas'), 'Output should contain Test.pas');
+  Assert.IsTrue(Instructions.Contains('Test.dpr'), 'Output should contain Test.dpr');
+  Assert.IsFalse(Instructions.Contains('Test.dfm'), 'Output should NOT contain Test.dfm');
+  Assert.IsFalse(Instructions.Contains('Test.txt'), 'Output should NOT contain Test.txt');
 end;
 
 end.
