@@ -1,4 +1,4 @@
-unit TaifunFormat.Banner;
+﻿unit TaifunFormat.Banner;
 
 interface
 

@@ -1,4 +1,4 @@
-unit TaifunFormat.Header;
+﻿unit TaifunFormat.Header;
 
 interface
 

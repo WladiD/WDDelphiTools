@@ -1,4 +1,4 @@
-unit TaifunFormat.Utils;
+﻿unit TaifunFormat.Utils;
 
 interface
 

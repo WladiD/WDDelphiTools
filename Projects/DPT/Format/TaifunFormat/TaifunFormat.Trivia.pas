@@ -1,4 +1,4 @@
-unit TaifunFormat.Trivia;
+﻿unit TaifunFormat.Trivia;
 
 interface
 

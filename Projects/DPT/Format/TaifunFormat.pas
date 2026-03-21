@@ -1,4 +1,4 @@
-// DWScript for formatting Delphi units in the Taifun style
+﻿// DWScript for formatting Delphi units in the Taifun style
 
 uses 
 
