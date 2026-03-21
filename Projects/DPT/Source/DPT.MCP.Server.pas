@@ -36,6 +36,8 @@ type
     FOutputLock        : TCriticalSection;
     FOutputWriter      : TTextWriter;
     FPendingBreakpoints: IList<TBreakpoint>;
+    FPendingIgnoredExceptions: IList<String>;
+    FPendingUnignoredExceptions: IList<String>;
     FState             : TDebugState;
     procedure ConnectDebuggerEvents;
     procedure DisconnectDebuggerEvents;
@@ -57,6 +59,7 @@ type
     function HandleGetStackSlots(AParams: TJSONObject): TJSONObject;
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
     function HandleGetState(AParams: TJSONObject): TJSONObject;
+    function HandleIgnoreException(AParams: TJSONObject): TJSONObject;
     function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
     function HandleListTools(AParams: TJSONObject): TJSONObject;
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
@@ -68,6 +71,7 @@ type
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleUnignoreException(AParams: TJSONObject): TJSONObject;
     function HandleWaitUntilPaused(AParams: TJSONObject): TJSONObject;
   private // Event handler
     procedure DebuggerBreakpointHandler(ASender: TObject; ABreakpoint: TBreakpoint);
@@ -109,6 +113,8 @@ begin
   FOutputWriter := AOutput;
   FOutputLock := TCriticalSection.Create;
   FPendingBreakpoints := Collections.NewList<TBreakpoint>;
+  FPendingIgnoredExceptions := Collections.NewList<String>;
+  FPendingUnignoredExceptions := Collections.NewList<String>;
 
   if Assigned(FDebugger) then
   begin
@@ -434,6 +440,10 @@ begin
           SendResponse(ID, HandleRemoveBreakpoint(ToolParams))
         else if ToolName = 'list_breakpoints' then
           SendResponse(ID, HandleListBreakpoints(ToolParams))
+        else if ToolName = 'ignore_exception' then
+          SendResponse(ID, HandleIgnoreException(ToolParams))
+        else if ToolName = 'unignore_exception' then
+          SendResponse(ID, HandleUnignoreException(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
         else if ToolName = 'get_stack_trace' then
@@ -519,6 +529,34 @@ begin
   ToolListBP.AddPair('description', 'Lists all currently set hardware breakpoints. Each entry includes unit, line, and status ("pending" if set before session start, "active" if resolved to an address).');
   ToolListBP.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolListBP);
+
+  var ToolIgnoreExc := TJSONObject.Create;
+  ToolIgnoreExc.AddPair('name', 'ignore_exception');
+  ToolIgnoreExc.AddPair('description', 'Instructs the debugger to silently ignore a specific Delphi exception class (e.g. "EAbort") so it does not pause execution. "EAbort" is ignored by default. Can be called before or during a session.');
+  var SchemaIgnoreExc := TJSONObject.Create;
+  SchemaIgnoreExc.AddPair('type', 'object');
+  var PropIgnoreExc := TJSONObject.Create;
+  PropIgnoreExc.AddPair('class_name', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'The Delphi exception class name (e.g. "EAbort", "EZeroDivide")'));
+  SchemaIgnoreExc.AddPair('properties', PropIgnoreExc);
+  var ReqIgnoreExc := TJSONArray.Create;
+  ReqIgnoreExc.Add('class_name');
+  SchemaIgnoreExc.AddPair('required', ReqIgnoreExc);
+  ToolIgnoreExc.AddPair('inputSchema', SchemaIgnoreExc);
+  ToolsArr.Add(ToolIgnoreExc);
+
+  var ToolUnignoreExc := TJSONObject.Create;
+  ToolUnignoreExc.AddPair('name', 'unignore_exception');
+  ToolUnignoreExc.AddPair('description', 'Instructs the debugger to stop ignoring a previously ignored Delphi exception class, causing it to pause execution again when raised.');
+  var SchemaUnignoreExc := TJSONObject.Create;
+  SchemaUnignoreExc.AddPair('type', 'object');
+  var PropUnignoreExc := TJSONObject.Create;
+  PropUnignoreExc.AddPair('class_name', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'The Delphi exception class name (e.g. "EAbort")'));
+  SchemaUnignoreExc.AddPair('properties', PropUnignoreExc);
+  var ReqUnignoreExc := TJSONArray.Create;
+  ReqUnignoreExc.Add('class_name');
+  SchemaUnignoreExc.AddPair('required', ReqUnignoreExc);
+  ToolUnignoreExc.AddPair('inputSchema', SchemaUnignoreExc);
+  ToolsArr.Add(ToolUnignoreExc);
 
   var ToolContinue := TJSONObject.Create;
   ToolContinue.AddPair('name', 'continue');
@@ -752,6 +790,50 @@ begin
   end;
 end;
 
+function TMcpServer.HandleIgnoreException(AParams: TJSONObject): TJSONObject;
+var
+  LClass: String;
+  I     : Integer;
+begin
+  LClass := AParams.GetValue('class_name').Value;
+  if FState = dsNoSession then
+  begin
+    FPendingIgnoredExceptions.Add(LClass);
+    for I := FPendingUnignoredExceptions.Count - 1 downto 0 do
+      if SameText(FPendingUnignoredExceptions[I], LClass) then
+        FPendingUnignoredExceptions.Delete(I);
+    Result := MakeTextResult(Format('Exception %s will be ignored (pending session start)', [LClass]));
+  end
+  else
+  begin
+    if not RequireState([dsPaused, dsRunning], Result) then Exit;
+    FDebugger.IgnoreException(LClass);
+    Result := MakeTextResult(Format('Exception %s is now ignored', [LClass]));
+  end;
+end;
+
+function TMcpServer.HandleUnignoreException(AParams: TJSONObject): TJSONObject;
+var
+  LClass: String;
+  I     : Integer;
+begin
+  LClass := AParams.GetValue('class_name').Value;
+  if FState = dsNoSession then
+  begin
+    FPendingUnignoredExceptions.Add(LClass);
+    for I := FPendingIgnoredExceptions.Count - 1 downto 0 do
+      if SameText(FPendingIgnoredExceptions[I], LClass) then
+        FPendingIgnoredExceptions.Delete(I);
+    Result := MakeTextResult(Format('Exception %s will not be ignored (pending session start)', [LClass]));
+  end
+  else
+  begin
+    if not RequireState([dsPaused, dsRunning], Result) then Exit;
+    FDebugger.UnignoreException(LClass);
+    Result := MakeTextResult(Format('Exception %s is no longer ignored', [LClass]));
+  end;
+end;
+
 function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 var
   Args       : String;
@@ -787,6 +869,14 @@ begin
   for I := 0 to FPendingBreakpoints.Count - 1 do
     FDebugger.SetBreakpoint(FPendingBreakpoints[I].UnitName, FPendingBreakpoints[I].LineNumber);
   FPendingBreakpoints.Clear;
+
+  for I := 0 to FPendingIgnoredExceptions.Count - 1 do
+    FDebugger.IgnoreException(FPendingIgnoredExceptions[I]);
+  FPendingIgnoredExceptions.Clear;
+
+  for I := 0 to FPendingUnignoredExceptions.Count - 1 do
+    FDebugger.UnignoreException(FPendingUnignoredExceptions[I]);
+  FPendingUnignoredExceptions.Clear;
 
   TDebuggerThread.Create(FDebugger, Trim(ExePath + ' ' + Args));
 

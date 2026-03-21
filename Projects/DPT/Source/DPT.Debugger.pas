@@ -90,6 +90,7 @@ type
     FContinueEvent           : TEvent;
     FFinishedEvent           : TEvent;
     FFirstBreak              : Boolean;
+    FIgnoredExceptions       : IList<String>;
     FLastBreakpointHit       : TBreakpoint;
     FLastException           : TExceptionRecord;
     FLastExceptionFirstChance: Boolean;
@@ -128,7 +129,9 @@ type
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+    procedure IgnoreException(const AClassName: String);
     procedure LoadMapFile(const AMapFileName: string);
+    function  ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
     function  ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
     procedure RemoveBreakpoint(const AUnitName: string; ALineNumber: Integer);
     procedure ResumeExecution;
@@ -138,6 +141,7 @@ type
     procedure StepInto;
     procedure StepOver;
     procedure Terminate;
+    procedure UnignoreException(const AClassName: String);
     function  WaitForBreakpoint(Timeout: DWORD = INFINITE): TBreakpoint;
     procedure WaitForReady(Timeout: DWORD = INFINITE);
     property  BreakpointLock: TCriticalSection read FBreakpointLock;
@@ -209,6 +213,8 @@ begin
   FBreakpoints := Collections.NewList<TBreakpoint>;
   FActiveThreads := Collections.NewPlainList<THandle>;
   FBreakpointLock := TCriticalSection.Create;
+  FIgnoredExceptions := Collections.NewList<String>;
+  FIgnoredExceptions.Add('EAbort');
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
@@ -216,6 +222,54 @@ begin
   FStepType := stNone;
   FFirstBreak := True;
   FTerminated := False;
+end;
+
+procedure TDebugger.IgnoreException(const AClassName: String);
+var
+  I: Integer;
+begin
+  for I := 0 to FIgnoredExceptions.Count - 1 do
+    if SameText(FIgnoredExceptions[I], AClassName) then Exit;
+  FIgnoredExceptions.Add(AClassName);
+end;
+
+procedure TDebugger.UnignoreException(const AClassName: String);
+var
+  I: Integer;
+begin
+  for I := FIgnoredExceptions.Count - 1 downto 0 do
+    if SameText(FIgnoredExceptions[I], AClassName) then
+      FIgnoredExceptions.Delete(I);
+end;
+
+function TDebugger.ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
+var
+  Buffer      : TBytes;
+  ClassNamePtr: Pointer;
+  Len         : Byte;
+  ObjPtr      : Pointer;
+  VMTPtr      : Pointer;
+begin
+  Result := '';
+  if (AExceptionRecord.ExceptionCode <> $0EEDFADE) or (AExceptionRecord.NumberParameters < 2) then
+    Exit;
+
+  ObjPtr := Pointer(AExceptionRecord.ExceptionInformation[1]);
+  if ObjPtr = nil then Exit;
+
+  VMTPtr := ReadProcessMemoryPtr(ObjPtr);
+  if VMTPtr = nil then Exit;
+
+  ClassNamePtr := ReadProcessMemoryPtr(PByte(VMTPtr) - 56); // vmtClassName is -56
+  if ClassNamePtr = nil then Exit;
+
+  Buffer := ReadProcessMemory(ClassNamePtr, 256);
+  if Length(Buffer) > 0 then
+  begin
+    Len := Buffer[0];
+    if Len < Length(Buffer) then
+      Result := TEncoding.ANSI.GetString(Buffer, 1, Len);
+  end;
 end;
 
 destructor TDebugger.Destroy;
@@ -877,6 +931,28 @@ begin
   else if (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_BREAKPOINT) and
           (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> $406D1388) then
   begin
+    if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = $0EEDFADE then
+    begin
+      var ExClass := ReadExceptionClassName(ADebugEvent.Exception.ExceptionRecord);
+      if ExClass <> '' then
+      begin
+        var LIsIgnored := False;
+        for var I := 0 to FIgnoredExceptions.Count - 1 do
+        begin
+          if SameText(FIgnoredExceptions[I], ExClass) then
+          begin
+            LIsIgnored := True;
+            Break;
+          end;
+        end;
+        if LIsIgnored then
+        begin
+          AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
+          Exit;
+        end;
+      end;
+    end;
+
     FLastException := ADebugEvent.Exception.ExceptionRecord;
     FLastExceptionFirstChance := ADebugEvent.Exception.dwFirstChance <> 0;
     CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);

@@ -18,13 +18,18 @@ type
   private
     FBreakpointHit: Boolean;
     FStackTrace: TArray<TStackFrame>;
+    FExceptionHitCount: Integer;
+    FWasTestExceptionCaught: Boolean;
     procedure OnBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnBreakpointForStack(Sender: TObject; Breakpoint: TBreakpoint);
+    procedure OnException(Sender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
   public
     [Test]
     procedure TestBreakpointInTarget;
     [Test]
     procedure TestStackTrace;
+    [Test]
+    procedure TestIgnoredException;
   end;
 
 implementation
@@ -118,6 +123,55 @@ begin
 
     Assert.IsTrue(FoundDeep, 'DeepProcedure missing in stack');
     Assert.IsTrue(FoundTarget, 'TargetProcedure missing in stack');
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TDebuggerTests.OnException(Sender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
+var
+  Debugger: TDebugger;
+  ExName: string;
+begin
+  Debugger := Sender as TDebugger;
+  ExName := Debugger.ReadExceptionClassName(AExceptionRecord);
+  if ExName = 'Exception' then
+    FWasTestExceptionCaught := True;
+  Inc(FExceptionHitCount);
+  AHandled := True;
+  Debugger.ResumeExecution;
+end;
+
+procedure TDebuggerTests.TestIgnoredException;
+var
+  Debugger: TDebugger;
+  ExePath, MapFile: string;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  FExceptionHitCount := 0;
+  FWasTestExceptionCaught := False;
+  Debugger := TDebugger.Create;
+  try
+    Debugger.OnException := OnException;
+    Debugger.LoadMapFile(MapFile);
+    // EAbort is ignored by default
+
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
+
+    // Wait for the target to finish (it should finish naturally)
+    var StartTime := GetTickCount;
+    while (GetTickCount - StartTime < 5000) do
+    begin
+      Sleep(100);
+    end;
+
+    Assert.IsTrue(FWasTestExceptionCaught, 'The test Exception was not caught by the debugger');
+    Assert.AreEqual(1, FExceptionHitCount, 'EAbort should have been ignored, so only 1 exception should have been caught');
   finally
     Debugger.Free;
   end;

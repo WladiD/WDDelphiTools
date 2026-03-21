@@ -230,7 +230,8 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
@@ -246,36 +247,39 @@ begin
       Server.RunOnce; // set_breakpoint
       Assert.AreEqual(2, OutputWriter.GetCount, 'SetBreakpoint failed');
 
+      Server.RunOnce; // ignore_exception
+      Assert.AreEqual(3, OutputWriter.GetCount, 'IgnoreException failed');
+
       Server.RunOnce; // continue (async)
-      Assert.AreEqual(3, OutputWriter.GetCount, 'Continue failed');
-      Assert.IsTrue(OutputWriter.GetLine(2).Contains('Execution resumed'), 'Continue should return immediately: ' + OutputWriter.GetLine(2));
+      Assert.AreEqual(4, OutputWriter.GetCount, 'Continue failed');
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('Execution resumed'), 'Continue should return immediately: ' + OutputWriter.GetLine(3));
 
       // Wait for breakpoint notification from debugger thread
-      WaitForOutput(OutputWriter, 5);
-      Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification: ' + OutputWriter.GetLine(3));
-      Assert.IsTrue(OutputWriter.GetLine(3).Contains('breakpoint'), 'Expected breakpoint reason');
+      WaitForOutput(OutputWriter, 6);
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('notifications/stopped'), 'Expected stopped notification: ' + OutputWriter.GetLine(4));
+      Assert.IsTrue(OutputWriter.GetLine(4).Contains('breakpoint'), 'Expected breakpoint reason');
 
       // Now state is paused, we can inspect
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
 
       Server.RunOnce; // get_stack_trace
-      Assert.AreEqual(6, OutputWriter.GetCount, 'StackTrace failed');
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('DeepProcedure'), 'DeepProcedure missing');
+      Assert.AreEqual(7, OutputWriter.GetCount, 'StackTrace failed');
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('DeepProcedure'), 'DeepProcedure missing');
 
       Server.RunOnce; // get_stack_memory
-      Assert.AreEqual(7, OutputWriter.GetCount, 'StackMemory failed');
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('78 56 34 12'), 'LocalInt missing in stack dump');
+      Assert.AreEqual(8, OutputWriter.GetCount, 'StackMemory failed');
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('78 56 34 12'), 'LocalInt missing in stack dump');
 
       Server.RunOnce; // read_global_variable
-      Assert.AreEqual(8, OutputWriter.GetCount, 'ReadGlobalVariable failed');
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+      Assert.AreEqual(9, OutputWriter.GetCount, 'ReadGlobalVariable failed');
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
 
       Server.RunOnce; // get_stack_slots
-      Assert.AreEqual(9, OutputWriter.GetCount, 'GetStackSlots failed');
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('12345678'), 'LocalInt missing in stack slots');
+      Assert.AreEqual(10, OutputWriter.GetCount, 'GetStackSlots failed');
+      Assert.IsTrue(OutputWriter.GetLine(9).Contains('12345678'), 'LocalInt missing in stack slots');
 
     finally
       Server.Free;
@@ -427,7 +431,8 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
@@ -439,16 +444,17 @@ begin
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
       Server.RunOnce; // continue (async)
 
       // Wait for breakpoint notification
-      WaitForOutput(OutputWriter, 5);
+      WaitForOutput(OutputWriter, 6);
 
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
       Server.RunOnce; // get_stack_slots
 
-      Assert.AreEqual(6, OutputWriter.GetCount);
-      LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(5)) as TJSONObject;
+      Assert.AreEqual(7, OutputWriter.GetCount);
+      LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(6)) as TJSONObject;
       try
         ResultObj := LJSON.GetValue('result') as TJSONObject;
         Meta := ResultObj.GetValue('frame_metadata') as TJSONObject;
@@ -533,8 +539,9 @@ begin
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
-    Format('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    Format('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   OutputWriter := TStringTextWriter.Create;
   Server := TMcpServer.Create(nil, InputReader, OutputWriter);
@@ -550,18 +557,21 @@ begin
     Server.RunOnce;
     Assert.IsTrue(OutputWriter.GetLine(2).Contains('DebugTarget.dpr') and OutputWriter.GetLine(2).Contains('pending'), 'Should list pending BP');
 
+    // Ignore exception
+    Server.RunOnce;
+
     // Start debug session - transfers pending BPs
     Server.RunOnce;
-    Assert.IsTrue(OutputWriter.GetLine(3).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(3));
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(4));
 
     // Continue (async) - should hit the pending breakpoint
     Server.RunOnce;
-    Assert.IsTrue(OutputWriter.GetLine(4).Contains('Execution resumed'), 'Continue should return immediately');
+    Assert.IsTrue(OutputWriter.GetLine(5).Contains('Execution resumed'), 'Continue should return immediately');
 
     // Wait for breakpoint notification
-    WaitForOutput(OutputWriter, 7);
-    Assert.IsTrue(OutputWriter.GetLine(5).Contains('notifications/stopped'), 'Expected breakpoint notification');
-    Assert.IsTrue(OutputWriter.GetLine(5).Contains('breakpoint'), 'Expected breakpoint reason');
+    WaitForOutput(OutputWriter, 8);
+    Assert.IsTrue(OutputWriter.GetLine(6).Contains('notifications/stopped'), 'Expected breakpoint notification');
+    Assert.IsTrue(OutputWriter.GetLine(6).Contains('breakpoint'), 'Expected breakpoint reason');
 
   finally
     Server.Free;
@@ -644,7 +654,8 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
@@ -656,16 +667,17 @@ begin
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
       Server.RunOnce; // continue (async)
 
       // Wait for breakpoint notification
-      WaitForOutput(OutputWriter, 5);
+      WaitForOutput(OutputWriter, 6);
 
       // get_state should show paused with location
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('paused'), 'Should be paused: ' + OutputWriter.GetLine(5));
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('DebugTarget'), 'Should contain unit name');
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('paused'), 'Should be paused: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('DebugTarget'), 'Should contain unit name');
 
     finally
       Server.Free;
@@ -784,7 +796,8 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
@@ -796,21 +809,22 @@ begin
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_breakpoint
+      Server.RunOnce; // ignore_exc
       Server.RunOnce; // continue (async)
-      WaitForOutput(OutputWriter, 5); // wait for breakpoint notification
+      WaitForOutput(OutputWriter, 6); // wait for breakpoint notification
 
       // Now paused - stop the session (detach)
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('continues running'),
-        'Should confirm process continues: ' + OutputWriter.GetLine(5));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('continues running'),
+        'Should confirm process continues: ' + OutputWriter.GetLine(6));
       Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
 
       // Verify get_state returns no_session
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('no_session'),
-        'get_state should return no_session: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('no_session'),
+        'get_state should return no_session: ' + OutputWriter.GetLine(7));
     finally
       Server.Free;
       InputReader.Free;
@@ -836,7 +850,8 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
@@ -848,21 +863,22 @@ begin
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_breakpoint
+      Server.RunOnce; // ignore_exc
       Server.RunOnce; // continue (async)
-      WaitForOutput(OutputWriter, 5); // wait for breakpoint notification
+      WaitForOutput(OutputWriter, 6); // wait for breakpoint notification
 
       // Now paused - terminate the session
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('killed'),
-        'Should confirm process was killed: ' + OutputWriter.GetLine(5));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('killed'),
+        'Should confirm process was killed: ' + OutputWriter.GetLine(6));
       Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session');
 
       // Verify inspection tools are rejected
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Invalid state'),
-        'Inspection should fail in no_session: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Invalid state'),
+        'Inspection should fail in no_session: ' + OutputWriter.GetLine(7));
     finally
       Server.Free;
       InputReader.Free;

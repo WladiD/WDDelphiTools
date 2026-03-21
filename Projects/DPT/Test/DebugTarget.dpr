@@ -15,9 +15,18 @@ end;
 procedure TargetProcedure;
 begin
   Writeln('Target'); // Line 17
-  DeepProcedure;
+  try
+    Abort; // Raises EAbort
+  except
+    // Catch so it doesn't crash the app
+  end;
+  try
+    raise Exception.Create('Test Exception'); // Line 24
+  except
+  end;
+  DeepProcedure; // Line 27
 end;
 begin
   GGlobalInt := $11223344;
-  TargetProcedure; // Line 22
+  TargetProcedure; // Line 31
 end.
