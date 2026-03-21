@@ -23,6 +23,8 @@ function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL; dwThreadId: DW
 
 const
 
+  EXCEPTION_DELPHI_LANGUAGE = $0EEDFADE;
+  EXCEPTION_MS_VC_THREAD_NAME = $406D1388;
   THREAD_GET_CONTEXT = $0008;
   THREAD_SET_CONTEXT = $0010;
 
@@ -226,19 +228,15 @@ begin
 end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);
-var
-  I: Integer;
 begin
-  for I := 0 to FIgnoredExceptions.Count - 1 do
+  for var I: Integer := 0 to FIgnoredExceptions.Count - 1 do
     if SameText(FIgnoredExceptions[I], AClassName) then Exit;
   FIgnoredExceptions.Add(AClassName);
 end;
 
 procedure TDebugger.UnignoreException(const AClassName: String);
-var
-  I: Integer;
 begin
-  for I := FIgnoredExceptions.Count - 1 downto 0 do
+  for var I: Integer := FIgnoredExceptions.Count - 1 downto 0 do
     if SameText(FIgnoredExceptions[I], AClassName) then
       FIgnoredExceptions.Delete(I);
 end;
@@ -252,17 +250,20 @@ var
   VMTPtr      : Pointer;
 begin
   Result := '';
-  if (AExceptionRecord.ExceptionCode <> $0EEDFADE) or (AExceptionRecord.NumberParameters < 2) then
+  if (AExceptionRecord.ExceptionCode <> EXCEPTION_DELPHI_LANGUAGE) or (AExceptionRecord.NumberParameters < 2) then
     Exit;
 
   ObjPtr := Pointer(AExceptionRecord.ExceptionInformation[1]);
-  if ObjPtr = nil then Exit;
+  if not Assigned(ObjPtr) then
+    Exit;
 
   VMTPtr := ReadProcessMemoryPtr(ObjPtr);
-  if VMTPtr = nil then Exit;
+  if not Assigned(VMTPtr) then
+    Exit;
 
   ClassNamePtr := ReadProcessMemoryPtr(PByte(VMTPtr) - 56); // vmtClassName is -56
-  if ClassNamePtr = nil then Exit;
+  if not Assigned(ClassNamePtr) then
+    Exit;
 
   Buffer := ReadProcessMemory(ClassNamePtr, 256);
   if Length(Buffer) > 0 then
@@ -306,7 +307,8 @@ procedure TDebugger.Detach;
 var
   Context: TContext;
 begin
-  if FTerminated then Exit;
+  if FTerminated then
+    Exit;
   FTerminated := True;
 
   for var I: Integer := 0 to FActiveThreads.Count - 1 do
@@ -446,7 +448,8 @@ begin
     Slot.Offset := -(I * SizeOf(Pointer));
     Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
 
-    if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then Break;
+    if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then
+      Break;
 
     Val := UIntPtr(ReadProcessMemoryPtr(Slot.Address));
     Slot.Value := Val;
@@ -589,7 +592,8 @@ var
   UnitMatch : String;
 begin
   Result := nil;
-  if not Assigned(FMapScanner) then Exit;
+  if not Assigned(FMapScanner) then
+    Exit;
 
   SearchUnit := ChangeFileExt(AUnitName, '');
 
@@ -617,7 +621,8 @@ var
   VA        : DWORD;
 begin
   Result := nil;
-  if not Assigned(FMapScanner) then Exit;
+  if not Assigned(FMapScanner) then
+    Exit;
 
   DotPos := Pos('.', ASymbolName);
   if DotPos > 0 then
@@ -813,7 +818,8 @@ begin
               if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
               FContinueEvent.ResetEvent;
               FContinueEvent.WaitFor(INFINITE);
-              if FStepType <> stNone then Context.EFlags := Context.EFlags or $100;
+              if FStepType <> stNone then
+                Context.EFlags := Context.EFlags or $100;
               SetThreadContext(CurrentThread, Context);
               AContinueStatus := DBG_CONTINUE;
             end
@@ -840,14 +846,16 @@ begin
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FBreakpointHitEvent.SetEvent;
-          if Assigned(FOnBreakpoint) then FOnBreakpoint(Self, BP);
+          if Assigned(FOnBreakpoint) then
+            FOnBreakpoint(Self, BP);
 
           FContinueEvent.ResetEvent;
           FContinueEvent.WaitFor(INFINITE);
 
           Context.EFlags := Context.EFlags or $10000; // RF
           Context.Dr6 := Context.Dr6 and not $F;
-          if FStepType <> stNone then Context.EFlags := Context.EFlags or $100; // TF
+          if FStepType <> stNone then
+            Context.EFlags := Context.EFlags or $100; // TF
 
           SetThreadContext(CurrentThread, Context);
           AContinueStatus := DBG_CONTINUE;
@@ -865,13 +873,13 @@ begin
 
             if (CurUnit <> '') and (CurLine > 0) then
             begin
-              if FStepType = stInto then
-              begin
-                if (CurUnit <> FStepStartUnit) or (CurLine <> FStepStartLine) then StopStepping := True;
-              end
-              else if FStepType = stOver then
-              begin
-                if ((CurUnit <> FStepStartUnit) or (CurLine <> FStepStartLine)) and (CurDepth <= FStepStartDepth) then StopStepping := True;
+              case FStepType of
+                stInto:
+                  if (CurUnit <> FStepStartUnit) or (CurLine <> FStepStartLine) then
+                    StopStepping := True;
+                stOver:
+                  if ((CurUnit <> FStepStartUnit) or (CurLine <> FStepStartLine)) and (CurDepth <= FStepStartDepth) then
+                    StopStepping := True;
               end;
             end
             else if CurLine = 0 then
@@ -907,11 +915,13 @@ begin
 
             FLastThreadHit := CurrentThread;
             FBreakpointHitEvent.SetEvent;
-            if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
+            if Assigned(FOnStepped) then
+              FOnStepped(Self, FLastBreakpointHit);
             FContinueEvent.ResetEvent;
             FContinueEvent.WaitFor(INFINITE);
 
-            if FStepType <> stNone then Context.EFlags := Context.EFlags or $100;
+            if FStepType <> stNone then
+              Context.EFlags := Context.EFlags or $100;
             SetThreadContext(CurrentThread, Context);
             AContinueStatus := DBG_CONTINUE;
           end
@@ -930,9 +940,9 @@ begin
     end;
   end
   else if (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_BREAKPOINT) and
-          (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> $406D1388) then
+          (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_MS_VC_THREAD_NAME) then
   begin
-    if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = $0EEDFADE then
+    if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_DELPHI_LANGUAGE then
     begin
       var ExClass := ReadExceptionClassName(ADebugEvent.Exception.ExceptionRecord);
       if ExClass <> '' then
@@ -982,7 +992,6 @@ var
   ContinueStatus: DWORD;
   DebugEvent    : TDebugEvent;
   hDevNull      : THandle;
-  I             : Integer;
   ProcessInfo   : TProcessInformation;
   Running       : Boolean;
   SA            : TSecurityAttributes;
@@ -1050,7 +1059,7 @@ begin
 
     if Running then
     begin
-      for I := 0 to FActiveThreads.Count - 1 do
+      for var I: Integer := 0 to FActiveThreads.Count - 1 do
         ApplyBreakpointsToThread(FActiveThreads[I]);
     end;
 
