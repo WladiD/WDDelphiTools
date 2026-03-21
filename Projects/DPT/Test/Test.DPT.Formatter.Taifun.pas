@@ -1,4 +1,4 @@
-unit Test.DPT.Formatter.Taifun;
+﻿unit Test.DPT.Formatter.Taifun;
 
 interface
 
@@ -214,18 +214,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 'unit MyUnit;' + #13#10 +
-             'interface' + #13#10 +
-             #13#10 +
-             'uses' + #13#10 +
-             #13#10 +
-             '  {$IF DEFINED(TED) OR DEFINED(TES)}' + #13#10 +
-             '  Base.Soap.Constants,' + #13#10 +
-             '  {$ENDIF DEFINED(TED) OR DEFINED(TES)}' + #13#10 +
-             #13#10 +
-             '  Base.AppCaps;' + #13#10 +
-             'implementation' + #13#10 +
-             'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+
+    uses
+
+      {$IF DEFINED(TED) OR DEFINED(TES)}
+      Base.Soap.Constants,
+      {$ENDIF DEFINED(TED) OR DEFINED(TES)}
+
+      Base.AppCaps;
+    implementation
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -388,33 +390,34 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'const' + #13#10 +
-    #13#10 +
-    '  MsgNoAccess = ''Funktion nicht verfügbar, weil die Leseberechtigung fehlt.'';' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'const' + #13#10 +
-    #13#10 +
-    '  AccessRightHelperNames : Array[Integer] of String' + #13#10 +
-    '                         = (''-'',' + #13#10 +
-    '                            ''Nein'',' + #13#10 +
-    '                            ''Ja'');' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ TAccessTypeHelper                                                       }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'function TAccessTypeHelper.HasReadAccess: Boolean;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=True;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    const
+
+      MsgNoAccess = 'Funktion nicht verfügbar, weil die Leseberechtigung fehlt.';
+
+    { ======================================================================= }
+    implementation
+    { ======================================================================= }
+
+    const
+
+      AccessRightHelperNames : Array[Integer] of String
+                             = ('-',
+                                'Nein',
+                                'Ja');
+
+    { ======================================================================= }
+    { TAccessTypeHelper                                                       }
+    { ======================================================================= }
+
+    function TAccessTypeHelper.HasReadAccess: Boolean;
+    begin
+      Result:=True;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -504,18 +507,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 'unit MyUnit;' + #13#10 +
-             'interface' + #13#10 +
-             'implementation' + #13#10 +
-             '{ ======================================================================= }' + #13#10 +
-             '{ CBlacklist - Class                                                      }' + #13#10 +
-             '{ ======================================================================= }' + #13#10 +
-             #13#10 +
-             'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);' + #13#10 +
-             'begin' + #13#10 +
-             '  inherited Create;' + #13#10 +
-             'end;' + #13#10 +
-             'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CBlacklist - Class                                                      }
+    { ======================================================================= }
+
+    constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);
+    begin
+      inherited Create;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -545,18 +550,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 'unit MyUnit;' + #13#10 +
-             'interface' + #13#10 +
-             'implementation' + #13#10 +
-             '{ ======================================================================= }' + #13#10 +
-             '{ CHierachyObject - Class                                                 }' + #13#10 +
-             '{ ======================================================================= }' + #13#10 +
-             #13#10 +
-             'constructor CHierarchyObject.Create(AOwner: CHierarchyObject);' + #13#10 +
-             'begin' + #13#10 +
-             '  inherited Create;' + #13#10 +
-             'end;' + #13#10 +
-             'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CHierachyObject - Class                                                 }
+    { ======================================================================= }
+
+    constructor CHierarchyObject.Create(AOwner: CHierarchyObject);
+    begin
+      inherited Create;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -620,11 +627,12 @@ var
   LUnit: TCompilationUnitSyntax;
   LExpectedHeader: string;
 begin
-  LSource := 
-    '// ==== Blubb ====' + #13#10 +
-    '// Autor: John Doe / Jane Doe' + #13#10 +
-    '// ===============' + #13#10 +
-    'unit MyUnit; interface end.';
+  LSource := '''
+    // ==== Blubb ====
+    // Autor: John Doe / Jane Doe
+    // ===============
+    unit MyUnit; interface end.
+    ''';
     
   LExpectedHeader := '''
     // ======================================================================
@@ -692,18 +700,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit - The real description' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: John Doe' + #13#10 +
-    '//' + #13#10 +
-    '// This is a multi-line comment.' + #13#10 +
-    '// It has a - hyphen later on.' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit MyUnit; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit - The real description
+    //
+    // Autor: John Doe
+    //
+    // This is a multi-line comment.
+    // It has a - hyphen later on.
+    //
+    // ======================================================================
+    unit MyUnit; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -725,18 +734,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit - Some valid description' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: Max Mustermann' + #13#10 +
-    '//' + #13#10 +
-    '// The unicorn jumped over the rainbow' + #13#10 +
-    '// finding a pot of pure gold.' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit MyUnit; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit - Some valid description
+    //
+    // Autor: Max Mustermann
+    //
+    // The unicorn jumped over the rainbow
+    // finding a pot of pure gold.
+    //
+    // ======================================================================
+    unit MyUnit; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -757,21 +767,22 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '/// <summary>My summary</summary>' + #13#10 +
-    '/// <param name="A">Param A</param>' + #13#10 +
-    '/// <returns>Result</returns>' + #13#10 +
-    'procedure TMyClass.MyMethod;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    '/// <summary>Second summary</summary>' + #13#10 +
-    'procedure TMyClass.MyMethod2;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    /// <summary>My summary</summary>
+    /// <param name="A">Param A</param>
+    /// <returns>Result</returns>
+    procedure TMyClass.MyMethod;
+    begin
+    end;
+    /// <summary>Second summary</summary>
+    procedure TMyClass.MyMethod2;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -808,21 +819,22 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CAppConnectionProvider                                                  }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'class function CAppConnectionProvider.TCacheKey.Create(ASrc, ADst: TLicenseModuleKind; ASrcMdt: Word): TCacheKey;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result.SrcModule:=ASrc;' + #13#10 +
-    '  Result.DstModule:=ADst;' + #13#10 +
-    '  Result.SrcMdt:=ASrcMdt;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CAppConnectionProvider                                                  }
+    { ======================================================================= }
+
+    class function CAppConnectionProvider.TCacheKey.Create(ASrc, ADst: TLicenseModuleKind; ASrcMdt: Word): TCacheKey;
+    begin
+      Result.SrcModule:=ASrc;
+      Result.DstModule:=ADst;
+      Result.SrcMdt:=ASrcMdt;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -849,20 +861,21 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'function CCopyWrongMdtBlobsInPrg.GetName: S_255;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=''xxx'';' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    'function CCopyWrongMdtBlobsInPrg.GetSortDate: Base.Types.DateTime.TDate;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=Default(TDate);' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    function CCopyWrongMdtBlobsInPrg.GetName: S_255;
+    begin
+      Result:='xxx';
+    end;
+
+    function CCopyWrongMdtBlobsInPrg.GetSortDate: Base.Types.DateTime.TDate;
+    begin
+      Result:=Default(TDate);
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -896,21 +909,22 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CMongoBlobService                                                       }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'constructor CMongoBlobService.Create(ASession: IDbSession; ATblId,AMdtId: Word);' + #13#10 +
-    'var' + #13#10 +
-    '  MongoSession: IMongoSession;' + #13#10 +
-    'begin' + #13#10 +
-    '  inherited Create(ASession,ATblId);' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CMongoBlobService                                                       }
+    { ======================================================================= }
+
+    constructor CMongoBlobService.Create(ASession: IDbSession; ATblId,AMdtId: Word);
+    var
+      MongoSession: IMongoSession;
+    begin
+      inherited Create(ASession,ATblId);
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -941,18 +955,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'procedure CBlobDelThread.Execute;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    procedure CBlobDelThread.Execute;
+    begin
+    end;
+
+    function BlobRef2String(const ABlobRef: TBlobRef): String; overload;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -981,24 +996,25 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// Base.Bootstrapping.Isapi' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: Mister X' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    #13#10 +
-    '{$I Base.Define.pas}' + #13#10 +
-    '{$DENYPACKAGEUNIT} {This unit cannot be part of a package because it contains Web.WebBroker which cannot be part of a package }' + #13#10 +
-    #13#10 +
-    'unit Base.Bootstrapping.Isapi;' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    'interface' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    'end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // Base.Bootstrapping.Isapi
+    //
+    // Autor: Mister X
+    //
+    // ======================================================================
+
+    {$I Base.Define.pas}
+    {$DENYPACKAGEUNIT} {This unit cannot be part of a package because it contains Web.WebBroker which cannot be part of a package }
+
+    unit Base.Bootstrapping.Isapi;
+
+    { ======================================================================= }
+    interface
+    { ======================================================================= }
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1018,20 +1034,21 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'class constructor CBootstrapping.ClassCreate;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    'class destructor CBootstrapping.ClassDestroy;' + #13#10 +
-    'var' + #13#10 +
-    '  LogPath: String;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    class constructor CBootstrapping.ClassCreate;
+    begin
+    end;
+
+    class destructor CBootstrapping.ClassDestroy;
+    var
+      LogPath: String;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1065,22 +1082,23 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'constructor CConcurrentDictionary<TKey,TValue>.Create;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    'destructor CConcurrentDictionary<TKey,TValue>.Destroy;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    'function CConcurrentDictionary<TKey,TValue>.Contains(const AKey: TKey): Boolean;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    constructor CConcurrentDictionary<TKey,TValue>.Create;
+    begin
+    end;
+
+    destructor CConcurrentDictionary<TKey,TValue>.Destroy;
+    begin
+    end;
+
+    function CConcurrentDictionary<TKey,TValue>.Contains(const AKey: TKey): Boolean;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1123,19 +1141,20 @@ var
   LUnit: TCompilationUnitSyntax;
   LUnit2: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'function Outer: Integer;' + #13#10 +
-    '  procedure Inner;' + #13#10 +
-    '  begin' + #13#10 +
-    '  end;' + #13#10 +
-    'begin' + #13#10 +
-    '  Inner;' + #13#10 +
-    '  Result:=0;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    function Outer: Integer;
+      procedure Inner;
+      begin
+      end;
+    begin
+      Inner;
+      Result:=0;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1184,20 +1203,21 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'class procedure CBootstrapping.Finit;' + #13#10 +
-    'var' + #13#10 +
-    '  ClassName: String;' + #13#10 +
-    'procedure LogExecution(AProc: TProc);' + #13#10 +
-    'begin' + #13#10 +
-    '  AProc;' + #13#10 +
-    'end;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    class procedure CBootstrapping.Finit;
+    var
+      ClassName: String;
+    procedure LogExecution(AProc: TProc);
+    begin
+      AProc;
+    end;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1232,18 +1252,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '/// <summary>' + #13#10 +
-    '///   Description' + #13#10 +
-    '/// </summary>' + #13#10 +
-    'function ComparePointers(Item1, Item2: Pointer): Integer;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=0;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    /// <summary>
+    ///   Description
+    /// </summary>
+    function ComparePointers(Item1, Item2: Pointer): Integer;
+    begin
+      Result:=0;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1254,12 +1275,13 @@ begin
     // After implementation banner, there should be exactly ONE empty line before XML-DOC
     // implementation trailing trivia has { === }\r\n\r\n
     // So if the method leading trivia is just the XML-DOC, we get ONE empty line total.
-    var LExpected :=
-      '{ ======================================================================= }' + #13#10 +
-      'implementation' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      '/// <summary>';
+    var LExpected := '''
+      { ======================================================================= }
+      implementation
+      { ======================================================================= }
+
+      /// <summary>
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'There should be exactly ONE empty line between implementation banner and XML-DOC. Actual result around implementation:'#13#10 + LResult);
   finally
@@ -1273,15 +1295,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: John Doe' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit MyUnit; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit
+    //
+    // Autor: John Doe
+    //
+    // ======================================================================
+    unit MyUnit; interface end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -1326,15 +1349,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// Base.Utils.Check -  Basis-Utils für System-Checks' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: Mister X' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit Base.Db.Check; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // Base.Utils.Check -  Basis-Utils für System-Checks
+    //
+    // Autor: Mister X
+    //
+    // ======================================================================
+    unit Base.Db.Check; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1355,14 +1379,15 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'type IList = interface end;' + #13#10 +
-    #13#10 +
-    '{$ENDREGION ''PARTIAL''}' + #13#10 +
-    'implementation' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    type IList = interface end;
+
+    {$ENDREGION 'PARTIAL'}
+    implementation
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1371,14 +1396,14 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // Should preserve the blank line before the directive AND have a blank line before the banner
-    var LExpectedOrder := 
-      'type IList = interface end;' + #13#10 +
-      #13#10 +
-      '{$ENDREGION ''PARTIAL''}' + #13#10 + 
-      #13#10 + 
-      '{ ======================================================================= }' + #13#10 +
-      'implementation';
+    var LExpectedOrder := '''
+      type IList = interface end;
 
+      {$ENDREGION 'PARTIAL'}
+
+      { ======================================================================= }
+      implementation
+      ''';
     Assert.IsTrue(LResult.Contains(LExpectedOrder), 'Compiler directive should preserve leading blank line and be placed before the implementation banner. Actual result:'#13#10 + LResult);
   finally
     LUnit.Free;
@@ -1391,19 +1416,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '// CListEnumerator_Integer' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'function CListEnumerator_Integer.GetCurrent: Integer;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=0;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    // CListEnumerator_Integer
+    { ======================================================================= }
+
+    function CListEnumerator_Integer.GetCurrent: Integer;
+    begin
+      Result:=0;
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1425,19 +1451,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CThreadPoolResult<TInput, TOutput>                                      }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'function CThreadPoolResult<TInput,TOutput>.IsFaulted: Boolean;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result:=False;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CThreadPoolResult<TInput, TOutput>                                      }
+    { ======================================================================= }
+
+    function CThreadPoolResult<TInput,TOutput>.IsFaulted: Boolean;
+    begin
+      Result:=False;
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1459,18 +1486,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ TVersionNumber - Operatoren                                             }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'class operator TVersionNumber.Implicit(AValue: Cardinal): TVersionNumber;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { TVersionNumber - Operatoren                                             }
+    { ======================================================================= }
+
+    class operator TVersionNumber.Implicit(AValue: Cardinal): TVersionNumber;
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1491,18 +1519,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CRecordTableCacheBase<TIdx, TRec>                                       }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'constructor CRecordTableCacheBase.Create(ATblNo: Word);' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ======================================================================= }
+    { CRecordTableCacheBase<TIdx, TRec>                                       }
+    { ======================================================================= }
+
+    constructor CRecordTableCacheBase.Create(ATblNo: Word);
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1524,13 +1553,14 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetApiBufferFree'';' + #13#10 +
-    'function NetShareEnum(ServerName: PWideChar; Level: DWORD; var BufPtr: Pointer; PrefMaxLen: DWORD; var EntriesRead: DWORD; var TotalEntries: DWORD; var ResumeHandle: DWORD): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetShareEnum'';' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external 'NetAPI32.dll' name 'NetApiBufferFree';
+    function NetShareEnum(ServerName: PWideChar; Level: DWORD; var BufPtr: Pointer; PrefMaxLen: DWORD; var EntriesRead: DWORD; var TotalEntries: DWORD; var ResumeHandle: DWORD): DWORD; stdcall; external 'NetAPI32.dll' name 'NetShareEnum';
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1552,16 +1582,17 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'procedure Test;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    '{$ENDREGION ''PARTIAL''}' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    procedure Test;
+    begin
+    end;
+
+    {$ENDREGION 'PARTIAL'}
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1583,13 +1614,14 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{$REGION ''TEST''}' + #13#10 +
-    'procedure Test; begin end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    {$REGION 'TEST'}
+    procedure Test; begin end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1598,12 +1630,12 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // Expected: implementation banner then ONE blank line then region
-    var LExpected := 
-      'implementation' + #13#10 + 
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 + 
-      '{$REGION ''TEST''}';
+    var LExpected := '''
+      implementation
+      { ======================================================================= }
 
+      {$REGION 'TEST'}
+      ''';
     Assert.IsTrue(LResult.Contains(LExpected), 'Should have exactly ONE blank line between implementation banner and region. Actual result around region:'#13#10 + LResult);
   finally
     LUnit.Free;
@@ -1616,15 +1648,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'const' + #13#10 +
-    '  ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte' + #13#10 +
-    #13#10 +
-    'constructor CMongoGridFsService.Create; begin inherited Create; end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    const
+      ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte
+
+    constructor CMongoGridFsService.Create; begin inherited Create; end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1633,11 +1666,12 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // The comment should stay with the constant, NOT move below the class banner
-    var LExpected := 
-      'ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      '{ CMongoGridFsService';
+    var LExpected := '''
+      ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte
+
+      { ======================================================================= }
+      { CMongoGridFsService
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
   finally
@@ -1651,15 +1685,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    '  PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,' + #13#10 +
-    '                                      //dieser Kommentar ist eingerückt,' + #13#10 +
-    '                                      //das weiß ich genau.' + #13#10 +
-    #13#10 +
-    'implementation' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+      PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,
+                                          //dieser Kommentar ist eingerückt,
+                                          //das weiß ich genau.
+
+    implementation
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1668,13 +1703,14 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // The indentation of the second comment line should be perfectly preserved
-    var LExpected := 
-      '  PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,' + #13#10 +
-      '                                      //dieser Kommentar ist eingerückt,' + #13#10 +
-      '                                      //das weiß ich genau.' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      'implementation';
+    var LExpected := '''
+        PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,
+                                            //dieser Kommentar ist eingerückt,
+                                            //das weiß ich genau.
+
+      { ======================================================================= }
+      implementation
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpected), 'The indentation of multi-line comments before the implementation banner should be preserved. Actual result:'#13#10 + LResult);
   finally
@@ -1688,22 +1724,23 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'const' + #13#10 +
-    '  {$IFDEF CPUX64}' + #13#10 +
-    '  BtrieveDLLName  = ''W64BTRV.DLL'';' + #13#10 +
-    '  {$ELSE}' + #13#10 +
-    '  BtrieveDLLName  = ''WBTRV32.DLL'';' + #13#10 +
-    '  {$ENDIF CPUX64}' + #13#10 +
-    #13#10 +
-    'constructor CBtrieveSession.Create(AIdPool: CConcurrentBitPool);' + #13#10 +
-    'begin' + #13#10 +
-    '  inherited Create;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    const
+      {$IFDEF CPUX64}
+      BtrieveDLLName  = 'W64BTRV.DLL';
+      {$ELSE}
+      BtrieveDLLName  = 'WBTRV32.DLL';
+      {$ENDIF CPUX64}
+
+    constructor CBtrieveSession.Create(AIdPool: CConcurrentBitPool);
+    begin
+      inherited Create;
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1713,11 +1750,12 @@ begin
     
     // The constant should end with a semicolon and a newline,
     // then the {$ENDIF} should follow on its own indented line.
-    var LExpectedPart := 
-      'BtrieveDLLName  = ''WBTRV32.DLL'';' + #13#10 +
-      '  {$ENDIF CPUX64}' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }';
+    var LExpectedPart := '''
+      BtrieveDLLName  = 'WBTRV32.DLL';
+        {$ENDIF CPUX64}
+
+      { ======================================================================= }
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
   finally
@@ -1731,23 +1769,24 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    '{$IF DEFINED(DEBUG)}' + #13#10 +
-    '  {$SetPEFlags $20}' + #13#10 +
-    '{$ENDIF}' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CMyClass                                                                }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'procedure CMyClass.DoSomething;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+
+    {$IF DEFINED(DEBUG)}
+      {$SetPEFlags $20}
+    {$ENDIF}
+
+    { ======================================================================= }
+    { CMyClass                                                                }
+    { ======================================================================= }
+
+    procedure CMyClass.DoSomething;
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1755,13 +1794,14 @@ begin
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
     
-    var LExpectedPart := 
-      '{$IF DEFINED(DEBUG)}' + #13#10 +
-      '  {$SetPEFlags $20}' + #13#10 +
-      '{$ENDIF}' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      '{ CMyClass';
+    var LExpectedPart := '''
+      {$IF DEFINED(DEBUG)}
+        {$SetPEFlags $20}
+      {$ENDIF}
+
+      { ======================================================================= }
+      { CMyClass
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'The $IF block should stay strictly above the class banner. Actual result:'#13#10 + LResult);
   finally
@@ -1775,18 +1815,19 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    #13#10 +
-    '/// <summary> If the fields of this table have GUI (visual) controls assinged to them, reads the data from those GUI controls' + #13#10 +
-    '/// </summary>' + #13#10 +
-    'procedure CBaseTable.GetData;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ----------------------------------------------------------------------- }
+
+    /// <summary> If the fields of this table have GUI (visual) controls assinged to them, reads the data from those GUI controls
+    /// </summary>
+    procedure CBaseTable.GetData;
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1811,14 +1852,15 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit Base.WinApi;' + #13#10 +
-    #13#10 +
-    '{$ALIGN ON} // comment' + #13#10 +
-    #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    'end.';
+  LSource := '''
+    unit Base.WinApi;
+
+    {$ALIGN ON} // comment
+
+    interface
+    implementation
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1828,10 +1870,11 @@ begin
     
     // There should be exactly ONE blank line between the unit declaration and the directive.
     // unit Base.WinApi;\r\n\r\n{$ALIGN ON}
-    var LExpectedPart := 
-      'unit Base.WinApi;' + #13#10 +
-      #13#10 +
-      '{$ALIGN ON}';
+    var LExpectedPart := '''
+      unit Base.WinApi;
+
+      {$ALIGN ON}
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'There should be exactly one blank line before the directive. Actual result:'#13#10 + LResult);
   finally
@@ -1845,17 +1888,18 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    '{ Prüfsummenberechnung                                                    }' + #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    'procedure Test;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ----------------------------------------------------------------------- }
+    { Prüfsummenberechnung                                                    }
+    { ----------------------------------------------------------------------- }
+    procedure Test;
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1878,19 +1922,20 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    '{ Category A: XXX01234567890123456 (cpAlpha)                              }' + #13#10 +
-    '{             XXX01234567890123457 (cpBeta)                               }' + #13#10 +
-    '{             XXX01234567890123458 (cpGamma)                              }' + #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    'procedure Test;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+    { ----------------------------------------------------------------------- }
+    { Category A: XXX01234567890123456 (cpAlpha)                              }
+    {             XXX01234567890123457 (cpBeta)                               }
+    {             XXX01234567890123458 (cpGamma)                              }
+    { ----------------------------------------------------------------------- }
+    procedure Test;
+    begin
+    end;
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1898,12 +1943,13 @@ begin
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
     
-    var LExpectedBlock := 
-      '{ ----------------------------------------------------------------------- }' + #13#10 +
-      '{ Category A: XXX01234567890123456 (cpAlpha)                              }' + #13#10 +
-      '{             XXX01234567890123457 (cpBeta)                               }' + #13#10 +
-      '{             XXX01234567890123458 (cpGamma)                              }' + #13#10 +
-      '{ ----------------------------------------------------------------------- }';
+    var LExpectedBlock := '''
+      { ----------------------------------------------------------------------- }
+      { Category A: XXX01234567890123456 (cpAlpha)                              }
+      {             XXX01234567890123457 (cpBeta)                               }
+      {             XXX01234567890123458 (cpGamma)                              }
+      { ----------------------------------------------------------------------- }
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedBlock), 'The entire block should be preserved perfectly. Actual result:'#13#10 + LResult);
   finally
@@ -1917,15 +1963,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// Base.Kons.Common.Typ - Typdeklarationen: Konstanten (Programmübergreifend)' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: WDE' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit Base.Kons.Common.Typ; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // Base.Kons.Common.Typ - Typdeklarationen: Konstanten (Programmübergreifend)
+    //
+    // Autor: WDE
+    //
+    // ======================================================================
+    unit Base.Kons.Common.Typ; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1945,16 +1992,17 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit.Foo - The first line of the description.' + #13#10 +
-    '//              The second line of the description.' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: John Doe' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit MyUnit.Foo; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit.Foo - The first line of the description.
+    //              The second line of the description.
+    //
+    // Autor: John Doe
+    //
+    // ======================================================================
+    unit MyUnit.Foo; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -1974,15 +2022,16 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit.Validator – JWT/JWKS Validation' + #13#10 +
-    '//' + #13#10 +
-    '// Autor: Alice' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'unit MyUnit.Validator; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit.Validator – JWT/JWKS Validation
+    //
+    // Autor: Alice
+    //
+    // ======================================================================
+    unit MyUnit.Validator; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -2002,12 +2051,13 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    'unit MyUnit;' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'interface' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    // ======================================================================
+    interface
+    // ======================================================================
+    end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -2030,22 +2080,23 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit.Form;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    '{$R *.dfm}' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ TMyForm                                                                 }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'class function TMyForm.CanOpenForm: Boolean;' + #13#10 +
-    'begin' + #13#10 +
-    '  Result := True;' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit.Form;
+    interface
+    implementation
+
+    {$R *.dfm}
+
+    { ======================================================================= }
+    { TMyForm                                                                 }
+    { ======================================================================= }
+
+    class function TMyForm.CanOpenForm: Boolean;
+    begin
+      Result := True;
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -2053,11 +2104,12 @@ begin
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
 
-    var LExpectedPart :=
-      '{$R *.dfm}' + #13#10 +
-      #13#10 +
-      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
-      '{ TMyForm';
+    var LExpectedPart := '''
+      {$R *.dfm}
+
+      { ======================================================================= }
+      { TMyForm
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), '{$R *.dfm} should stay above the class banner. Actual result:'#13#10 + LResult);
   finally
@@ -2071,27 +2123,28 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit.Form;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    '{$R *.DFM}' + #13#10 +
-    #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    #13#10 +
-    'resourcestring' + #13#10 +
-    #13#10 +
-    '  txtBack = ''&Back'';' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ TMyForm                                                                 }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'procedure TMyForm.DoSomething;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit.Form;
+    interface
+    implementation
+
+    {$R *.DFM}
+
+    { ----------------------------------------------------------------------- }
+
+    resourcestring
+
+      txtBack = '&Back';
+
+    { ======================================================================= }
+    { TMyForm                                                                 }
+    { ======================================================================= }
+
+    procedure TMyForm.DoSomething;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -2115,22 +2168,23 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'type' + #13#10 +
-    '  TMyActualClass = class' + #13#10 +
-    '  end;' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ OldWrongClassName                                                       }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'procedure TMyActualClass.DoSomething;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    type
+      TMyActualClass = class
+      end;
+    implementation
+
+    { ======================================================================= }
+    { OldWrongClassName                                                       }
+    { ======================================================================= }
+
+    procedure TMyActualClass.DoSomething;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -2151,17 +2205,18 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit.Form;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    '{$R *.dfm}' + #13#10 +
-    #13#10 +
-    'procedure DoSomething;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit.Form;
+    interface
+    implementation
+
+    {$R *.dfm}
+
+    procedure DoSomething;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -2187,34 +2242,35 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource :=
-    'unit MyUnit;' + #13#10 +
-    'interface' + #13#10 +
-    'implementation' + #13#10 +
-    #13#10 +
-    'procedure TFoo.Bar;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    '{ CToolButton - Class                                                     }' + #13#10 +
-    '{ ======================================================================= }' + #13#10 +
-    #13#10 +
-    'const' + #13#10 +
-    '  InitRepeatPause = 400;' + #13#10 +
-    #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    #13#10 +
-    'constructor CToolButton.Create;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    #13#10 +
-    '{ ----------------------------------------------------------------------- }' + #13#10 +
-    #13#10 +
-    'destructor CToolButton.Destroy;' + #13#10 +
-    'begin' + #13#10 +
-    'end;' + #13#10 +
-    'end.';
+  LSource := '''
+    unit MyUnit;
+    interface
+    implementation
+
+    procedure TFoo.Bar;
+    begin
+    end;
+
+    { ======================================================================= }
+    { CToolButton - Class                                                     }
+    { ======================================================================= }
+
+    const
+      InitRepeatPause = 400;
+
+    { ----------------------------------------------------------------------- }
+
+    constructor CToolButton.Create;
+    begin
+    end;
+
+    { ----------------------------------------------------------------------- }
+
+    destructor CToolButton.Destroy;
+    begin
+    end;
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
@@ -2249,17 +2305,18 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
-    '// ======================================================================' + #13#10 +
-    '//' + #13#10 +
-    '// MyUnit' + #13#10 +
-    '//' + #13#10 +
-    '// ======================================================================' + #13#10 +
-    #13#10 +
-    '{$REGION ''Some region''}' + #13#10 +
-    '// This comment should not be pulled into the banner' + #13#10 +
-    '{$ENDREGION}' + #13#10 +
-    'unit MyUnit; interface end.';
+  LSource := '''
+    // ======================================================================
+    //
+    // MyUnit
+    //
+    // ======================================================================
+
+    {$REGION 'Some region'}
+    // This comment should not be pulled into the banner
+    {$ENDREGION}
+    unit MyUnit; interface end.
+    ''';
     
   LUnit := FParser.Parse(LSource);
   try
@@ -2268,10 +2325,11 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // The comment should stay inside the region block, NOT inside the banner
-    var LExpectedRegion := 
-      '{$REGION ''Some region''}' + #13#10 +
-      '// This comment should not be pulled into the banner' + #13#10 +
-      '{$ENDREGION}';
+    var LExpectedRegion := '''
+      {$REGION 'Some region'}
+      // This comment should not be pulled into the banner
+      {$ENDREGION}
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedRegion), 'The comment inside the $REGION should be preserved exactly outside the banner. Actual result:'#13#10 + LResult);
     
@@ -2288,7 +2346,7 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 
+  LSource := // TODO: Bitte als Multiline-String-Literal (''')
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
     'implementation' + #13#10 +
@@ -2312,12 +2370,13 @@ begin
     LResult := FWriter.GenerateSource(LUnit);
     
     // The short separator for the second method should come AFTER the {$endif}
-    var LExpectedPart := 
-      '{$endif}' + #13#10 +
-      #13#10 +
-      '{ ----------------------------------------------------------------------- }' + #13#10 +
-      #13#10 +
-      '{$if CompilerVersion >= 32}';
+    var LExpectedPart := '''
+      {$endif}
+
+      { ----------------------------------------------------------------------- }
+
+      {$if CompilerVersion >= 32}
+      ''';
 
     Assert.IsTrue(LResult.Contains(LExpectedPart), 'The short separator should be placed AFTER the {$endif} of the previous method. Actual result:'#13#10 + LResult);
   finally
@@ -2366,15 +2425,17 @@ var
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
-  LSource := 'unit Base.Minimum;' + #13#10 +
-             'interface' + #13#10 +
-             'uses' + #13#10 +
-             '  System.Classes;' + #13#10 +
-             'type' + #13#10 +
-             '  TFormAbort = class' + #13#10 +
-             '  end;' + #13#10 +
-             'implementation' + #13#10 +
-             'end.';
+  LSource := '''
+    unit Base.Minimum;
+    interface
+    uses
+      System.Classes;
+    type
+      TFormAbort = class
+      end;
+    implementation
+    end.
+    ''';
 
   LUnit := FParser.Parse(LSource);
   try
