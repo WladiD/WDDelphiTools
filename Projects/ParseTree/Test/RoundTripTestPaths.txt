@@ -1,2 +1,71 @@
 # One path per line. Relative paths are grounded to Projects\ParseTree\Test.
 ..\..\DPT\Source
+#C:\WDC\AnyiQuack
+#C:\WDC\AnyiQuack\Examples\AnimatedAlign
+#C:\WDC\AnyiQuack\Examples\AnimatedAlignFMX
+#C:\WDC\AnyiQuack\Examples\CustomPlugin
+#C:\WDC\ExprParser
+#C:\WDC\ExprParser\Test\TestSuite
+#C:\WDC\ExprParser\Test\Unit
+#C:\WDC\Localization
+#C:\WDC\SendInputHelper
+#C:\WDC\SlimForDelphi\Source
+#C:\WDC\SlimForDelphi\Test
+#C:\WDC\SlimForDelphi\Projects\FitNesseMcp\Source
+#C:\WDC\SlimForDelphi\Projects\FitNesseMcp\Test
+#C:\WDC\SlimForDelphi\Projects\SlimDoc
+#C:\WDC\SlimForDelphi\Projects\SlimProxy
+#
+# Delphi-RTL (Dauert lange!)
+#
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\vcl
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\DunitX
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\DunitX\Tests
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\xml
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\Visualizers
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\ToolsAPI
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\tethering
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\soap
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\Property Editors
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\internet
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\fmx
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\vclctrls
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\rest
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\dsnap
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\dbx
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\cloud
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\ado
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\data\firedac
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\rtl\sys
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\rtl\net
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\rtl\common
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\rtl\win
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\Indy10\System
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\Indy10\Protocols
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\Indy10\Core
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\FlatBox2D
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\databinding\graph
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\databinding\engine
+#C:\Program Files (x86)\Embarcadero\Studio\23.0\source\databinding\components
+#
+# Spring4D
+#
+#C:\WC\spring4d\Source\Base
+#C:\WC\spring4d\Source\Base\Collections
+#C:\WC\spring4d\Source\Base\Logging
+#
+# mORMot2
+#
+#C:\WC\mORMot2\src\ui
+#C:\WC\mORMot2\src\soa
+#C:\WC\mORMot2\src\rest
+#C:\WC\mORMot2\src\orm
+#C:\WC\mORMot2\src\net
+#C:\WC\mORMot2\src\misc
+#C:\WC\mORMot2\src\lib
+#C:\WC\mORMot2\src\db
+#C:\WC\mORMot2\src\crypt
+#C:\WC\mORMot2\src\core
+#C:\WC\mORMot2\src\app
+#C:\WC\mORMot2\src\script
