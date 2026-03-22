@@ -45,6 +45,8 @@ type
     procedure TestMcpWaitUntilPaused;
     [Test]
     procedure TestMcpIgnoredExceptions;
+    [Test]
+    procedure TestMcpMultiThreadedBreakpoints;
   end;
 
 implementation
@@ -1099,6 +1101,121 @@ begin
     Server.Free;
     InputReader.Free;
     OutputWriter.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpMultiThreadedBreakpoints;
+var
+  Debugger: TDebugger;
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+  LJSON: TJSONObject;
+  ResultObj: TJSONObject;
+  ThreadId1, ThreadId2: Int64;
+  I: Integer;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\MultiThreadTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('MultiThreadTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // We set breakpoints on the lines we defined in MultiThreadTarget.dpr
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "MultiThreadTarget.dpr", "line": 29}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "MultiThreadTarget.dpr", "line": 40}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint 1
+      Server.RunOnce; // set_breakpoint 2
+      Server.RunOnce; // continue (async)
+
+      // Wait for the first breakpoint notification
+      WaitForOutput(OutputWriter, 6);
+      
+      // Get state to read the first thread_id
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+      
+      ThreadId1 := 0;
+      for I := OutputWriter.GetCount - 1 downto 0 do
+      begin
+        if OutputWriter.GetLine(I).Contains('"id": 5') or OutputWriter.GetLine(I).Contains('"id":"5"') or OutputWriter.GetLine(I).Contains('"id":5') then
+        begin
+          LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(I)) as TJSONObject;
+          try
+            ResultObj := LJSON.GetValue('result') as TJSONObject;
+            var ContentArr := ResultObj.GetValue('content') as TJSONArray;
+            var TextVal := (ContentArr.Items[0] as TJSONObject).GetValue('text').Value;
+            var StateJSON := TJSONObject.ParseJSONValue(TextVal) as TJSONObject;
+            try
+              ThreadId1 := (StateJSON.GetValue('thread_id') as TJSONNumber).AsInt64;
+            finally
+              StateJSON.Free;
+            end;
+          finally
+            LJSON.Free;
+          end;
+          Break;
+        end;
+      end;
+      
+      Assert.IsTrue(ThreadId1 > 0, 'Thread ID 1 should be greater than 0');
+
+      // Continue to hit the second breakpoint
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+      Server.RunOnce;
+
+      // Wait for the second breakpoint notification
+      WaitForOutput(OutputWriter, 10);
+      
+      // Get state to read the second thread_id
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+
+      ThreadId2 := 0;
+      for I := OutputWriter.GetCount - 1 downto 0 do
+      begin
+        if OutputWriter.GetLine(I).Contains('"id": 7') or OutputWriter.GetLine(I).Contains('"id":"7"') or OutputWriter.GetLine(I).Contains('"id":7') then
+        begin
+          LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(I)) as TJSONObject;
+          try
+            ResultObj := LJSON.GetValue('result') as TJSONObject;
+            var ContentArr := ResultObj.GetValue('content') as TJSONArray;
+            var TextVal := (ContentArr.Items[0] as TJSONObject).GetValue('text').Value;
+            var StateJSON := TJSONObject.ParseJSONValue(TextVal) as TJSONObject;
+            try
+              ThreadId2 := (StateJSON.GetValue('thread_id') as TJSONNumber).AsInt64;
+            finally
+              StateJSON.Free;
+            end;
+          finally
+            LJSON.Free;
+          end;
+          Break;
+        end;
+      end;
+
+      Assert.IsTrue(ThreadId2 > 0, 'Thread ID 2 should be greater than 0');
+      Assert.AreNotEqual(ThreadId1, ThreadId2, 'Breakpoints should be hit in different threads');
+
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
   end;
 end;
 

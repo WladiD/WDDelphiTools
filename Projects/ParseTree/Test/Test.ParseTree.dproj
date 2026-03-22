@@ -43,6 +43,7 @@
     <PropertyGroup Condition="'$(Cfg_1)'!=''">
         <DCC_Define>DEBUG;$(DCC_Define)</DCC_Define>
         <DCC_GenerateStackFrames>true</DCC_GenerateStackFrames>
+        <DCC_MapFile>3</DCC_MapFile>
         <DCC_Optimize>false</DCC_Optimize>
     </PropertyGroup>
     <PropertyGroup Condition="'$(Cfg_1_Win32)'!=''">
@@ -67,6 +68,7 @@
         <DCCReference Include="Test.ParseTree.Nodes.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.pas"/>
         <DCCReference Include="Test.ParseTree.Roundtrip.pas"/>
+        <DCCReference Include="Test.ParseTree.Utils.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.ClassDecl.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.Statements.Loops.pas"/>
         <DCCReference Include="Test.ParseTree.Parser.Statements.ConditionalsBlocks.pas"/>

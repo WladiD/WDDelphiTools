@@ -1008,6 +1008,7 @@ begin
 
     if (FState = dsPaused) and Assigned(FDebugger) then
     begin
+      StateObj.AddPair('thread_id', TJSONNumber.Create(FDebugger.LastThreadHit));
       Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
       if Length(Stack) > 0 then
       begin
