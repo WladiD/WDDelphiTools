@@ -84,7 +84,7 @@ type
 
   TDebugger = class
   private
-    FActiveThreads           : IList<THandle>;
+    FActiveThreads           : IKeyValue<DWORD, THandle>;
     FBaseAddress             : UIntPtr;
     FBreakpointHitEvent      : TEvent;
     FBreakpointLock          : TCriticalSection;
@@ -97,6 +97,7 @@ type
     FLastException           : TExceptionRecord;
     FLastExceptionFirstChance: Boolean;
     FLastThreadHit           : THandle;
+    FLastThreadId            : DWORD;
     FMapScanner              : TJclMapScanner;
     FOnBreakpoint            : TOnBreakpointEvent;
     FOnException             : TOnExceptionEvent;
@@ -131,6 +132,7 @@ type
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
+    function  GetThreadIds: TArray<DWORD>;
     procedure IgnoreException(const AClassName: String);
     procedure LoadMapFile(const AMapFileName: string);
     function  ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
@@ -139,6 +141,7 @@ type
     procedure ResumeExecution;
     function  SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean; overload;
     function  SetBreakpoint(const AUnitName: string; ALineNumber: Integer; ARequireAddress: Boolean): Boolean; overload;
+    function  SetThreadFocus(AThreadId: DWORD): Boolean;
     procedure StartDebugging(const AExecutablePath: string);
     procedure StepInto;
     procedure StepOver;
@@ -152,6 +155,7 @@ type
     property  LastException: TExceptionRecord read FLastException;
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;
+    property  LastThreadId: DWORD read FLastThreadId;
     property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
@@ -214,7 +218,7 @@ constructor TDebugger.Create;
 begin
   inherited Create;
   FBreakpoints := Collections.NewList<TBreakpoint>;
-  FActiveThreads := Collections.NewPlainList<THandle>;
+  FActiveThreads := Collections.NewKeyValue<DWORD, THandle>;
   FBreakpointLock := TCriticalSection.Create;
   FIgnoredExceptions := Collections.NewList<String>;
   FIgnoredExceptions.Add('EAbort');
@@ -311,17 +315,18 @@ begin
     Exit;
   FTerminated := True;
 
-  for var I: Integer := 0 to FActiveThreads.Count - 1 do
+  for var e in FActiveThreads do
   begin
+    var LThreadHandle := e.Value;
     Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-    if GetThreadContext(FActiveThreads[I], Context) then
+    if GetThreadContext(LThreadHandle, Context) then
     begin
       Context.Dr0 := 0;
       Context.Dr1 := 0;
       Context.Dr2 := 0;
       Context.Dr3 := 0;
       Context.Dr7 := Context.Dr7 and not $FF;
-      SetThreadContext(FActiveThreads[I], Context);
+      SetThreadContext(LThreadHandle, Context);
     end;
   end;
 
@@ -578,6 +583,33 @@ begin
   Result := Frames.AsArray;
 end;
 
+function TDebugger.GetThreadIds: TArray<DWORD>;
+var
+  i: Integer;
+begin
+  SetLength(Result, FActiveThreads.Count);
+  i := 0;
+  for var e in FActiveThreads do
+  begin
+    Result[i] := e.Key;
+    Inc(i);
+  end;
+end;
+
+function TDebugger.SetThreadFocus(AThreadId: DWORD): Boolean;
+var
+  LThreadHandle: THandle;
+begin
+  if FActiveThreads.TryGetValue(AThreadId, LThreadHandle) then
+  begin
+    FLastThreadId := AThreadId;
+    FLastThreadHit := LThreadHandle;
+    Result := True;
+  end
+  else
+    Result := False;
+end;
+
 procedure TDebugger.LoadMapFile(const AMapFileName: string);
 begin
   FreeAndNil(FMapScanner);
@@ -738,7 +770,7 @@ begin
   if ADebugEvent.CreateProcessInfo.hFile <> 0 then
     CloseHandle(ADebugEvent.CreateProcessInfo.hFile);
 
-  FActiveThreads.Add(ADebugEvent.CreateProcessInfo.hThread);
+  FActiveThreads[ADebugEvent.dwThreadId] := ADebugEvent.CreateProcessInfo.hThread;
 
   for var I: Integer := 0 to FBreakpoints.Count - 1 do
   begin
@@ -749,11 +781,12 @@ end;
 
 procedure TDebugger.HandleCreateThread(const ADebugEvent: TDebugEvent);
 begin
-  FActiveThreads.Add(ADebugEvent.CreateThread.hThread);
+  FActiveThreads[ADebugEvent.dwThreadId] := ADebugEvent.CreateThread.hThread;
 end;
 
 procedure TDebugger.HandleExitThread(const ADebugEvent: TDebugEvent);
 begin
+  FActiveThreads.Remove(ADebugEvent.dwThreadId);
 end;
 
 procedure TDebugger.HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
@@ -814,6 +847,7 @@ begin
               Context.Dr6 := Context.Dr6 and not $F;
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, CurLine, Stack[0].Address);
               FLastThreadHit := CurrentThread;
+              FLastThreadId := ADebugEvent.dwThreadId;
               FBreakpointHitEvent.SetEvent;
               if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
               FContinueEvent.ResetEvent;
@@ -845,6 +879,7 @@ begin
         begin
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
+          FLastThreadId := ADebugEvent.dwThreadId;
           FBreakpointHitEvent.SetEvent;
           if Assigned(FOnBreakpoint) then
             FOnBreakpoint(Self, BP);
@@ -914,6 +949,7 @@ begin
               FLastBreakpointHit := TBreakpoint.Create('Unknown', 0, nil);
 
             FLastThreadHit := CurrentThread;
+            FLastThreadId := ADebugEvent.dwThreadId;
             FBreakpointHitEvent.SetEvent;
             if Assigned(FOnStepped) then
               FOnStepped(Self, FLastBreakpointHit);
@@ -1059,8 +1095,8 @@ begin
 
     if Running then
     begin
-      for var I: Integer := 0 to FActiveThreads.Count - 1 do
-        ApplyBreakpointsToThread(FActiveThreads[I]);
+      for var e in FActiveThreads do
+        ApplyBreakpointsToThread(e.Value);
     end;
 
     if not ContinueDebugEvent(DebugEvent.dwProcessId, DebugEvent.dwThreadId, ContinueStatus) then

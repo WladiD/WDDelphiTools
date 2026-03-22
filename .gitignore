@@ -31,10 +31,11 @@ Win32
 /Projects/DPT/Lint/*.Tests.txt
 /Projects/DPT/Test/DebugTarget.exe
 /Projects/DPT/Test/ExceptionTarget.exe
+/Projects/DPT/Test/MultiThreadTarget.exe
+/Projects/DPT/Test/FormatTaifunData
 /Projects/ParseTree/Test/Test.ParseTree.exe
 /Projects/ParseTree/Test/Test.ParseTree.res
 /.DptAiWorkflow-Example
 /.gemini/settings.json
 /.vscode/settings.json
 /GEMINI.md
-/Projects/DPT/Test/FormatTaifunData

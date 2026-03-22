@@ -62,6 +62,7 @@ type
     function HandleIgnoreException(AParams: TJSONObject): TJSONObject;
     function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
     function HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
+    function HandleListThreads(AParams: TJSONObject): TJSONObject;
     function HandleListTools(AParams: TJSONObject): TJSONObject;
     function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
     function HandleReadMemory(AParams: TJSONObject): TJSONObject;
@@ -71,6 +72,7 @@ type
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
+    function HandleSwitchThread(AParams: TJSONObject): TJSONObject;
     function HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
     function HandleUnignoreException(AParams: TJSONObject): TJSONObject;
     function HandleWaitUntilPaused(AParams: TJSONObject): TJSONObject;
@@ -447,6 +449,10 @@ begin
           SendResponse(ID, HandleUnignoreException(ToolParams))
         else if ToolName = 'list_ignored_exceptions' then
           SendResponse(ID, HandleListIgnoredExceptions(ToolParams))
+        else if ToolName = 'list_threads' then
+          SendResponse(ID, HandleListThreads(ToolParams))
+        else if ToolName = 'switch_thread' then
+          SendResponse(ID, HandleSwitchThread(ToolParams))
         else if ToolName = 'continue' then
           SendResponse(ID, HandleContinue(ToolParams))
         else if ToolName = 'get_stack_trace' then
@@ -566,6 +572,26 @@ begin
   ToolListIgnoredExc.AddPair('description', 'Lists all Delphi exception classes that are currently being ignored by the debugger.');
   ToolListIgnoredExc.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolListIgnoredExc);
+
+  var ToolListThreads := TJSONObject.Create;
+  ToolListThreads.AddPair('name', 'list_threads');
+  ToolListThreads.AddPair('description', 'Lists all currently active thread IDs in the debugged process. Only callable when state is "paused".');
+  ToolListThreads.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolListThreads);
+
+  var ToolSwitchThread := TJSONObject.Create;
+  ToolSwitchThread.AddPair('name', 'switch_thread');
+  ToolSwitchThread.AddPair('description', 'Switches the debugger focus to a specific thread ID. Subsequent calls to get_stack_trace, get_registers, etc. will target this thread. Only callable when state is "paused".');
+  var SchemaSwitchThread := TJSONObject.Create;
+  SchemaSwitchThread.AddPair('type', 'object');
+  var PropSwitchThread := TJSONObject.Create;
+  PropSwitchThread.AddPair('thread_id', TJSONObject.Create.AddPair('type', 'integer').AddPair('description', 'The ID of the thread to switch to'));
+  SchemaSwitchThread.AddPair('properties', PropSwitchThread);
+  var ReqSwitchThread := TJSONArray.Create;
+  ReqSwitchThread.Add('thread_id');
+  SchemaSwitchThread.AddPair('required', ReqSwitchThread);
+  ToolSwitchThread.AddPair('inputSchema', SchemaSwitchThread);
+  ToolsArr.Add(ToolSwitchThread);
 
   var ToolContinue := TJSONObject.Create;
   ToolContinue.AddPair('name', 'continue');
@@ -1008,7 +1034,7 @@ begin
 
     if (FState = dsPaused) and Assigned(FDebugger) then
     begin
-      StateObj.AddPair('thread_id', TJSONNumber.Create(FDebugger.LastThreadHit));
+      StateObj.AddPair('thread_id', TJSONNumber.Create(FDebugger.LastThreadId));
       Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
       if Length(Stack) > 0 then
       begin
@@ -1275,6 +1301,39 @@ begin
   end
   else
     Result := MakeErrorResult('Could not find current procedure start.');
+end;
+
+function TMcpServer.HandleListThreads(AParams: TJSONObject): TJSONObject;
+var
+  Arr: TJSONArray;
+  Tid: DWORD;
+begin
+  if not RequireState([dsPaused], Result) then
+    Exit;
+
+  Arr := TJSONArray.Create;
+  try
+    for Tid in FDebugger.GetThreadIds do
+      Arr.Add(Tid);
+    Result := MakeTextResult(Arr.ToJSON);
+  finally
+    Arr.Free;
+  end;
+end;
+
+function TMcpServer.HandleSwitchThread(AParams: TJSONObject): TJSONObject;
+var
+  Tid: DWORD;
+begin
+  if not RequireState([dsPaused], Result) then
+    Exit;
+
+  Tid := (AParams.GetValue('thread_id') as TJSONNumber).AsInt64;
+
+  if FDebugger.SetThreadFocus(Tid) then
+    Result := MakeTextResult(Format('Successfully switched focus to thread %d', [Tid]))
+  else
+    Result := MakeErrorResult(Format('Error: Thread ID %d not found or not active', [Tid]));
 end;
 
 procedure TMcpServer.RunOnce;
