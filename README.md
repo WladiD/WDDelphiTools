@@ -38,8 +38,16 @@ The `Examples/` folder contains demonstrations and benchmarks:
     ```bash
     git clone https://github.com/WladiD/WDDelphiTools.git
     ```
-2.  Add the path to the `WDDT.*.pas` files to your Delphi library path or search path to use the core units.
-3.  The tools in the `Projects` folder can be compiled directly with Delphi (usually `.bat` scripts are available for building).
+    *Ensure you also initialize the submodules:*
+    ```bash
+    git submodule update --init --recursive
+    ```
+2.  Prepare the library dependencies (e.g. generating missing JCL include files for newer Delphi versions like 13.1):
+    ```cmd
+    _PrepareLibs.bat
+    ```
+3.  Add the path to the `WDDT.*.pas` files to your Delphi library path or search path to use the core units.
+4.  The tools in the `Projects` folder can be compiled directly with Delphi (usually `.bat` scripts are available for building).
 
 ## License
 
