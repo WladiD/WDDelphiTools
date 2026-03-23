@@ -375,7 +375,7 @@ begin
 
   // Determine ProductVersion based on DelphiVersion (avoiding Installation property access)
   case DelphiVersion of
-    dvD13:   ProductVersion := '24.0';
+    dvD13:   ProductVersion := '37.0';
     dvD12:   ProductVersion := '23.0';
     dvD11:   ProductVersion := '22.0';
     dvD10_3: ProductVersion := '20.0';

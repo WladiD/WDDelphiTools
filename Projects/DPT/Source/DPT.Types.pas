@@ -53,7 +53,7 @@ const
     { dvD10_3   } 26,
     { dvD11     } 28,
     { dvD12     } 29,
-    { dvD13     } 30);
+    { dvD13     } 37);
 
 implementation
 
