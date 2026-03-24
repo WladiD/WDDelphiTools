@@ -25,8 +25,10 @@ type
   private
     FCurrentMeaningParam: String;
     FCurrentParameter   : Integer;
+    FParams             : TArray<String>;
   public
-    constructor Create;
+    constructor Create; overload;
+    constructor Create(const AParams: TArray<String>); overload;
     function  CheckParameter(MeaningParam: String): String;
     procedure ConsumeParameter;
     function  HasParameter: Boolean;
@@ -72,9 +74,18 @@ begin
   FCurrentParameter := 1;
 end;
 
+constructor TCmdLineConsumer.Create(const AParams: TArray<String>);
+begin
+  FParams := AParams;
+  FCurrentParameter := 0; // 0-based for custom array
+end;
+
 function TCmdLineConsumer.HasParameter: Boolean;
 begin
-  Result := FCurrentParameter <= ParamCount;
+  if FParams <> nil then
+    Result := FCurrentParameter < Length(FParams)
+  else
+    Result := FCurrentParameter <= ParamCount;
 end;
 
 function TCmdLineConsumer.CheckParameter(MeaningParam: String): String;
@@ -82,7 +93,10 @@ begin
   FCurrentMeaningParam := MeaningParam;
   if not HasParameter then
     InvalidParameter('Parameter not available');
-  Result := ParamStr(FCurrentParameter);
+  if FParams <> nil then
+    Result := FParams[FCurrentParameter]
+  else
+    Result := ParamStr(FCurrentParameter);
 end;
 
 procedure TCmdLineConsumer.ConsumeParameter;
@@ -91,10 +105,18 @@ begin
 end;
 
 procedure TCmdLineConsumer.InvalidParameter(ErrorMessage: String);
+var
+  LParam: String;
 begin
   if HasParameter then
+  begin
+    if FParams <> nil then
+      LParam := FParams[FCurrentParameter]
+    else
+      LParam := ParamStr(FCurrentParameter);
     raise EInvalidParameter.CreateFmt('%s = "%s": %s', [FCurrentMeaningParam,
-      ParamStr(FCurrentParameter), ErrorMessage])
+      LParam, ErrorMessage])
+  end
   else
     raise EInvalidParameter.CreateFmt('%s: %s', [FCurrentMeaningParam, ErrorMessage]);
 end;

@@ -33,6 +33,7 @@ type
     function IsBuildNeeded(const AExePath: String): Boolean;
   public
     OnlyIfChanged: Boolean;
+    NoWait: Boolean;
     RunArgs: String;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
@@ -241,6 +242,13 @@ begin
       Continue;
     end;
 
+    if SameText(Arg, '--NoWait') then
+    begin
+      NoWait := True;
+      CmdLine.ConsumeParameter;
+      Continue;
+    end;
+
     if (TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
     begin
       TargetPlatform := Arg;
@@ -349,15 +357,35 @@ begin
     Exit;
   end;
 
-  Writeln('Running ' + ExePath + ' ' + RunArgs + '...');
-  Writeln('--------------------------------------------------');
+  if NoWait then
+  begin
+    Writeln('Starting ' + ExePath + ' ' + RunArgs + ' (detached)...');
+    Writeln('--------------------------------------------------');
+    var SI: TStartupInfo;
+    var PI: TProcessInformation;
+    var Cmd: String;
+    FillChar(SI, SizeOf(SI), 0);
+    SI.cb := SizeOf(SI);
+    Cmd := '"' + ExePath + '" ' + RunArgs;
+    UniqueString(Cmd);
+    if not CreateProcess(nil, PChar(Cmd), nil, nil, False, 0, nil, PChar(ExtractFilePath(ExePath)), SI, PI) then
+      RaiseLastOSError;
+    CloseHandle(PI.hProcess);
+    CloseHandle(PI.hThread);
+    System.ExitCode := 0;
+  end
+  else
+  begin
+    Writeln('Running ' + ExePath + ' ' + RunArgs + '...');
+    Writeln('--------------------------------------------------');
 
-  ExitCode := RunShellCommand('"' + ExePath + '" ' + RunArgs);
+    ExitCode := RunShellCommand('"' + ExePath + '" ' + RunArgs);
 
-  if ExitCode <> 0 then
-    Writeln('Application exited with code ' + IntToStr(ExitCode));
+    if ExitCode <> 0 then
+      Writeln('Application exited with code ' + IntToStr(ExitCode));
 
-  System.ExitCode := ExitCode;
+    System.ExitCode := ExitCode;
+  end;
 end;
 
 end.

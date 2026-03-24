@@ -69,12 +69,13 @@ begin
         'Defaults: Platform=Win32, Config=Debug',
         'Example: DPT LATEST Build MyProject.dproj Win64 Release "/t:Clean;Build"'
       ]),
-      TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [-- <Args>]', [
+      TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [-- <Args>]', [
         'Builds and executes the project.',
         'Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).',
         '--OnlyIfChanged: Skips build if executable is newer than source files.',
+        '--NoWait: Launches the executable asynchronously without waiting for it to terminate.',
         '-- <Args>: Passes all subsequent arguments to the executable.',
-        'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run -debug'
+        'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
         'Lists all build configurations defined in the specified .dproj file.',
