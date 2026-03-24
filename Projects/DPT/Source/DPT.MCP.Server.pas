@@ -925,7 +925,7 @@ var
   MapFile    : String;
   Unresolved : String;
 begin
-  if not RequireState([dsNoSession], Result) then
+  if not RequireState([dsNoSession, dsExited], Result) then
     Exit;
 
   ExePath := AParams.GetValue('executable_path').Value;
@@ -1072,11 +1072,12 @@ end;
 
 function TMcpServer.HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
 begin
-  if not RequireState([dsPaused, dsRunning], Result) then
+  if not RequireState([dsPaused, dsRunning, dsExited], Result) then
     Exit;
 
   DisconnectDebuggerEvents;
-  FDebugger.Detach;
+  if FState <> dsExited then
+    FDebugger.Detach;
   FState := dsNoSession;
   if FOwnsDebugger then
     FreeAndNil(FDebugger)
@@ -1088,11 +1089,12 @@ end;
 
 function TMcpServer.HandleTerminateDebugSession(AParams: TJSONObject): TJSONObject;
 begin
-  if not RequireState([dsPaused, dsRunning], Result) then
+  if not RequireState([dsPaused, dsRunning, dsExited], Result) then
     Exit;
 
   DisconnectDebuggerEvents;
-  FDebugger.Terminate;
+  if FState <> dsExited then
+    FDebugger.Terminate;
   FState := dsNoSession;
   if FOwnsDebugger then
     FreeAndNil(FDebugger)

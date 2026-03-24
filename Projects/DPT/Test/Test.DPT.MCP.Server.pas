@@ -49,6 +49,8 @@ type
     procedure TestMcpMultiThreadedBreakpoints;
     [Test]
     procedure TestMcpListAndSwitchThreads;
+    [Test]
+    procedure TestMcpMapFileUnlockAfterExit;
   end;
 
 implementation
@@ -998,17 +1000,11 @@ begin
       WaitForOutput(OutputWriter, 8);
       
       // Verify wait_until_paused returns paused state.
-      // Since notifications and sampling requests can vary in count, scan the output 
+      // Since notifications and sampling requests can vary in count, scan the output
       // from the end to find the actual response to the wait_until_paused (id=5) call.
       // We must avoid matching sampling requests which also might contain an "id" property.
-      
-      Writeln('=== DEBUG OUTPUT WRITER LINES ===');
-      for var I := 0 to OutputWriter.GetCount - 1 do
-        Writeln(Format('[%d]: %s', [I, OutputWriter.GetLine(I)]));
-      Writeln('=================================');
-      
-      var WaitResponse := '';
-      var LJSON: TJSONObject;
+
+      var WaitResponse := '';      var LJSON: TJSONObject;
       for var I := OutputWriter.GetCount - 1 downto 0 do
       begin
         var Line := OutputWriter.GetLine(I);
@@ -1374,6 +1370,62 @@ begin
     end;
   finally
     Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpMapFileUnlockAfterExit;
+var
+  Server: TMcpServer;
+  InputReader: TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath, MapFile: string;
+  FileHandle: THandle;
+begin
+  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
+  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // We test starting a debug session, continuing until exit, and then attempting to access the map file
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    Format('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 5000}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
+
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    
+    Server.RunOnce; // ignore_exception
+
+    Server.RunOnce; // start_debug_session (this will lock the map file)
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Debug session started'), 'Session should start');
+    Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after starting');
+
+    Server.RunOnce; // continue (let the program run and exit)
+    
+    Server.RunOnce; // wait_until_paused (will wait until the debugger catches the exit event)
+    Assert.AreEqual(Ord(dsExited), Ord(Server.State), 'State should be exited');
+    
+    // Now call stop_debug_session (this should free the debugger and thus the map file)
+    Server.RunOnce; // stop_debug_session
+    Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session after stopping');
+
+    // Attempt to open the map file for writing (GENERIC_WRITE, share mode 0 to enforce exclusivity)
+    // If it's locked by the TDebugger, this will fail.
+    FileHandle := CreateFile(PChar(MapFile), GENERIC_WRITE, 0, nil, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0);
+    Assert.AreNotEqual(THandle(INVALID_HANDLE_VALUE), FileHandle, 'Map file is locked after debug session exit and stop_debug_session!');
+    
+    if FileHandle <> INVALID_HANDLE_VALUE then
+      CloseHandle(FileHandle);
+
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
   end;
 end;
 
