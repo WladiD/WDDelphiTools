@@ -59,6 +59,7 @@ The guards use an internal expression parser with access to the current DPT stat
 | `ClearIncludePatterns()` | Clears the current list of include patterns. Always returns `True` for chaining. |
 | `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`, `*.dfm`) to the ignore list used by Fix and Format functions. Files matching these patterns are excluded, even if they match an `IncludePattern`. Always returns `True` for chaining. |
 | `ClearIgnorePatterns()` | Clears the current list of ignore patterns. Always returns `True` for chaining. |
+| `DProjPrintOutputFile("Project.dproj", ["Config"], ["Platform"])` | Parses the given `.dproj` file and returns the evaluated `DCC_ExeOutput` path (the executable path). Optional parameters `Config` (defaults to the project's default config) and `Platform` (defaults to `Win32`). |
 
 ## Example Workflow
 

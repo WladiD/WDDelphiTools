@@ -62,6 +62,7 @@ type
     function  ExprParserGetExitCode: Variant;
     function  ExprParserGetLastFixedFiles: Variant;
     function  ExprParserGetLastFormattedFiles: Variant;
+    function  ExprParserDProjPrintOutputFile(const Args: Variant): Variant;
     function  ExprParserIgnorePattern(const Args: Variant): Variant;
     function  ExprParserClearIgnorePatterns: Variant;
     function  ExprParserIncludePattern(const Args: Variant): Variant;
@@ -106,6 +107,8 @@ uses
   ParseTree.Writer,
   DPT.Formatter.DWS,
 
+  DPT.DProjAnalyzer,
+  DPT.Utils,
   DPT.Detection;
 
 const
@@ -360,6 +363,8 @@ begin
     ResVal := ExprParserFormatGitModifiedFiles(Args)
   else if SameText(FuncName, 'GetLastFormattedFiles') then
     ResVal := ExprParserGetLastFormattedFiles
+  else if SameText(FuncName, 'DProjPrintOutputFile') then
+    ResVal := ExprParserDProjPrintOutputFile(Args)
   else
     Exit(False);
 
@@ -532,6 +537,35 @@ begin
   begin
     if I > 0 then Result := Result + sLineBreak;
     Result := Result + FLastFormattedFiles[I];
+  end;
+end;
+
+function TDptWorkflowEngine.ExprParserDProjPrintOutputFile(const Args: Variant): Variant;
+var
+  ProjectFile, Config, Platform: string;
+  Analyzer: TDProjAnalyzer;
+begin
+  Result := '';
+  if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
+  begin
+    ProjectFile := ExpandFileName(VarToStr(Args[0]));
+    Config := '';
+    Platform := '';
+    if VarArrayHighBound(Args, 1) >= 1 then Config := VarToStr(Args[1]);
+    if VarArrayHighBound(Args, 1) >= 2 then Platform := VarToStr(Args[2]);
+
+    if TFile.Exists(ProjectFile) then
+    begin
+      CheckAndExecutePreProcessor(ProjectFile);
+      Analyzer := TDProjAnalyzer.Create(ProjectFile);
+      try
+        if Config = '' then Config := Analyzer.GetDefaultConfig;
+        if Platform = '' then Platform := 'Win32';
+        Result := Analyzer.GetProjectOutputFile(Config, Platform);
+      finally
+        Analyzer.Free;
+      end;
+    end;
   end;
 end;
 

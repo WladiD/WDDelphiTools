@@ -55,6 +55,8 @@ type
     procedure TestComplexWorkflow_IncludeIgnoreAndFormat;
     [Test]
     procedure ProcessInstructions_PreservesTextWithParentheses;
+    [Test]
+    procedure DProjPrintOutputFile;
   end;
 
 implementation
@@ -537,6 +539,57 @@ begin
   Assert.IsTrue(Instructions.Contains('Test.dpr'), 'Output should contain Test.dpr');
   Assert.IsFalse(Instructions.Contains('Test.dfm'), 'Output should NOT contain Test.dfm');
   Assert.IsFalse(Instructions.Contains('Test.txt'), 'Output should NOT contain Test.txt');
+end;
+
+procedure TTestDptWorkflow.DProjPrintOutputFile;
+var
+  Instructions: String;
+  ProjectContent: String;
+  ProjectFile: String;
+begin
+  // 1. Create a mock dproj file
+  ProjectContent := '''
+    <?xml version="1.0" encoding="utf-8"?>
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <Config Condition="'$(Config)'==''">Release</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Release'">
+        <DCC_ExeOutput>.\bin\Release</DCC_ExeOutput>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Debug'">
+        <DCC_ExeOutput>.\bin\Debug</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''';
+  ProjectFile := CreateTestFile('TestProject.dproj', ProjectContent);
+
+  // 2. Create the workflow file testing the new function
+  // We use backticks to evaluate the function and output the result
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      Output File Release: `DProjPrintOutputFile("TestProject.dproj", "Release", "Win32")`
+      Output File Debug: `DProjPrintOutputFile("TestProject.dproj", "Debug", "Win32")`
+      Output File Default: `DProjPrintOutputFile("TestProject.dproj")`
+    }
+    ''');
+
+  // Reload workflow
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // 3. Run CheckConditions
+  FEngine.CheckConditions(Instructions);
+
+  // 4. Verify the output instructions contain the correct evaluated path
+  Assert.IsTrue(Instructions.Contains('Output File Release:'), 'Output should contain Release label.');
+  Assert.IsTrue(Instructions.Contains('bin\Release\TestProject.exe'), 'Output should contain the resolved project output file for Release. Actual: ' + Instructions);
+  Assert.IsTrue(Instructions.Contains('Output File Debug:'), 'Output should contain Debug label.');
+  Assert.IsTrue(Instructions.Contains('bin\Debug\TestProject.exe'), 'Output should contain the resolved project output file for Debug. Actual: ' + Instructions);
+  Assert.IsTrue(Instructions.Contains('Output File Default:'), 'Output should contain Default label.');
+  Assert.IsTrue(Instructions.Contains('Output File Default: ') and Instructions.Substring(Instructions.IndexOf('Output File Default: ')).Contains('bin\Release\TestProject.exe'), 'Output should contain the resolved project output file for Default (Release). Actual: ' + Instructions);
 end;
 
 end.
