@@ -276,7 +276,6 @@ var
   Analyzer    : TDProjAnalyzer;
   BDSPath     : String;
   ExeTime     : TDateTime;
-  Files       : TStringDynArray;
   FullPaths   : String;
   IdePath     : String;
   Inst        : TJclBorRADToolInstallation;
@@ -321,25 +320,17 @@ begin
   end;
 
   // 3. Check the project directory (top-level only, like the compiler does)
-  Files := TDirectory.GetFiles(ProjectDir, TSearchOption.soTopDirectoryOnly,
+  for SourceFile in TDirectory.GetFilesEnumerator(ProjectDir, '*', TSearchOption.soTopDirectoryOnly,
     function(const APath: string; const ASearchRec: TSearchRec): Boolean
     begin
       var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
-      Result := (Ext = '.pas') or
-                (Ext = '.dpr') or
-                (Ext = '.inc') or
-                (Ext = '.res') or
-                (Ext = '.dfm') or
-                (Ext = '.fmx');
-    end);
-
-  for SourceFile in Files do
+      Result := ((Ext = '.pas') or (Ext = '.dpr') or (Ext = '.inc') or
+                 (Ext = '.res') or (Ext = '.dfm') or (Ext = '.fmx')) and
+                (ASearchRec.TimeStamp > ExeTime);
+    end) do
   begin
-    if TFile.GetLastWriteTime(SourceFile) > ExeTime then
-    begin
-      ANewerFile := SourceFile;
-      Exit(True);
-    end;
+    ANewerFile := SourceFile;
+    Exit(True);
   end;
 
   Inst := nil;
@@ -380,20 +371,15 @@ begin
       Continue;
 
     // Search paths only require top-directory scanning as compiler resolves units directly there
-    Files := TDirectory.GetFiles(ResolvedPath, TSearchOption.soTopDirectoryOnly,
+    for SourceFile in TDirectory.GetFilesEnumerator(ResolvedPath, '*', TSearchOption.soTopDirectoryOnly,
       function(const APath: string; const ASearchRec: TSearchRec): Boolean
       begin
         var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
-        Result := (Ext = '.pas') or (Ext = '.inc');
-      end);
-
-    for SourceFile in Files do
+        Result := ((Ext = '.pas') or (Ext = '.inc')) and (ASearchRec.TimeStamp > ExeTime);
+      end) do
     begin
-      if TFile.GetLastWriteTime(SourceFile) > ExeTime then
-      begin
-        ANewerFile := SourceFile;
-        Exit(True);
-      end;
+      ANewerFile := SourceFile;
+      Exit(True);
     end;
   end;
 
