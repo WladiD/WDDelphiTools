@@ -1,4 +1,4 @@
-unit Test.DPT.BuildAndRunTask;
+﻿unit Test.DPT.BuildAndRunTask;
 
 interface
 
@@ -32,6 +32,10 @@ type
     procedure Parse_NoWait;
     [Test]
     procedure Parse_Complex;
+    [Test]
+    procedure IsBuildNeeded_SearchPath;
+    [Test]
+    procedure IsBuildNeeded_SearchPath_NoBuildNeeded;
   end;
 
 implementation
@@ -40,6 +44,28 @@ uses
   DPT.Types;
 
 { TDptBuildAndRunTaskTests }
+
+procedure TDptBuildAndRunTaskTests.Setup;
+var
+  ProjectDir: String;
+begin
+  FTask := TStubDptBuildAndRunTask.Create;
+  FTempDir := TPath.Combine(TPath.GetTempPath, TGUID.NewGuid.ToString);
+  TDirectory.CreateDirectory(FTempDir);
+
+  ProjectDir := TPath.Combine(FTempDir, 'Project');
+  TDirectory.CreateDirectory(ProjectDir);
+
+  FProjectFile := TPath.Combine(ProjectDir, 'TestProject.dproj');
+  FTask.ProjectFile := FProjectFile;
+end;
+
+procedure TDptBuildAndRunTaskTests.TearDown;
+begin
+  FTask.Free;
+  if TDirectory.Exists(FTempDir) then
+    TDirectory.Delete(FTempDir, True);
+end;
 
 procedure TDptBuildAndRunTaskTests.Parse_NoWait;
 var
@@ -71,20 +97,76 @@ begin
   end;
 end;
 
-procedure TDptBuildAndRunTaskTests.Setup;
+procedure TDptBuildAndRunTaskTests.IsBuildNeeded_SearchPath;
+var
+  SearchPathDir: String;
+  DprojContent : String;
+  ExePath      : String;
+  SourceFile   : String;
+  NewerFile    : String;
 begin
-  FTask := TStubDptBuildAndRunTask.Create;
-  FTempDir := TPath.Combine(TPath.GetTempPath, TGUID.NewGuid.ToString);
-  TDirectory.CreateDirectory(FTempDir);
-  FProjectFile := TPath.Combine(FTempDir, 'TestProject.dproj');
-  FTask.ProjectFile := FProjectFile;
+  SearchPathDir := TPath.Combine(FTempDir, 'ExternalSearchPath');
+  TDirectory.CreateDirectory(SearchPathDir);
+
+  DprojContent :=
+    '<Project>' +
+    '  <PropertyGroup>' +
+    '    <DCC_UnitSearchPath>' + SearchPathDir + '</DCC_UnitSearchPath>' +
+    '  </PropertyGroup>' +
+    '</Project>';
+  TFile.WriteAllText(FProjectFile, DprojContent);
+
+  ExePath := TPath.Combine(TPath.GetDirectoryName(FProjectFile), 'TestExe.exe');
+  TFile.WriteAllText(ExePath, 'dummy exe');
+
+  // Ensure project file is older than exe to not trigger build
+  TFile.SetLastWriteTime(FProjectFile, Now - 2);
+  // Ensure exe is older than the source file we are about to create
+  TFile.SetLastWriteTime(ExePath, Now - 1);
+
+  SourceFile := TPath.Combine(SearchPathDir, 'ExternalUnit.pas');
+  TFile.WriteAllText(SourceFile, 'unit ExternalUnit; interface implementation end.');
+
+  FTask.Config := 'Debug';
+  FTask.TargetPlatform := 'Win32';
+
+  Assert.IsTrue(FTask.IsBuildNeeded(ExePath, NewerFile), 'Build should be needed because a file in search path is newer');
+  Assert.AreEqual(SourceFile, NewerFile, 'NewerFile should match the external unit');
 end;
 
-procedure TDptBuildAndRunTaskTests.TearDown;
+procedure TDptBuildAndRunTaskTests.IsBuildNeeded_SearchPath_NoBuildNeeded;
+var
+  SearchPathDir: String;
+  DprojContent : String;
+  ExePath      : String;
+  SourceFile   : String;
+  NewerFile    : String;
 begin
-  FTask.Free;
-  if TDirectory.Exists(FTempDir) then
-    TDirectory.Delete(FTempDir, True);
+  SearchPathDir := TPath.Combine(FTempDir, 'ExternalSearchPath');
+  TDirectory.CreateDirectory(SearchPathDir);
+
+  DprojContent :=
+    '<Project>' +
+    '  <PropertyGroup>' +
+    '    <DCC_UnitSearchPath>' + SearchPathDir + '</DCC_UnitSearchPath>' +
+    '  </PropertyGroup>' +
+    '</Project>';
+  TFile.WriteAllText(FProjectFile, DprojContent);
+
+  SourceFile := TPath.Combine(SearchPathDir, 'ExternalUnit.pas');
+  TFile.WriteAllText(SourceFile, 'unit ExternalUnit; interface implementation end.');
+
+  ExePath := TPath.Combine(TPath.GetDirectoryName(FProjectFile), 'TestExe.exe');
+  TFile.WriteAllText(ExePath, 'dummy exe');
+
+  // Ensure timestamp difference: Source is older than Exe
+  TFile.SetLastWriteTime(SourceFile, Now - 1);
+
+  FTask.Config := 'Debug';
+  FTask.TargetPlatform := 'Win32';
+
+  Assert.IsFalse(FTask.IsBuildNeeded(ExePath, NewerFile), 'Build should NOT be needed because executable is newer than search path file');
+  Assert.IsEmpty(NewerFile, 'NewerFile should be empty');
 end;
 
 end.

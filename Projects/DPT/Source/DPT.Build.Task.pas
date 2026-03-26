@@ -30,7 +30,7 @@ type
 
   TDptBuildAndRunTask = class(TDptBuildTask)
   protected
-    function IsBuildNeeded(const AExePath: String): Boolean;
+    function IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
   public
     OnlyIfChanged: Boolean;
     NoWait: Boolean;
@@ -271,13 +271,23 @@ begin
   RunArgs := Trim(RunArgs);
 end;
 
-function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String): Boolean;
+function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
 var
-  ExeTime   : TDateTime;
-  Files     : TStringDynArray;
-  ProjectDir: String;
-  SourceFile: String;
+  Analyzer    : TDProjAnalyzer;
+  BDSPath     : String;
+  ExeTime     : TDateTime;
+  Files       : TStringDynArray;
+  FullPaths   : String;
+  IdePath     : String;
+  Inst        : TJclBorRADToolInstallation;
+  PathEntry   : String;
+  ProjectDir  : String;
+  ProjectFiles: TArray<String>;
+  ProjPath    : String;
+  ResolvedPath: String;
+  SourceFile  : String;
 begin
+  ANewerFile := '';
   if not FileExists(AExePath) then
     Exit(True);
 
@@ -285,19 +295,103 @@ begin
   ExeTime := TFile.GetLastWriteTime(AExePath);
   ProjectDir := ExtractFilePath(ExpandFileName(ProjectFile));
 
-  // Extensions to check
-  // We check .pas, .dpr, .dproj, .dfm, .fmx, .inc, .res
-  Files := TDirectory.GetFiles(ProjectDir, '*.*', TSearchOption.soAllDirectories);
+  // 1. Check the project file itself (.dproj)
+  if TFile.GetLastWriteTime(ProjectFile) > ExeTime then
+  begin
+    ANewerFile := ProjectFile;
+    Exit(True);
+  end;
+
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    // 2. Check all files explicitly included in the project (.pas, etc.) via DCCReference
+    ProjectFiles := Analyzer.GetProjectFiles;
+    for SourceFile in ProjectFiles do
+    begin
+      if FileExists(SourceFile) and (TFile.GetLastWriteTime(SourceFile) > ExeTime) then
+      begin
+        ANewerFile := SourceFile;
+        Exit(True);
+      end;
+    end;
+
+    ProjPath := Analyzer.GetProjectSearchPath(Config, TargetPlatform);
+  finally
+    Analyzer.Free;
+  end;
+
+  // 3. Check the project directory (top-level only, like the compiler does)
+  Files := TDirectory.GetFiles(ProjectDir, TSearchOption.soTopDirectoryOnly,
+    function(const APath: string; const ASearchRec: TSearchRec): Boolean
+    begin
+      var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
+      Result := (Ext = '.pas') or
+                (Ext = '.dpr') or
+                (Ext = '.inc') or
+                (Ext = '.res') or
+                (Ext = '.dfm') or
+                (Ext = '.fmx');
+    end);
 
   for SourceFile in Files do
   begin
-    var Ext: String := LowerCase(ExtractFileExt(SourceFile));
-    if (Ext = '.pas') or (Ext = '.dpr') or (Ext = '.dproj') or
-       (Ext = '.dfm') or (Ext = '.fmx') or (Ext = '.inc') or (Ext = '.res') then
+    if TFile.GetLastWriteTime(SourceFile) > ExeTime then
+    begin
+      ANewerFile := SourceFile;
+      Exit(True);
+    end;
+  end;
+
+  Inst := nil;
+  try
+    Inst := Installation;
+  except
+    // Installation method may raise an exception if Delphi is not properly configured/detected,
+    // which can happen during unit tests. We ignore it here and proceed without IDE paths.
+  end;
+
+  if Assigned(Inst) then
+  begin
+    BDSPath := ExcludeTrailingPathDelimiter(Inst.RootDir);
+    ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
+
+    if SameText(TargetPlatform, 'Win64') then
+      IdePath := Inst.LibrarySearchPath[bpWin64]
+    else
+      IdePath := Inst.LibrarySearchPath[bpWin32];
+  end
+  else
+  begin
+    BDSPath := '';
+    IdePath := '';
+  end;
+
+  if (ProjPath <> '') and (IdePath <> '') then
+    FullPaths := IdePath + ';' + ProjPath
+  else
+    FullPaths := IdePath + ProjPath;
+
+  for PathEntry in FullPaths.Split([';'], TStringSplitOptions.ExcludeEmpty) do
+  begin
+    ResolvedPath := TPath.Combine(ProjectDir, PathEntry);
+    ResolvedPath := TPath.GetFullPath(ResolvedPath);
+
+    if not TDirectory.Exists(ResolvedPath) then
+      Continue;
+
+    // Search paths only require top-directory scanning as compiler resolves units directly there
+    Files := TDirectory.GetFiles(ResolvedPath, TSearchOption.soTopDirectoryOnly,
+      function(const APath: string; const ASearchRec: TSearchRec): Boolean
+      begin
+        var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
+        Result := (Ext = '.pas') or (Ext = '.inc');
+      end);
+
+    for SourceFile in Files do
     begin
       if TFile.GetLastWriteTime(SourceFile) > ExeTime then
       begin
-        Writeln(Format('Source file "%s" is newer than executable.', [ExtractFileName(SourceFile)]));
+        ANewerFile := SourceFile;
         Exit(True);
       end;
     end;
@@ -311,6 +405,7 @@ var
   ExePath: String;
   ExitCode: Integer;
   Analyzer: TDProjAnalyzer;
+  NewerFile: String;
 begin
   Analyzer := TDProjAnalyzer.Create(ProjectFile);
   try
@@ -321,12 +416,15 @@ begin
 
   if OnlyIfChanged then
   begin
-    if not IsBuildNeeded(ExePath) then
+    if not IsBuildNeeded(ExePath, NewerFile) then
     begin
       Writeln('Executable is up to date. Skipping build.');
     end
     else
     begin
+      if NewerFile <> '' then
+        Writeln(Format('Build needed because "%s" is newer than executable.', [ExtractFileName(NewerFile)]));
+        
       inherited Execute;
       if System.ExitCode <> 0 then
         Exit; // Build failed
