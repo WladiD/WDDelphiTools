@@ -421,47 +421,17 @@ var
   ExePath: String;
   ExitCode: Integer;
   Analyzer: TDProjAnalyzer;
-  NewerFile: String;
 begin
+  inherited Execute;
+  if System.ExitCode <> 0 then
+    Exit; // Build failed
+
+  // Re-evaluate ExePath as it might have been created/moved
   Analyzer := TDProjAnalyzer.Create(ProjectFile);
   try
     ExePath := Analyzer.GetProjectOutputFile(Config, TargetPlatform);
   finally
     Analyzer.Free;
-  end;
-
-  if OnlyIfChanged then
-  begin
-    if not IsBuildNeeded(ExePath, NewerFile) then
-    begin
-      Writeln('Executable is up to date. Skipping build.');
-    end
-    else
-    begin
-      if NewerFile <> '' then
-        Writeln(Format('Build needed because "%s" is newer than executable.', [ExtractFileName(NewerFile)]));
-        
-      inherited Execute;
-      if System.ExitCode <> 0 then
-        Exit; // Build failed
-    end;
-  end
-  else
-  begin
-    inherited Execute;
-    if System.ExitCode <> 0 then
-      Exit; // Build failed
-  end;
-
-  // Re-evaluate ExePath as it might have been created/moved
-  if not FileExists(ExePath) then
-  begin
-    Analyzer := TDProjAnalyzer.Create(ProjectFile);
-    try
-      ExePath := Analyzer.GetProjectOutputFile(Config, TargetPlatform);
-    finally
-      Analyzer.Free;
-    end;
   end;
 
   if not FileExists(ExePath) then
