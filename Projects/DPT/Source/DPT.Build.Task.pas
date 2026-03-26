@@ -19,20 +19,19 @@ type
   protected
     procedure CheckExeNotLocked(const ExePath: String);
     function  RunShellCommand(const CommandLine: String): Integer;
+    function  IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
   public
     Config        : String;
     ExtraArgs     : String;
     ProjectFile   : String;
     TargetPlatform: String;
+    OnlyIfChanged : Boolean;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
   end;
 
   TDptBuildAndRunTask = class(TDptBuildTask)
-  protected
-    function IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
   public
-    OnlyIfChanged: Boolean;
     NoWait: Boolean;
     RunArgs: String;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
@@ -64,37 +63,49 @@ uses
 { TDptBuildTask }
 
 procedure TDptBuildTask.Parse(CmdLine: TCmdLineConsumer);
+var
+  Arg: String;
 begin
   // ProjectFile (Required)
   ProjectFile := ExpandFileName(CmdLine.CheckParameter('ProjectFile'));
   CheckAndExecutePreProcessor(ProjectFile);
   CmdLine.ConsumeParameter;
 
-  // Platform (Optional)
-  if CmdLine.HasParameter then
-  begin
-    TargetPlatform := CmdLine.CheckParameter('Platform');
-    CmdLine.ConsumeParameter;
-  end
-  else
-    TargetPlatform := 'Win32';
-
-  // Config (Optional)
-  if CmdLine.HasParameter then
-  begin
-    Config := CmdLine.CheckParameter('Config');
-    CmdLine.ConsumeParameter;
-  end
-  else
-    Config := 'Debug';
-
-  // ExtraArgs (Optional - consume all remaining)
+  // Defaults
+  TargetPlatform := 'Win32';
+  Config := 'Debug';
+  OnlyIfChanged := False;
   ExtraArgs := '';
+
   while CmdLine.HasParameter do
   begin
-     ExtraArgs := ExtraArgs + ' ' + CmdLine.CheckParameter('ExtraArg');
-     CmdLine.ConsumeParameter;
+    Arg := CmdLine.CheckParameter('Args');
+
+    if SameText(Arg, '--OnlyIfChanged') then
+    begin
+      OnlyIfChanged := True;
+      CmdLine.ConsumeParameter;
+      Continue;
+    end;
+
+    if (TargetPlatform = 'Win32') and ((SameText(Arg, 'Win32')) or (SameText(Arg, 'Win64'))) then
+    begin
+      TargetPlatform := Arg;
+      CmdLine.ConsumeParameter;
+    end
+    else if (Config = 'Debug') and ((SameText(Arg, 'Debug')) or (SameText(Arg, 'Release')) or (SameText(Arg, 'FitNesse'))) then
+    begin
+      Config := Arg;
+      CmdLine.ConsumeParameter;
+    end
+    else
+    begin
+      // Assume ExtraArg for MSBuild
+      ExtraArgs := ExtraArgs + ' ' + Arg;
+      CmdLine.ConsumeParameter;
+    end;
   end;
+
   ExtraArgs := Trim(ExtraArgs);
 end;
 
@@ -158,6 +169,7 @@ var
   RsvarsPath    : String;
   ExePath       : String;
   Analyzer      : TDProjAnalyzer;
+  NewerFile     : String;
 begin
   // Pre-check if output executable is locked
   Analyzer := TDProjAnalyzer.Create(ProjectFile);
@@ -166,6 +178,19 @@ begin
   finally
     Analyzer.Free;
   end;
+
+  if OnlyIfChanged then
+  begin
+    if not IsBuildNeeded(ExePath, NewerFile) then
+    begin
+      Writeln('Executable is up to date. Skipping build.');
+      Exit;
+    end;
+
+    if NewerFile <> '' then
+      Writeln(Format('Build needed because "%s" is newer than executable.', [ExtractFileName(NewerFile)]));
+  end;
+
   CheckExeNotLocked(ExePath);
 
   RsvarsPath := IncludeTrailingPathDelimiter(Installation.BinFolderName) + 'rsvars.bat';
@@ -271,7 +296,7 @@ begin
   RunArgs := Trim(RunArgs);
 end;
 
-function TDptBuildAndRunTask.IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
+function TDptBuildTask.IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
 var
   Analyzer    : TDProjAnalyzer;
   BDSPath     : String;

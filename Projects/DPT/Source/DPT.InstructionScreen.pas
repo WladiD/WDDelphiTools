@@ -59,22 +59,22 @@ begin
   if Length(FActions) = 0 then
   begin
     FActions := [
-      TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [ExtraArgs]', [
+      TActionInfo.Create('Build', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [ExtraArgs]', [
         'Builds the specified project using MSBuild.',
         'Automatically sets up the environment variables (rsvars.bat) and passes the current Delphi version.',
         'If <ProjectFile> is not a .dproj file, it is processed by the internal TmplCodeGen preprocessor first.',
-        '  - Supports embedded configs: (* Name-conf.json ... *)',
-        '  - Supports generation instructions: // TmplCodeGen Prefix',
-        '  - Supports include partials: // TmplCodeGen include_partials [Target]',
+        'Options:',
+        '  --OnlyIfChanged: Skips build if executable is newer than source files.',
         'Defaults: Platform=Win32, Config=Debug',
-        'Example: DPT LATEST Build MyProject.dproj Win64 Release "/t:Clean;Build"'
+        'Example: DPT LATEST Build MyProject.dproj Win64 Release --OnlyIfChanged "/t:Clean;Build"'
       ]),
       TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [-- <Args>]', [
         'Builds and executes the project.',
         'Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).',
-        '--OnlyIfChanged: Skips build if executable is newer than source files.',
-        '--NoWait: Launches the executable asynchronously without waiting for it to terminate.',
-        '-- <Args>: Passes all subsequent arguments to the executable.',
+        'Options:',
+        '  --OnlyIfChanged: Skips build if executable is newer than source files.',
+        '  --NoWait: Launches the executable asynchronously without waiting for it to terminate.',
+        '  -- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
