@@ -323,10 +323,12 @@ begin
   for SourceFile in TDirectory.GetFilesEnumerator(ProjectDir, '*', TSearchOption.soTopDirectoryOnly,
     function(const APath: string; const ASearchRec: TSearchRec): Boolean
     begin
+      if ASearchRec.TimeStamp <= ExeTime then
+        Exit(False);
+
       var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
-      Result := ((Ext = '.pas') or (Ext = '.dpr') or (Ext = '.inc') or
-                 (Ext = '.res') or (Ext = '.dfm') or (Ext = '.fmx')) and
-                (ASearchRec.TimeStamp > ExeTime);
+      Result := (Ext = '.pas') or (Ext = '.dpr') or (Ext = '.inc') or
+                (Ext = '.res') or (Ext = '.dfm') or (Ext = '.fmx');
     end) do
   begin
     ANewerFile := SourceFile;
@@ -374,8 +376,11 @@ begin
     for SourceFile in TDirectory.GetFilesEnumerator(ResolvedPath, '*', TSearchOption.soTopDirectoryOnly,
       function(const APath: string; const ASearchRec: TSearchRec): Boolean
       begin
+        if ASearchRec.TimeStamp <= ExeTime then
+          Exit(False);
+
         var Ext: String := LowerCase(ExtractFileExt(ASearchRec.Name));
-        Result := ((Ext = '.pas') or (Ext = '.inc')) and (ASearchRec.TimeStamp > ExeTime);
+        Result := (Ext = '.pas') or (Ext = '.inc');
       end) do
     begin
       ANewerFile := SourceFile;
