@@ -152,6 +152,8 @@ type
     procedure TestFormatUnitHeader_UsesBaseDefineForBaseUnits;
     [Test]
     procedure TestFormatTypeSection_UsesShortBanner;
+    [Test]
+    procedure TestFormatMethodImplementation_LocalVarNotBannered;
   end;
 
 implementation
@@ -2452,6 +2454,45 @@ begin
     Assert.IsFalse(LResult.Contains(
       #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 + 'type' + #13#10
     ), 'Type section should not have a long banner. Actual result:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_LocalVarNotBannered;
+var
+  LResult: String;
+  LSource: String;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // Reproducer: TArray<Word>=[] causes the lexer to emit >= (tkGreaterOrEquals).
+  // ParseClassMember only decremented LNestLevel for tkGreaterThan, so the generic
+  // closing > was missed, nesting stayed elevated, and the parser consumed past
+  // the class end into the implementation section.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TMyClass = class' + #13#10 +
+    '    function Search(var AKey: Integer; AIds: TArray<Word>=[]): Boolean;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure TMyClass.DoWork;' + #13#10 +
+    'var' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Ensure no banner is inserted between procedure header and local var
+    Assert.IsTrue(LResult.Contains('procedure TMyClass.DoWork;' + #13#10 + 'var'),
+      'No banner should be inserted between method header and local var section. Actual:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;

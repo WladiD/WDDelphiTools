@@ -447,7 +447,8 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
     begin
       if (Current.Kind = tkOpenParen) or (Current.Kind = tkLessThan) then
         Inc(LNestLevel)
-      else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) then
+      else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) or
+              ((Current.Kind = tkGreaterOrEquals) and (LNestLevel > 0)) then
         Dec(LNestLevel)
       // Track nested declaration blocks (e.g. record/case inside member types)
       else if (
@@ -1809,7 +1810,7 @@ begin
         
       if (Current <> nil) and (Current.Kind = tkInterfaceKeyword) then
         Result.InterfaceSection := ParseInterfaceSection();
-        
+
       LUnp := nil;
       while (Current <> nil) and not (Current.Kind in [tkImplementationKeyword, tkEOF]) do
       begin
