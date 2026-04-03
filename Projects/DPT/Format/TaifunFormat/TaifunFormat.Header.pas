@@ -71,7 +71,8 @@ begin
             while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
             if ADescription <> '' then LFoundDesc := True;
           end
-          else if (LLine <> '// ' + AUnitName) and (Pos('// ' + AUnitName + ' -', LLine) <> 1) then
+          else if (LLine <> '// ' + AUnitName) and (Pos('// ' + AUnitName + ' -', LLine) <> 1) and
+                  (Pos(LLine + '.', '// ' + AUnitName) <> 1) then
           begin
             if LFoundDesc and not LFoundAuthor and (LLine <> '//') and (LLine <> '// ') then
             begin

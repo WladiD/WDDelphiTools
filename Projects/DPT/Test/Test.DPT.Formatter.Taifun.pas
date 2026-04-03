@@ -154,6 +154,8 @@ type
     procedure TestFormatTypeSection_UsesShortBanner;
     [Test]
     procedure TestFormatMethodImplementation_LocalVarNotBannered;
+    [Test]
+    procedure TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
   end;
 
 implementation
@@ -2493,6 +2495,47 @@ begin
     // Ensure no banner is inserted between procedure header and local var
     Assert.IsTrue(LResult.Contains('procedure TMyClass.DoWork;' + #13#10 + 'var'),
       'No banner should be inserted between method header and local var section. Actual:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
+var
+  LResult: String;
+  LSource: String;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // When the banner contains an old/partial unit name (e.g. Tfw.Dms.Inbox instead of
+  // Tfw.Dms.Inbox.Form), the formatter should replace it, not keep it as extra comment.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Tfw.Dms.Inbox' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Mister X' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit Tfw.Dms.Inbox.Form;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // The old partial name must not appear in the output
+    Assert.IsFalse(LResult.Contains('// Tfw.Dms.Inbox' + #13#10),
+      'Old partial unit name should not be preserved in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+    // The correct unit name must be present
+    Assert.IsTrue(LResult.Contains('// Tfw.Dms.Inbox.Form'),
+      'Correct unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
   finally
     LUnit.Free;
   end;
