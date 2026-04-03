@@ -68,6 +68,12 @@ begin
         'Defaults: Platform=Win32, Config=Debug',
         'Example: DPT LATEST Build MyProject.dproj Win64 Release --OnlyIfChanged "/t:Clean;Build"'
       ]),
+      TActionInfo.Create('Compile', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [ExtraArgs]', [
+        'Performs an incremental build (MSBuild /t:Make) of the specified project.',
+        'Only recompiles units that have changed since the last build.',
+        'Same parameters and features as Build action (rsvars.bat, TmplCodeGen preprocessing).',
+        'Example: DPT LATEST Compile MyProject.dproj Win64 Release'
+      ]),
       TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [-- <Args>]', [
         'Builds and executes the project.',
         'Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).',

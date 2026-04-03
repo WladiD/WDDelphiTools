@@ -17,6 +17,8 @@ type
 
   TDptBuildTask = class(TDptTaskBase)
   protected
+    function  GetMSBuildTarget: String; virtual;
+    function  GetActionDisplayName: String; virtual;
     procedure CheckExeNotLocked(const ExePath: String);
     function  RunShellCommand(const CommandLine: String): Integer;
     function  IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
@@ -28,6 +30,12 @@ type
     OnlyIfChanged : Boolean;
     procedure Parse(CmdLine: TCmdLineConsumer); override;
     procedure Execute; override;
+  end;
+
+  TDptCompileTask = class(TDptBuildTask)
+  protected
+    function GetMSBuildTarget: String; override;
+    function GetActionDisplayName: String; override;
   end;
 
   TDptBuildAndRunTask = class(TDptBuildTask)
@@ -61,6 +69,16 @@ uses
   DPT.Workflow;
 
 { TDptBuildTask }
+
+function TDptBuildTask.GetMSBuildTarget: String;
+begin
+  Result := 'Build';
+end;
+
+function TDptBuildTask.GetActionDisplayName: String;
+begin
+  Result := 'Build';
+end;
 
 procedure TDptBuildTask.Parse(CmdLine: TCmdLineConsumer);
 var
@@ -202,22 +220,32 @@ begin
 
   Writeln('Setting up Delphi environment from: ' + RsvarsPath);
   Writeln('PRODUCTVERSION: ' + ProductVersion);
-  Writeln('Building ' + ProjectFile + '...');
+  Writeln(GetActionDisplayName + ': ' + ProjectFile + '...');
 
-  // Build command line
-  // cmd.exe /c ""rsvars.bat" && msbuild "%PROJECT_FILE%" /t:Build /p:Configuration=%BUILD_CONFIG%;Config=%BUILD_CONFIG%;Platform=%BUILD_PLATFORM%;PRODUCTVERSION=%PRODUCTVERSION% %EXTRA_MSBUILD_PARAMS%"
-  CmdLine := Format('/c ""%s" && msbuild "%s" /t:Build /p:Configuration=%s;Config=%s;Platform=%s;PRODUCTVERSION=%s %s"',
-    [RsvarsPath, ProjectFile, Config, Config, TargetPlatform, ProductVersion, ExtraArgs]);
+  CmdLine := Format('/c ""%s" && msbuild "%s" /t:%s /p:Configuration=%s;Config=%s;Platform=%s;PRODUCTVERSION=%s %s"',
+    [RsvarsPath, ProjectFile, GetMSBuildTarget, Config, Config, TargetPlatform, ProductVersion, ExtraArgs]);
 
   ExitCode := RunShellCommand('cmd.exe ' + CmdLine);
 
   if ExitCode <> 0 then
   begin
-    Writeln('ERROR: Build failed with exit code ' + IntToStr(ExitCode));
+    Writeln('ERROR: ' + GetActionDisplayName + ' failed with exit code ' + IntToStr(ExitCode));
     System.ExitCode := ExitCode;
   end
   else
-    Writeln('Build successful.');
+    Writeln(GetActionDisplayName + ' successful.');
+end;
+
+{ TDptCompileTask }
+
+function TDptCompileTask.GetMSBuildTarget: String;
+begin
+  Result := 'Make';
+end;
+
+function TDptCompileTask.GetActionDisplayName: String;
+begin
+  Result := 'Compile';
 end;
 
 { TDptBuildAndRunTask }
