@@ -688,12 +688,21 @@ begin
   begin
     Result.EqualsToken := MatchToken(tkEquals);
     
+    // Handle 'packed record' / 'packed class': keep 'packed' as TypeTypeToken,
+    // consume 'record'/'class' into TypeExtraTokens, but still parse as record/class body
+    if (Current <> nil) and (Current.Kind = tkIdentifier) and SameText(Current.Text, 'packed') and
+       (Peek(1) <> nil) and (Peek(1).Kind in [tkRecordKeyword, tkClassKeyword]) then
+    begin
+      Result.TypeTypeToken := NextToken; // packed
+      Result.TypeExtraTokens.Add(NextToken); // record/class
+    end
     // Parse what kind of type it is (like class, interface, record)
-    if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkDispinterfaceKeyword) or (Current.Kind = tkRecordKeyword) or (Current.Kind = tkIdentifier)) then
+    else if (Current <> nil) and ((Current.Kind = tkClassKeyword) or (Current.Kind = tkInterfaceKeyword) or (Current.Kind = tkDispinterfaceKeyword) or (Current.Kind = tkRecordKeyword) or (Current.Kind = tkIdentifier)) then
       Result.TypeTypeToken := NextToken;
-      
+
     if (Result.TypeTypeToken <> nil) and
-       ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword) or (Result.TypeTypeToken.Kind = tkDispinterfaceKeyword) or (Result.TypeTypeToken.Kind = tkRecordKeyword)) and
+       ((Result.TypeTypeToken.Kind = tkClassKeyword) or (Result.TypeTypeToken.Kind = tkInterfaceKeyword) or (Result.TypeTypeToken.Kind = tkDispinterfaceKeyword) or (Result.TypeTypeToken.Kind = tkRecordKeyword) or
+        ((Result.TypeTypeToken.Kind = tkIdentifier) and SameText(Result.TypeTypeToken.Text, 'packed'))) and
        not ((Result.TypeTypeToken.Kind = tkClassKeyword) and (Current <> nil) and (Current.Kind = tkOfKeyword)) then
     begin
       // Consume modifiers like 'abstract' or 'sealed' before the base list

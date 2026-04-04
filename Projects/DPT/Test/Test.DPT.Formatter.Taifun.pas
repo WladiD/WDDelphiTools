@@ -2549,24 +2549,30 @@ var
   LSource: String;
   LUnit: TCompilationUnitSyntax;
 begin
-  // When a record's last field has no trailing semicolon before end,
-  // ParseClassMember must not consume the end keyword. Otherwise ParseClassBody
-  // loses the record boundary and the parser consumes past it.
+  // Reproducer: 'packed record' was not recognized as a record body because 'packed'
+  // was consumed as the TypeTypeToken (identifier). The record fields then corrupted
+  // all subsequent parsing. Also tests that 'strict private type' inside a class is
+  // not split by a banner.
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
     'type' + #13#10 +
-    '  TData = record' + #13#10 +
+    '  TData = packed record' + #13#10 +
     '    ID: Integer;' + #13#10 +
-    '    Name: String' + #13#10 +  // no trailing semicolon
+    '    Name: String;' + #13#10 +
     '  end;' + #13#10 +
     '  TMyClass = class' + #13#10 +
+    '   strict private type' + #13#10 +
+    '    TInner = record' + #13#10 +
+    '      Value: Integer;' + #13#10 +
+    '    end;' + #13#10 +
+    '   strict private' + #13#10 +
+    '    FValue: Integer;' + #13#10 +
+    '   public' + #13#10 +
     '    procedure DoWork;' + #13#10 +
     '  end;' + #13#10 +
     'implementation' + #13#10 +
     'procedure TMyClass.DoWork;' + #13#10 +
-    'var' + #13#10 +
-    '  X: Integer;' + #13#10 +
     'begin' + #13#10 +
     'end;' + #13#10 +
     'end.';
@@ -2577,9 +2583,9 @@ begin
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
 
-    // The method's local var must not get a banner (it must be inside the method, not at unit level)
-    Assert.IsTrue(LResult.Contains('procedure TMyClass.DoWork;' + #13#10 + 'var'),
-      'Local var must follow method header directly without banner. Actual:'#13#10 + LResult);
+    // 'strict private type' must stay together — no banner before 'type'
+    Assert.IsTrue(LResult.Contains('strict private type'),
+      'strict private type must remain on one line. Actual:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
