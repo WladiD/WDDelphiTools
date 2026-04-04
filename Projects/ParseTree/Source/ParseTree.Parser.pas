@@ -460,8 +460,13 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
         ((Current.Kind = tkCaseKeyword) and (LDeclBlockNest > 0))
       ) then
         Inc(LDeclBlockNest)
-      else if (Current.Kind = tkEndKeyword) and (LDeclBlockNest > 0) then
-        Dec(LDeclBlockNest);
+      else if (Current.Kind = tkEndKeyword) then
+      begin
+        if LDeclBlockNest > 0 then
+          Dec(LDeclBlockNest)
+        else
+          Break; // end of class/record body — do not consume
+      end;
       
       if (Current.Kind = tkSemicolon) and (LNestLevel <= 0) and (LDeclBlockNest <= 0) then
       begin

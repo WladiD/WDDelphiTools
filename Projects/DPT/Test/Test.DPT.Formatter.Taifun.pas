@@ -156,6 +156,8 @@ type
     procedure TestFormatMethodImplementation_LocalVarNotBannered;
     [Test]
     procedure TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
+    [Test]
+    procedure TestFormatMethodImplementation_LocalRecordWithoutTrailingSemicolon;
   end;
 
 implementation
@@ -2536,6 +2538,48 @@ begin
     // The correct unit name must be present
     Assert.IsTrue(LResult.Contains('// Tfw.Dms.Inbox.Form'),
       'Correct unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatMethodImplementation_LocalRecordWithoutTrailingSemicolon;
+var
+  LResult: String;
+  LSource: String;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // When a record's last field has no trailing semicolon before end,
+  // ParseClassMember must not consume the end keyword. Otherwise ParseClassBody
+  // loses the record boundary and the parser consumes past it.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TData = record' + #13#10 +
+    '    ID: Integer;' + #13#10 +
+    '    Name: String' + #13#10 +  // no trailing semicolon
+    '  end;' + #13#10 +
+    '  TMyClass = class' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure TMyClass.DoWork;' + #13#10 +
+    'var' + #13#10 +
+    '  X: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // The method's local var must not get a banner (it must be inside the method, not at unit level)
+    Assert.IsTrue(LResult.Contains('procedure TMyClass.DoWork;' + #13#10 + 'var'),
+      'Local var must follow method header directly without banner. Actual:'#13#10 + LResult);
   finally
     LUnit.Free;
   end;
