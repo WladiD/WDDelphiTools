@@ -9,6 +9,7 @@ unit DPT.MapFileParser;
 interface
 
 uses
+
   System.SysUtils,
   System.Classes,
 
@@ -18,30 +19,30 @@ type
 
   TMapLineNumber = record
     LineNumber: Integer;
-    Segment: Word;
-    UnitName: string;
-    VA: UInt64;
+    Segment   : Word;
+    UnitName  : string;
+    VA        : UInt64;
   end;
 
   TMapProcName = record
-    Name: string;
+    Name   : string;
     Segment: Word;
-    VA: UInt64;
+    VA     : UInt64;
   end;
 
   TMapSegment = record
-    EndVA: UInt64;
-    Segment: Word;
-    StartVA: UInt64;
+    EndVA   : UInt64;
+    Segment : Word;
+    StartVA : UInt64;
     UnitName: string;
   end;
 
   TMapSegmentClass = record
-    IsTLS: Boolean;
-    Len: UInt64;
+    IsTLS  : Boolean;
+    Len    : UInt64;
     Segment: Word;
-    Start: UInt64;
-    VA: UInt64;
+    Start  : UInt64;
+    VA     : UInt64;
   end;
 
   /// <summary>Parses Delphi MAP files to extract symbol information for debugging.
@@ -80,8 +81,6 @@ type
   end;
 
 implementation
-
-// === Parsing helpers ===
 
 function IsHexChar(C: AnsiChar): Boolean; inline;
 begin
@@ -146,7 +145,8 @@ end;
 
 function ReadRestOfLine(var P: PAnsiChar; EndP: PAnsiChar): string;
 var
-  Start, E: PAnsiChar;
+  E    : PAnsiChar;
+  Start: PAnsiChar;
 begin
   Start := P;
   while (P < EndP) and (P^ <> #13) and (P^ <> #10) do
@@ -161,7 +161,9 @@ end;
 function SyncToHeader(var P: PAnsiChar; EndP: PAnsiChar; const AHeader: RawByteString): Boolean;
 var
   HeaderLen: Integer;
-  LineStart, LineEnd, SearchPos: PAnsiChar;
+  LineEnd  : PAnsiChar;
+  LineStart: PAnsiChar;
+  SearchPos: PAnsiChar;
 begin
   HeaderLen := Length(AHeader);
   while P + HeaderLen <= EndP do
@@ -219,7 +221,7 @@ end;
 constructor TMapFileParser.Create(const AMapFileName: string);
 var
   Content: RawByteString;
-  Stream: TFileStream;
+  Stream : TFileStream;
 begin
   inherited Create;
   FSegmentClasses := Collections.NewPlainList<TMapSegmentClass>;
@@ -241,7 +243,9 @@ end;
 
 procedure TMapFileParser.Parse(const AContent: RawByteString);
 var
-  P, EndP, SaveP: PAnsiChar;
+  EndP : PAnsiChar;
+  P    : PAnsiChar; 
+  SaveP: PAnsiChar;
 begin
   if Length(AContent) = 0 then
     Exit;
@@ -270,9 +274,11 @@ end;
 
 procedure TMapFileParser.ParseClassTable(var P: PAnsiChar; EndP: PAnsiChar);
 var
-  Seg: Word;
-  Offset, Len: UInt64;
-  SectionName, ClassName: string;
+  ClassName  : string;
+  Len        : UInt64;
+  Offset     : UInt64;
+  SectionName: string;
+  Seg        : Word;
 begin
   // Sync to "Start" header line
   if not SyncToHeader(P, EndP, ' Start') then
@@ -322,10 +328,12 @@ end;
 
 procedure TMapFileParser.ParseDetailedSegments(var P: PAnsiChar; EndP: PAnsiChar);
 var
-  Seg: Word;
-  Offset, Len, VA: UInt64;
+  Len       : UInt64;
   ModuleName: string;
-  SegIndex: Integer;
+  Offset    : UInt64;
+  Seg       : Word;
+  SegIndex  : Integer;
+  VA        : UInt64;
 begin
   if not SyncToHeader(P, EndP, 'Detailed map of segments') then
     Exit;
@@ -392,10 +400,11 @@ procedure TMapFileParser.ParsePublicsByValue(var P: PAnsiChar; EndP: PAnsiChar);
 const
   Header: RawByteString = 'Publics by Value';
 var
-  Seg: Word;
-  Offset, VA: UInt64;
-  Name: string;
+  Name    : string;
+  Offset  : UInt64;
+  Seg     : Word;
   SegIndex: Integer;
+  VA      : UInt64;
 begin
   // Find a line containing "Publics by Value"
   if not SyncToHeader(P, EndP, Header) then
@@ -447,12 +456,13 @@ procedure TMapFileParser.ParseLineNumbers(var P: PAnsiChar; EndP: PAnsiChar);
 const
   LineNumberPrefix: RawByteString = 'Line numbers for ';
 var
-  Seg: Word;
-  Offset, VA: UInt64;
-  LineNum: Integer;
-  UnitName: string;
+  DotPos  : Integer;
+  LineNum : Integer;
+  Offset  : UInt64;
+  Seg     : Word;
   SegIndex: Integer;
-  DotPos: Integer;
+  UnitName: string;
+  VA      : UInt64;
 begin
   while SyncToPrefix(P, EndP, LineNumberPrefix) do
   begin
@@ -573,7 +583,8 @@ end;
 
 function TMapFileParser.IndexOfSegment(Addr: UInt64): Integer;
 var
-  L, R: Integer;
+  L: Integer; 
+  R: Integer;
 begin
   R := FSegments.Count - 1;
   Result := FLastSegmentIndex;
@@ -631,8 +642,10 @@ end;
 
 function TMapFileParser.ProcNameFromAddr(Addr: UInt64; out Offset: Integer): string;
 var
-  L, R, M: Integer;
+  L       : Integer;
+  M       : Integer;
   ModStart: UInt64;
+  R       : Integer;
 begin
   Result := '';
   Offset := 0;
@@ -670,8 +683,10 @@ end;
 
 function TMapFileParser.LineNumberFromAddr(Addr: UInt64; out Offset: Integer): Integer;
 var
-  L, R, M: Integer;
+  L       : Integer;
+  M       : Integer;
   ModStart: UInt64;
+  R       : Integer;
 begin
   Result := 0;
   Offset := 0;
