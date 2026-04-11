@@ -36,16 +36,16 @@ type
     function QueryInterface(const IID: TGUID; out Obj): HResult; stdcall;
    strict protected // IList member
     function  Any: Boolean;
-    procedure DeleteRange(AIndex, ACount: Integer);
-    procedure Exchange(AIndex1, AIndex2: Integer);
-    function  GetCapacity: Integer;
-    function  GetCount: Integer;
+    procedure DeleteRange(AIndex, ACount: PtrInt);
+    procedure Exchange(AIndex1, AIndex2: PtrInt);
+    function  GetCapacity: PtrInt;
+    function  GetCount: PtrInt;
     function  IsEmpty: Boolean;
     procedure Reverse;
-    procedure SetCapacity(AValue: Integer);
+    procedure SetCapacity(AValue: PtrInt);
     procedure Sort(ACompare: TOnDynArraySortCompare);
    strict protected // IList_TObject member
-    function  Add(const AItem: TObject): Integer;
+    function  Add(const AItem: TObject): PtrInt;
     procedure AddRange(const AValues: Array of TObject);
     function  All(const APredicate: TPredicate_TObject): Boolean;
     function  Concat(const ASecond: IEnumerable_TObject): IList_TObject;
@@ -54,16 +54,16 @@ type
     function  First: TObject;
     function  FirstOrDefault: TObject;
     function  GetEnumerator: IEnumerator_TObject;
-    function  GetItem(AIndex: Integer): TObject;
-    function  GetRange(AIndex, ACount: Integer): IList_TObject;
-    function  IndexOf(const AItem: TObject): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TObject);
+    function  GetItem(AIndex: PtrInt): TObject;
+    function  GetRange(AIndex, ACount: PtrInt): IList_TObject;
+    function  IndexOf(const AItem: TObject): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: TObject);
     function  Last: TObject;
     function  LastOrDefault: TObject;
     function  Remove(const AItem: TObject): Boolean;
-    function  RemoveAll(const APredicate: TPredicate_TObject): Integer;
-    procedure SetItem(AIndex: Integer; const AValue: TObject);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+    function  RemoveAll(const APredicate: TPredicate_TObject): PtrInt;
+    procedure SetItem(AIndex: PtrInt; const AValue: TObject);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     function  Where(const APredicate: TPredicate_TObject): IEnumerable_TObject;
    public
     constructor Create(AOwnsObjects: Boolean); overload;
@@ -110,7 +110,7 @@ begin
   Result := IndexOf(AValue) >= 0;
 end;
 
-function CObjectList.Add(const AItem: TObject): Integer;
+function CObjectList.Add(const AItem: TObject): PtrInt;
 begin
   Result := inherited Add(AItem);
 end;
@@ -123,7 +123,7 @@ end;
 
 function CObjectList.All(const APredicate: TPredicate_TObject): Boolean;
 begin
-  for var Loop: Integer := 0 to GetCount - 1 do
+  for var Loop: PtrInt := 0 to GetCount - 1 do
   begin
     if not APredicate(GetItem(Loop)) then
       Exit(False);
@@ -136,14 +136,14 @@ begin
   Result := Count > 0;
 end;
 
-procedure CObjectList.DeleteRange(AIndex, ACount: Integer);
+procedure CObjectList.DeleteRange(AIndex, ACount: PtrInt);
 begin
-  for var Loop: Integer := 1 to ACount do
+  for var Loop: PtrInt := 1 to ACount do
     Delete(AIndex);
   { TODO : DeleteRange mit einem Test absichern, falls das zum Einsatz kommen sollte }
 end;
 
-procedure CObjectList.Exchange(AIndex1, AIndex2: Integer);
+procedure CObjectList.Exchange(AIndex1, AIndex2: PtrInt);
 begin
   if (PtrUInt(AIndex1) >= PtrUInt(Count)) or
      (PtrUInt(AIndex2) >= PtrUInt(Count)) then
@@ -170,12 +170,12 @@ begin
     Result := GetItem(0);
 end;
 
-function CObjectList.GetCapacity: Integer;
+function CObjectList.GetCapacity: PtrInt;
 begin
   Result := Capacity;
 end;
 
-function CObjectList.GetCount: Integer;
+function CObjectList.GetCount: PtrInt;
 begin
   Result := Count;
 end;
@@ -185,25 +185,25 @@ begin
   Result := CObjectListEnumerator.Create(Self);
 end;
 
-function CObjectList.GetItem(AIndex: Integer): TObject;
+function CObjectList.GetItem(AIndex: PtrInt): TObject;
 begin
   Result := inherited Items[AIndex];
 end;
 
-function CObjectList.GetRange(AIndex, ACount: Integer): IList_TObject;
+function CObjectList.GetRange(AIndex, ACount: PtrInt): IList_TObject;
 begin
   var ListObj: CObjectList := CObjectList.Create(False, FListIntfGuid, FEnumerableIntfGuid);
-  for var Loop: Integer := 0 to Count-1 do
+  for var Loop: PtrInt := 0 to Count-1 do
     ListObj.Add(Self.Items[Loop]);
   Result:=ListObj;
 end;
 
-function CObjectList.IndexOf(const AItem: TObject): Integer;
+function CObjectList.IndexOf(const AItem: TObject): PtrInt;
 begin
   Result := inherited IndexOf(AItem);
 end;
 
-procedure CObjectList.Insert(AIndex: Integer; const AItem: TObject);
+procedure CObjectList.Insert(AIndex: PtrInt; const AItem: TObject);
 begin
   inherited Insert(AIndex, AItem);
 end;
@@ -241,10 +241,10 @@ begin
   Result := inherited Remove(Pointer(AItem)) >= 0;
 end;
 
-function CObjectList.RemoveAll(const APredicate: TPredicate_TObject): Integer;
+function CObjectList.RemoveAll(const APredicate: TPredicate_TObject): PtrInt;
 begin
   Result := 0;
-  for var Loop: Integer := Count - 1 downto 0 do
+  for var Loop: PtrInt := Count - 1 downto 0 do
   begin
     if APredicate(Items[Loop]) then
     begin
@@ -259,12 +259,12 @@ begin
   raise ENotImplemented.Create('CObjectList.Reverse');
 end;
 
-procedure CObjectList.SetCapacity(AValue: Integer);
+procedure CObjectList.SetCapacity(AValue: PtrInt);
 begin
   Capacity := AValue;
 end;
 
-procedure CObjectList.SetItem(AIndex: Integer; const AValue: TObject);
+procedure CObjectList.SetItem(AIndex: PtrInt; const AValue: TObject);
 begin
   inherited Items[AIndex] := AValue;
 end;
@@ -274,9 +274,9 @@ begin
   raise ENotImplemented.Create('CObjectList.Sort');
 end;
 
-function CObjectList.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CObjectList.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 var
-  EndIndex: Integer;
+  EndIndex: PtrInt;
 begin
   if ACount > 0 then
   begin

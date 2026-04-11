@@ -12,6 +12,7 @@ uses
 
   System.Classes,
 
+  mormot.core.base,
   mormot.core.data,
   mormot.core.json,
 
@@ -31,30 +32,30 @@ type
   IEnumerable_Integer = interface
     ['{E34A643D-E205-4BE1-A58F-0B1D6DCD70E5}']
     function GetEnumerator: IEnumerator_Integer;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
   end;
 
   TPredicate_Integer = reference to function(const AValue: Integer): Boolean;
 
   IList_Integer = interface(IList)
     ['{E92E8434-8E81-421D-8EA2-8D780AC98B59}']
-    function  Add(const AItem: Integer): Integer;
+    function  Add(const AItem: Integer): PtrInt;
     procedure AddRange(const AValues: array of Integer);
     function  Contains(const AValue: Integer): Boolean;
     function  Extract(const AItem: Integer): Integer;
     function  First: Integer;
     function  FirstOrDefault: Integer;
     function  GetEnumerator: IEnumerator_Integer;
-    function  GetItem(AIndex: Integer): Integer;
-    function  GetRange(AIndex, ACount: Integer): IList_Integer;
-    function  IndexOf(const AItem: Integer): Integer;
-    procedure Insert(AIndex: Integer; const AItem: Integer);
+    function  GetItem(AIndex: PtrInt): Integer;
+    function  GetRange(AIndex, ACount: PtrInt): IList_Integer;
+    function  IndexOf(const AItem: Integer): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: Integer);
     function  Last: Integer;
     function  LastOrDefault: Integer;
     function  Remove(const AItem: Integer): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: Integer);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
-    property  Items[AIndex: Integer]: Integer read GetItem write SetItem; default;
+    procedure SetItem(AIndex: PtrInt; const AValue: Integer);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
+    property  Items[AIndex: PtrInt]: Integer read GetItem write SetItem; default;
   end;
 
   IEnumerator_String = interface
@@ -67,30 +68,30 @@ type
   IEnumerable_String = interface
     ['{AD3E4097-E05F-4FF8-96F5-4D08E4697C84}']
     function GetEnumerator: IEnumerator_String;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
   end;
 
   TPredicate_String = reference to function(const AValue: String): Boolean;
 
   IList_String = interface(IList)
     ['{8B4D010D-EAF5-40FA-9220-1028F73658A3}']
-    function  Add(const AItem: String): Integer;
+    function  Add(const AItem: String): PtrInt;
     procedure AddRange(const AValues: array of String);
     function  Contains(const AValue: String): Boolean;
     function  Extract(const AItem: String): String;
     function  First: String;
     function  FirstOrDefault: String;
     function  GetEnumerator: IEnumerator_String;
-    function  GetItem(AIndex: Integer): String;
-    function  GetRange(AIndex, ACount: Integer): IList_String;
-    function  IndexOf(const AItem: String): Integer;
-    procedure Insert(AIndex: Integer; const AItem: String);
+    function  GetItem(AIndex: PtrInt): String;
+    function  GetRange(AIndex, ACount: PtrInt): IList_String;
+    function  IndexOf(const AItem: String): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: String);
     function  Last: String;
     function  LastOrDefault: String;
     function  Remove(const AItem: String): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: String);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
-    property  Items[AIndex: Integer]: String read GetItem write SetItem; default;
+    procedure SetItem(AIndex: PtrInt; const AValue: String);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
+    property  Items[AIndex: PtrInt]: String read GetItem write SetItem; default;
   end;
 
   IEnumerator_TGUID = interface
@@ -103,30 +104,30 @@ type
   IEnumerable_TGUID = interface
     ['{6CD5359E-15B8-4C3F-A093-121B565AC7D9}']
     function GetEnumerator: IEnumerator_TGUID;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
   end;
 
   TPredicate_TGUID = reference to function(const AValue: TGUID): Boolean;
 
   IList_TGUID = interface(IList)
     ['{37F5B961-72E2-4081-A25D-99823D8D927C}']
-    function  Add(const AItem: TGUID): Integer;
+    function  Add(const AItem: TGUID): PtrInt;
     procedure AddRange(const AValues: array of TGUID);
     function  Contains(const AValue: TGUID): Boolean;
     function  Extract(const AItem: TGUID): TGUID;
     function  First: TGUID;
     function  FirstOrDefault: TGUID;
     function  GetEnumerator: IEnumerator_TGUID;
-    function  GetItem(AIndex: Integer): TGUID;
-    function  GetRange(AIndex, ACount: Integer): IList_TGUID;
-    function  IndexOf(const AItem: TGUID): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TGUID);
+    function  GetItem(AIndex: PtrInt): TGUID;
+    function  GetRange(AIndex, ACount: PtrInt): IList_TGUID;
+    function  IndexOf(const AItem: TGUID): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: TGUID);
     function  Last: TGUID;
     function  LastOrDefault: TGUID;
     function  Remove(const AItem: TGUID): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: TGUID);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
-    property  Items[AIndex: Integer]: TGUID read GetItem write SetItem; default;
+    procedure SetItem(AIndex: PtrInt; const AValue: TGUID);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
+    property  Items[AIndex: PtrInt]: TGUID read GetItem write SetItem; default;
   end;
 
   IEnumerator_TObject = interface
@@ -139,14 +140,14 @@ type
   IEnumerable_TObject = interface
     ['{12C6C1C8-7999-4C7C-9102-6E9FDF3D6E44}']
     function GetEnumerator: IEnumerator_TObject;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
   end;
 
   TPredicate_TObject = reference to function(const AValue: TObject): Boolean;
 
   IList_TObject = interface(IList)
     ['{09193831-72AB-4C07-9A00-3AB7C6B2FE7C}']
-    function  Add(const AItem: TObject): Integer;
+    function  Add(const AItem: TObject): PtrInt;
     procedure AddRange(const AValues: array of TObject);
     function  All(const APredicate: TPredicate_TObject): Boolean;
     function  Concat(const ASecond: IEnumerable_TObject): IList_TObject;
@@ -155,18 +156,18 @@ type
     function  First: TObject;
     function  FirstOrDefault: TObject;
     function  GetEnumerator: IEnumerator_TObject;
-    function  GetItem(AIndex: Integer): TObject;
-    function  GetRange(AIndex, ACount: Integer): IList_TObject;
-    function  IndexOf(const AItem: TObject): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TObject);
+    function  GetItem(AIndex: PtrInt): TObject;
+    function  GetRange(AIndex, ACount: PtrInt): IList_TObject;
+    function  IndexOf(const AItem: TObject): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: TObject);
     function  Last: TObject;
     function  LastOrDefault: TObject;
     function  Remove(const AItem: TObject): Boolean;
-    function  RemoveAll(const APredicate: TPredicate_TObject): Integer;
-    procedure SetItem(AIndex: Integer; const AValue: TObject);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+    function  RemoveAll(const APredicate: TPredicate_TObject): PtrInt;
+    procedure SetItem(AIndex: PtrInt; const AValue: TObject);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     function  Where(const APredicate: TPredicate_TObject): IEnumerable_TObject;
-    property  Items[AIndex: Integer]: TObject read GetItem write SetItem; default;
+    property  Items[AIndex: PtrInt]: TObject read GetItem write SetItem; default;
   end;
 
   IEnumerator_TComponent = interface
@@ -179,14 +180,14 @@ type
   IEnumerable_TComponent = interface
     ['{C0FCADA3-2D77-4773-9FDF-2F6E8F920619}']
     function GetEnumerator: IEnumerator_TComponent;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TComponent>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TComponent>;
   end;
 
   TPredicate_TComponent = reference to function(const AValue: TComponent): Boolean;
 
   IList_TComponent = interface(IList)
     ['{8F88FB61-CBA4-4199-B456-945E2833858C}']
-    function  Add(const AItem: TComponent): Integer;
+    function  Add(const AItem: TComponent): PtrInt;
     procedure AddRange(const AValues: array of TComponent);
     function  All(const APredicate: TPredicate_TComponent): Boolean;
     function  Concat(const ASecond: IEnumerable_TComponent): IList_TComponent;
@@ -195,18 +196,18 @@ type
     function  First: TComponent;
     function  FirstOrDefault: TComponent;
     function  GetEnumerator: IEnumerator_TComponent;
-    function  GetItem(AIndex: Integer): TComponent;
-    function  GetRange(AIndex, ACount: Integer): IList_TComponent;
-    function  IndexOf(const AItem: TComponent): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TComponent);
+    function  GetItem(AIndex: PtrInt): TComponent;
+    function  GetRange(AIndex, ACount: PtrInt): IList_TComponent;
+    function  IndexOf(const AItem: TComponent): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: TComponent);
     function  Last: TComponent;
     function  LastOrDefault: TComponent;
     function  Remove(const AItem: TComponent): Boolean;
-    function  RemoveAll(const APredicate: TPredicate_TComponent): Integer;
-    procedure SetItem(AIndex: Integer; const AValue: TComponent);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TComponent>;
+    function  RemoveAll(const APredicate: TPredicate_TComponent): PtrInt;
+    procedure SetItem(AIndex: PtrInt; const AValue: TComponent);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TComponent>;
     function  Where(const APredicate: TPredicate_TComponent): IEnumerable_TComponent;
-    property  Items[AIndex: Integer]: TComponent read GetItem write SetItem; default;
+    property  Items[AIndex: PtrInt]: TComponent read GetItem write SetItem; default;
   end;
 
   IEnumerator_Double = interface
@@ -219,30 +220,30 @@ type
   IEnumerable_Double = interface
     ['{1924448F-DEE6-4E2C-9EC7-2DEBB973B798}']
     function GetEnumerator: IEnumerator_Double;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Double>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Double>;
   end;
 
   TPredicate_Double = reference to function(const AValue: Double): Boolean;
 
   IList_Double = interface(IList)
     ['{798279A5-24C7-438B-894F-FB6DD990F6AE}']
-    function  Add(const AItem: Double): Integer;
+    function  Add(const AItem: Double): PtrInt;
     procedure AddRange(const AValues: array of Double);
     function  Contains(const AValue: Double): Boolean;
     function  Extract(const AItem: Double): Double;
     function  First: Double;
     function  FirstOrDefault: Double;
     function  GetEnumerator: IEnumerator_Double;
-    function  GetItem(AIndex: Integer): Double;
-    function  GetRange(AIndex, ACount: Integer): IList_Double;
-    function  IndexOf(const AItem: Double): Integer;
-    procedure Insert(AIndex: Integer; const AItem: Double);
+    function  GetItem(AIndex: PtrInt): Double;
+    function  GetRange(AIndex, ACount: PtrInt): IList_Double;
+    function  IndexOf(const AItem: Double): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: Double);
     function  Last: Double;
     function  LastOrDefault: Double;
     function  Remove(const AItem: Double): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: Double);
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Double>;
-    property  Items[AIndex: Integer]: Double read GetItem write SetItem; default;
+    procedure SetItem(AIndex: PtrInt; const AValue: Double);
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Double>;
+    property  Items[AIndex: PtrInt]: Double read GetItem write SetItem; default;
   end;
 
 {$ENDREGION 'INCLUDE-PARTIAL / System.List-interface.part.pas'}
@@ -271,7 +272,7 @@ type
   IEnumerable_IInterface = interface
     ['{6889034A-BE7F-4026-8DB9-080E3B3CCA72}']
     function GetEnumerator: IEnumerator_IInterface;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<IInterface>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<IInterface>;
   end;
   
   IDictionary_Integer_IInterface = interface(IDictionary)
@@ -494,7 +495,7 @@ type
   IEnumerable_TNotifyEvent = interface
     ['{13430010-42AE-4A51-BDD4-7CFBA81EF3E1}']
     function GetEnumerator: IEnumerator_TNotifyEvent;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TNotifyEvent>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TNotifyEvent>;
   end;
   
   IDictionary_String_TNotifyEvent = interface(IDictionary)
@@ -597,7 +598,7 @@ type
   IEnumerable_TClass = interface
     ['{D4C74E72-027E-4EEE-B301-23BE3E1D14D3}']
     function GetEnumerator: IEnumerator_TClass;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TClass>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TClass>;
   end;
 
   IDictionary_TClass_TObject = interface(IDictionary)
@@ -640,7 +641,7 @@ type
   IEnumerable_Boolean = interface
     ['{7459D103-E7AE-4850-B5AA-672EF876B997}']
     function GetEnumerator: IEnumerator_Boolean;
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Boolean>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Boolean>;
   end;
   
   IDictionary_TGUID_Boolean = interface(IDictionary)

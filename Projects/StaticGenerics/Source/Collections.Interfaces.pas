@@ -12,6 +12,7 @@ uses
 
   System.Classes,
 
+  mormot.core.base,
   mormot.core.data,
   mormot.core.json;
 
@@ -21,18 +22,18 @@ type
     ['{3777E0D6-9C4A-4A90-92C6-E519AA58C81A}']
     function  Any: Boolean;
     procedure Clear;
-    procedure Delete(AIndex: Integer);
-    procedure DeleteRange(AIndex, ACount: Integer);
-    procedure Exchange(AIndex1, AIndex2: Integer);
-    function  GetCapacity: Integer;
-    function  GetCount: Integer;
+    procedure Delete(AIndex: PtrInt);
+    procedure DeleteRange(AIndex, ACount: PtrInt);
+    procedure Exchange(AIndex1, AIndex2: PtrInt);
+    function  GetCapacity: PtrInt;
+    function  GetCount: PtrInt;
     function  IsEmpty: Boolean;
-    procedure Move(ASourceIndex, ATargetIndex: Integer);
+    procedure Move(ASourceIndex, ATargetIndex: PtrInt);
     procedure Reverse;
-    procedure SetCapacity(AValue: Integer);
+    procedure SetCapacity(AValue: PtrInt);
     procedure Sort(ACompare: TOnDynArraySortCompare = nil);
-    property  Capacity: Integer read GetCapacity write SetCapacity;
-    property  Count: Integer read GetCount;
+    property  Capacity: PtrInt read GetCapacity write SetCapacity;
+    property  Count: PtrInt read GetCount;
   end;
 
   IDictionary = interface

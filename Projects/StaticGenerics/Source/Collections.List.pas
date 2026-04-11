@@ -27,11 +27,11 @@ type
   CList = class(TIListParent, IList)
   strict protected // IList member
     function  Any: Boolean;
-    procedure Delete(AIndex: Integer);
-    procedure DeleteRange(AIndex, ACount: Integer);
-    procedure Exchange(AIndex1, AIndex2: Integer);
+    procedure Delete(AIndex: PtrInt);
+    procedure DeleteRange(AIndex, ACount: PtrInt);
+    procedure Exchange(AIndex1, AIndex2: PtrInt);
     function  IsEmpty: Boolean;
-    procedure Move(ASourceIndex, ATargetIndex: Integer);
+    procedure Move(ASourceIndex, ATargetIndex: PtrInt);
     procedure Sort(ACompare: TOnDynArraySortCompare);
   end;
 
@@ -53,19 +53,19 @@ begin
   Result := Count > 0;
 end;
 
-procedure CList.Delete(AIndex: Integer);
+procedure CList.Delete(AIndex: PtrInt);
 begin
   inherited Delete(AIndex);
 end;
 
-procedure CList.DeleteRange(AIndex, ACount: Integer);
+procedure CList.DeleteRange(AIndex, ACount: PtrInt);
 begin
-  for var Loop: Integer := 1 to ACount do
+  for var Loop: PtrInt := 1 to ACount do
     Delete(AIndex);
   { TODO : DeleteRange mit einem Test absichern, falls das zum Einsatz kommen sollte }
 end;
 
-procedure CList.Exchange(AIndex1, AIndex2: Integer);
+procedure CList.Exchange(AIndex1, AIndex2: PtrInt);
 var
   TempIndex: PtrInt;
 begin
@@ -89,9 +89,9 @@ begin
   Result := Count = 0;
 end;
 
-procedure CList.Move(ASourceIndex, ATargetIndex: Integer);
+procedure CList.Move(ASourceIndex, ATargetIndex: PtrInt);
 var
-  I: Integer;
+  I: PtrInt;
 begin
   if (PtrUInt(ASourceIndex) >= PtrUInt(Count)) or
      (PtrUInt(ATargetIndex) >= PtrUInt(Count)) then

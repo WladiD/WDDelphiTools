@@ -217,7 +217,7 @@ end;
 
 class procedure TDptInstructionScreen.PrintHeader;
 begin
-  Writeln('Delphi Processing Tools (DPT)');
+  Writeln('Delphi Processing Tools (DPT) [' + {$IFDEF CPUX64}'Win64'{$ELSE}'Win32'{$ENDIF} + ']');
   Writeln('Version 0.7 - 2026 - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;

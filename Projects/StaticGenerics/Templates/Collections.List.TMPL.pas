@@ -28,7 +28,7 @@ type
 
   IList_{[type_flat]} = interface(IList)
     ['{[NewGuid]}']
-    function  Add(const AItem: {[type]}): Integer;
+    function  Add(const AItem: {[type]}): PtrInt;
     procedure AddRange(const AValues: array of {[type]});
     {[#IList.enable_all]}
     function  All(const APredicate: TPredicate_{[type_flat]}): Boolean;
@@ -44,22 +44,22 @@ type
     function  First: {[type]};
     function  FirstOrDefault: {[type]};
     function  GetEnumerator: IEnumerator_{[type_flat]};
-    function  GetItem(AIndex: Integer): {[type]};
-    function  GetRange(AIndex, ACount: Integer): IList_{[type_flat]};
-    function  IndexOf(const AItem: {[type]}): Integer;
-    procedure Insert(AIndex: Integer; const AItem: {[type]});
+    function  GetItem(AIndex: PtrInt): {[type]};
+    function  GetRange(AIndex, ACount: PtrInt): IList_{[type_flat]};
+    function  IndexOf(const AItem: {[type]}): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: {[type]});
     function  Last: {[type]};
     function  LastOrDefault: {[type]};
     function  Remove(const AItem: {[type]}): Boolean;
     {[#IList.enable_remove_all]}
-    function  RemoveAll(const APredicate: TPredicate_{[type_flat]}): Integer;
+    function  RemoveAll(const APredicate: TPredicate_{[type_flat]}): PtrInt;
     {[/IList.enable_remove_all]}
-    procedure SetItem(AIndex: Integer; const AValue: {[type]});
-    function  ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<{[type]}>;
+    procedure SetItem(AIndex: PtrInt; const AValue: {[type]});
+    function  ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<{[type]}>;
     {[#IList.enable_where]}
     function  Where(const APredicate: TPredicate_{[type_flat]}): IEnumerable_{[type_flat]};
     {[/IList.enable_where]}
-    property  Items[AIndex: Integer]: {[type]} read GetItem write SetItem; default;
+    property  Items[AIndex: PtrInt]: {[type]} read GetItem write SetItem; default;
   end;
 
   {$ENDREGION 'DEFINE-PARTIAL / interface-{[type_flat]}'}
@@ -109,7 +109,7 @@ type
 
   CList_{[type_flat]} = class({[clist_unit]}CList, IList_{[type_flat]}, IEnumerable_{[type_flat]})
    protected
-    function  Add(const AItem: {[type]}): Integer;
+    function  Add(const AItem: {[type]}): PtrInt;
     procedure AddRange(const AValues: array of {[type]});
     {[#IList.enable_all]}
     function  All(const APredicate: TPredicate_{[type_flat]}): Boolean;
@@ -125,18 +125,18 @@ type
     function  First: {[type]};
     function  FirstOrDefault: {[type]};
     function  GetEnumerator: IEnumerator_{[type_flat]};
-    function  GetItem(AIndex: Integer): {[type]};
-    function  GetRange(AIndex, ACount: Integer): IList_{[type_flat]};
-    function  IndexOf(const AItem: {[type]}): Integer;
-    procedure Insert(AIndex: Integer; const AItem: {[type]});
+    function  GetItem(AIndex: PtrInt): {[type]};
+    function  GetRange(AIndex, ACount: PtrInt): IList_{[type_flat]};
+    function  IndexOf(const AItem: {[type]}): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: {[type]});
     function  Last: {[type]};
     function  LastOrDefault: {[type]};
     function  Remove(const AItem: {[type]}): Boolean;
     {[#IList.enable_remove_all]}
-    function  RemoveAll(const APredicate: TPredicate_{[type_flat]}): Integer;
+    function  RemoveAll(const APredicate: TPredicate_{[type_flat]}): PtrInt;
     {[/IList.enable_remove_all]}
-    procedure SetItem(AIndex: Integer; const AValue: {[type]});
-    function  ToArray(AOffset, ACount: Integer): TArray<{[type]}>;
+    procedure SetItem(AIndex: PtrInt; const AValue: {[type]});
+    function  ToArray(AOffset, ACount: PtrInt): TArray<{[type]}>;
     {[#IList.enable_where]}
     function  Where(const APredicate: TPredicate_{[type_flat]}): IEnumerable_{[type_flat]};
     {[/IList.enable_where]}
@@ -161,7 +161,7 @@ end;
 
 {[/IList.enable_concat]}
 
-function CList_{[type_flat]}.Add(const AItem: {[type]}): Integer;
+function CList_{[type_flat]}.Add(const AItem: {[type]}): PtrInt;
 var
   Added: Boolean;
 begin
@@ -179,7 +179,7 @@ end;
 {[#IList.enable_all]}
 function CList_{[type_flat]}.All(const APredicate: TPredicate_{[type_flat]}): Boolean;
 begin
-  for var Loop: Integer := 0 to GetCount - 1 do
+  for var Loop: PtrInt := 0 to GetCount - 1 do
     if not APredicate(GetItem(Loop)) 
       then Exit(False);
   Result := True;
@@ -224,24 +224,24 @@ begin
   Result:=CListEnumerator_{[type_flat]}.Create(Self);
 end;
 
-function CList_{[type_flat]}.GetItem(AIndex: Integer): {[type]};
+function CList_{[type_flat]}.GetItem(AIndex: PtrInt): {[type]};
 begin
   if AIndex>=fCount then
     RaiseGetItem(AIndex);
   Result:=TArray<{[type]}>(fValue)[AIndex];
 end;
 
-function CList_{[type_flat]}.GetRange(AIndex, ACount: Integer): IList_{[type_flat]};
+function CList_{[type_flat]}.GetRange(AIndex, ACount: PtrInt): IList_{[type_flat]};
 begin
   Result:={[TCollectionsName]}.CreateList_{[type_flat]}(GetRange(AIndex,ACount) as IEnumerable_{[type_flat]});
 end;
 
-function CList_{[type_flat]}.IndexOf(const AItem: {[type]}): Integer;
+function CList_{[type_flat]}.IndexOf(const AItem: {[type]}): PtrInt;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-procedure CList_{[type_flat]}.Insert(AIndex: Integer; const AItem: {[type]});
+procedure CList_{[type_flat]}.Insert(AIndex: PtrInt; const AItem: {[type]});
 begin
   DoInsert(AIndex,AItem);
 end;
@@ -264,7 +264,7 @@ begin
 end;
 
 {[#IList.enable_remove_all]}
-function CList_{[type_flat]}.RemoveAll(const APredicate: TPredicate_{[type_flat]}): Integer;
+function CList_{[type_flat]}.RemoveAll(const APredicate: TPredicate_{[type_flat]}): PtrInt;
 begin
   Result:=0;
   for var Loop:=GetCount-1 downto 0 do
@@ -278,14 +278,14 @@ begin
 end;
 {[/IList.enable_remove_all]}
 
-procedure CList_{[type_flat]}.SetItem(AIndex: Integer; const AValue: {[type]});
+procedure CList_{[type_flat]}.SetItem(AIndex: PtrInt; const AValue: {[type]});
 begin
   if Assigned(fHasher) or (AIndex>=fCount)
     then RaiseSetItem(AIndex);
   TArray<{[type]}>(fValue)[AIndex]:=AValue;
 end;
 
-function CList_{[type_flat]}.ToArray(AOffset, ACount: Integer): TArray<{[type]}>;
+function CList_{[type_flat]}.ToArray(AOffset, ACount: PtrInt): TArray<{[type]}>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;

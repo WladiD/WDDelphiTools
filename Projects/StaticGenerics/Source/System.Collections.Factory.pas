@@ -90,22 +90,22 @@ type
 
   CList_Integer = class(CList, IList_Integer, IEnumerable_Integer)
    protected
-    function  Add(const AItem: Integer): Integer;
+    function  Add(const AItem: Integer): PtrInt;
     procedure AddRange(const AValues: array of Integer);
     function  Contains(const AValue: Integer): Boolean;
     function  Extract(const AItem: Integer): Integer;
     function  First: Integer;
     function  FirstOrDefault: Integer;
     function  GetEnumerator: IEnumerator_Integer;
-    function  GetItem(AIndex: Integer): Integer;
-    function  GetRange(AIndex, ACount: Integer): IList_Integer;
-    function  IndexOf(const AItem: Integer): Integer;
-    procedure Insert(AIndex: Integer; const AItem: Integer);
+    function  GetItem(AIndex: PtrInt): Integer;
+    function  GetRange(AIndex, ACount: PtrInt): IList_Integer;
+    function  IndexOf(const AItem: Integer): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: Integer);
     function  Last: Integer;
     function  LastOrDefault: Integer;
     function  Remove(const AItem: Integer): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: Integer);
-    function  ToArray(AOffset, ACount: Integer): TArray<Integer>;
+    procedure SetItem(AIndex: PtrInt; const AValue: Integer);
+    function  ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
   end;
 
 { CListEnumerator_Integer }
@@ -117,18 +117,18 @@ end;
 
 { CList_Integer }
 
-function CList_Integer.Add(const AItem: Integer): Integer;
+function CList_Integer.Add(const AItem: Integer): PtrInt;
 var
   Added: Boolean;
 begin
   Result := DoAdd(AItem, Added);
-  if Added then 
+  if Added then
     TArray<Integer>(fValue)[Result] := AItem;
 end;
 
 procedure CList_Integer.AddRange(const AValues: array of Integer);
 begin
-  for var Value in AValues do 
+  for var Value in AValues do
     Add(Value);
 end;
 
@@ -160,24 +160,24 @@ begin
   Result:=CListEnumerator_Integer.Create(Self);
 end;
 
-function CList_Integer.GetItem(AIndex: Integer): Integer;
+function CList_Integer.GetItem(AIndex: PtrInt): Integer;
 begin
   if AIndex>=fCount then
     RaiseGetItem(AIndex);
   Result:=TArray<Integer>(fValue)[AIndex];
 end;
 
-function CList_Integer.GetRange(AIndex, ACount: Integer): IList_Integer;
+function CList_Integer.GetRange(AIndex, ACount: PtrInt): IList_Integer;
 begin
   Result:=TCollections.CreateList_Integer(GetRange(AIndex,ACount) as IEnumerable_Integer);
 end;
 
-function CList_Integer.IndexOf(const AItem: Integer): Integer;
+function CList_Integer.IndexOf(const AItem: Integer): PtrInt;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-procedure CList_Integer.Insert(AIndex: Integer; const AItem: Integer);
+procedure CList_Integer.Insert(AIndex: PtrInt; const AItem: Integer);
 begin
   DoInsert(AIndex,AItem);
 end;
@@ -199,14 +199,14 @@ begin
   Result:=DoRemove(AItem);
 end;
 
-procedure CList_Integer.SetItem(AIndex: Integer; const AValue: Integer);
+procedure CList_Integer.SetItem(AIndex: PtrInt; const AValue: Integer);
 begin
   if Assigned(fHasher) or (AIndex>=fCount)
     then RaiseSetItem(AIndex);
   TArray<Integer>(fValue)[AIndex]:=AValue;
 end;
 
-function CList_Integer.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CList_Integer.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -220,22 +220,22 @@ type
 
   CList_String = class(CList, IList_String, IEnumerable_String)
    protected
-    function  Add(const AItem: String): Integer;
+    function  Add(const AItem: String): PtrInt;
     procedure AddRange(const AValues: array of String);
     function  Contains(const AValue: String): Boolean;
     function  Extract(const AItem: String): String;
     function  First: String;
     function  FirstOrDefault: String;
     function  GetEnumerator: IEnumerator_String;
-    function  GetItem(AIndex: Integer): String;
-    function  GetRange(AIndex, ACount: Integer): IList_String;
-    function  IndexOf(const AItem: String): Integer;
-    procedure Insert(AIndex: Integer; const AItem: String);
+    function  GetItem(AIndex: PtrInt): String;
+    function  GetRange(AIndex, ACount: PtrInt): IList_String;
+    function  IndexOf(const AItem: String): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: String);
     function  Last: String;
     function  LastOrDefault: String;
     function  Remove(const AItem: String): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: String);
-    function  ToArray(AOffset, ACount: Integer): TArray<String>;
+    procedure SetItem(AIndex: PtrInt; const AValue: String);
+    function  ToArray(AOffset, ACount: PtrInt): TArray<String>;
   end;
 
 { CListEnumerator_String }
@@ -247,18 +247,18 @@ end;
 
 { CList_String }
 
-function CList_String.Add(const AItem: String): Integer;
+function CList_String.Add(const AItem: String): PtrInt;
 var
   Added: Boolean;
 begin
   Result := DoAdd(AItem, Added);
-  if Added then 
+  if Added then
     TArray<String>(fValue)[Result] := AItem;
 end;
 
 procedure CList_String.AddRange(const AValues: array of String);
 begin
-  for var Value in AValues do 
+  for var Value in AValues do
     Add(Value);
 end;
 
@@ -290,24 +290,24 @@ begin
   Result:=CListEnumerator_String.Create(Self);
 end;
 
-function CList_String.GetItem(AIndex: Integer): String;
+function CList_String.GetItem(AIndex: PtrInt): String;
 begin
   if AIndex>=fCount then
     RaiseGetItem(AIndex);
   Result:=TArray<String>(fValue)[AIndex];
 end;
 
-function CList_String.GetRange(AIndex, ACount: Integer): IList_String;
+function CList_String.GetRange(AIndex, ACount: PtrInt): IList_String;
 begin
   Result:=TCollections.CreateList_String(GetRange(AIndex,ACount) as IEnumerable_String);
 end;
 
-function CList_String.IndexOf(const AItem: String): Integer;
+function CList_String.IndexOf(const AItem: String): PtrInt;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-procedure CList_String.Insert(AIndex: Integer; const AItem: String);
+procedure CList_String.Insert(AIndex: PtrInt; const AItem: String);
 begin
   DoInsert(AIndex,AItem);
 end;
@@ -329,14 +329,14 @@ begin
   Result:=DoRemove(AItem);
 end;
 
-procedure CList_String.SetItem(AIndex: Integer; const AValue: String);
+procedure CList_String.SetItem(AIndex: PtrInt; const AValue: String);
 begin
   if Assigned(fHasher) or (AIndex>=fCount)
     then RaiseSetItem(AIndex);
   TArray<String>(fValue)[AIndex]:=AValue;
 end;
 
-function CList_String.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CList_String.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -350,22 +350,22 @@ type
 
   CList_TGUID = class(CList, IList_TGUID, IEnumerable_TGUID)
    protected
-    function  Add(const AItem: TGUID): Integer;
+    function  Add(const AItem: TGUID): PtrInt;
     procedure AddRange(const AValues: array of TGUID);
     function  Contains(const AValue: TGUID): Boolean;
     function  Extract(const AItem: TGUID): TGUID;
     function  First: TGUID;
     function  FirstOrDefault: TGUID;
     function  GetEnumerator: IEnumerator_TGUID;
-    function  GetItem(AIndex: Integer): TGUID;
-    function  GetRange(AIndex, ACount: Integer): IList_TGUID;
-    function  IndexOf(const AItem: TGUID): Integer;
-    procedure Insert(AIndex: Integer; const AItem: TGUID);
+    function  GetItem(AIndex: PtrInt): TGUID;
+    function  GetRange(AIndex, ACount: PtrInt): IList_TGUID;
+    function  IndexOf(const AItem: TGUID): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: TGUID);
     function  Last: TGUID;
     function  LastOrDefault: TGUID;
     function  Remove(const AItem: TGUID): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: TGUID);
-    function  ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+    procedure SetItem(AIndex: PtrInt; const AValue: TGUID);
+    function  ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
   end;
 
 { CListEnumerator_TGUID }
@@ -377,18 +377,18 @@ end;
 
 { CList_TGUID }
 
-function CList_TGUID.Add(const AItem: TGUID): Integer;
+function CList_TGUID.Add(const AItem: TGUID): PtrInt;
 var
   Added: Boolean;
 begin
   Result := DoAdd(AItem, Added);
-  if Added then 
+  if Added then
     TArray<TGUID>(fValue)[Result] := AItem;
 end;
 
 procedure CList_TGUID.AddRange(const AValues: array of TGUID);
 begin
-  for var Value in AValues do 
+  for var Value in AValues do
     Add(Value);
 end;
 
@@ -420,24 +420,24 @@ begin
   Result:=CListEnumerator_TGUID.Create(Self);
 end;
 
-function CList_TGUID.GetItem(AIndex: Integer): TGUID;
+function CList_TGUID.GetItem(AIndex: PtrInt): TGUID;
 begin
   if AIndex>=fCount then
     RaiseGetItem(AIndex);
   Result:=TArray<TGUID>(fValue)[AIndex];
 end;
 
-function CList_TGUID.GetRange(AIndex, ACount: Integer): IList_TGUID;
+function CList_TGUID.GetRange(AIndex, ACount: PtrInt): IList_TGUID;
 begin
   Result:=TCollections.CreateList_TGUID(GetRange(AIndex,ACount) as IEnumerable_TGUID);
 end;
 
-function CList_TGUID.IndexOf(const AItem: TGUID): Integer;
+function CList_TGUID.IndexOf(const AItem: TGUID): PtrInt;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-procedure CList_TGUID.Insert(AIndex: Integer; const AItem: TGUID);
+procedure CList_TGUID.Insert(AIndex: PtrInt; const AItem: TGUID);
 begin
   DoInsert(AIndex,AItem);
 end;
@@ -459,14 +459,14 @@ begin
   Result:=DoRemove(AItem);
 end;
 
-procedure CList_TGUID.SetItem(AIndex: Integer; const AValue: TGUID);
+procedure CList_TGUID.SetItem(AIndex: PtrInt; const AValue: TGUID);
 begin
   if Assigned(fHasher) or (AIndex>=fCount)
     then RaiseSetItem(AIndex);
   TArray<TGUID>(fValue)[AIndex]:=AValue;
 end;
 
-function CList_TGUID.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CList_TGUID.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -480,22 +480,22 @@ type
 
   CList_Double = class(CList, IList_Double, IEnumerable_Double)
    protected
-    function  Add(const AItem: Double): Integer;
+    function  Add(const AItem: Double): PtrInt;
     procedure AddRange(const AValues: array of Double);
     function  Contains(const AValue: Double): Boolean;
     function  Extract(const AItem: Double): Double;
     function  First: Double;
     function  FirstOrDefault: Double;
     function  GetEnumerator: IEnumerator_Double;
-    function  GetItem(AIndex: Integer): Double;
-    function  GetRange(AIndex, ACount: Integer): IList_Double;
-    function  IndexOf(const AItem: Double): Integer;
-    procedure Insert(AIndex: Integer; const AItem: Double);
+    function  GetItem(AIndex: PtrInt): Double;
+    function  GetRange(AIndex, ACount: PtrInt): IList_Double;
+    function  IndexOf(const AItem: Double): PtrInt;
+    procedure Insert(AIndex: PtrInt; const AItem: Double);
     function  Last: Double;
     function  LastOrDefault: Double;
     function  Remove(const AItem: Double): Boolean;
-    procedure SetItem(AIndex: Integer; const AValue: Double);
-    function  ToArray(AOffset, ACount: Integer): TArray<Double>;
+    procedure SetItem(AIndex: PtrInt; const AValue: Double);
+    function  ToArray(AOffset, ACount: PtrInt): TArray<Double>;
   end;
 
 { CListEnumerator_Double }
@@ -507,18 +507,18 @@ end;
 
 { CList_Double }
 
-function CList_Double.Add(const AItem: Double): Integer;
+function CList_Double.Add(const AItem: Double): PtrInt;
 var
   Added: Boolean;
 begin
   Result := DoAdd(AItem, Added);
-  if Added then 
+  if Added then
     TArray<Double>(fValue)[Result] := AItem;
 end;
 
 procedure CList_Double.AddRange(const AValues: array of Double);
 begin
-  for var Value in AValues do 
+  for var Value in AValues do
     Add(Value);
 end;
 
@@ -550,24 +550,24 @@ begin
   Result:=CListEnumerator_Double.Create(Self);
 end;
 
-function CList_Double.GetItem(AIndex: Integer): Double;
+function CList_Double.GetItem(AIndex: PtrInt): Double;
 begin
   if AIndex>=fCount then
     RaiseGetItem(AIndex);
   Result:=TArray<Double>(fValue)[AIndex];
 end;
 
-function CList_Double.GetRange(AIndex, ACount: Integer): IList_Double;
+function CList_Double.GetRange(AIndex, ACount: PtrInt): IList_Double;
 begin
   Result:=TCollections.CreateList_Double(GetRange(AIndex,ACount) as IEnumerable_Double);
 end;
 
-function CList_Double.IndexOf(const AItem: Double): Integer;
+function CList_Double.IndexOf(const AItem: Double): PtrInt;
 begin
   Result:=DoFind(AItem,nil);
 end;
 
-procedure CList_Double.Insert(AIndex: Integer; const AItem: Double);
+procedure CList_Double.Insert(AIndex: PtrInt; const AItem: Double);
 begin
   DoInsert(AIndex,AItem);
 end;
@@ -589,14 +589,14 @@ begin
   Result:=DoRemove(AItem);
 end;
 
-procedure CList_Double.SetItem(AIndex: Integer; const AValue: Double);
+procedure CList_Double.SetItem(AIndex: PtrInt; const AValue: Double);
 begin
   if Assigned(fHasher) or (AIndex>=fCount)
     then RaiseSetItem(AIndex);
   TArray<Double>(fValue)[AIndex]:=AValue;
 end;
 
-function CList_Double.ToArray(AOffset, ACount: Integer): TArray<Double>;
+function CList_Double.ToArray(AOffset, ACount: PtrInt): TArray<Double>;
 begin
   fDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -721,13 +721,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_IInterface)
      public
       function GetEnumerator: IEnumerator_IInterface;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<IInterface>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<IInterface>;
     end;
 
    strict private
@@ -777,7 +777,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_Integer_IInterface.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_Integer_IInterface.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -789,7 +789,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_Integer_IInterface.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<IInterface>;
+function CDictionary_Integer_IInterface.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<IInterface>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -885,13 +885,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
    strict private
@@ -941,7 +941,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_Integer_String.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_Integer_String.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -953,7 +953,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_Integer_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_Integer_String.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1049,13 +1049,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
    strict private
@@ -1105,7 +1105,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_Integer_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_Integer_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1117,7 +1117,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_Integer_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_Integer_TGUID.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1213,13 +1213,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TObject)
      public
       function GetEnumerator: IEnumerator_TObject;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     end;
 
    strict private
@@ -1270,7 +1270,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_Integer_TObject.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_Integer_TObject.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1282,7 +1282,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_Integer_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CDictionary_Integer_TObject.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1385,13 +1385,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
    strict private
@@ -1441,7 +1441,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_String_Integer.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_Integer.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1453,7 +1453,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_String_Integer.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_String_Integer.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1549,13 +1549,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
    strict private
@@ -1605,7 +1605,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_String_String.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_String.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1617,7 +1617,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_String_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_String.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1713,13 +1713,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
    strict private
@@ -1769,7 +1769,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_String_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1781,7 +1781,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_String_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_String_TGUID.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1877,13 +1877,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TNotifyEvent)
      public
       function GetEnumerator: IEnumerator_TNotifyEvent;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TNotifyEvent>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TNotifyEvent>;
     end;
 
    strict private
@@ -1933,7 +1933,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_String_TNotifyEvent.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_TNotifyEvent.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -1945,7 +1945,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_String_TNotifyEvent.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TNotifyEvent>;
+function CDictionary_String_TNotifyEvent.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TNotifyEvent>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2043,13 +2043,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TObject)
      public
       function GetEnumerator: IEnumerator_TObject;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     end;
 
    strict private
@@ -2100,7 +2100,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_String_TObject.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_String_TObject.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2112,7 +2112,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_String_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CDictionary_String_TObject.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2215,13 +2215,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TObject)
      public
       function GetEnumerator: IEnumerator_TObject;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TObject)
      public
       function GetEnumerator: IEnumerator_TObject;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     end;
 
    strict private
@@ -2273,7 +2273,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TObject_TObject.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CDictionary_TObject_TObject.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2285,7 +2285,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TObject_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CDictionary_TObject_TObject.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2390,13 +2390,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TClass)
      public
       function GetEnumerator: IEnumerator_TClass;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TClass>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TClass>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TObject)
      public
       function GetEnumerator: IEnumerator_TObject;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TObject>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TObject>;
     end;
 
    strict private
@@ -2447,7 +2447,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TClass_TObject.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TClass>;
+function CDictionary_TClass_TObject.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TClass>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2459,7 +2459,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TClass_TObject.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TObject>;
+function CDictionary_TClass_TObject.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TObject>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2562,13 +2562,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Boolean)
      public
       function GetEnumerator: IEnumerator_Boolean;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Boolean>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Boolean>;
     end;
 
    strict private
@@ -2618,7 +2618,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TGUID_Boolean.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_TGUID_Boolean.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2630,7 +2630,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TGUID_Boolean.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Boolean>;
+function CDictionary_TGUID_Boolean.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Boolean>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2726,13 +2726,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_Integer)
      public
       function GetEnumerator: IEnumerator_Integer;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<Integer>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<Integer>;
     end;
 
    strict private
@@ -2782,7 +2782,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TGUID_Integer.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_TGUID_Integer.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2794,7 +2794,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TGUID_Integer.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<Integer>;
+function CDictionary_TGUID_Integer.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<Integer>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2890,13 +2890,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_String)
      public
       function GetEnumerator: IEnumerator_String;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<String>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<String>;
     end;
 
    strict private
@@ -2946,7 +2946,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TGUID_String.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_TGUID_String.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -2958,7 +2958,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TGUID_String.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<String>;
+function CDictionary_TGUID_String.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<String>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -3054,13 +3054,13 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_TGUID)
      public
       function GetEnumerator: IEnumerator_TGUID;
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<TGUID>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<TGUID>;
     end;
 
    strict private
@@ -3110,7 +3110,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_TGUID_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_TGUID_TGUID.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -3122,7 +3122,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_TGUID_TGUID.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<TGUID>;
+function CDictionary_TGUID_TGUID.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<TGUID>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;

@@ -57,7 +57,7 @@ type
   IEnumerable_{[key_flat]} = interface
     ['{[NewGuid]}']
     function GetEnumerator: IEnumerator_{[key_flat]};
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<{[key_type]}>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<{[key_type]}>;
   end;
   {[/disable_key_interfaces]}
 
@@ -65,7 +65,7 @@ type
   IEnumerable_{[value_flat]} = interface
     ['{[NewGuid]}']
     function GetEnumerator: IEnumerator_{[value_flat]};
-    function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<{[value_type]}>;
+    function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<{[value_type]}>;
   end;
   {[/disable_value_interfaces]}
   
@@ -134,14 +134,14 @@ type
     CKeyEnumerable = class(CDictionaryBase.CCollection, IEnumerable_{[key_flat]})
      public
       function GetEnumerator: IEnumerator_{[key_flat]};
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<{[key_type]}>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<{[key_type]}>;
     end;
 
     {[^disable_value_enumerable]}
     CValueEnumerable = class(CDictionaryBase.CCollection, IEnumerable_{[value_flat]})
      public
       function GetEnumerator: IEnumerator_{[value_flat]};
-      function ToArray(AOffset: Integer = 0; ACount: Integer = 0): TArray<{[value_type]}>;
+      function ToArray(AOffset: PtrInt = 0; ACount: PtrInt = 0): TArray<{[value_type]}>;
     end;
     {[/disable_value_enumerable]}
 
@@ -204,7 +204,7 @@ end;
 
 { ----------------------------------------------------------------------- }
 
-function CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerable.ToArray(AOffset, ACount: Integer): TArray<{[key_type]}>;
+function CDictionary_{[key_flat]}_{[value_flat]}.CKeyEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<{[key_type]}>;
 begin
   FSynDict.Keys.InternalDynArray.SliceAsDynArray(@Result,AOffset,ACount);
 end;
@@ -218,7 +218,7 @@ begin
   Result:=CValueEnumerator.Create(FSynDict);
 end;
 
-function CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable.ToArray(AOffset, ACount: Integer): TArray<{[value_type]}>;
+function CDictionary_{[key_flat]}_{[value_flat]}.CValueEnumerable.ToArray(AOffset, ACount: PtrInt): TArray<{[value_type]}>;
 begin
   FSynDict.Values.SliceAsDynArray(@Result,AOffset,ACount);
 end;
