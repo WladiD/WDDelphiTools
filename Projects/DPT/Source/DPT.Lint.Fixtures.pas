@@ -1620,7 +1620,6 @@ end;
 function TDptLintImplementationFixture.ValidateMethodOrderAndSeparators: Boolean;
 var
   J            : Integer;
-  K            : Integer;
   LContentLines: TArray<string>;
   LSeparator   : String;
 begin

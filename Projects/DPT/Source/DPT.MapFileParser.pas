@@ -273,7 +273,6 @@ var
   Seg: Word;
   Offset, Len: UInt64;
   SectionName, ClassName: string;
-  C: Integer;
 begin
   // Sync to "Start" header line
   if not SyncToHeader(P, EndP, ' Start') then
