@@ -5,7 +5,7 @@ program DebugTarget;
 {$STACKFRAMES ON}
 uses System.SysUtils;
 var
-  GGlobalInt: Integer = $87654321;
+  GGlobalInt: Integer = Integer($87654321);
 procedure DeepProcedure;
 var LocalInt: Integer;
 begin

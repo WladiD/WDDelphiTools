@@ -81,9 +81,9 @@ begin
   end
   else
   begin
-    Result := ExpandFileName('Projects\DPT\Test\' + AExeName);
+    Result := ExpandFileName('Projects\DPT\Test\Win32\' + AExeName);
     if not FileExists(Result) then
-      Result := ExpandFileName(AExeName);
+      Result := ExpandFileName('Win32\' + AExeName);
   end;
 end;
 

@@ -53,9 +53,9 @@ implementation
 
 function TTestMapFileParser.MapPath32: string;
 begin
-  Result := ExpandFileName('Projects\DPT\Test\DebugTarget.map');
+  Result := ExpandFileName('Projects\DPT\Test\Win32\DebugTarget.map');
   if not FileExists(Result) then
-    Result := ExpandFileName('DebugTarget.map');
+    Result := ExpandFileName('Win32\DebugTarget.map');
 end;
 
 function TTestMapFileParser.MapPath64: string;

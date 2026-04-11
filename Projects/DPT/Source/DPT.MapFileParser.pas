@@ -10,7 +10,9 @@ interface
 
 uses
   System.SysUtils,
-  System.Classes;
+  System.Classes,
+
+  mormot.core.collections;
 
 type
 
@@ -42,17 +44,20 @@ type
     VA: UInt64;
   end;
 
+  /// <summary>Parses Delphi MAP files to extract symbol information for debugging.
+  /// All address lookups use Virtual Addresses (VA), which are relative offsets
+  /// from the code segment start. The debugger converts absolute process addresses
+  /// to VAs by subtracting the module base address and the section offset ($1000).
+  /// Supports both 32-bit and 64-bit MAP files natively using UInt64 addresses.</summary>
   TMapFileParser = class
   private
     FLastSegmentIndex: Integer;
-    FLineNumbers: TArray<TMapLineNumber>;
-    FLineNumbersCnt: Integer;
-    FProcNames: TArray<TMapProcName>;
-    FProcNamesCnt: Integer;
-    FSegmentClasses: TArray<TMapSegmentClass>;
-    FSegments: TArray<TMapSegment>;
-    FSegmentsCnt: Integer;
+    FLineNumbers     : IList<TMapLineNumber>;
+    FProcNames       : IList<TMapProcName>;
+    FSegmentClasses  : IList<TMapSegmentClass>;
+    FSegments        : IList<TMapSegment>;
     function GetLineNumberByIndex(Index: Integer): TMapLineNumber;
+    function GetLineNumbersCnt: Integer;
     function IndexOfSegment(Addr: UInt64): Integer;
     function MAPAddrToVA(Addr: UInt64): UInt64;
     function ModuleStartFromAddr(Addr: UInt64): UInt64;
@@ -71,7 +76,7 @@ type
     function ProcNameFromAddr(Addr: UInt64; out Offset: Integer): string; overload;
     function VAFromUnitAndProcName(const AUnitName, AProcName: string): UInt64;
     property LineNumberByIndex[Index: Integer]: TMapLineNumber read GetLineNumberByIndex;
-    property LineNumbersCnt: Integer read FLineNumbersCnt;
+    property LineNumbersCnt: Integer read GetLineNumbersCnt;
   end;
 
 implementation
@@ -209,7 +214,7 @@ begin
     Result := AQualifiedName;
 end;
 
-// === TMapFileParser ===
+{ TMapFileParser }
 
 constructor TMapFileParser.Create(const AMapFileName: string);
 var
@@ -217,6 +222,10 @@ var
   Stream: TFileStream;
 begin
   inherited Create;
+  FSegmentClasses := Collections.NewPlainList<TMapSegmentClass>;
+  FSegments := Collections.NewPlainList<TMapSegment>;
+  FProcNames := Collections.NewPlainList<TMapProcName>;
+  FLineNumbers := Collections.NewPlainList<TMapLineNumber>;
   if not FileExists(AMapFileName) then
     Exit;
   Stream := TFileStream.Create(AMapFileName, fmOpenRead or fmShareDenyWrite);
@@ -256,10 +265,6 @@ begin
   P := SaveP;
   ParseLineNumbers(P, EndP);
 
-  // Trim arrays and sort
-  SetLength(FLineNumbers, FLineNumbersCnt);
-  SetLength(FProcNames, FProcNamesCnt);
-  SetLength(FSegments, FSegmentsCnt);
   SortArrays;
 end;
 
@@ -303,16 +308,16 @@ begin
     ClassName := ReadToken(P, EndP);
     SkipToNextLine(P, EndP);
 
-    C := Length(FSegmentClasses);
-    SetLength(FSegmentClasses, C + 1);
-    FSegmentClasses[C].Segment := Seg;
-    FSegmentClasses[C].Start := Offset;
-    FSegmentClasses[C].Len := Len;
-    FSegmentClasses[C].IsTLS := SameText(Copy(ClassName, 1, 3), 'TLS');
-    if FSegmentClasses[C].IsTLS then
-      FSegmentClasses[C].VA := Offset
+    var SC: TMapSegmentClass;
+    SC.Segment := Seg;
+    SC.Start := Offset;
+    SC.Len := Len;
+    SC.IsTLS := SameText(Copy(ClassName, 1, 3), 'TLS');
+    if SC.IsTLS then
+      SC.VA := Offset
     else
-      FSegmentClasses[C].VA := MAPAddrToVA(Offset);
+      SC.VA := MAPAddrToVA(Offset);
+    FSegmentClasses.Add(SC);
   end;
 end;
 
@@ -361,7 +366,7 @@ begin
 
     // Find matching segment class
     SegIndex := -1;
-    for var I := 0 to High(FSegmentClasses) do
+    for var I := 0 to FSegmentClasses.Count - 1 do
       if (FSegmentClasses[I].Segment = Seg) and (Offset < FSegmentClasses[I].Len) then
       begin
         SegIndex := I;
@@ -375,13 +380,12 @@ begin
     else
       VA := MAPAddrToVA(Offset + FSegmentClasses[SegIndex].Start);
 
-    if FSegmentsCnt = Length(FSegments) then
-      SetLength(FSegments, FSegmentsCnt + 256);
-    FSegments[FSegmentsCnt].Segment := Seg;
-    FSegments[FSegmentsCnt].StartVA := VA;
-    FSegments[FSegmentsCnt].EndVA := VA + Len;
-    FSegments[FSegmentsCnt].UnitName := ModuleName;
-    Inc(FSegmentsCnt);
+    var Segment: TMapSegment;
+    Segment.Segment := Seg;
+    Segment.StartVA := VA;
+    Segment.EndVA := VA + Len;
+    Segment.UnitName := ModuleName;
+    FSegments.Add(Segment);
   end;
 end;
 
@@ -418,7 +422,7 @@ begin
 
     // Find matching segment class
     SegIndex := -1;
-    for var I := 0 to High(FSegmentClasses) do
+    for var I := 0 to FSegmentClasses.Count - 1 do
       if (FSegmentClasses[I].Segment = Seg) and (Offset < FSegmentClasses[I].Len) then
       begin
         SegIndex := I;
@@ -432,12 +436,11 @@ begin
     else
       VA := MAPAddrToVA(Offset + FSegmentClasses[SegIndex].Start);
 
-    if FProcNamesCnt = Length(FProcNames) then
-      SetLength(FProcNames, FProcNamesCnt + 512);
-    FProcNames[FProcNamesCnt].Segment := Seg;
-    FProcNames[FProcNamesCnt].VA := VA;
-    FProcNames[FProcNamesCnt].Name := Name;
-    Inc(FProcNamesCnt);
+    var Proc: TMapProcName;
+    Proc.Segment := Seg;
+    Proc.VA := VA;
+    Proc.Name := Name;
+    FProcNames.Add(Proc);
   end;
 end;
 
@@ -495,7 +498,7 @@ begin
 
       // Find matching segment class
       SegIndex := -1;
-      for var I := 0 to High(FSegmentClasses) do
+      for var I := 0 to FSegmentClasses.Count - 1 do
         if (FSegmentClasses[I].Segment = Seg) and (Offset < FSegmentClasses[I].Len) then
         begin
           SegIndex := I;
@@ -512,100 +515,51 @@ begin
       if VA = 0 then
         Continue;
 
-      if FLineNumbersCnt = Length(FLineNumbers) then
-        SetLength(FLineNumbers, FLineNumbersCnt + 512);
-      FLineNumbers[FLineNumbersCnt].Segment := Seg;
-      FLineNumbers[FLineNumbersCnt].VA := VA;
-      FLineNumbers[FLineNumbersCnt].LineNumber := LineNum;
-      FLineNumbers[FLineNumbersCnt].UnitName := UnitName;
-      Inc(FLineNumbersCnt);
+      var LN: TMapLineNumber;
+      LN.Segment := Seg;
+      LN.VA := VA;
+      LN.LineNumber := LineNum;
+      LN.UnitName := UnitName;
+      FLineNumbers.Add(LN);
     end;
   end;
 end;
 
 function TMapFileParser.MAPAddrToVA(Addr: UInt64): UInt64;
 begin
-  if (Length(FSegmentClasses) > 0) and (FSegmentClasses[0].Start > 0) and
+  if (FSegmentClasses.Count > 0) and (FSegmentClasses[0].Start > 0) and
      (Addr >= FSegmentClasses[0].Start) then
     Result := Addr - FSegmentClasses[0].Start
   else
     Result := Addr;
 end;
 
-procedure SortLineNumbers(var Arr: TArray<TMapLineNumber>; L, R: Integer);
-var
-  I, J: Integer;
-  Pivot: UInt64;
-  Temp: TMapLineNumber;
+function CompareLineNumbers(const A, B): Integer;
 begin
-  if L >= R then Exit;
-  I := L; J := R;
-  Pivot := Arr[(L + R) div 2].VA;
-  repeat
-    while Arr[I].VA < Pivot do Inc(I);
-    while Arr[J].VA > Pivot do Dec(J);
-    if I <= J then
-    begin
-      Temp := Arr[I]; Arr[I] := Arr[J]; Arr[J] := Temp;
-      Inc(I); Dec(J);
-    end;
-  until I > J;
-  if L < J then SortLineNumbers(Arr, L, J);
-  if I < R then SortLineNumbers(Arr, I, R);
+  if TMapLineNumber(A).VA < TMapLineNumber(B).VA then Result := -1
+  else if TMapLineNumber(A).VA > TMapLineNumber(B).VA then Result := 1
+  else Result := 0;
 end;
 
-procedure SortProcNames(var Arr: TArray<TMapProcName>; L, R: Integer);
-var
-  I, J: Integer;
-  Pivot: UInt64;
-  Temp: TMapProcName;
+function CompareProcNames(const A, B): Integer;
 begin
-  if L >= R then Exit;
-  I := L; J := R;
-  Pivot := Arr[(L + R) div 2].VA;
-  repeat
-    while Arr[I].VA < Pivot do Inc(I);
-    while Arr[J].VA > Pivot do Dec(J);
-    if I <= J then
-    begin
-      Temp := Arr[I]; Arr[I] := Arr[J]; Arr[J] := Temp;
-      Inc(I); Dec(J);
-    end;
-  until I > J;
-  if L < J then SortProcNames(Arr, L, J);
-  if I < R then SortProcNames(Arr, I, R);
+  if TMapProcName(A).VA < TMapProcName(B).VA then Result := -1
+  else if TMapProcName(A).VA > TMapProcName(B).VA then Result := 1
+  else Result := 0;
 end;
 
-procedure SortSegments(var Arr: TArray<TMapSegment>; L, R: Integer);
-var
-  I, J: Integer;
-  Pivot: UInt64;
-  Temp: TMapSegment;
+function CompareSegments(const A, B): Integer;
 begin
-  if L >= R then Exit;
-  I := L; J := R;
-  Pivot := Arr[(L + R) div 2].EndVA;
-  repeat
-    while Arr[I].EndVA < Pivot do Inc(I);
-    while Arr[J].EndVA > Pivot do Dec(J);
-    if I <= J then
-    begin
-      Temp := Arr[I]; Arr[I] := Arr[J]; Arr[J] := Temp;
-      Inc(I); Dec(J);
-    end;
-  until I > J;
-  if L < J then SortSegments(Arr, L, J);
-  if I < R then SortSegments(Arr, I, R);
+  if TMapSegment(A).EndVA < TMapSegment(B).EndVA then Result := -1
+  else if TMapSegment(A).EndVA > TMapSegment(B).EndVA then Result := 1
+  else Result := 0;
 end;
 
 procedure TMapFileParser.SortArrays;
 begin
-  if FLineNumbersCnt > 1 then
-    SortLineNumbers(FLineNumbers, 0, FLineNumbersCnt - 1);
-  if FProcNamesCnt > 1 then
-    SortProcNames(FProcNames, 0, FProcNamesCnt - 1);
-  if FSegmentsCnt > 1 then
-    SortSegments(FSegments, 0, FSegmentsCnt - 1);
+  FLineNumbers.Sort(CompareLineNumbers);
+  FProcNames.Sort(CompareProcNames);
+  FSegments.Sort(CompareSegments);
 end;
 
 function TMapFileParser.GetLineNumberByIndex(Index: Integer): TMapLineNumber;
@@ -613,11 +567,16 @@ begin
   Result := FLineNumbers[Index];
 end;
 
+function TMapFileParser.GetLineNumbersCnt: Integer;
+begin
+  Result := FLineNumbers.Count;
+end;
+
 function TMapFileParser.IndexOfSegment(Addr: UInt64): Integer;
 var
   L, R: Integer;
 begin
-  R := FSegmentsCnt - 1;
+  R := FSegments.Count - 1;
   Result := FLastSegmentIndex;
   if (Result >= 0) and (Result <= R) then
     if (FSegments[Result].StartVA <= Addr) and (Addr < FSegments[Result].EndVA) then
@@ -682,7 +641,7 @@ begin
 
   // Binary search: find largest VA <= Addr
   L := 0;
-  R := FProcNamesCnt - 1;
+  R := FProcNames.Count - 1;
   M := -1;
   while L <= R do
   begin
@@ -721,7 +680,7 @@ begin
 
   // Binary search: find largest VA <= Addr
   L := 0;
-  R := FLineNumbersCnt - 1;
+  R := FLineNumbers.Count - 1;
   M := -1;
   while L <= R do
   begin
@@ -748,7 +707,7 @@ var
 begin
   Result := 0;
   QualifiedName := AUnitName + '.' + AProcName;
-  for var I := 0 to FProcNamesCnt - 1 do
+  for var I := 0 to FProcNames.Count - 1 do
     if SameText(FProcNames[I].Name, QualifiedName) then
       Exit(FProcNames[I].VA);
 end;

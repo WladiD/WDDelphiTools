@@ -3,17 +3,23 @@ unit Test.DPT.MCP.Server;
 interface
 
 uses
+
   Winapi.Windows,
-  DUnitX.TestFramework,
-  DPT.Debugger,
-  DPT.MCP.Server,
-  System.SysUtils,
+
   System.Classes,
+  System.Generics.Collections,
+  System.IOUtils,
   System.JSON,
   System.SyncObjs,
-  System.IOUtils;
+  System.SysUtils,
+
+  DUnitX.TestFramework,
+
+  DPT.Debugger,
+  DPT.MCP.Server;
 
 type
+
   [TestFixture]
   TMcpServerTests = class
   private
@@ -243,9 +249,9 @@ begin
   end
   else
   begin
-    Result := ExpandFileName('Projects\DPT\Test\' + AExeName);
+    Result := ExpandFileName('Projects\DPT\Test\Win32\' + AExeName);
     if not FileExists(Result) then
-      Result := ExpandFileName(AExeName);
+      Result := ExpandFileName('Win32\' + AExeName);
   end;
 end;
 
@@ -422,8 +428,7 @@ var
   ExePath, MapFile: string;
   StepNotif: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -485,8 +490,7 @@ var
   ResultObj, Meta: TJSONObject;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -545,8 +549,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -593,8 +596,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
@@ -690,8 +692,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   // Test get_state in no_session state
@@ -758,8 +759,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   // Test 1: set_breakpoint on invalid unit during active session -> immediate error
@@ -850,8 +850,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -904,8 +903,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -957,8 +955,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   
   // Create a temporary copy of the executable WITHOUT the map file, using a unique name
   var TempPath := ChangeFileExt(ExePath, Format('.NoMap.%d.exe', [GetTickCount]));
@@ -1015,8 +1012,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -1167,8 +1163,7 @@ var
   ThreadId1, ThreadId2: Int64;
   I: Integer;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\MultiThreadTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('MultiThreadTarget.exe');
+  ExePath := ResolveTargetPath('MultiThreadTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   // We set breakpoints on the lines we defined in MultiThreadTarget.dpr
@@ -1299,8 +1294,7 @@ var
   OtherThreadId: Int64;
   Arr: TJSONArray;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\MultiThreadTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('MultiThreadTarget.exe');
+  ExePath := ResolveTargetPath('MultiThreadTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -1434,8 +1428,7 @@ var
   ExePath, MapFile: string;
   FileHandle: THandle;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   // We test starting a debug session, continuing until exit, and then attempting to access the map file
