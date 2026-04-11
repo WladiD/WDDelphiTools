@@ -81,9 +81,7 @@
         <DCC_Define>TESTINSIGHT;$(DCC_Define)</DCC_Define>
     </PropertyGroup>
     <PropertyGroup>
-        <PreBuildEvent><![CDATA["$(BDS)\bin\dcc32.exe" -GD -O- -V "$(MSBuildProjectDirectory)\DebugTarget.dpr"
-"$(BDS)\bin\dcc32.exe" -GD -O- -V "$(MSBuildProjectDirectory)\ExceptionTarget.dpr"
-"$(BDS)\bin\dcc32.exe" -GD -O- -V "$(MSBuildProjectDirectory)\MultiThreadTarget.dpr"]]></PreBuildEvent>
+        <PreBuildEvent/>
     </PropertyGroup>
     <ItemGroup>
         <DelphiCompile Include="$(MainSource)">

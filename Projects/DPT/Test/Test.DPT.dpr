@@ -15,7 +15,6 @@ uses
   DUnitX.TestFramework,
 
   Test.DPT.BuildAndRunTask,
-  Test.DPT.Debugger,
   Test.DPT.DProjAnalyzer,
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
@@ -25,7 +24,6 @@ uses
   Test.DPT.LintFixtures,
   Test.DPT.LintTask,
   Test.DPT.Git,
-  Test.DPT.MCP.Server,
   Test.DPT.Preprocessor,
   Test.DPT.Workflow;
 
