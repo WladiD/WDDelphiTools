@@ -285,7 +285,7 @@ begin
   else
     VMTClassNameOfs := 136;
 
-  ClassNamePtr := ReadTargetPointer(PByte(VMTPtr) - VMTClassNameOfs);
+  ClassNamePtr := ReadTargetPointer(Pointer(VMTPtr - UIntPtr(VMTClassNameOfs)));
   if ClassNamePtr = 0 then
     Exit;
 
@@ -302,12 +302,12 @@ begin
   end
   else
   begin
-    // Win64 with CPP_ABI_SUPPORT: CodePage(Word) + ShortString
-    if Length(Buffer) > 3 then
+    // Win64: plain ShortString (same as Win32)
+    if Length(Buffer) > 1 then
     begin
-      Len := Buffer[2];
-      if (Len > 0) and (3 + Integer(Len) <= Length(Buffer)) then
-        Result := TEncoding.UTF8.GetString(Buffer, 3, Len);
+      Len := Buffer[0];
+      if (Len > 0) and (1 + Integer(Len) <= Length(Buffer)) then
+        Result := TEncoding.ANSI.GetString(Buffer, 1, Len);
     end;
   end;
 end;

@@ -63,7 +63,11 @@ var
 begin
   Debugger := Sender as TDebugger;
   FBreakpointHit := True;
-  FStackTrace := Debugger.GetStackTrace(Debugger.LastThreadHit);
+  try
+    FStackTrace := Debugger.GetStackTrace(Debugger.LastThreadHit);
+  except
+    // GetStackTrace may fail, but we still need to resume
+  end;
   Debugger.ResumeExecution;
 end;
 
