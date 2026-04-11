@@ -24,6 +24,7 @@ uses
   Test.DPT.LintFixtures,
   Test.DPT.LintTask,
   Test.DPT.Git,
+  Test.DPT.MapFileParser,
   Test.DPT.Preprocessor,
   Test.DPT.Workflow;
 

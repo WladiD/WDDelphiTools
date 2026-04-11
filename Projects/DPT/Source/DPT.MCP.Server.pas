@@ -1176,10 +1176,13 @@ begin
     if LSize > 4096 then LSize := 4096;
     Data := FDebugger.ReadProcessMemory(Pointer(Regs.Esp), LSize);
 
-    Hex := Format('ESP: %p, EBP: %p' + sLineBreak, [Pointer(Regs.Esp), Pointer(Regs.Ebp)]);
+    if FDebugger.TargetIs32Bit then
+      Hex := Format('ESP: %.8x, EBP: %.8x', [DWORD(Regs.Esp), DWORD(Regs.Ebp)]) + sLineBreak
+    else
+      Hex := Format('RSP: %.16x, RBP: %.16x', [Regs.Esp, Regs.Ebp]) + sLineBreak;
     for var I := 0 to Length(Data) - 1 do
     begin
-      if I mod 16 = 0 then Hex := Hex + sLineBreak + IntToHex(Regs.Esp + UIntPtr(I), 8) + ': ';
+      if I mod 16 = 0 then Hex := Hex + sLineBreak + IntToHex(Regs.Esp + UIntPtr(I), FDebugger.TargetPointerSize * 2) + ': ';
       Hex := Hex + IntToHex(Data[I], 2) + ' ';
     end;
 
@@ -1233,12 +1236,24 @@ begin
 
   RegObj := TJSONObject.Create;
   try
-    RegObj.AddPair('eip', Format('%p', [Pointer(Regs.Eip)]));
-    RegObj.AddPair('esp', Format('%p', [Pointer(Regs.Esp)]));
-    RegObj.AddPair('ebp', Format('%p', [Pointer(Regs.Ebp)]));
-    RegObj.AddPair('eax', Format('%p', [Pointer(Regs.Eax)]));
-    RegObj.AddPair('edx', Format('%p', [Pointer(Regs.Edx)]));
-    RegObj.AddPair('ecx', Format('%p', [Pointer(Regs.Ecx)]));
+    if FDebugger.TargetIs32Bit then
+    begin
+      RegObj.AddPair('eip', Format('%.8x', [DWORD(Regs.Eip)]));
+      RegObj.AddPair('esp', Format('%.8x', [DWORD(Regs.Esp)]));
+      RegObj.AddPair('ebp', Format('%.8x', [DWORD(Regs.Ebp)]));
+      RegObj.AddPair('eax', Format('%.8x', [DWORD(Regs.Eax)]));
+      RegObj.AddPair('edx', Format('%.8x', [DWORD(Regs.Edx)]));
+      RegObj.AddPair('ecx', Format('%.8x', [DWORD(Regs.Ecx)]));
+    end
+    else
+    begin
+      RegObj.AddPair('rip', Format('%.16x', [Regs.Eip]));
+      RegObj.AddPair('rsp', Format('%.16x', [Regs.Esp]));
+      RegObj.AddPair('rbp', Format('%.16x', [Regs.Ebp]));
+      RegObj.AddPair('rax', Format('%.16x', [Regs.Eax]));
+      RegObj.AddPair('rdx', Format('%.16x', [Regs.Edx]));
+      RegObj.AddPair('rcx', Format('%.16x', [Regs.Ecx]));
+    end;
     Result := MakeTextResult(RegObj.ToJSON);
   finally
     RegObj.Free;

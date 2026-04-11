@@ -16,6 +16,10 @@ uses
 type
   [TestFixture]
   TMcpServerTests = class
+  private
+    function ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
+    procedure DoTestMcpProtocolFlow(AUse64Bit: Boolean);
+    procedure DoTestMcpExceptionFlow(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestMcpProtocolFlow;
@@ -51,6 +55,12 @@ type
     procedure TestMcpListAndSwitchThreads;
     [Test]
     procedure TestMcpMapFileUnlockAfterExit;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestMcpProtocolFlow64;
+    [Test]
+    procedure TestMcpExceptionFlow64;
+    {$ENDIF}
   end;
 
 implementation
@@ -223,7 +233,23 @@ end;
 
 { TMcpServerTests }
 
-procedure TMcpServerTests.TestMcpProtocolFlow;
+function TMcpServerTests.ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
+begin
+  if AUse64Bit then
+  begin
+    Result := ExpandFileName('Projects\DPT\Test\Win64\' + AExeName);
+    if not FileExists(Result) then
+      Result := ExpandFileName('Win64\' + AExeName);
+  end
+  else
+  begin
+    Result := ExpandFileName('Projects\DPT\Test\' + AExeName);
+    if not FileExists(Result) then
+      Result := ExpandFileName(AExeName);
+  end;
+end;
+
+procedure TMcpServerTests.DoTestMcpProtocolFlow(AUse64Bit: Boolean);
 var
   Debugger: TDebugger;
   Server: TMcpServer;
@@ -231,8 +257,7 @@ var
   OutputWriter: TStringTextWriter;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -299,7 +324,7 @@ begin
   end;
 end;
 
-procedure TMcpServerTests.TestMcpExceptionFlow;
+procedure TMcpServerTests.DoTestMcpExceptionFlow(AUse64Bit: Boolean);
 var
   Debugger: TDebugger;
   Server: TMcpServer;
@@ -308,8 +333,7 @@ var
   LJSON: TJSONObject;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\ExceptionTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('ExceptionTarget.exe');
+  ExePath := ResolveTargetPath('ExceptionTarget.exe', AUse64Bit);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   InputReader := TStringTextReader.Create(
@@ -359,6 +383,28 @@ begin
     Debugger.Free;
   end;
 end;
+
+procedure TMcpServerTests.TestMcpProtocolFlow;
+begin
+  DoTestMcpProtocolFlow(False);
+end;
+
+procedure TMcpServerTests.TestMcpExceptionFlow;
+begin
+  DoTestMcpExceptionFlow(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TMcpServerTests.TestMcpProtocolFlow64;
+begin
+  DoTestMcpProtocolFlow(True);
+end;
+
+procedure TMcpServerTests.TestMcpExceptionFlow64;
+begin
+  DoTestMcpExceptionFlow(True);
+end;
+{$ENDIF}
 
 procedure TMcpServerTests.TestMcpSteppingFlow;
 var

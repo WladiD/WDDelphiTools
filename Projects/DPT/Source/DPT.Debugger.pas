@@ -16,7 +16,7 @@ uses
   System.SyncObjs,
   System.SysUtils,
 
-  JclDebug,
+  DPT.MapFileParser,
   mormot.core.collections;
 
 function OpenThread(dwDesiredAccess: DWORD; bInheritHandle: BOOL; dwThreadId: DWORD): THandle; stdcall; external kernel32;
@@ -25,12 +25,12 @@ const
 
   EXCEPTION_DELPHI_LANGUAGE = $0EEDFADE;
   EXCEPTION_MS_VC_THREAD_NAME = $406D1388;
+  STATUS_WX86_BREAKPOINT = $4000001F;
+  STATUS_WX86_SINGLE_STEP = $4000001E;
   THREAD_GET_CONTEXT = $0008;
   THREAD_SET_CONTEXT = $0010;
 
 type
-
-  TJclMapScannerCracker = class(TJclMapScanner);
 
   TBreakpoint = class
   public
@@ -98,7 +98,7 @@ type
     FLastExceptionFirstChance: Boolean;
     FLastThreadHit           : THandle;
     FLastThreadId            : DWORD;
-    FMapScanner              : TJclMapScanner;
+    FMapScanner              : TMapFileParser;
     FOnBreakpoint            : TOnBreakpointEvent;
     FOnException             : TOnExceptionEvent;
     FOnProcessExit           : TOnProcessExitEvent;
@@ -111,16 +111,23 @@ type
     FStepStartLine           : Integer;
     FStepStartUnit           : String;
     FStepType                : TStepType;
+    FTargetIs32Bit           : Boolean;
+    FTargetPointerSize       : Integer;
     FTerminated              : Boolean;
     FThreadHandle            : THandle;
     FThreadId                : DWORD;
     procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
+    {$IFDEF CPUX64}
+    function  GetContextFlags(AFlags: DWORD): DWORD;
+    {$ENDIF}
+    function  GetTargetContext(AThreadHandle: THandle; AFlags: DWORD; out AContext: TContext{$IFDEF CPUX64}; out AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure HandleCreateProcess(const ADebugEvent: TDebugEvent);
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
     procedure HandleExitThread(const ADebugEvent: TDebugEvent);
-    function  ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
-    procedure SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
+    function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
+    function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
+    procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
   public
     constructor Create;
     destructor Destroy; override;
@@ -160,6 +167,8 @@ type
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
     property  OnStepped: TOnSteppedEvent read FOnStepped write FOnStepped;
+    property  TargetIs32Bit: Boolean read FTargetIs32Bit;
+    property  TargetPointerSize: Integer read FTargetPointerSize;
   end;
 
   TDebuggerThread = class(TThread)
@@ -229,6 +238,7 @@ begin
   FStepType := stNone;
   FFirstBreak := True;
   FTerminated := False;
+  FTargetPointerSize := SizeOf(Pointer);
 end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);
@@ -247,34 +257,58 @@ end;
 
 function TDebugger.ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
 var
-  Buffer      : TBytes;
-  ClassNamePtr: Pointer;
-  Len         : Byte;
-  ObjPtr      : Pointer;
-  VMTPtr      : Pointer;
+  Buffer          : TBytes;
+  ClassNamePtr    : UIntPtr;
+  Len             : Byte;
+  ObjPtr          : UIntPtr;
+  VMTClassNameOfs : Integer;
+  VMTPtr          : UIntPtr;
+
 begin
   Result := '';
   if (AExceptionRecord.ExceptionCode <> EXCEPTION_DELPHI_LANGUAGE) or (AExceptionRecord.NumberParameters < 2) then
     Exit;
 
-  ObjPtr := Pointer(AExceptionRecord.ExceptionInformation[1]);
-  if not Assigned(ObjPtr) then
+  ObjPtr := UIntPtr(AExceptionRecord.ExceptionInformation[1]);
+  if ObjPtr = 0 then
     Exit;
 
-  VMTPtr := ReadProcessMemoryPtr(ObjPtr);
-  if not Assigned(VMTPtr) then
+  VMTPtr := ReadTargetPointer(Pointer(ObjPtr));
+  if VMTPtr = 0 then
     Exit;
 
-  ClassNamePtr := ReadProcessMemoryPtr(PByte(VMTPtr) - 56); // vmtClassName is -56
-  if not Assigned(ClassNamePtr) then
+  // vmtClassName offset depends on target bitness and CPP_ABI_SUPPORT
+  // Win32: vmtClassName = -56 (no CPP_ABI_ADJUST)
+  // Win64: vmtClassName = -112 - 3*8 = -136 (CPP_ABI_ADJUST = 24)
+  if FTargetIs32Bit then
+    VMTClassNameOfs := 56
+  else
+    VMTClassNameOfs := 136;
+
+  ClassNamePtr := ReadTargetPointer(PByte(VMTPtr) - VMTClassNameOfs);
+  if ClassNamePtr = 0 then
     Exit;
 
-  Buffer := ReadProcessMemory(ClassNamePtr, 256);
-  if Length(Buffer) > 0 then
+  Buffer := ReadProcessMemory(Pointer(ClassNamePtr), 256);
+  if FTargetIs32Bit then
   begin
-    Len := Buffer[0];
-    if Len < Length(Buffer) then
-      Result := TEncoding.ANSI.GetString(Buffer, 1, Len);
+    // Win32: plain ShortString (Length: Byte + Data)
+    if Length(Buffer) > 1 then
+    begin
+      Len := Buffer[0];
+      if (Len > 0) and (1 + Integer(Len) <= Length(Buffer)) then
+        Result := TEncoding.ANSI.GetString(Buffer, 1, Len);
+    end;
+  end
+  else
+  begin
+    // Win64 with CPP_ABI_SUPPORT: CodePage(Word) + ShortString
+    if Length(Buffer) > 3 then
+    begin
+      Len := Buffer[2];
+      if (Len > 0) and (3 + Integer(Len) <= Length(Buffer)) then
+        Result := TEncoding.UTF8.GetString(Buffer, 3, Len);
+    end;
   end;
 end;
 
@@ -310,6 +344,9 @@ end;
 procedure TDebugger.Detach;
 var
   Context: TContext;
+  {$IFDEF CPUX64}
+  Wow64Context: TWow64Context;
+  {$ENDIF}
 begin
   if FTerminated then
     Exit;
@@ -318,15 +355,27 @@ begin
   for var e in FActiveThreads do
   begin
     var LThreadHandle := e.Value;
-    Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-    if GetThreadContext(LThreadHandle, Context) then
+    if GetTargetContext(LThreadHandle, CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF}) then
     begin
-      Context.Dr0 := 0;
-      Context.Dr1 := 0;
-      Context.Dr2 := 0;
-      Context.Dr3 := 0;
-      Context.Dr7 := Context.Dr7 and not $FF;
-      SetThreadContext(LThreadHandle, Context);
+      {$IFDEF CPUX64}
+      if FTargetIs32Bit then
+      begin
+        Wow64Context.Dr0 := 0;
+        Wow64Context.Dr1 := 0;
+        Wow64Context.Dr2 := 0;
+        Wow64Context.Dr3 := 0;
+        Wow64Context.Dr7 := Wow64Context.Dr7 and not DWORD($FF);
+      end
+      else
+      {$ENDIF}
+      begin
+        Context.Dr0 := 0;
+        Context.Dr1 := 0;
+        Context.Dr2 := 0;
+        Context.Dr3 := 0;
+        Context.Dr7 := Context.Dr7 and not $FF;
+      end;
+      SetTargetContext(LThreadHandle, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
     end;
   end;
 
@@ -387,12 +436,100 @@ begin
     Result := nil;
 end;
 
-function TDebugger.ReadProcessMemoryPtr(AAddress: Pointer): Pointer;
+{$IFDEF CPUX64}
+function TDebugger.GetContextFlags(AFlags: DWORD): DWORD;
+begin
+  if FTargetIs32Bit then
+  begin
+    Result := 0;
+    if (AFlags and CONTEXT_CONTROL) = CONTEXT_CONTROL then
+      Result := Result or WOW64_CONTEXT_CONTROL;
+    if (AFlags and CONTEXT_INTEGER) = CONTEXT_INTEGER then
+      Result := Result or WOW64_CONTEXT_INTEGER;
+    if (AFlags and CONTEXT_DEBUG_REGISTERS) = CONTEXT_DEBUG_REGISTERS then
+      Result := Result or WOW64_CONTEXT_DEBUG_REGISTERS;
+    if (AFlags and CONTEXT_FULL) = CONTEXT_FULL then
+      Result := Result or WOW64_CONTEXT_FULL;
+  end
+  else
+    Result := AFlags;
+end;
+{$ENDIF}
+
+function TDebugger.GetTargetContext(AThreadHandle: THandle; AFlags: DWORD;
+  out AContext: TContext{$IFDEF CPUX64}; out AWow64Context: TWow64Context{$ENDIF}): Boolean;
+{$IFDEF CPUX64}
+var
+  Buf: PContext;
+{$ENDIF}
+begin
+  {$IFDEF CPUX64}
+  FillChar(AWow64Context, SizeOf(AWow64Context), 0);
+  if FTargetIs32Bit then
+  begin
+    AWow64Context.ContextFlags := GetContextFlags(AFlags);
+    Result := Wow64GetThreadContext(AThreadHandle, AWow64Context);
+    Exit;
+  end;
+  // TContext on x64 requires 16-byte alignment for XMM register area.
+  // Delphi may not align stack variables to 16 bytes, so heap-allocate.
+  GetMem(Buf, SizeOf(TContext) + 15);
+  try
+    var AlignedCtx := PContext((UIntPtr(Buf) + 15) and not UIntPtr(15));
+    FillChar(AlignedCtx^, SizeOf(TContext), 0);
+    AlignedCtx.ContextFlags := AFlags;
+    Result := GetThreadContext(AThreadHandle, AlignedCtx^);
+    if Result then
+      Move(AlignedCtx^, AContext, SizeOf(TContext))
+    else
+      FillChar(AContext, SizeOf(AContext), 0);
+  finally
+    FreeMem(Buf);
+  end;
+  {$ELSE}
+  FillChar(AContext, SizeOf(AContext), 0);
+  AContext.ContextFlags := AFlags;
+  Result := GetThreadContext(AThreadHandle, AContext);
+  {$ENDIF}
+end;
+
+function TDebugger.SetTargetContext(AThreadHandle: THandle;
+  var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
+{$IFDEF CPUX64}
+var
+  Buf: PContext;
+{$ENDIF}
+begin
+  {$IFDEF CPUX64}
+  if FTargetIs32Bit then
+    Exit(Wow64SetThreadContext(AThreadHandle, AWow64Context));
+  GetMem(Buf, SizeOf(TContext) + 15);
+  try
+    var AlignedCtx := PContext((UIntPtr(Buf) + 15) and not UIntPtr(15));
+    Move(AContext, AlignedCtx^, SizeOf(TContext));
+    Result := SetThreadContext(AThreadHandle, AlignedCtx^);
+  finally
+    FreeMem(Buf);
+  end;
+  {$ELSE}
+  Result := SetThreadContext(AThreadHandle, AContext);
+  {$ENDIF}
+end;
+
+function TDebugger.ReadTargetPointer(AAddress: Pointer): UIntPtr;
 var
   BytesRead: NativeUInt;
+  Val32: DWORD;
 begin
-  Result := nil;
-  Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result, SizeOf(Pointer), BytesRead);
+  Result := 0;
+  if FTargetIs32Bit then
+  begin
+    Val32 := 0;
+    Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Val32, 4, BytesRead);
+    Result := Val32;
+  end
+  else
+    Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result, SizeOf(Pointer), BytesRead);
 end;
 
 function TDebugger.ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
@@ -407,12 +544,29 @@ end;
 function TDebugger.GetRegisters(AThreadHandle: THandle): TRegisters;
 var
   Context: TContext;
+  {$IFDEF CPUX64}
+  Wow64Context: TWow64Context;
+  {$ENDIF}
 begin
   FillChar(Result, SizeOf(Result), 0);
-  Context.ContextFlags := CONTEXT_FULL;
-  if GetThreadContext(AThreadHandle, Context) then
+  if not GetTargetContext(AThreadHandle, CONTEXT_FULL, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF}) then
+    Exit;
+  {$IFDEF CPUX64}
+  if FTargetIs32Bit then
   begin
-    {$IFDEF CPUX64}
+    Result.Eip := Wow64Context.Eip;
+    Result.Esp := Wow64Context.Esp;
+    Result.Ebp := Wow64Context.Ebp;
+    Result.Eax := Wow64Context.Eax;
+    Result.Ebx := Wow64Context.Ebx;
+    Result.Ecx := Wow64Context.Ecx;
+    Result.Edx := Wow64Context.Edx;
+    Result.Esi := Wow64Context.Esi;
+    Result.Edi := Wow64Context.Edi;
+    Result.EFlags := Wow64Context.EFlags;
+  end
+  else
+  begin
     Result.Eip := Context.Rip;
     Result.Esp := Context.Rsp;
     Result.Ebp := Context.Rbp;
@@ -422,26 +576,27 @@ begin
     Result.Edx := Context.Rdx;
     Result.Esi := Context.Rsi;
     Result.Edi := Context.Rdi;
-    {$ELSE}
-    Result.Eip := Context.Eip;
-    Result.Esp := Context.Esp;
-    Result.Ebp := Context.Ebp;
-    Result.Eax := Context.Eax;
-    Result.Ebx := Context.Ebx;
-    Result.Ecx := Context.Ecx;
-    Result.Edx := Context.Edx;
-    Result.Esi := Context.Esi;
-    Result.Edi := Context.Edi;
-    {$ENDIF}
     Result.EFlags := Context.EFlags;
   end;
+  {$ELSE}
+  Result.Eip := Context.Eip;
+  Result.Esp := Context.Esp;
+  Result.Ebp := Context.Ebp;
+  Result.Eax := Context.Eax;
+  Result.Ebx := Context.Ebx;
+  Result.Ecx := Context.Ecx;
+  Result.Edx := Context.Edx;
+  Result.Esi := Context.Esi;
+  Result.Edi := Context.Edi;
+  Result.EFlags := Context.EFlags;
+  {$ENDIF}
 end;
 
 function TDebugger.GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer): TArray<TStackSlot>;
 var
   Regs      : TRegisters;
-  RelativeVA: DWORD;
-  ResultList: IList<TStackSlot>; 
+  RelativeVA: UInt64;
+  ResultList: IList<TStackSlot>;
   Slot      : TStackSlot;
   SymbolName: String;
   Val       : UIntPtr;
@@ -450,13 +605,13 @@ begin
   ResultList := Collections.NewPlainList<TStackSlot>;
   for var I: Integer := 0 to AMaxSlots - 1 do
   begin
-    Slot.Offset := -(I * SizeOf(Pointer));
+    Slot.Offset := -(I * FTargetPointerSize);
     Slot.Address := PByte(Regs.Ebp) + Slot.Offset;
 
     if NativeInt(Slot.Address) < NativeInt(Regs.Esp) then
       Break;
 
-    Val := UIntPtr(ReadProcessMemoryPtr(Slot.Address));
+    Val := ReadTargetPointer(Slot.Address);
     Slot.Value := Val;
     Slot.Interpretation := '';
 
@@ -474,7 +629,7 @@ begin
         Slot.Interpretation := IntToStr(Val);
 
       if Slot.Interpretation = '' then
-        Slot.Interpretation := '$' + IntToHex(Val, SizeOf(Pointer) * 2);
+        Slot.Interpretation := '$' + IntToHex(Val, FTargetPointerSize * 2);
     end
     else
       Slot.Interpretation := '0';
@@ -490,7 +645,7 @@ var
   IdxOffset : Integer;
   P         : Integer;
   Regs      : TRegisters;
-  RelativeVA: DWORD;
+  RelativeVA: UInt64;
 begin
   FillChar(Result, SizeOf(Result), 0);
   if not Assigned(FMapScanner) then
@@ -507,13 +662,42 @@ begin
 
   // Analyze prologue
   Buf := ReadProcessMemory(Result.StartAddress, 64);
-  if Length(Buf) >= 3 then
+  if Length(Buf) < 3 then
+    Exit;
+
+  P := 0;
+  if not FTargetIs32Bit then
   begin
-    P := 0;
+    // Delphi x64 prologue: push rbp; sub rsp, N; mov rbp, rsp
+    // (note: sub rsp comes BEFORE mov rbp, rsp on x64)
+    // push rbp = 55
+    if (Buf[P] = $55) then Inc(P);
+    // sub rsp, imm8 (48 83 EC XX)
+    if (P < Length(Buf) - 3) and (Buf[P] = $48) and (Buf[P+1] = $83) and (Buf[P+2] = $EC) then
+    begin
+      Result.LocalSize := Buf[P+3];
+      Inc(P, 4);
+    end
+    // sub rsp, imm32 (48 81 EC XX XX XX XX)
+    else if (P < Length(Buf) - 6) and (Buf[P] = $48) and (Buf[P+1] = $81) and (Buf[P+2] = $EC) then
+    begin
+      Result.LocalSize := PLongWord(@Buf[P+3])^;
+      Inc(P, 7);
+    end;
+    // mov rbp, rsp = 48 8B EC or 48 89 E5
+    if (P < Length(Buf) - 2) and (Buf[P] = $48) then
+    begin
+      if ((Buf[P+1] = $8B) and (Buf[P+2] = $EC)) or
+         ((Buf[P+1] = $89) and (Buf[P+2] = $E5)) then
+        Inc(P, 3);
+    end;
+  end
+  else
+  begin
+    // x86 (32-bit) prologue analysis
     // Skip push ebp (55) and mov ebp, esp (8B EC)
     if (Buf[P] = $55) then Inc(P);
     if (P < Length(Buf) - 1) and (Buf[P] = $8B) and (Buf[P+1] = $EC) then Inc(P, 2);
-
     if P < Length(Buf) then
     begin
       // push ecx (51) - common optimization for 4-byte local
@@ -537,50 +721,82 @@ end;
 
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
-  Context   : TContext;
-  Frame     : TStackFrame;
-  FramePtr  : Pointer;
-  Frames    : IList<TStackFrame>;
-  RelativeVA: DWORD;
-  ReturnAddr: Pointer;
+  Buf        : TBytes;
+  Regs       : TRegisters;
+  Frame      : TStackFrame;
+  FramePtr   : UIntPtr;
+  FrameSize  : Integer;
+  Frames     : IList<TStackFrame>;
+  IdxOffset  : Integer;
+  P          : Integer;
+  ProcStartVA: UInt64;
+  RelativeVA : UInt64;
+  ReturnAddr : UIntPtr;
 begin
-  Frames := Collections.NewPlainList<TStackFrame>;
-  Context.ContextFlags := CONTEXT_CONTROL or CONTEXT_INTEGER;
-  if not GetThreadContext(AThreadHandle, Context) then
+  try
+
+  Regs := GetRegisters(AThreadHandle);
+  if Regs.Eip = 0 then
     Exit(nil);
 
-  {$IFDEF CPUX64}
-  FramePtr := Pointer(Context.Rbp);
-  ReturnAddr := Pointer(Context.Rip);
-  {$ELSE}
-  FramePtr := Pointer(Context.Ebp);
-  ReturnAddr := Pointer(Context.Eip);
-  {$ENDIF}
+  FramePtr := Regs.Ebp;
+  ReturnAddr := Regs.Eip;
+  Frames := Collections.NewPlainList<TStackFrame>;
 
-  while (Frames.Count < 50) and (UIntPtr(ReturnAddr) > FBaseAddress) do
+  while (Frames.Count < 50) and (ReturnAddr > FBaseAddress) do
   begin
-    Frame.Address := ReturnAddr;
+    Frame.Address := Pointer(ReturnAddr);
     Frame.UnitName := '';
     Frame.ProcedureName := '';
     Frame.LineNumber := 0;
 
-    if Assigned(FMapScanner) and (UIntPtr(ReturnAddr) >= FBaseAddress + $1000) then
+    if Assigned(FMapScanner) and (ReturnAddr >= FBaseAddress + $1000) and
+       (ReturnAddr < FBaseAddress + $10000000) then
     begin
-      RelativeVA := UIntPtr(ReturnAddr) - FBaseAddress - $1000;
+      RelativeVA := ReturnAddr - FBaseAddress - $1000;
       Frame.UnitName := FMapScanner.ModuleNameFromAddr(RelativeVA);
-      Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA);
+      Frame.ProcedureName := FMapScanner.ProcNameFromAddr(RelativeVA, IdxOffset);
       Frame.LineNumber := FMapScanner.LineNumberFromAddr(RelativeVA);
     end;
 
     Frames.Add(Frame);
 
-    if FramePtr = nil then Break;
-    ReturnAddr := ReadProcessMemoryPtr(PByte(FramePtr) + SizeOf(Pointer));
-    FramePtr := ReadProcessMemoryPtr(FramePtr);
-    if ReturnAddr = nil then Break;
+    if FramePtr = 0 then Break;
+
+    if (not FTargetIs32Bit) and Assigned(FMapScanner) and (Frame.ProcedureName <> '') then
+    begin
+      // x64: Delphi prologue is push rbp; sub rsp, N; mov rbp, rsp
+      // So saved RBP is at [RBP + N] and return address at [RBP + N + 8]
+      ProcStartVA := RelativeVA - UInt64(IdxOffset);
+      FrameSize := 0;
+      Buf := ReadProcessMemory(Pointer(FBaseAddress + $1000 + ProcStartVA), 16);
+      if Length(Buf) >= 5 then
+      begin
+        P := 0;
+        if Buf[P] = $55 then Inc(P); // push rbp
+        if (P + 3 < Length(Buf)) and (Buf[P] = $48) and (Buf[P+1] = $83) and (Buf[P+2] = $EC) then
+          FrameSize := Buf[P+3]
+        else if (P + 6 < Length(Buf)) and (Buf[P] = $48) and (Buf[P+1] = $81) and (Buf[P+2] = $EC) then
+          FrameSize := PLongWord(@Buf[P+3])^;
+      end;
+      ReturnAddr := ReadTargetPointer(PByte(FramePtr) + FrameSize + 8);
+      FramePtr := ReadTargetPointer(PByte(FramePtr) + FrameSize);
+    end
+    else
+    begin
+      // x86: classic EBP chain - [EBP] = saved EBP, [EBP+4] = return address
+      ReturnAddr := ReadTargetPointer(PByte(FramePtr) + FTargetPointerSize);
+      FramePtr := ReadTargetPointer(Pointer(FramePtr));
+    end;
+
+    if ReturnAddr = 0 then Break;
   end;
 
   Result := Frames.AsArray;
+
+  except
+    // Protect against range check errors or memory read failures during stack walk
+  end;
 end;
 
 function TDebugger.GetThreadIds: TArray<DWORD>;
@@ -614,14 +830,13 @@ procedure TDebugger.LoadMapFile(const AMapFileName: string);
 begin
   FreeAndNil(FMapScanner);
   if FileExists(AMapFileName) then
-    FMapScanner := TJclMapScanner.Create(AMapFileName, 0);
+    FMapScanner := TMapFileParser.Create(AMapFileName);
 end;
 
 function TDebugger.GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
 var
-  LineInfo  : TJclMapLineNumber;
+  LineInfo  : TMapLineNumber;
   SearchUnit: String;
-  UnitMatch : String;
 begin
   Result := nil;
   if not Assigned(FMapScanner) then
@@ -634,10 +849,8 @@ begin
     LineInfo := FMapScanner.LineNumberByIndex[I];
     if LineInfo.LineNumber = ALineNumber then
     begin
-      UnitMatch := TJclMapScanner.MapStringToStr(LineInfo.UnitName);
-      if SameText(UnitMatch, SearchUnit) or SameText(ExtractFileName(UnitMatch), SearchUnit) then
+      if SameText(LineInfo.UnitName, SearchUnit) or SameText(ExtractFileName(LineInfo.UnitName), SearchUnit) then
       begin
-        // VA is relative to module base address + $1000 for Delphi 2005+ (Win32)
         Result := Pointer(FBaseAddress + $1000 + LineInfo.VA);
         Exit;
       end;
@@ -650,7 +863,7 @@ var
   DotPos    : Integer;
   SymbolName: String;
   UnitName  : String;
-  VA        : DWORD;
+  VA        : UInt64;
 begin
   Result := nil;
   if not Assigned(FMapScanner) then
@@ -667,8 +880,25 @@ begin
   end;
 end;
 
-procedure TDebugger.SetHardwareBreakpointInContext(var AContext: TContext; AAddress: Pointer; ASlot: Integer);
+procedure TDebugger.SetHardwareBreakpointInContext(var AContext: TContext;
+  {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
 begin
+  {$IFDEF CPUX64}
+  if FTargetIs32Bit then
+  begin
+    AWow64Context.ContextFlags := AWow64Context.ContextFlags or DWORD(WOW64_CONTEXT_DEBUG_REGISTERS);
+    case ASlot of
+      0: AWow64Context.Dr0 := DWORD(UIntPtr(AAddress));
+      1: AWow64Context.Dr1 := DWORD(UIntPtr(AAddress));
+      2: AWow64Context.Dr2 := DWORD(UIntPtr(AAddress));
+      3: AWow64Context.Dr3 := DWORD(UIntPtr(AAddress));
+    end;
+    AWow64Context.Dr7 := AWow64Context.Dr7 or DWORD(1 shl (ASlot * 2));
+    AWow64Context.Dr7 := AWow64Context.Dr7 and not DWORD($F shl (16 + ASlot * 4));
+    AWow64Context.Dr7 := AWow64Context.Dr7 or $300;
+    Exit;
+  end;
+  {$ENDIF}
   AContext.ContextFlags := AContext.ContextFlags or CONTEXT_DEBUG_REGISTERS;
   case ASlot of
     0: AContext.Dr0 := UIntPtr(AAddress);
@@ -685,12 +915,19 @@ procedure TDebugger.ApplyBreakpointsToThread(AThreadHandle: THandle);
 var
   BPCount: Integer;
   Context: TContext;
+  {$IFDEF CPUX64}
+  Wow64Context: TWow64Context;
+  {$ENDIF}
 begin
-  Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-  if not GetThreadContext(AThreadHandle, Context) then
+  if not GetTargetContext(AThreadHandle, CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF}) then
     Exit;
 
-  Context.Dr7 := Context.Dr7 and not $FF;
+  {$IFDEF CPUX64}
+  if FTargetIs32Bit then
+    Wow64Context.Dr7 := Wow64Context.Dr7 and not DWORD($FF)
+  else
+  {$ENDIF}
+    Context.Dr7 := Context.Dr7 and not $FF;
 
   FBreakpointLock.Enter;
   try
@@ -700,7 +937,7 @@ begin
       if Assigned(FBreakpoints[I].Address) and (BPCount < 4) then
       begin
         FBreakpoints[I].Slot := BPCount;
-        SetHardwareBreakpointInContext(Context, FBreakpoints[I].Address, BPCount);
+        SetHardwareBreakpointInContext(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} FBreakpoints[I].Address, BPCount);
         Inc(BPCount);
       end;
     end;
@@ -708,7 +945,7 @@ begin
     FBreakpointLock.Leave;
   end;
 
-  SetThreadContext(AThreadHandle, Context);
+  SetTargetContext(AThreadHandle, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
 end;
 
 function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
@@ -762,10 +999,31 @@ begin
 end;
 
 procedure TDebugger.HandleCreateProcess(const ADebugEvent: TDebugEvent);
+{$IFDEF CPUX64}
+var
+  Wow64: BOOL;
+{$ENDIF}
 begin
   FBaseAddress := UIntPtr(ADebugEvent.CreateProcessInfo.lpBaseOfImage);
   FProcessHandle := ADebugEvent.CreateProcessInfo.hProcess;
   FThreadHandle := ADebugEvent.CreateProcessInfo.hThread;
+
+  {$IFDEF CPUX64}
+  Wow64 := False;
+  if IsWow64Process(FProcessHandle, Wow64) and Wow64 then
+  begin
+    FTargetIs32Bit := True;
+    FTargetPointerSize := 4;
+  end
+  else
+  begin
+    FTargetIs32Bit := False;
+    FTargetPointerSize := 8;
+  end;
+  {$ELSE}
+  FTargetIs32Bit := True;
+  FTargetPointerSize := 4;
+  {$ENDIF}
 
   if ADebugEvent.CreateProcessInfo.hFile <> 0 then
     CloseHandle(ADebugEvent.CreateProcessInfo.hFile);
@@ -790,15 +1048,72 @@ begin
 end;
 
 procedure TDebugger.HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: DWORD);
+
+  {$IFDEF CPUX64}
+  procedure CtxSetEFlags(var AContext: TContext; var AWow64Context: TWow64Context; AValue: DWORD);
+  begin
+    if FTargetIs32Bit then AWow64Context.EFlags := AValue
+    else AContext.EFlags := AValue;
+  end;
+  function CtxGetEFlags(const AContext: TContext; const AWow64Context: TWow64Context): DWORD;
+  begin
+    if FTargetIs32Bit then Result := AWow64Context.EFlags
+    else Result := AContext.EFlags;
+  end;
+  procedure CtxClearDr6Bits(var AContext: TContext; var AWow64Context: TWow64Context);
+  begin
+    if FTargetIs32Bit then AWow64Context.Dr6 := AWow64Context.Dr6 and not DWORD($F)
+    else AContext.Dr6 := AContext.Dr6 and not $F;
+  end;
+  function CtxGetDr6(const AContext: TContext; const AWow64Context: TWow64Context): UIntPtr;
+  begin
+    if FTargetIs32Bit then Result := AWow64Context.Dr6
+    else Result := AContext.Dr6;
+  end;
+  function CtxGetSp(const AContext: TContext; const AWow64Context: TWow64Context): UIntPtr;
+  begin
+    if FTargetIs32Bit then Result := AWow64Context.Esp
+    else Result := AContext.Rsp;
+  end;
+  {$ELSE}
+  procedure CtxSetEFlags(var AContext: TContext; AValue: DWORD);
+  begin
+    AContext.EFlags := AValue;
+  end;
+  function CtxGetEFlags(const AContext: TContext): DWORD;
+  begin
+    Result := AContext.EFlags;
+  end;
+  procedure CtxClearDr6Bits(var AContext: TContext);
+  begin
+    AContext.Dr6 := AContext.Dr6 and not $F;
+  end;
+  function CtxGetDr6(const AContext: TContext): UIntPtr;
+  begin
+    Result := AContext.Dr6;
+  end;
+  function CtxGetSp(const AContext: TContext): UIntPtr;
+  begin
+    Result := AContext.Esp;
+  end;
+  {$ENDIF}
+
 var
   BP           : TBreakpoint;
   Context      : TContext;
+  {$IFDEF CPUX64}
+  Wow64Context : TWow64Context;
+  {$ENDIF}
   CurrentThread: THandle;
+  EF           : DWORD;
+  ExCode       : DWORD;
   Handled      : Boolean;
 begin
   AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
+  ExCode := ADebugEvent.Exception.ExceptionRecord.ExceptionCode;
 
-  if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_BREAKPOINT then
+
+  if (ExCode = EXCEPTION_BREAKPOINT) or (ExCode = STATUS_WX86_BREAKPOINT) then
   begin
     if FFirstBreak then
     begin
@@ -809,18 +1124,17 @@ begin
     end;
     AContinueStatus := DBG_CONTINUE;
   end
-  else if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_SINGLE_STEP then
+  else if (ExCode = EXCEPTION_SINGLE_STEP) or (ExCode = STATUS_WX86_SINGLE_STEP) then
   begin
     CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);
     if CurrentThread = 0 then Exit;
     try
-      Context.ContextFlags := CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS;
-      if GetThreadContext(CurrentThread, Context) then
+      if GetTargetContext(CurrentThread, CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF}) then
       begin
         BP := nil;
         for var I: Integer := 0 to FBreakpoints.Count - 1 do
         begin
-          if (FBreakpoints[I].Slot >= 0) and ((Context.Dr6 and (1 shl FBreakpoints[I].Slot)) <> 0) then
+          if (FBreakpoints[I].Slot >= 0) and ((CtxGetDr6(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF}) and (1 shl FBreakpoints[I].Slot)) <> 0) then
           begin
             BP := FBreakpoints[I];
             Break;
@@ -842,9 +1156,11 @@ begin
             if (Stack[0].UnitName <> FStepStartUnit) or (CurLine <> FStepStartLine) then
             begin
               FStepType := stNone;
-              Context.EFlags := Context.EFlags and not $100;
-              Context.EFlags := Context.EFlags or $10000; // RF
-              Context.Dr6 := Context.Dr6 and not $F;
+              EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+              EF := EF and not $100;
+              EF := EF or $10000; // RF
+              CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF);
+              CtxClearDr6Bits(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, CurLine, Stack[0].Address);
               FLastThreadHit := CurrentThread;
               FLastThreadId := ADebugEvent.dwThreadId;
@@ -853,25 +1169,30 @@ begin
               FContinueEvent.ResetEvent;
               FContinueEvent.WaitFor(INFINITE);
               if FStepType <> stNone then
-                Context.EFlags := Context.EFlags or $100;
-              SetThreadContext(CurrentThread, Context);
+              begin
+                EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+                CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF or $100);
+              end;
+              SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
               AContinueStatus := DBG_CONTINUE;
             end
             else
             begin
-              Context.EFlags := Context.EFlags or $10000; // RF
-              Context.Dr6 := Context.Dr6 and not $F;
-              Context.EFlags := Context.EFlags or $100; // TF
-              SetThreadContext(CurrentThread, Context);
+              EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+              EF := EF or $10000 or $100; // RF + TF
+              CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF);
+              CtxClearDr6Bits(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+              SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
               AContinueStatus := DBG_CONTINUE;
             end;
           end
           else
           begin
-            Context.EFlags := Context.EFlags or $10000; // RF
-            Context.Dr6 := Context.Dr6 and not $F;
-            Context.EFlags := Context.EFlags or $100; // TF
-            SetThreadContext(CurrentThread, Context);
+            EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+            EF := EF or $10000 or $100; // RF + TF
+            CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF);
+            CtxClearDr6Bits(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+            SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
             AContinueStatus := DBG_CONTINUE;
           end;
         end
@@ -887,12 +1208,14 @@ begin
           FContinueEvent.ResetEvent;
           FContinueEvent.WaitFor(INFINITE);
 
-          Context.EFlags := Context.EFlags or $10000; // RF
-          Context.Dr6 := Context.Dr6 and not $F;
+          EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+          EF := EF or $10000; // RF
+          CtxClearDr6Bits(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
           if FStepType <> stNone then
-            Context.EFlags := Context.EFlags or $100; // TF
+            EF := EF or $100; // TF
+          CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF);
 
-          SetThreadContext(CurrentThread, Context);
+          SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
           AContinueStatus := DBG_CONTINUE;
         end
         else if FStepType <> stNone then
@@ -919,19 +1242,22 @@ begin
             end
             else if CurLine = 0 then
             begin
-              var RetAddr := ReadProcessMemoryPtr(Pointer(Context.Esp));
-              if RetAddr <> nil then
+              var Sp := CtxGetSp(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+              var RetAddr := ReadTargetPointer(Pointer(Sp));
+              if RetAddr <> 0 then
               begin
-                FStepReturnBP := TBreakpoint.Create('', 0, RetAddr);
+                FStepReturnBP := TBreakpoint.Create('', 0, Pointer(RetAddr));
                 FBreakpoints.Add(FStepReturnBP);
-                Context.EFlags := Context.EFlags and not $100; // Clear TF
-                SetThreadContext(CurrentThread, Context);
+                EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+                CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF and not $100);
+                SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
                 AContinueStatus := DBG_CONTINUE;
               end
               else
               begin
-                Context.EFlags := Context.EFlags or $100;
-                SetThreadContext(CurrentThread, Context);
+                EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+                CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF or $100);
+                SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
                 AContinueStatus := DBG_CONTINUE;
               end;
               Exit;
@@ -941,7 +1267,8 @@ begin
           if StopStepping then
           begin
             FStepType := stNone;
-            Context.EFlags := Context.EFlags and not $100; // Clear TF
+            EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+            EF := EF and not $100; // Clear TF
 
             if Length(Stack) > 0 then
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, Stack[0].LineNumber, Stack[0].Address)
@@ -957,14 +1284,16 @@ begin
             FContinueEvent.WaitFor(INFINITE);
 
             if FStepType <> stNone then
-              Context.EFlags := Context.EFlags or $100;
-            SetThreadContext(CurrentThread, Context);
+              EF := EF or $100;
+            CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF);
+            SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
             AContinueStatus := DBG_CONTINUE;
           end
           else
           begin
-            Context.EFlags := Context.EFlags or $100; // Keep TF
-            SetThreadContext(CurrentThread, Context);
+            EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
+            CtxSetEFlags(Context, {$IFDEF CPUX64}Wow64Context,{$ENDIF} EF or $100); // Keep TF
+            SetTargetContext(CurrentThread, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
             AContinueStatus := DBG_CONTINUE;
           end;
         end
@@ -975,8 +1304,8 @@ begin
       CloseHandle(CurrentThread);
     end;
   end
-  else if (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_BREAKPOINT) and
-          (ADebugEvent.Exception.ExceptionRecord.ExceptionCode <> EXCEPTION_MS_VC_THREAD_NAME) then
+  else if (ExCode <> EXCEPTION_BREAKPOINT) and (ExCode <> STATUS_WX86_BREAKPOINT) and
+          (ExCode <> EXCEPTION_MS_VC_THREAD_NAME) then
   begin
     if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_DELPHI_LANGUAGE then
     begin

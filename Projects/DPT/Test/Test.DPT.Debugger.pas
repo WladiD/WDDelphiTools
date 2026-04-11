@@ -1,4 +1,4 @@
-﻿unit Test.DPT.Debugger;
+unit Test.DPT.Debugger;
 
 interface
 
@@ -23,13 +23,30 @@ type
     procedure OnBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnBreakpointForStack(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnException(Sender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
+    function ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
+    procedure DoTestBreakpoint(AUse64Bit: Boolean);
+    procedure DoTestStackTrace(AUse64Bit: Boolean);
+    procedure DoTestIgnoredException(AUse64Bit: Boolean);
+    procedure DoTestTargetBitness(AUse64Bit: Boolean);
   public
     [Test]
-    procedure TestBreakpointInTarget;
+    procedure TestBreakpointInTarget32;
     [Test]
-    procedure TestStackTrace;
+    procedure TestStackTrace32;
     [Test]
-    procedure TestIgnoredException;
+    procedure TestIgnoredException32;
+    [Test]
+    procedure TestTargetBitness32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestBreakpointInTarget64;
+    [Test]
+    procedure TestStackTrace64;
+    [Test]
+    procedure TestIgnoredException64;
+    [Test]
+    procedure TestTargetBitness64;
+    {$ENDIF}
   end;
 
 implementation
@@ -50,13 +67,28 @@ begin
   Debugger.ResumeExecution;
 end;
 
-procedure TDebuggerTests.TestBreakpointInTarget;
+function TDebuggerTests.ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
+begin
+  if AUse64Bit then
+  begin
+    Result := ExpandFileName('Projects\DPT\Test\Win64\' + AExeName);
+    if not FileExists(Result) then
+      Result := ExpandFileName('Win64\' + AExeName);
+  end
+  else
+  begin
+    Result := ExpandFileName('Projects\DPT\Test\' + AExeName);
+    if not FileExists(Result) then
+      Result := ExpandFileName(AExeName);
+  end;
+end;
+
+procedure TDebuggerTests.DoTestBreakpoint(AUse64Bit: Boolean);
 var
   Debugger: TDebugger;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   FBreakpointHit := False;
@@ -81,15 +113,14 @@ begin
   end;
 end;
 
-procedure TDebuggerTests.TestStackTrace;
+procedure TDebuggerTests.DoTestStackTrace(AUse64Bit: Boolean);
 var
   Debugger: TDebugger;
   ExePath, MapFile: string;
   FoundDeep, FoundTarget: Boolean;
   Frame: TStackFrame;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   FBreakpointHit := False;
@@ -142,13 +173,12 @@ begin
   Debugger.ResumeExecution;
 end;
 
-procedure TDebuggerTests.TestIgnoredException;
+procedure TDebuggerTests.DoTestIgnoredException(AUse64Bit: Boolean);
 var
   Debugger: TDebugger;
   ExePath, MapFile: string;
 begin
-  ExePath := ExpandFileName('Projects\DPT\Test\DebugTarget.exe');
-  if not FileExists(ExePath) then ExePath := ExpandFileName('DebugTarget.exe');
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
   MapFile := ChangeFileExt(ExePath, '.map');
 
   FExceptionHitCount := 0;
@@ -176,6 +206,87 @@ begin
     Debugger.Free;
   end;
 end;
+
+procedure TDebuggerTests.DoTestTargetBitness(AUse64Bit: Boolean);
+var
+  Debugger: TDebugger;
+  ExePath, MapFile: string;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  FBreakpointHit := False;
+  Debugger := TDebugger.Create;
+  try
+    Debugger.OnBreakpoint := OnBreakpoint;
+    Debugger.LoadMapFile(MapFile);
+    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
+
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
+
+    var StartTime := GetTickCount;
+    while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
+
+    Assert.IsTrue(FBreakpointHit, 'Breakpoint not hit');
+
+    if AUse64Bit then
+    begin
+      Assert.IsFalse(Debugger.TargetIs32Bit, 'Target should be detected as 64-bit');
+      Assert.AreEqual(8, Debugger.TargetPointerSize, 'Pointer size should be 8 for 64-bit target');
+    end
+    else
+    begin
+      Assert.IsTrue(Debugger.TargetIs32Bit, 'Target should be detected as 32-bit');
+      Assert.AreEqual(4, Debugger.TargetPointerSize, 'Pointer size should be 4 for 32-bit target');
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TDebuggerTests.TestBreakpointInTarget32;
+begin
+  DoTestBreakpoint(False);
+end;
+
+procedure TDebuggerTests.TestStackTrace32;
+begin
+  DoTestStackTrace(False);
+end;
+
+procedure TDebuggerTests.TestIgnoredException32;
+begin
+  DoTestIgnoredException(False);
+end;
+
+procedure TDebuggerTests.TestTargetBitness32;
+begin
+  DoTestTargetBitness(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TDebuggerTests.TestBreakpointInTarget64;
+begin
+  DoTestBreakpoint(True);
+end;
+
+procedure TDebuggerTests.TestStackTrace64;
+begin
+  DoTestStackTrace(True);
+end;
+
+procedure TDebuggerTests.TestIgnoredException64;
+begin
+  DoTestIgnoredException(True);
+end;
+
+procedure TDebuggerTests.TestTargetBitness64;
+begin
+  DoTestTargetBitness(True);
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TDebuggerTests);
