@@ -4,7 +4,7 @@ interface
 
 // Namespace group constants (ordering determines sort priority)
 const
-  GroupDelphiRTL  = 0;  // System.*, Winapi.*, Vcl.*, FMX.*, Data.*, Xml.*, Net.*, REST.*, Soap.*, Web.*
+  GroupDelphiRTL  = 0;  // System.*, Winapi.*, Vcl.*, FMX.*, Data.*, Datasnap.*, Xml.*, Net.*, REST.*, Soap.*, Web.*
   GroupThirdParty = 1;
   GroupBase       = 2;
   GroupBaseUI     = 3;
@@ -30,6 +30,7 @@ begin
 
   // Delphi RTL (all standard Embarcadero namespaces in one block)
   if LowerStartsWith(LLower, 'data.') or (LLower = 'data') or
+     LowerStartsWith(LLower, 'datasnap.') or (LLower = 'datasnap') or
      LowerStartsWith(LLower, 'fmx.') or (LLower = 'fmx') or
      LowerStartsWith(LLower, 'net.') or (LLower = 'net') or
      LowerStartsWith(LLower, 'rest.') or (LLower = 'rest') or
