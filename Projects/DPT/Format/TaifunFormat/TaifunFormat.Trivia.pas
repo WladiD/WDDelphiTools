@@ -16,7 +16,7 @@ procedure TTaifunTriviaHelper.ProcessTrivia(const AOldTrivia: string; const ACla
 var
   S, LLine, S2, LPeek: string;
   P, I, LIfLevel, LPeekIdx: Integer;
-  LCollectingForPrevious, LIsBanner, LIsText, LWasBraceComment, LIsBraceComment, LNextIsBrace: Boolean;
+  LCollectingForPrevious, LIsBanner, LIsText, LWasBraceComment, LIsBraceComment, LNextIsBrace, LPrevWasDashSep: Boolean;
 begin
   AComments := '';
   ATrailingPart := '';
@@ -42,6 +42,7 @@ begin
   var LLastClassNoSpaces: string := RemoveSpaces(ALastClassName);
 
   var LPrevWasSepBanner: Boolean := False;
+  LPrevWasDashSep := False;
 
   LCollectingForPrevious := True;
   LIfLevel := 0;
@@ -60,20 +61,31 @@ begin
 
     if LIsText then
     begin
+      var LOrigLine: string := LLine;
       LIsBraceComment := False;
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then
       begin
         LIsBanner := True;
         LPrevWasSepBanner := Pos('{ ==', LLine) > 0;
+        LPrevWasDashSep := Pos('{ --', LLine) > 0;
       end
-      else if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+      else if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and ((Pos(' }', LLine) > 0) or (Pos('}', LLine) = 0)) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
       begin
         LIsBanner := True;
         LPrevWasSepBanner := False;
+        LPrevWasDashSep := False;
+      end
+      else if LPrevWasDashSep and (Pos('{', LLine) > 0) and (Pos('}', LLine) = 0) then
+      begin
+        LIsBanner := True;
+        LPrevWasDashSep := False;
       end
       else
+      begin
         LPrevWasSepBanner := False;
+        LPrevWasDashSep := False;
+      end;
       if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
       begin
         LIsBraceComment := True;
@@ -90,9 +102,17 @@ begin
         begin
           LPeekIdx := 1;
           while (LPeekIdx <= Length(S)) and ((S[LPeekIdx] = ' ') or (S[LPeekIdx] = #13) or (S[LPeekIdx] = #10) or (S[LPeekIdx] = #9)) do Inc(LPeekIdx);
-          LNextIsBrace := (LPeekIdx <= Length(S)) and (S[LPeekIdx] = '{') and 
-            (Copy(S, LPeekIdx, 3) <> '{ -') and (Copy(S, LPeekIdx, 3) <> '{ =') and 
+          LNextIsBrace := (LPeekIdx <= Length(S)) and (S[LPeekIdx] = '{') and
+            (Copy(S, LPeekIdx, 3) <> '{ -') and (Copy(S, LPeekIdx, 3) <> '{ =') and
             (Copy(S, LPeekIdx, 2) <> '{!');
+          // Exclude empty brace comments (banner padding lines that will be stripped)
+          if LNextIsBrace then
+          begin
+            var LPeekEnd: Integer := LPeekIdx + 1;
+            while (LPeekEnd <= Length(S)) and (S[LPeekEnd] <> #10) do Inc(LPeekEnd);
+            LPeek := Copy(S, LPeekIdx, LPeekEnd - LPeekIdx);
+            if (Pos(' }', LPeek) > 0) and (TrimCommentChars(LPeek) = '') then LNextIsBrace := False;
+          end;
             
           var LPrevIsBrace: Boolean := False;
           var LLenA: Integer := Length(AComments);
@@ -121,8 +141,8 @@ begin
             LLine := '{ ' + GetSep('-', 71) + ' }' + #13#10 + '{ ' + PadRight(S2, 71) + ' }' + #13#10 + '{ ' + GetSep('-', 71) + ' }' + #13#10;
           end;
         end;
-      end
-      else if not LIsBanner and (AClassName <> '') then
+      end;
+      if not LIsBanner and (AClassName <> '') then
       begin
         S2 := LLine;
         while (Length(S2) > 0) and ((S2[1] = '/') or (S2[1] = '{') or (S2[1] = ' ')) do Delete(S2, 1, 1);
@@ -139,7 +159,7 @@ begin
             ((ATrailingPart = '') and (Length(AOldTrivia) > 0) and (AOldTrivia[1] <> #13) and (AOldTrivia[1] <> #10) and
              (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) and (Pos('{$REGION', ULine) = 0))) then
          begin
-            ATrailingPart := ATrailingPart + LLine;
+            ATrailingPart := ATrailingPart + LOrigLine;
             if Pos('{$ENDIF', ULine) > 0 then Dec(LIfLevel);
             LWasBraceComment := LIsBraceComment;
             Continue;
@@ -154,6 +174,7 @@ begin
     else
     begin
        LPrevWasSepBanner := False;
+       LPrevWasDashSep := False;
        if LCollectingForPrevious then ATrailingPart := ATrailingPart + LLine
        else AComments := AComments + LLine;
     end;

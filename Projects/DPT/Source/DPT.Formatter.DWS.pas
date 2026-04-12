@@ -67,8 +67,14 @@ type
     procedure dwsGetUnitName(Info: TProgramInfo);
     procedure dwsGetUnitSemicolon(Info: TProgramInfo);
     procedure dwsGetUsesFirstItemToken(Info: TProgramInfo);
+    procedure dwsGetUsesItemCount(Info: TProgramInfo);
+    procedure dwsGetUsesItemName(Info: TProgramInfo);
+    procedure dwsGetUsesItemToken(Info: TProgramInfo);
     procedure dwsGetUsesKeyword(Info: TProgramInfo);
+    procedure dwsGetUsesSemicolon(Info: TProgramInfo);
     procedure dwsIsUnitLevel(Info: TProgramInfo);
+    procedure dwsReorderUsesItems(Info: TProgramInfo);
+    procedure dwsUsesClauseCanBeSorted(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -249,6 +255,38 @@ begin
   Func.Parameters.Add('AToken', 'TSyntaxToken');
   Func.ResultType := 'TSyntaxToken';
   Func.OnEval := dwsGetNextToken;
+
+  Func := FUnit.Functions.Add('GetUsesItemCount');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsGetUsesItemCount;
+
+  Func := FUnit.Functions.Add('GetUsesItemName');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetUsesItemName;
+
+  Func := FUnit.Functions.Add('GetUsesItemToken');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUsesItemToken;
+
+  Func := FUnit.Functions.Add('GetUsesSemicolon');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetUsesSemicolon;
+
+  Func := FUnit.Functions.Add('ReorderUsesItems');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.Parameters.Add('ANewOrder', 'String');
+  Func.OnEval := dwsReorderUsesItems;
+
+  Func := FUnit.Functions.Add('UsesClauseCanBeSorted');
+  Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsUsesClauseCanBeSorted;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -306,6 +344,179 @@ begin
     Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
   else
     Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetUsesItemCount(Info: TProgramInfo);
+var
+  Node: TUsesClauseSyntax;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) then
+    Info.ResultAsInteger := Node.UnitReferences.Count
+  else
+    Info.ResultAsInteger := 0;
+end;
+
+procedure TDptDwsFormatter.dwsGetUsesItemName(Info: TProgramInfo);
+var
+  Node     : TUsesClauseSyntax;
+  Ref      : TUnitReferenceSyntax;
+  Idx      : Integer;
+  ResultStr: String;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  ResultStr := '';
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.UnitReferences.Count) then
+  begin
+    Ref := Node.UnitReferences[Idx];
+    if Assigned(Ref) then
+      for var I: Integer := 0 to Ref.Namespaces.Count - 1 do
+      begin
+        if I > 0 then
+          ResultStr := ResultStr + '.';
+        ResultStr := ResultStr + Ref.Namespaces[I].Text;
+      end;
+  end;
+  Info.ResultAsString := ResultStr;
+end;
+
+procedure TDptDwsFormatter.dwsGetUsesItemToken(Info: TProgramInfo);
+var
+  Node : TUsesClauseSyntax;
+  Ref  : TUnitReferenceSyntax;
+  Token: TSyntaxToken;
+  Idx  : Integer;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Token := nil;
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.UnitReferences.Count) then
+  begin
+    Ref := Node.UnitReferences[Idx];
+    if Assigned(Ref) and (Ref.Namespaces.Count > 0) then
+      Token := Ref.Namespaces[0];
+  end;
+  if Assigned(Token) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetUsesSemicolon(Info: TProgramInfo);
+var
+  Node: TUsesClauseSyntax;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.Semicolon) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Node.Semicolon, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsReorderUsesItems(Info: TProgramInfo);
+var
+  Node    : TUsesClauseSyntax;
+  OrderStr: String;
+  Indices : TArray<Integer>;
+  OldRefs : TArray<TUnitReferenceSyntax>;
+  I, N    : Integer;
+  Ref     : TUnitReferenceSyntax;
+  P       : Integer;
+  Part    : String;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  OrderStr := Info.ParamAsString[1];
+  if not Assigned(Node) or (OrderStr = '') then Exit;
+
+  N := Node.UnitReferences.Count;
+
+  // Parse comma-separated indices
+  SetLength(Indices, N);
+  I := 0;
+  while (OrderStr <> '') and (I < N) do
+  begin
+    P := Pos(',', OrderStr);
+    if P > 0 then
+    begin
+      Part := Copy(OrderStr, 1, P - 1);
+      Delete(OrderStr, 1, P);
+    end
+    else
+    begin
+      Part := OrderStr;
+      OrderStr := '';
+    end;
+    Indices[I] := StrToInt(Trim(Part));
+    Inc(I);
+  end;
+
+  // Save originals
+  SetLength(OldRefs, N);
+  for I := 0 to N - 1 do
+    OldRefs[I] := Node.UnitReferences[I];
+
+  // Reorder in-place
+  for I := 0 to N - 1 do
+    Node.UnitReferences[I] := OldRefs[Indices[I]];
+
+  // Clear all trivia on unit reference sub-tokens
+  for I := 0 to N - 1 do
+  begin
+    Ref := Node.UnitReferences[I];
+    for var J: Integer := 0 to Ref.Namespaces.Count - 1 do
+      TDptFormatter.ClearTrivia(Ref.Namespaces[J]);
+    for var J: Integer := 0 to Ref.Dots.Count - 1 do
+      TDptFormatter.ClearTrivia(Ref.Dots[J]);
+    if Assigned(Ref.InKeyword) then
+      TDptFormatter.ClearTrivia(Ref.InKeyword);
+    if Assigned(Ref.StringLiteral) then
+      TDptFormatter.ClearTrivia(Ref.StringLiteral);
+  end;
+
+  // Clear trivia on commas and semicolon
+  for I := 0 to Node.Commas.Count - 1 do
+    TDptFormatter.ClearTrivia(Node.Commas[I]);
+  if Assigned(Node.Semicolon) then
+    TDptFormatter.ClearTrivia(Node.Semicolon);
+end;
+
+procedure TDptDwsFormatter.dwsUsesClauseCanBeSorted(Info: TProgramInfo);
+var
+  Node   : TUsesClauseSyntax;
+  Ref    : TUnitReferenceSyntax;
+  LTrivia: String;
+  C      : Char;
+begin
+  Node := TUsesClauseSyntax(Info.ParamAsObject[0]);
+  Info.ResultAsBoolean := False;
+  if not Assigned(Node) or (Node.UnitReferences.Count = 0) then
+    Exit;
+
+  for var I: Integer := 0 to Node.UnitReferences.Count - 1 do
+  begin
+    Ref := Node.UnitReferences[I];
+    if not Assigned(Ref) then
+      Exit;
+
+    // Units with 'in' keyword (dpr files) cannot be sorted
+    if Assigned(Ref.InKeyword) then
+      Exit;
+
+    // Check leading trivia of first namespace token for non-whitespace
+    if Ref.Namespaces.Count > 0 then
+    begin
+      LTrivia := TDptFormatter.GetLeadingTrivia(Ref.Namespaces[0]);
+      for var J: Integer := 1 to Length(LTrivia) do
+      begin
+        C := LTrivia[J];
+        if (C <> ' ') and (C <> #9) and (C <> #13) and (C <> #10) then
+          Exit;
+      end;
+    end;
+  end;
+
+  Info.ResultAsBoolean := True;
 end;
 
 procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);

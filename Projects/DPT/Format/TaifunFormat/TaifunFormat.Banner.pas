@@ -84,7 +84,7 @@ begin
       end
       else
       begin
-        if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+        if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and ((Pos(' }', LLine) > 0) or (Pos('}', LLine) = 0)) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
           LIsBanner := True;
         LPrevWasSepBanner := False;
         if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 

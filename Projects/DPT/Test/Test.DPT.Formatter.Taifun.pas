@@ -158,6 +158,32 @@ type
     procedure TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
     [Test]
     procedure TestFormatMethodImplementation_LocalRecordWithoutTrailingSemicolon;
+
+    [Test]
+    procedure TestFormatImplementation_TrailingBraceCommentBeforeTypeSection;
+    [Test]
+    procedure TestFormatImplementation_UnterminatedBraceInClassBanner;
+    [Test]
+    procedure TestFormatImplementation_MultiLineBraceCommentInBanner;
+
+    [Test]
+    procedure TestFormatUsesClause_SortsAlphabetically;
+    [Test]
+    procedure TestFormatUsesClause_GroupsByNamespace;
+    [Test]
+    procedure TestFormatUsesClause_SortsAndGroups;
+    [Test]
+    procedure TestFormatUsesClause_SortsAndGroups_Idempotent;
+    [Test]
+    procedure TestFormatUsesClause_BaseAndBaseUI_SeparateGroups;
+    [Test]
+    procedure TestFormatUsesClause_SkipsSortWithDirectives;
+    [Test]
+    procedure TestFormatUsesClause_ThirdPartyGrouped;
+    [Test]
+    procedure TestFormatUsesClause_DelphiRTL_SingleBlock;
+    [Test]
+    procedure TestFormatUsesClause_DelphiRTL_SortedAcrossNamespaces;
   end;
 
 implementation
@@ -2586,6 +2612,443 @@ begin
     // 'strict private type' must stay together — no banner before 'type'
     Assert.IsTrue(LResult.Contains('strict private type'),
       'strict private type must remain on one line. Actual:'#13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_TrailingBraceCommentBeforeTypeSection;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Reproducer: a trailing brace comment on a const value line, followed by
+  // a type section, caused the comment to be expanded into a multi-line
+  // banner that was placed directly after the semicolon without a newline,
+  // breaking idempotence.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'const' + #13#10 +
+    '  Names: array[0..1] of string = (''Alpha'',' + #13#10 +
+    '    ''Beta''); { only for testing }' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'type' + #13#10 +
+    '  TFoo = Integer;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // The trailing comment must NOT be glued to the semicolon on the same
+    // line as a banner separator.  It should stay as a short trailing comment.
+    Assert.IsFalse(LResult.Contains(');{ '),
+      'Banner must not be glued to semicolon. Actual:' + #13#10 + LResult);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Trailing brace comment before type section should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_UnterminatedBraceInClassBanner;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Reproducer: a class banner where the class-name line has an opening
+  // brace but no closing brace (e.g. "{ ClassName - class" instead of
+  // "{ ClassName - class }").  ProcessTrivia failed to recognise the line
+  // as part of the banner, emitting an unterminated brace comment that
+  // swallowed the following method on re-parse.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '    procedure GetIt;' + #13#10 +
+    '    procedure SetIt;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ TFoo - class' + #13#10 +                            // <-- no closing }
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'procedure TFoo.GetIt;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'procedure TFoo.SetIt;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Both methods must survive formatting
+    Assert.IsTrue(LResult.Contains('procedure TFoo.GetIt;'),
+      'GetIt must be preserved. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('procedure TFoo.SetIt;'),
+      'SetIt must be preserved. Actual:' + #13#10 + LResult);
+
+    // No unterminated brace comment in the output
+    Assert.IsFalse(LResult.Contains('{ TFoo - class' + #13#10),
+      'Unterminated brace comment must not appear in output. Actual:' + #13#10 + LResult);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Unterminated brace in class banner should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_MultiLineBraceCommentInBanner;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Reproducer: a multi-line brace-comment block inside an { === } banner
+  // followed by an empty brace padding line.  The peek for LNextIsBrace saw
+  // the padding line as a real brace comment, so the closing { --- } was
+  // omitted on the first pass but added on the second.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ Converts a string to an escape sequence                                 }' + #13#10 +
+    '{                                                                         }' + #13#10 +
+    '{ Lines starting with "$" are hex.                                        }' + #13#10 +
+    '{ Lines starting with "#" are decimal.                                    }' + #13#10 +
+    '{                                                                         }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'function Str2Esc(S: String): String;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result := S;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Multi-line brace comment in banner should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_SortsAlphabetically;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface uses Vcl.StdCtrls, Vcl.Controls, Vcl.ExtCtrls; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      'uses' + #13#10 + #13#10 +
+      '  Vcl.Controls,' + #13#10 +
+      '  Vcl.ExtCtrls,' + #13#10 +
+      '  Vcl.StdCtrls;'),
+      'Units within the same group should be sorted alphabetically. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_GroupsByNamespace;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface uses System.SysUtils, Vcl.Controls, Base.Types; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // System and Vcl belong to the same Delphi-RTL block (no blank line),
+    // but Base is a separate group (blank line before it).
+    Assert.IsTrue(LResult.Contains(
+      'uses' + #13#10 + #13#10 +
+      '  System.SysUtils,' + #13#10 +
+      '  Vcl.Controls,' + #13#10 + #13#10 +
+      '  Base.Types;'),
+      'Delphi RTL should be one block, Base a separate group. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_SortsAndGroups;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // Deliberately out of order: Base before System, unsorted within groups
+  LSource := 'unit MyUnit; interface uses Base.Types, System.SysUtils, Vcl.Controls, System.Classes; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      'uses' + #13#10 + #13#10 +
+      '  System.Classes,' + #13#10 +
+      '  System.SysUtils,' + #13#10 +
+      '  Vcl.Controls,' + #13#10 + #13#10 +
+      '  Base.Types;'),
+      'Uses should be sorted by group then alphabetically. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_SortsAndGroups_Idempotent;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface uses Base.Types, System.SysUtils, Vcl.Controls, System.Classes; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Idempotence check: format the result again
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Uses clause sorting and formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_BaseAndBaseUI_SeparateGroups;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface uses Base.UI.Controls, Base.Types, Base.UI.Utils, Base.Classes; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '  Base.Classes,' + #13#10 +
+      '  Base.Types,' + #13#10 + #13#10 +
+      '  Base.UI.Controls,' + #13#10 +
+      '  Base.UI.Utils;'),
+      'Base.* and Base.UI.* should be in separate groups with blank line. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_SkipsSortWithDirectives;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'uses' + #13#10 +
+    '  {$IFDEF MSWINDOWS}' + #13#10 +
+    '  Winapi.Windows,' + #13#10 +
+    '  {$ENDIF}' + #13#10 +
+    '  System.SysUtils;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // With directives, sorting should be skipped; original order preserved
+    Assert.IsTrue(LResult.Contains('Winapi.Windows'),
+      'Unit with directive should be preserved. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('{$IFDEF MSWINDOWS}'),
+      'Compiler directive should be preserved. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_ThirdPartyGrouped;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  LSource := 'unit MyUnit; interface uses VirtualTrees, Spring.Collections, System.SysUtils, AdvMenus; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // System first, then third-party sorted alphabetically
+    Assert.IsTrue(LResult.Contains(
+      '  System.SysUtils,' + #13#10 + #13#10 +
+      '  AdvMenus,' + #13#10 +
+      '  Spring.Collections,' + #13#10 +
+      '  VirtualTrees;'),
+      'Third-party units should be grouped together and sorted. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_DelphiRTL_SingleBlock;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // System.*, Winapi.*, Vcl.* all belong to one Delphi-RTL block — no blank
+  // lines between them — while third-party and project units are separate.
+  LSource := 'unit MyUnit; interface uses Winapi.Windows, Vcl.Forms, System.SysUtils, Spring.Collections, Tfw.Utils; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      'uses' + #13#10 + #13#10 +
+      '  System.SysUtils,' + #13#10 +
+      '  Vcl.Forms,' + #13#10 +
+      '  Winapi.Windows,' + #13#10 + #13#10 +
+      '  Spring.Collections,' + #13#10 + #13#10 +
+      '  Tfw.Utils;'),
+      'System/Vcl/Winapi must be in one block without blank lines. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_DelphiRTL_SortedAcrossNamespaces;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Within the Delphi-RTL block all units are sorted alphabetically
+  // regardless of their namespace prefix.  Data.* and FMX.* also belong here.
+  LSource := 'unit MyUnit; interface uses Vcl.Forms, Data.DB, System.Classes, FMX.Types, Winapi.Messages, System.SysUtils; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      'uses' + #13#10 + #13#10 +
+      '  Data.DB,' + #13#10 +
+      '  FMX.Types,' + #13#10 +
+      '  System.Classes,' + #13#10 +
+      '  System.SysUtils,' + #13#10 +
+      '  Vcl.Forms,' + #13#10 +
+      '  Winapi.Messages;'),
+      'All Delphi RTL units must be in one alphabetically sorted block. Actual:' + #13#10 + LResult);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Delphi RTL single-block formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
   finally
     LUnit.Free;
   end;

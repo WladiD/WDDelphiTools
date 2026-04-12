@@ -1,10 +1,11 @@
 ﻿// DWScript for formatting Delphi units in the Taifun style
 
-uses 
+uses
 
-  TaifunFormat.Banner, 
+  TaifunFormat.Banner,
   TaifunFormat.Header,
-  TaifunFormat.Trivia, 
+  TaifunFormat.Trivia,
+  TaifunFormat.UsesSort,
   TaifunFormat.Utils;
 
 
@@ -51,6 +52,99 @@ begin
   FSuppressNextMethodBanner := False;
 end;
 
+procedure SortAndFormatUsesItems(AUses: TUsesClauseSyntax);
+var
+  LCount: Integer;
+  I, J: Integer;
+  LLower: array of string;
+  LGroups: array of Integer;
+  LIndices: array of Integer;
+  LTempIndex, LTempGroup: Integer;
+  LTempLower: string;
+  LOrder: string;
+  LToken: TSyntaxToken;
+  LPrevGroup: Integer;
+  LTrivia: string;
+begin
+  LCount := GetUsesItemCount(AUses);
+  if LCount <= 0 then
+    Exit;
+
+  // Single unit: just format trivia, no sorting needed
+  if LCount = 1 then
+  begin
+    LToken := GetUsesItemToken(AUses, 0);
+    if Assigned(LToken) then
+    begin
+      LTrivia := TrimLeadingCRLFSpace(GetLeadingTrivia(LToken));
+      ClearTrivia(LToken);
+      AddLeadingTrivia(LToken, #13#10#13#10 + '  ' + LTrivia);
+    end;
+    Exit;
+  end;
+
+  // Collect names and compute groups
+  LLower.SetLength(LCount);
+  LGroups.SetLength(LCount);
+  LIndices.SetLength(LCount);
+
+  for I := 0 to LCount - 1 do
+  begin
+    LLower[I] := LowerCase(GetUsesItemName(AUses, I));
+    LGroups[I] := GetNamespaceGroup(GetUsesItemName(AUses, I));
+    LIndices[I] := I;
+  end;
+
+  // Insertion sort by group, then alphabetically within group
+  for I := 1 to LCount - 1 do
+  begin
+    LTempIndex := LIndices[I];
+    LTempGroup := LGroups[I];
+    LTempLower := LLower[I];
+    J := I - 1;
+    while (J >= 0) and ((LGroups[J] > LTempGroup) or
+      ((LGroups[J] = LTempGroup) and (LLower[J] > LTempLower))) do
+    begin
+      LIndices[J + 1] := LIndices[J];
+      LGroups[J + 1] := LGroups[J];
+      LLower[J + 1] := LLower[J];
+      Dec(J);
+    end;
+    LIndices[J + 1] := LTempIndex;
+    LGroups[J + 1] := LTempGroup;
+    LLower[J + 1] := LTempLower;
+  end;
+
+  // Build order string for ReorderUsesItems
+  LOrder := '';
+  for I := 0 to LCount - 1 do
+  begin
+    if I > 0 then
+      LOrder := LOrder + ',';
+    LOrder := LOrder + IntToStr(LIndices[I]);
+  end;
+
+  // Reorder AST nodes (also clears all trivia)
+  ReorderUsesItems(AUses, LOrder);
+
+  // Apply trivia to each item based on group boundaries
+  LPrevGroup := -1;
+  for I := 0 to LCount - 1 do
+  begin
+    LToken := GetUsesItemToken(AUses, I);
+    if Assigned(LToken) then
+    begin
+      if (I = 0) or (LGroups[I] <> LPrevGroup) then
+        // Blank line before first item or new group
+        AddLeadingTrivia(LToken, #13#10#13#10 + '  ')
+      else
+        // Just newline + indent within same group
+        AddLeadingTrivia(LToken, #13#10 + '  ');
+    end;
+    LPrevGroup := LGroups[I];
+  end;
+end;
+
 procedure TTaifunFormatter.FormatUsesClause(AUses: TUsesClauseSyntax);
 var
   LToken, LFirstItem: TSyntaxToken;
@@ -63,13 +157,19 @@ begin
     ClearTrivia(LToken);
     AddLeadingTrivia(LToken, #13#10#13#10 + LTrivia);
     AddTrailingTrivia(LToken, '');
-    
-    LFirstItem := GetUsesFirstItemToken(AUses);
-    if Assigned(LFirstItem) then
+
+    if UsesClauseCanBeSorted(AUses) then
+      SortAndFormatUsesItems(AUses)
+    else
     begin
-      LTrivia := TrimLeadingCRLFSpace(GetLeadingTrivia(LFirstItem));
-      ClearTrivia(LFirstItem);
-      AddLeadingTrivia(LFirstItem, #13#10#13#10 + '  ' + LTrivia);
+      // Fallback: only format first item trivia (preserves directives/comments)
+      LFirstItem := GetUsesFirstItemToken(AUses);
+      if Assigned(LFirstItem) then
+      begin
+        LTrivia := TrimLeadingCRLFSpace(GetLeadingTrivia(LFirstItem));
+        ClearTrivia(LFirstItem);
+        AddLeadingTrivia(LFirstItem, #13#10#13#10 + '  ' + LTrivia);
+      end;
     end;
     FExpectedTokenTextForSuppressedBanner := '';
   end;
