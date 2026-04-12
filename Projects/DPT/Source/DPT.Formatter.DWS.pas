@@ -19,6 +19,7 @@ uses
 
   ParseTree.Core,
   ParseTree.Nodes,
+  ParseTree.Tokens,
   
   DPT.Formatter;
 
@@ -75,6 +76,17 @@ type
     procedure dwsIsUnitLevel(Info: TProgramInfo);
     procedure dwsReorderUsesItems(Info: TProgramInfo);
     procedure dwsUsesClauseCanBeSorted(Info: TProgramInfo);
+
+    // Var declaration helpers
+    procedure dwsGetVarDeclCount(Info: TProgramInfo);
+    procedure dwsGetVarDeclName(Info: TProgramInfo);
+    procedure dwsGetVarDeclIdentifier(Info: TProgramInfo);
+    procedure dwsGetVarDeclColonToken(Info: TProgramInfo);
+    procedure dwsGetVarDeclTypeToken(Info: TProgramInfo);
+    procedure dwsGetVarDeclAbsoluteTarget(Info: TProgramInfo);
+    procedure dwsReorderVarDecls(Info: TProgramInfo);
+    procedure dwsSplitMultiVarDeclarations(Info: TProgramInfo);
+    procedure dwsVarSectionCanBeFormatted(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -287,6 +299,56 @@ begin
   Func.Parameters.Add('ANode', 'TUsesClauseSyntax');
   Func.ResultType := 'Boolean';
   Func.OnEval := dwsUsesClauseCanBeSorted;
+
+  // Var declaration helpers
+  Func := FUnit.Functions.Add('GetVarDeclCount');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsGetVarDeclCount;
+
+  Func := FUnit.Functions.Add('GetVarDeclName');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetVarDeclName;
+
+  Func := FUnit.Functions.Add('GetVarDeclIdentifier');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetVarDeclIdentifier;
+
+  Func := FUnit.Functions.Add('GetVarDeclColonToken');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetVarDeclColonToken;
+
+  Func := FUnit.Functions.Add('GetVarDeclTypeToken');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetVarDeclTypeToken;
+
+  Func := FUnit.Functions.Add('GetVarDeclAbsoluteTarget');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('AIndex', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetVarDeclAbsoluteTarget;
+
+  Func := FUnit.Functions.Add('ReorderVarDecls');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.Parameters.Add('ANewOrder', 'String');
+  Func.OnEval := dwsReorderVarDecls;
+
+  Func := FUnit.Functions.Add('SplitMultiVarDeclarations');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.OnEval := dwsSplitMultiVarDeclarations;
+
+  Func := FUnit.Functions.Add('VarSectionCanBeFormatted');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsVarSectionCanBeFormatted;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -507,6 +569,300 @@ begin
     if Ref.Namespaces.Count > 0 then
     begin
       LTrivia := TDptFormatter.GetLeadingTrivia(Ref.Namespaces[0]);
+      for var J: Integer := 1 to Length(LTrivia) do
+      begin
+        C := LTrivia[J];
+        if (C <> ' ') and (C <> #9) and (C <> #13) and (C <> #10) then
+          Exit;
+      end;
+    end;
+  end;
+
+  Info.ResultAsBoolean := True;
+end;
+
+// ---------------------------------------------------------------------------
+// Var declaration helpers
+// ---------------------------------------------------------------------------
+
+procedure TDptDwsFormatter.dwsGetVarDeclCount(Info: TProgramInfo);
+var
+  Node: TVarSectionSyntax;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) then
+    Info.ResultAsInteger := Node.Declarations.Count
+  else
+    Info.ResultAsInteger := 0;
+end;
+
+procedure TDptDwsFormatter.dwsGetVarDeclName(Info: TProgramInfo);
+var
+  Node: TVarSectionSyntax;
+  Idx : Integer;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.Declarations.Count) and
+     Assigned(Node.Declarations[Idx].Identifier) then
+    Info.ResultAsString := Node.Declarations[Idx].Identifier.Text
+  else
+    Info.ResultAsString := '';
+end;
+
+procedure TDptDwsFormatter.dwsGetVarDeclIdentifier(Info: TProgramInfo);
+var
+  Node : TVarSectionSyntax;
+  Token: TSyntaxToken;
+  Idx  : Integer;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Token := nil;
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.Declarations.Count) then
+    Token := Node.Declarations[Idx].Identifier;
+  if Assigned(Token) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetVarDeclColonToken(Info: TProgramInfo);
+var
+  Node : TVarSectionSyntax;
+  Token: TSyntaxToken;
+  Idx  : Integer;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Token := nil;
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.Declarations.Count) then
+    Token := Node.Declarations[Idx].ColonToken;
+  if Assigned(Token) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetVarDeclTypeToken(Info: TProgramInfo);
+var
+  Node : TVarSectionSyntax;
+  Token: TSyntaxToken;
+  Idx  : Integer;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Token := nil;
+  if Assigned(Node) and (Idx >= 0) and (Idx < Node.Declarations.Count) then
+    Token := Node.Declarations[Idx].TypeIdentifier;
+  if Assigned(Token) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Token, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetVarDeclAbsoluteTarget(Info: TProgramInfo);
+var
+  Node    : TVarSectionSyntax;
+  Decl    : TVarDeclarationSyntax;
+  Idx     : Integer;
+  FoundAbs: Boolean;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Info.ResultAsString := '';
+  if not Assigned(Node) or (Idx < 0) or (Idx >= Node.Declarations.Count) then
+    Exit;
+
+  Decl := Node.Declarations[Idx];
+  FoundAbs := False;
+  for var I: Integer := 0 to Decl.TypeExtraTokens.Count - 1 do
+  begin
+    if FoundAbs then
+    begin
+      // The token after 'absolute' is the target variable name
+      Info.ResultAsString := Decl.TypeExtraTokens[I].Text;
+      Exit;
+    end;
+    if SameText(Decl.TypeExtraTokens[I].Text, 'absolute') then
+      FoundAbs := True;
+  end;
+end;
+
+procedure TDptDwsFormatter.dwsReorderVarDecls(Info: TProgramInfo);
+var
+  Node   : TVarSectionSyntax;
+  OrderStr: String;
+  Indices : TArray<Integer>;
+  OldDecls: TArray<TVarDeclarationSyntax>;
+  I, N    : Integer;
+  P       : Integer;
+  Part    : String;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  OrderStr := Info.ParamAsString[1];
+  if not Assigned(Node) or (OrderStr = '') then Exit;
+
+  N := Node.Declarations.Count;
+
+  // Parse comma-separated indices
+  SetLength(Indices, N);
+  I := 0;
+  while (OrderStr <> '') and (I < N) do
+  begin
+    P := Pos(',', OrderStr);
+    if P > 0 then
+    begin
+      Part := Copy(OrderStr, 1, P - 1);
+      Delete(OrderStr, 1, P);
+    end
+    else
+    begin
+      Part := OrderStr;
+      OrderStr := '';
+    end;
+    Indices[I] := StrToInt(Trim(Part));
+    Inc(I);
+  end;
+
+  // Save originals
+  SetLength(OldDecls, N);
+  for I := 0 to N - 1 do
+    OldDecls[I] := Node.Declarations[I];
+
+  // Reorder in-place
+  for I := 0 to N - 1 do
+    Node.Declarations[I] := OldDecls[Indices[I]];
+end;
+
+procedure TDptDwsFormatter.dwsSplitMultiVarDeclarations(Info: TProgramInfo);
+var
+  Node      : TVarSectionSyntax;
+  Decl      : TVarDeclarationSyntax;
+  NewDecl   : TVarDeclarationSyntax;
+  I, J      : Integer;
+  ColonIdx  : Integer;
+  Names     : TArray<String>;
+  NameCnt   : Integer;
+  TypeName  : String;
+  TypeKind  : TTokenKind;
+  ExtraStart: Integer;
+  ExtraKinds: TArray<TTokenKind>;
+  ExtraTexts: TArray<String>;
+  ExtraCnt  : Integer;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  if not Assigned(Node) then Exit;
+
+  I := 0;
+  while I < Node.Declarations.Count do
+  begin
+    Decl := Node.Declarations[I];
+
+    // Only process multi-var declarations (ColonToken is nil when parser
+    // saw a comma instead of a colon after the first identifier)
+    if Assigned(Decl.ColonToken) then
+    begin
+      Inc(I);
+      Continue;
+    end;
+
+    // Find the colon in TypeExtraTokens
+    ColonIdx := -1;
+    for J := 0 to Decl.TypeExtraTokens.Count - 1 do
+      if Decl.TypeExtraTokens[J].Kind = tkColon then
+      begin
+        ColonIdx := J;
+        Break;
+      end;
+
+    if ColonIdx < 0 then
+    begin
+      Inc(I);
+      Continue;
+    end;
+
+    // Collect additional identifier names (between commas, before the colon)
+    NameCnt := 0;
+    SetLength(Names, ColonIdx);
+    for J := 0 to ColonIdx - 1 do
+      if Decl.TypeExtraTokens[J].Kind = tkIdentifier then
+      begin
+        Names[NameCnt] := Decl.TypeExtraTokens[J].Text;
+        Inc(NameCnt);
+      end;
+    SetLength(Names, NameCnt);
+
+    // Save type name and kind (token after the colon)
+    TypeName := '';
+    TypeKind := tkIdentifier;
+    ExtraStart := ColonIdx + 1;
+    if ExtraStart < Decl.TypeExtraTokens.Count then
+    begin
+      TypeName := Decl.TypeExtraTokens[ExtraStart].Text;
+      TypeKind := Decl.TypeExtraTokens[ExtraStart].Kind;
+      Inc(ExtraStart);
+    end;
+
+    // Save remaining extra tokens as plain values (generics etc.)
+    ExtraCnt := Decl.TypeExtraTokens.Count - ExtraStart;
+    SetLength(ExtraKinds, ExtraCnt);
+    SetLength(ExtraTexts, ExtraCnt);
+    for J := 0 to ExtraCnt - 1 do
+    begin
+      ExtraKinds[J] := Decl.TypeExtraTokens[ExtraStart + J].Kind;
+      ExtraTexts[J] := Decl.TypeExtraTokens[ExtraStart + J].Text;
+    end;
+
+    // Clear the extras first (may free the token objects inside the list),
+    // then create fresh tokens for the original declaration
+    Decl.TypeExtraTokens.Clear;
+    Decl.ColonToken := TSyntaxToken.Create(tkColon, ':');
+    if TypeName <> '' then
+      Decl.TypeIdentifier := TSyntaxToken.Create(TypeKind, TypeName);
+    for J := 0 to ExtraCnt - 1 do
+      Decl.TypeExtraTokens.Add(TSyntaxToken.Create(ExtraKinds[J], ExtraTexts[J]));
+
+    // Create new declarations for each additional name
+    for J := 0 to NameCnt - 1 do
+    begin
+      NewDecl := TVarDeclarationSyntax.Create;
+      NewDecl.Identifier := TSyntaxToken.Create(tkIdentifier, Names[J]);
+      NewDecl.ColonToken := TSyntaxToken.Create(tkColon, ':');
+      if TypeName <> '' then
+        NewDecl.TypeIdentifier := TSyntaxToken.Create(TypeKind, TypeName);
+      for var K: Integer := 0 to ExtraCnt - 1 do
+        NewDecl.TypeExtraTokens.Add(TSyntaxToken.Create(ExtraKinds[K], ExtraTexts[K]));
+      NewDecl.Semicolon := TSyntaxToken.Create(tkSemicolon, ';');
+      Node.Declarations.Insert(I + 1 + J, NewDecl);
+    end;
+
+    Inc(I, 1 + NameCnt);
+  end;
+end;
+
+procedure TDptDwsFormatter.dwsVarSectionCanBeFormatted(Info: TProgramInfo);
+var
+  Node   : TVarSectionSyntax;
+  Decl   : TVarDeclarationSyntax;
+  LTrivia: String;
+  C      : Char;
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  Info.ResultAsBoolean := False;
+  if not Assigned(Node) or (Node.Declarations.Count = 0) then
+    Exit;
+
+  for var I: Integer := 0 to Node.Declarations.Count - 1 do
+  begin
+    Decl := Node.Declarations[I];
+    // Multi-variable declarations (e.g. "I, J: Integer") have no ColonToken
+    if not Assigned(Decl.ColonToken) then
+      Exit;
+    // Check for non-whitespace trivia (comments, directives) on identifier
+    if Assigned(Decl.Identifier) then
+    begin
+      LTrivia := TDptFormatter.GetLeadingTrivia(Decl.Identifier);
       for var J: Integer := 1 to Length(LTrivia) do
       begin
         C := LTrivia[J];

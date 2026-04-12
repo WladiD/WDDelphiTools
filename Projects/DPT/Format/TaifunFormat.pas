@@ -326,26 +326,174 @@ begin
   FExpectedTokenTextForSuppressedBanner := '';
 end;
 
+procedure SortAndAlignVarDecls(ASection: TVarSectionSyntax);
+var
+  LCount: Integer;
+  I, J: Integer;
+  LNames: array of string;
+  LLower: array of string;
+  LAbsTargets: array of string;
+  LIndices: array of Integer;
+  LTempIndex: Integer;
+  LTempLower: string;
+  LOrder: string;
+  LMaxLen: Integer;
+  LPadding: Integer;
+  LPadStr: string;
+  LIdToken: TSyntaxToken;
+  LColonToken: TSyntaxToken;
+  LTypeToken: TSyntaxToken;
+begin
+  LCount := GetVarDeclCount(ASection);
+  if LCount <= 0 then
+    Exit;
+
+  // Collect names and absolute targets
+  LNames.SetLength(LCount);
+  LLower.SetLength(LCount);
+  LAbsTargets.SetLength(LCount);
+  LIndices.SetLength(LCount);
+
+  for I := 0 to LCount - 1 do
+  begin
+    LNames[I] := GetVarDeclName(ASection, I);
+    LLower[I] := LowerCase(LNames[I]);
+    LAbsTargets[I] := LowerCase(GetVarDeclAbsoluteTarget(ASection, I));
+    LIndices[I] := I;
+  end;
+
+  // Insertion sort alphabetically
+  for I := 1 to LCount - 1 do
+  begin
+    LTempIndex := LIndices[I];
+    LTempLower := LLower[I];
+    J := I - 1;
+    while (J >= 0) and (LLower[J] > LTempLower) do
+    begin
+      LIndices[J + 1] := LIndices[J];
+      LLower[J + 1] := LLower[J];
+      Dec(J);
+    end;
+    LIndices[J + 1] := LTempIndex;
+    LLower[J + 1] := LTempLower;
+  end;
+
+  // Fix absolute dependencies: if a var references another local var via
+  // absolute, it must come directly after that var.
+  for I := 0 to LCount - 1 do
+  begin
+    if LAbsTargets[LIndices[I]] <> '' then
+    begin
+      // Find the referenced variable in the sorted order
+      for J := 0 to I - 1 do
+      begin
+        if LLower[J] = LAbsTargets[LIndices[I]] then
+        begin
+          // Move I to position J+1 if not already there
+          if I <> J + 1 then
+          begin
+            LTempIndex := LIndices[I];
+            LTempLower := LLower[I];
+            var K: Integer := I;
+            while K > J + 1 do
+            begin
+              LIndices[K] := LIndices[K - 1];
+              LLower[K] := LLower[K - 1];
+              Dec(K);
+            end;
+            LIndices[J + 1] := LTempIndex;
+            LLower[J + 1] := LTempLower;
+          end;
+          Break;
+        end;
+      end;
+    end;
+  end;
+
+  // Build order string
+  LOrder := '';
+  for I := 0 to LCount - 1 do
+  begin
+    if I > 0 then
+      LOrder := LOrder + ',';
+    LOrder := LOrder + IntToStr(LIndices[I]);
+  end;
+
+  // Reorder AST nodes
+  ReorderVarDecls(ASection, LOrder);
+
+  // Calculate max name length for colon alignment
+  LMaxLen := 0;
+  for I := 0 to LCount - 1 do
+  begin
+    var LLen: Integer := Length(GetVarDeclName(ASection, I));
+    if LLen > LMaxLen then
+      LMaxLen := LLen;
+  end;
+
+  // Apply trivia to each declaration for proper indentation and alignment
+  for I := 0 to LCount - 1 do
+  begin
+    LIdToken := GetVarDeclIdentifier(ASection, I);
+    LColonToken := GetVarDeclColonToken(ASection, I);
+    LTypeToken := GetVarDeclTypeToken(ASection, I);
+
+    if Assigned(LIdToken) then
+    begin
+      ClearTrivia(LIdToken);
+      AddLeadingTrivia(LIdToken, #13#10 + '  ');
+    end;
+
+    if Assigned(LColonToken) then
+    begin
+      // Padding: longest name + 1 space, minus this name's length
+      LPadding := LMaxLen - Length(GetVarDeclName(ASection, I));
+      LPadStr := '';
+      var P: Integer;
+      for P := 1 to LPadding do
+        LPadStr := LPadStr + ' ';
+
+      ClearTrivia(LColonToken);
+      AddLeadingTrivia(LColonToken, LPadStr);
+    end;
+
+    if Assigned(LTypeToken) then
+    begin
+      ClearTrivia(LTypeToken);
+      AddLeadingTrivia(LTypeToken, ' ');
+    end;
+  end;
+end;
+
 procedure TTaifunFormatter.FormatVarSection(ASection: TVarSectionSyntax);
 var
   LToken: TSyntaxToken;
   LOldTrivia, LComments, LTrailingPart, LIndent, LPrefix: string;
   LLeadingNewlines: Integer;
 begin
-  if not IsUnitLevel(ASection) then Exit;
+  if not IsUnitLevel(ASection) then
+  begin
+    // Method-level var: split multi-var lines, then sort and align
+    SplitMultiVarDeclarations(ASection);
+    if VarSectionCanBeFormatted(ASection) then
+      SortAndAlignVarDecls(ASection);
+    Exit;
+  end;
+
+  // Unit-level var: banner handling (existing logic)
   LToken := GetVarKeyword(ASection);
   if not Assigned(LToken) then Exit;
-  
+
   LOldTrivia := GetLeadingTrivia(LToken);
   ClearTrivia(LToken);
   FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
-  
+
   LPrefix := LTrailingPart + #13#10#13#10;
   if FExpectedTokenTextForSuppressedBanner = LToken.Text then
     AddLeadingTrivia(LToken, LPrefix + LComments + LIndent)
   else
     AddLeadingTrivia(LToken, LPrefix + FBanner.CreateMethodBanner() + LComments + LIndent);
-    
+
   FLastClassName := '';
   FExpectedTokenTextForSuppressedBanner := '';
 end;
