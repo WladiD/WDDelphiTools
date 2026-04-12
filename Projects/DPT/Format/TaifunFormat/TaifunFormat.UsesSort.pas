@@ -11,7 +11,7 @@ const
   GroupBusiness   = 4;
   GroupBusinessUI = 5;
   GroupShared     = 6;  // Dms.Shared.*, Tos.Shared.*, Tpm.Shared.*
-  GroupTfw        = 7;
+  GroupApp        = 7;  // Application namespaces: DMS, MKH, PB, PLZ, RKA, SOA, TDM, TED, TES, TFH, TFI, TFK, TFR, TFW, TIM, TLS, TMS, TOS, TPM, TRD
 
 function GetNamespaceGroup(const AName: string): Integer;
 
@@ -29,25 +29,16 @@ begin
   LLower := LowerCase(AName);
 
   // Delphi RTL (all standard Embarcadero namespaces in one block)
-  if LowerStartsWith(LLower, 'system.') or (LLower = 'system') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'winapi.') or (LLower = 'winapi') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'vcl.') or (LLower = 'vcl') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'fmx.') or (LLower = 'fmx') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'data.') or (LLower = 'data') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'xml.') or (LLower = 'xml') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'net.') or (LLower = 'net') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'rest.') or (LLower = 'rest') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'soap.') or (LLower = 'soap') then
-    Exit(GroupDelphiRTL);
-  if LowerStartsWith(LLower, 'web.') or (LLower = 'web') then
+  if LowerStartsWith(LLower, 'data.') or (LLower = 'data') or
+     LowerStartsWith(LLower, 'fmx.') or (LLower = 'fmx') or
+     LowerStartsWith(LLower, 'net.') or (LLower = 'net') or
+     LowerStartsWith(LLower, 'rest.') or (LLower = 'rest') or
+     LowerStartsWith(LLower, 'soap.') or (LLower = 'soap') or
+     LowerStartsWith(LLower, 'system.') or (LLower = 'system') or
+     LowerStartsWith(LLower, 'vcl.') or (LLower = 'vcl') or
+     LowerStartsWith(LLower, 'web.') or (LLower = 'web') or
+     LowerStartsWith(LLower, 'winapi.') or (LLower = 'winapi') or
+     LowerStartsWith(LLower, 'xml.') or (LLower = 'xml') then
     Exit(GroupDelphiRTL);
 
   // Base.UI.* must be checked BEFORE Base.*
@@ -62,17 +53,34 @@ begin
   if LowerStartsWith(LLower, 'business.') or (LLower = 'business') then
     Exit(GroupBusiness);
 
-  // Shared modules
-  if LowerStartsWith(LLower, 'dms.shared.') then
-    Exit(GroupShared);
-  if LowerStartsWith(LLower, 'tos.shared.') then
-    Exit(GroupShared);
-  if LowerStartsWith(LLower, 'tpm.shared.') then
+  // Shared modules (checked before App so that Dms.Shared.* does not fall into GroupApp)
+  if LowerStartsWith(LLower, 'dms.shared.') or
+     LowerStartsWith(LLower, 'tos.shared.') or
+     LowerStartsWith(LLower, 'tpm.shared.') then
     Exit(GroupShared);
 
-  // Application-specific
-  if LowerStartsWith(LLower, 'tfw.') or (LLower = 'tfw') then
-    Exit(GroupTfw);
+  // Application-specific namespaces (sorted alphabetically within the block)
+  if LowerStartsWith(LLower, 'dms.') or (LLower = 'dms') or
+     LowerStartsWith(LLower, 'mkh.') or (LLower = 'mkh') or
+     LowerStartsWith(LLower, 'pb.') or (LLower = 'pb') or
+     LowerStartsWith(LLower, 'plz.') or (LLower = 'plz') or
+     LowerStartsWith(LLower, 'rka.') or (LLower = 'rka') or
+     LowerStartsWith(LLower, 'soa.') or (LLower = 'soa') or
+     LowerStartsWith(LLower, 'tdm.') or (LLower = 'tdm') or
+     LowerStartsWith(LLower, 'ted.') or (LLower = 'ted') or
+     LowerStartsWith(LLower, 'tes.') or (LLower = 'tes') or
+     LowerStartsWith(LLower, 'tfh.') or (LLower = 'tfh') or
+     LowerStartsWith(LLower, 'tfi.') or (LLower = 'tfi') or
+     LowerStartsWith(LLower, 'tfk.') or (LLower = 'tfk') or
+     LowerStartsWith(LLower, 'tfr.') or (LLower = 'tfr') or
+     LowerStartsWith(LLower, 'tfw.') or (LLower = 'tfw') or
+     LowerStartsWith(LLower, 'tim.') or (LLower = 'tim') or
+     LowerStartsWith(LLower, 'tls.') or (LLower = 'tls') or
+     LowerStartsWith(LLower, 'tms.') or (LLower = 'tms') or
+     LowerStartsWith(LLower, 'tos.') or (LLower = 'tos') or
+     LowerStartsWith(LLower, 'tpm.') or (LLower = 'tpm') or
+     LowerStartsWith(LLower, 'trd.') or (LLower = 'trd') then
+    Exit(GroupApp);
 
   // Everything else is third-party
   Result := GroupThirdParty;

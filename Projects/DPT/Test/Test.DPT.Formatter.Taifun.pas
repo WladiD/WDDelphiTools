@@ -184,6 +184,8 @@ type
     procedure TestFormatUsesClause_DelphiRTL_SingleBlock;
     [Test]
     procedure TestFormatUsesClause_DelphiRTL_SortedAcrossNamespaces;
+    [Test]
+    procedure TestFormatUsesClause_MultipleAppNamespaces;
   end;
 
 implementation
@@ -3046,6 +3048,48 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Delphi RTL single-block formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUsesClause_MultipleAppNamespaces;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // All application namespaces (Tfw, Tpm, Tos, Ted, Pb, ...) belong to the
+  // same group at the end.  Within the block they are sorted alphabetically,
+  // so Pb.* < Ted.* < Tfw.* < Tpm.*.
+  LSource := 'unit MyUnit; interface uses Tfw.Utils, Tpm.Bridge, Base.Types, Pb.Core, Ted.Import, System.SysUtils; implementation end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains(
+      '  System.SysUtils,' + #13#10 + #13#10 +
+      '  Base.Types,' + #13#10 + #13#10 +
+      '  Pb.Core,' + #13#10 +
+      '  Ted.Import,' + #13#10 +
+      '  Tfw.Utils,' + #13#10 +
+      '  Tpm.Bridge;'),
+      'All app namespaces should be in one block, sorted alphabetically. Actual:' + #13#10 + LResult);
+
+    // Idempotence check
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Multiple app namespaces formatting should be idempotent');
     finally
       LUnit2.Free;
     end;
