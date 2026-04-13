@@ -211,7 +211,15 @@ begin
 
   if (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then LIsSuppressed := True;
 
-  LPrefix := LTrailingPart + #13#10#13#10;
+  // Suppress banner after {$ELSE} directives — the method is just an
+  // alternative branch of the same conditional block.
+  if Pos('{$ELSE', UpperCase(LTrailingPart)) > 0 then
+  begin
+    LIsSuppressed := True;
+    LPrefix := LTrailingPart + #13#10;
+  end
+  else
+    LPrefix := LTrailingPart + #13#10#13#10;
 
   if GetMethodDepth(AMethod) > 1 then
   begin
@@ -473,7 +481,8 @@ var
 begin
   if not IsUnitLevel(ASection) then
   begin
-    // Method-level var: split multi-var lines, then sort and align
+    // Method-level var: fix trivia, split multi-var lines, then sort and align
+    FixVarDeclTrailingComments(ASection);
     SplitMultiVarDeclarations(ASection);
     if VarSectionCanBeFormatted(ASection) then
       SortAndAlignVarDecls(ASection);

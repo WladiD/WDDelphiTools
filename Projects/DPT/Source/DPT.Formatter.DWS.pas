@@ -85,6 +85,7 @@ type
     procedure dwsGetVarDeclTypeToken(Info: TProgramInfo);
     procedure dwsGetVarDeclAbsoluteTarget(Info: TProgramInfo);
     procedure dwsReorderVarDecls(Info: TProgramInfo);
+    procedure dwsFixVarDeclTrailingComments(Info: TProgramInfo);
     procedure dwsSplitMultiVarDeclarations(Info: TProgramInfo);
     procedure dwsVarSectionCanBeFormatted(Info: TProgramInfo);
   protected
@@ -340,6 +341,10 @@ begin
   Func.Parameters.Add('ANode', 'TVarSectionSyntax');
   Func.Parameters.Add('ANewOrder', 'String');
   Func.OnEval := dwsReorderVarDecls;
+
+  Func := FUnit.Functions.Add('FixVarDeclTrailingComments');
+  Func.Parameters.Add('ANode', 'TVarSectionSyntax');
+  Func.OnEval := dwsFixVarDeclTrailingComments;
 
   Func := FUnit.Functions.Add('SplitMultiVarDeclarations');
   Func.Parameters.Add('ANode', 'TVarSectionSyntax');
@@ -733,6 +738,74 @@ begin
   // Reorder in-place
   for I := 0 to N - 1 do
     Node.Declarations[I] := OldDecls[Indices[I]];
+end;
+
+procedure TDptDwsFormatter.dwsFixVarDeclTrailingComments(Info: TProgramInfo);
+var
+  Node     : TVarSectionSyntax;
+  SemiToken: TSyntaxToken;
+  TargetTok: TSyntaxToken;
+  LTrivia  : String;
+  ComStart : Integer;
+  ComEnd   : Integer;
+  Comment  : String;
+  Rest     : String;
+
+  procedure MoveCommentToSemicolon(ASourceToken, ASemicolon: TSyntaxToken);
+  begin
+    LTrivia := TDptFormatter.GetLeadingTrivia(ASourceToken);
+    ComStart := Pos('//', LTrivia);
+    if ComStart = 0 then Exit;
+
+    // The // must appear before any newline
+    for var J: Integer := 1 to ComStart - 1 do
+      if (LTrivia[J] = #13) or (LTrivia[J] = #10) then
+      begin
+        ComStart := 0;
+        Break;
+      end;
+    if ComStart = 0 then Exit;
+
+    // Find end of comment text (stop before the newline)
+    ComEnd := ComStart;
+    while (ComEnd <= Length(LTrivia)) and (LTrivia[ComEnd] <> #13) and (LTrivia[ComEnd] <> #10) do
+      Inc(ComEnd);
+
+    // Move everything up to (but not including) the newline to the semicolon:
+    // this includes the space before // and the comment text itself
+    Comment := Copy(LTrivia, 1, ComEnd - 1);
+
+    // Keep everything from the newline onwards as the source token's trivia
+    Rest := Copy(LTrivia, ComEnd, Length(LTrivia) - ComEnd + 1);
+
+    TDptFormatter.AddTrailingTrivia(ASemicolon, Comment);
+    TDptFormatter.ClearTrivia(ASourceToken);
+    if Rest <> '' then
+      TDptFormatter.AddLeadingTrivia(ASourceToken, Rest);
+  end;
+
+begin
+  Node := TVarSectionSyntax(Info.ParamAsObject[0]);
+  if not Assigned(Node) or (Node.Declarations.Count = 0) then Exit;
+
+  // For each declaration (starting from index 1), check if its Identifier's
+  // leading trivia contains a // comment that belongs to the previous
+  // declaration's semicolon line.
+  for var I: Integer := 1 to Node.Declarations.Count - 1 do
+  begin
+    if not Assigned(Node.Declarations[I].Identifier) or
+       not Assigned(Node.Declarations[I - 1].Semicolon) then
+      Continue;
+    MoveCommentToSemicolon(Node.Declarations[I].Identifier,
+                           Node.Declarations[I - 1].Semicolon);
+  end;
+
+  // Also check the token AFTER the last declaration's semicolon (typically
+  // "begin").  A trailing comment on the last var line ends up in that
+  // token's leading trivia.
+  SemiToken := Node.Declarations[Node.Declarations.Count - 1].Semicolon;
+  if Assigned(SemiToken) and Assigned(SemiToken.NextToken) then
+    MoveCommentToSemicolon(SemiToken.NextToken, SemiToken);
 end;
 
 procedure TDptDwsFormatter.dwsSplitMultiVarDeclarations(Info: TProgramInfo);

@@ -165,6 +165,8 @@ type
     procedure TestFormatImplementation_UnterminatedBraceInClassBanner;
     [Test]
     procedure TestFormatImplementation_MultiLineBraceCommentInBanner;
+    [Test]
+    procedure TestFormatImplementation_NoBannerAfterElseDirective;
 
     [Test]
     procedure TestFormatUsesClause_SortsAlphabetically;
@@ -195,6 +197,8 @@ type
     procedure TestFormatVarSection_AbsoluteFollowsTarget;
     [Test]
     procedure TestFormatVarSection_Idempotent;
+    [Test]
+    procedure TestFormatVarSection_PreservesTrailingComment;
     [Test]
     procedure TestFormatVarSection_SplitsMultiVar;
     [Test]
@@ -2811,6 +2815,66 @@ begin
   end;
 end;
 
+procedure TTestTaifunFormatter.TestFormatImplementation_NoBannerAfterElseDirective;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // When a method follows an {$ELSE} directive, no method banner should be
+  // inserted between the directive and the function keyword.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{$IFDEF TEST}' + #13#10 +
+    'procedure TFoo.DoWork;' + #13#10 +
+    'begin' + #13#10 +
+    '{$ELSE TEST}' + #13#10 +
+    'procedure TFoo.DoWork;' + #13#10 +
+    'begin' + #13#10 +
+    '{$ENDIF TEST}' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // No banner between {$ELSE} and the procedure
+    Assert.IsFalse(
+      LResult.Contains('{$ELSE TEST}' + #13#10 + #13#10 + '{ ---'),
+      'No method banner should be inserted after {$ELSE}. Actual:' + #13#10 + LResult);
+
+    // The function must follow the {$ELSE} directly (with at most a newline)
+    Assert.IsTrue(
+      LResult.Contains('{$ELSE TEST}' + #13#10 + 'procedure TFoo.DoWork;'),
+      '{$ELSE} and procedure must be adjacent. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Method after {$ELSE} should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
 procedure TTestTaifunFormatter.TestFormatUsesClause_SortsAlphabetically;
 var
   LResult: string;
@@ -3258,6 +3322,52 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Var section formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatVarSection_PreservesTrailingComment;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Trailing comments on var declarations must be preserved after sorting
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Foo;' + #13#10 +
+    'var' + #13#10 +
+    '  Count: Integer; // vergebene Preise' + #13#10 +
+    '  Active: Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(LResult.Contains('// vergebene Preise'),
+      'Trailing comment must be preserved. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(LResult.Contains('Count : Integer; // vergebene Preise'),
+      'Comment must stay on the Count line. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Var with trailing comment should be idempotent');
     finally
       LUnit2.Free;
     end;
