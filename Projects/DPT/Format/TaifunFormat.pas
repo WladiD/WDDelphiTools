@@ -325,11 +325,12 @@ begin
   FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
   
   LPrefix := LTrailingPart + #13#10#13#10;
-  if FExpectedTokenTextForSuppressedBanner = LToken.Text then
+  if (FExpectedTokenTextForSuppressedBanner = LToken.Text) or
+     (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then
     AddLeadingTrivia(LToken, LPrefix + LComments + LIndent)
   else
     AddLeadingTrivia(LToken, LPrefix + FBanner.CreateMethodBanner() + LComments + LIndent);
-    
+
   FLastClassName := '';
   FExpectedTokenTextForSuppressedBanner := '';
 end;
@@ -498,7 +499,8 @@ begin
   FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
 
   LPrefix := LTrailingPart + #13#10#13#10;
-  if FExpectedTokenTextForSuppressedBanner = LToken.Text then
+  if (FExpectedTokenTextForSuppressedBanner = LToken.Text) or
+     (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then
     AddLeadingTrivia(LToken, LPrefix + LComments + LIndent)
   else
     AddLeadingTrivia(LToken, LPrefix + FBanner.CreateMethodBanner() + LComments + LIndent);

@@ -167,6 +167,8 @@ type
     procedure TestFormatImplementation_MultiLineBraceCommentInBanner;
     [Test]
     procedure TestFormatImplementation_NoBannerAfterElseDirective;
+    [Test]
+    procedure TestFormatImplementation_BraceCommentAfterDashSeparator;
 
     [Test]
     procedure TestFormatUsesClause_SortsAlphabetically;
@@ -2867,6 +2869,61 @@ begin
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2,
         'Method after {$ELSE} should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatImplementation_BraceCommentAfterDashSeparator;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // A brace comment immediately following a { --- } separator (e.g. a section
+  // header like "{ Verkaufs-Belegkopf }") must not be re-wrapped in additional
+  // { --- } separators.  The preceding separator already serves as the border.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'const' + #13#10 +
+    '  CMaxItems = 100;' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    '{ Record definitions                                                      }' + #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'type' + #13#10 +
+    '  TMyRec = record' + #13#10 +
+    '    Value: Integer;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // No duplicate { --- } banner before the comment block
+    Assert.IsFalse(LResult.Contains(
+      '{ ----------------------------------------------------------------------- }' + #13#10 + #13#10 +
+      '{ ----------------------------------------------------------------------- }'),
+      'Must not have two consecutive { --- } banners. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Brace comment after dash separator should be idempotent');
     finally
       LUnit2.Free;
     end;
