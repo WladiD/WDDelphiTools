@@ -1,4 +1,4 @@
-unit TaifunFormat.UsesSort;
+﻿unit TaifunFormat.UsesSort;
 
 interface
 
