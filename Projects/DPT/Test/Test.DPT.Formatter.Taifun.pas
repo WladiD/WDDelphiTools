@@ -157,6 +157,8 @@ type
     [Test]
     procedure TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
     [Test]
+    procedure TestFormatUnitHeader_OldUnitNameWithDifferentCaseNotPreserved;
+    [Test]
     procedure TestFormatMethodImplementation_LocalRecordWithoutTrailingSemicolon;
 
     [Test]
@@ -2591,6 +2593,49 @@ begin
     // The correct unit name must be present
     Assert.IsTrue(LResult.Contains('// Tfw.Dms.Inbox.Form'),
       'Correct unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter.TestFormatUnitHeader_OldUnitNameWithDifferentCaseNotPreserved;
+var
+  LResult: String;
+  LSource: String;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // Reproducer for the Soa.Mailserver.Utils batch failure: when the banner contains
+  // the unit name with a different casing (e.g. "Soa.Mailserver.utils" vs actual
+  // "Soa.Mailserver.Utils"), the formatter should replace it, not keep it as extra
+  // comment.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Soa.Mailserver.utils' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Mister X' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit Soa.Mailserver.Utils;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // The old-cased name must not appear in the output
+    Assert.IsFalse(LResult.Contains('// Soa.Mailserver.utils'),
+      'Old differently-cased unit name should not be preserved in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+    // The correctly cased unit name must be present
+    Assert.IsTrue(LResult.Contains('// Soa.Mailserver.Utils'),
+      'Correctly cased unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
   finally
     LUnit.Free;
   end;

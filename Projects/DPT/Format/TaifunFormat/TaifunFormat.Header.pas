@@ -64,15 +64,15 @@ begin
             while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
             LFoundDesc := True; 
           end
-          else if (Length(LLine) > Length('// ' + AUnitName + ' ')) and not LFoundDesc and (Pos('// ' + AUnitName + ' ', LLine) = 1) then
+          else if (Length(LLine) > Length('// ' + AUnitName + ' ')) and not LFoundDesc and (Pos(LowerCase('// ' + AUnitName + ' '), LowerCase(LLine)) = 1) then
           begin
-            ADescription := Copy(LLine, Length('// ' + AUnitName + ' ') + 1, Length(LLine)); 
-            while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1); 
-            while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1); 
+            ADescription := Copy(LLine, Length('// ' + AUnitName + ' ') + 1, Length(LLine));
+            while (Length(ADescription) > 0) and (ADescription[1] = ' ') do Delete(ADescription, 1, 1);
+            while (Length(ADescription) > 0) and (ADescription[Length(ADescription)] = ' ') do Delete(ADescription, Length(ADescription), 1);
             if ADescription <> '' then LFoundDesc := True;
           end
-          else if (LLine <> '// ' + AUnitName) and (Pos('// ' + AUnitName + ' -', LLine) <> 1) and
-                  (Pos(LLine + '.', '// ' + AUnitName) <> 1) then
+          else if (LowerCase(LLine) <> LowerCase('// ' + AUnitName)) and (Pos(LowerCase('// ' + AUnitName + ' -'), LowerCase(LLine)) <> 1) and
+                  (Pos(LowerCase(LLine) + '.', LowerCase('// ' + AUnitName)) <> 1) then
           begin
             if LFoundDesc and not LFoundAuthor and (LLine <> '//') and (LLine <> '// ') then
             begin
