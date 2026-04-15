@@ -48,6 +48,8 @@ type
     procedure dwsAddLeadingTrivia(Info: TProgramInfo);
     procedure dwsAddTrailingTrivia(Info: TProgramInfo);
     procedure dwsClearTrivia(Info: TProgramInfo);
+    procedure dwsClearLeadingTrivia(Info: TProgramInfo);
+    procedure dwsClearTrailingTrivia(Info: TProgramInfo);
     procedure dwsGetLeadingTrivia(Info: TProgramInfo);
 
     // AST wrappers
@@ -88,6 +90,19 @@ type
     procedure dwsFixVarDeclTrailingComments(Info: TProgramInfo);
     procedure dwsSplitMultiVarDeclarations(Info: TProgramInfo);
     procedure dwsVarSectionCanBeFormatted(Info: TProgramInfo);
+
+    // Class declaration helpers
+    procedure dwsGetClassVisibilitySectionCount(Info: TProgramInfo);
+    procedure dwsGetClassVisibilityKeyword(Info: TProgramInfo);
+    procedure dwsGetClassMemberCount(Info: TProgramInfo);
+    procedure dwsGetClassMemberKind(Info: TProgramInfo);
+    procedure dwsGetClassMemberName(Info: TProgramInfo);
+    procedure dwsGetClassMemberSignature(Info: TProgramInfo);
+    procedure dwsGetClassMemberFirstToken(Info: TProgramInfo);
+    procedure dwsGetClassMemberKeywordToken(Info: TProgramInfo);
+    procedure dwsReorderClassMembers(Info: TProgramInfo);
+    procedure dwsClassIsFormClass(Info: TProgramInfo);
+    procedure dwsClassSectionCanBeFormatted(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -157,6 +172,14 @@ begin
   var Func: TdwsFunction := FUnit.Functions.Add('ClearTrivia');
   Func.Parameters.Add('AToken', 'TSyntaxToken');
   Func.OnEval := dwsClearTrivia;
+
+  Func := FUnit.Functions.Add('ClearLeadingTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.OnEval := dwsClearLeadingTrivia;
+
+  Func := FUnit.Functions.Add('ClearTrailingTrivia');
+  Func.Parameters.Add('AToken', 'TSyntaxToken');
+  Func.OnEval := dwsClearTrailingTrivia;
 
   Func := FUnit.Functions.Add('GetLeadingTrivia');
   Func.Parameters.Add('AToken', 'TSyntaxToken');
@@ -354,11 +377,99 @@ begin
   Func.Parameters.Add('ANode', 'TVarSectionSyntax');
   Func.ResultType := 'Boolean';
   Func.OnEval := dwsVarSectionCanBeFormatted;
+
+  // Class declaration helpers
+  Func := FUnit.Functions.Add('GetClassVisibilitySectionCount');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsGetClassVisibilitySectionCount;
+
+  Func := FUnit.Functions.Add('GetClassVisibilityKeyword');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetClassVisibilityKeyword;
+
+  Func := FUnit.Functions.Add('GetClassMemberCount');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsGetClassMemberCount;
+
+  Func := FUnit.Functions.Add('GetClassMemberKind');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetClassMemberKind;
+
+  Func := FUnit.Functions.Add('GetClassMemberName');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetClassMemberName;
+
+  Func := FUnit.Functions.Add('GetClassMemberSignature');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetClassMemberSignature;
+
+  Func := FUnit.Functions.Add('GetClassMemberFirstToken');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetClassMemberFirstToken;
+
+  Func := FUnit.Functions.Add('GetClassMemberKeywordToken');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetClassMemberKeywordToken;
+
+  Func := FUnit.Functions.Add('ReorderClassMembers');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('ANewOrder', 'String');
+  Func.OnEval := dwsReorderClassMembers;
+
+  Func := FUnit.Functions.Add('ClassIsFormClass');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsClassIsFormClass;
+
+  Func := FUnit.Functions.Add('ClassSectionCanBeFormatted');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.ResultType := 'Boolean';
+  Func.OnEval := dwsClassSectionCanBeFormatted;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
 begin
   TDptFormatter.ClearTrivia(TSyntaxToken(Info.ParamAsObject[0]));
+end;
+
+procedure TDptDwsFormatter.dwsClearLeadingTrivia(Info: TProgramInfo);
+var
+  Tok: TSyntaxToken;
+begin
+  Tok := TSyntaxToken(Info.ParamAsObject[0]);
+  if Assigned(Tok) and Assigned(Tok.LeadingTrivia) then
+    Tok.LeadingTrivia.Clear;
+end;
+
+procedure TDptDwsFormatter.dwsClearTrailingTrivia(Info: TProgramInfo);
+var
+  Tok: TSyntaxToken;
+begin
+  Tok := TSyntaxToken(Info.ParamAsObject[0]);
+  if Assigned(Tok) and Assigned(Tok.TrailingTrivia) then
+    Tok.TrailingTrivia.Clear;
 end;
 
 procedure TDptDwsFormatter.dwsGetLeadingTrivia(Info: TProgramInfo);
@@ -942,6 +1053,400 @@ begin
         if (C <> ' ') and (C <> #9) and (C <> #13) and (C <> #10) then
           Exit;
       end;
+    end;
+  end;
+
+  Info.ResultAsBoolean := True;
+end;
+
+// ---------------------------------------------------------------------------
+// Class declaration helpers
+// ---------------------------------------------------------------------------
+
+// Scan a member's tokens to find the relevant keyword and name tokens.
+// Skips attributes [...] if present.  Returns:
+//  - AKeywordIdx: index of the main keyword (procedure/function/property/etc)
+//                 or -1 if this is a field (no keyword)
+//  - ANameIdx: index of the name token, or -1 if not found
+//  - AIsClassMethod: True if prefixed by "class"
+procedure AnalyzeClassMember(AMember: TClassMemberSyntax;
+  out AKeywordIdx: Integer; out ANameIdx: Integer; out AIsClassMethod: Boolean);
+var
+  I      : Integer;
+  LToken : TSyntaxToken;
+  LNest  : Integer;
+begin
+  AKeywordIdx := -1;
+  ANameIdx := -1;
+  AIsClassMethod := False;
+  if not Assigned(AMember) then Exit;
+
+  I := 0;
+
+  // Skip attribute [...] blocks at the start
+  while I < AMember.Tokens.Count do
+  begin
+    if AMember.Tokens[I].Kind <> tkOpenBracket then Break;
+    LNest := 1;
+    Inc(I);
+    while (I < AMember.Tokens.Count) and (LNest > 0) do
+    begin
+      if AMember.Tokens[I].Kind = tkOpenBracket then Inc(LNest)
+      else if AMember.Tokens[I].Kind = tkCloseBracket then Dec(LNest);
+      Inc(I);
+    end;
+  end;
+
+  // Check for 'class' prefix
+  if (I < AMember.Tokens.Count) and (AMember.Tokens[I].Kind = tkClassKeyword) then
+  begin
+    AIsClassMethod := True;
+    Inc(I);
+  end;
+
+  // Expect a member keyword now, or fall through to a field (identifier)
+  if I >= AMember.Tokens.Count then Exit;
+  LToken := AMember.Tokens[I];
+  if (LToken.Kind = tkProcedureKeyword) or (LToken.Kind = tkFunctionKeyword) or
+     (LToken.Kind = tkConstructorKeyword) or (LToken.Kind = tkDestructorKeyword) or
+     (LToken.Kind = tkPropertyKeyword) then
+  begin
+    AKeywordIdx := I;
+    // Name is the next identifier
+    if I + 1 < AMember.Tokens.Count then
+      ANameIdx := I + 1;
+  end
+  else if LToken.Kind = tkIdentifier then
+  begin
+    // Field declaration: name is the identifier
+    ANameIdx := I;
+  end;
+end;
+
+function GetClassMemberKindString(AMember: TClassMemberSyntax): String;
+var
+  LKeywordIdx: Integer;
+  LNameIdx   : Integer;
+  LIsClass   : Boolean;
+  LKind      : TTokenKind;
+begin
+  Result := 'other';
+  AnalyzeClassMember(AMember, LKeywordIdx, LNameIdx, LIsClass);
+
+  // Attribute-only member (just [...])
+  if (LKeywordIdx < 0) and (LNameIdx < 0) then
+  begin
+    if (AMember.Tokens.Count > 0) and (AMember.Tokens[0].Kind = tkOpenBracket) then
+      Result := 'attribute';
+    Exit;
+  end;
+
+  if LKeywordIdx < 0 then
+  begin
+    // Field
+    Result := 'field';
+    Exit;
+  end;
+
+  LKind := AMember.Tokens[LKeywordIdx].Kind;
+  case LKind of
+    tkProcedureKeyword:
+      if LIsClass then Result := 'class procedure' else Result := 'procedure';
+    tkFunctionKeyword:
+      if LIsClass then Result := 'class function' else Result := 'function';
+    tkConstructorKeyword:
+      Result := 'constructor';
+    tkDestructorKeyword:
+      Result := 'destructor';
+    tkPropertyKeyword:
+      Result := 'property';
+  end;
+end;
+
+procedure TDptDwsFormatter.dwsGetClassVisibilitySectionCount(Info: TProgramInfo);
+var
+  Node: TClassDeclarationSyntax;
+begin
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  if Assigned(Node) and Assigned(Node.VisibilitySections) then
+    Info.ResultAsInteger := Node.VisibilitySections.Count
+  else
+    Info.ResultAsInteger := 0;
+end;
+
+procedure TDptDwsFormatter.dwsGetClassVisibilityKeyword(Info: TProgramInfo);
+var
+  Node: TClassDeclarationSyntax;
+  Idx : Integer;
+  Sec : TVisibilitySectionSyntax;
+  Tok : TSyntaxToken;
+begin
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Tok := nil;
+  if Assigned(Node) and Assigned(Node.VisibilitySections) and
+     (Idx >= 0) and (Idx < Node.VisibilitySections.Count) then
+  begin
+    Sec := Node.VisibilitySections[Idx];
+    if Assigned(Sec) then
+    begin
+      if Assigned(Sec.StrictKeyword) then
+        Tok := Sec.StrictKeyword
+      else
+        Tok := Sec.VisibilityKeyword;
+    end;
+  end;
+  if Assigned(Tok) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Tok, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberCount(Info: TProgramInfo);
+var
+  Node: TClassDeclarationSyntax;
+  Idx : Integer;
+begin
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  Idx := Info.ParamAsInteger[1];
+  Info.ResultAsInteger := 0;
+  if Assigned(Node) and Assigned(Node.VisibilitySections) and
+     (Idx >= 0) and (Idx < Node.VisibilitySections.Count) and
+     Assigned(Node.VisibilitySections[Idx].Members) then
+    Info.ResultAsInteger := Node.VisibilitySections[Idx].Members.Count;
+end;
+
+function GetMemberAt(Node: TClassDeclarationSyntax; ASectionIdx, AMemberIdx: Integer): TClassMemberSyntax;
+begin
+  Result := nil;
+  if not Assigned(Node) or not Assigned(Node.VisibilitySections) then Exit;
+  if (ASectionIdx < 0) or (ASectionIdx >= Node.VisibilitySections.Count) then Exit;
+  if not Assigned(Node.VisibilitySections[ASectionIdx].Members) then Exit;
+  if (AMemberIdx < 0) or (AMemberIdx >= Node.VisibilitySections[ASectionIdx].Members.Count) then Exit;
+  Result := Node.VisibilitySections[ASectionIdx].Members[AMemberIdx];
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberKind(Info: TProgramInfo);
+var
+  Member: TClassMemberSyntax;
+begin
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if Assigned(Member) then
+    Info.ResultAsString := GetClassMemberKindString(Member)
+  else
+    Info.ResultAsString := 'other';
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberName(Info: TProgramInfo);
+var
+  Member      : TClassMemberSyntax;
+  LKeywordIdx : Integer;
+  LNameIdx    : Integer;
+  LIsClass    : Boolean;
+begin
+  Info.ResultAsString := '';
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if not Assigned(Member) then Exit;
+
+  AnalyzeClassMember(Member, LKeywordIdx, LNameIdx, LIsClass);
+  if (LNameIdx >= 0) and (LNameIdx < Member.Tokens.Count) then
+    Info.ResultAsString := Member.Tokens[LNameIdx].Text;
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberSignature(Info: TProgramInfo);
+var
+  Member : TClassMemberSyntax;
+  LResult: String;
+  LNest  : Integer;
+  I      : Integer;
+  LInside: Boolean;
+begin
+  Info.ResultAsString := '';
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if not Assigned(Member) then Exit;
+
+  // Collect everything inside the first parenthesis at top level
+  LResult := '';
+  LNest := 0;
+  LInside := False;
+  for I := 0 to Member.Tokens.Count - 1 do
+  begin
+    if Member.Tokens[I].Kind = tkOpenParen then
+    begin
+      if not LInside then
+      begin
+        LInside := True;
+        LNest := 1;
+        Continue;
+      end;
+      Inc(LNest);
+    end
+    else if Member.Tokens[I].Kind = tkCloseParen then
+    begin
+      if LInside then
+      begin
+        Dec(LNest);
+        if LNest = 0 then Break;
+      end;
+    end;
+    if LInside then
+      LResult := LResult + Member.Tokens[I].Text + ' ';
+  end;
+  Info.ResultAsString := LowerCase(Trim(LResult));
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberFirstToken(Info: TProgramInfo);
+var
+  Member: TClassMemberSyntax;
+  Tok   : TSyntaxToken;
+begin
+  Tok := nil;
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if Assigned(Member) and (Member.Tokens.Count > 0) then
+    Tok := Member.Tokens[0];
+  if Assigned(Tok) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Tok, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberKeywordToken(Info: TProgramInfo);
+var
+  Member      : TClassMemberSyntax;
+  LKeywordIdx : Integer;
+  LNameIdx    : Integer;
+  LIsClass    : Boolean;
+  Tok         : TSyntaxToken;
+begin
+  Tok := nil;
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if Assigned(Member) then
+  begin
+    AnalyzeClassMember(Member, LKeywordIdx, LNameIdx, LIsClass);
+    if (LKeywordIdx >= 0) and (LKeywordIdx < Member.Tokens.Count) then
+      Tok := Member.Tokens[LKeywordIdx];
+  end;
+  if Assigned(Tok) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Tok, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsReorderClassMembers(Info: TProgramInfo);
+var
+  Node      : TClassDeclarationSyntax;
+  SectionIdx: Integer;
+  OrderStr  : String;
+  Sec       : TVisibilitySectionSyntax;
+  OldMembers: TArray<TClassMemberSyntax>;
+  Indices   : TArray<Integer>;
+  I, N, P   : Integer;
+  Part      : String;
+begin
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  SectionIdx := Info.ParamAsInteger[1];
+  OrderStr := Info.ParamAsString[2];
+  if not Assigned(Node) or not Assigned(Node.VisibilitySections) then Exit;
+  if (SectionIdx < 0) or (SectionIdx >= Node.VisibilitySections.Count) then Exit;
+
+  Sec := Node.VisibilitySections[SectionIdx];
+  N := Sec.Members.Count;
+
+  // Parse comma-separated indices
+  SetLength(Indices, N);
+  I := 0;
+  while (OrderStr <> '') and (I < N) do
+  begin
+    P := Pos(',', OrderStr);
+    if P > 0 then
+    begin
+      Part := Copy(OrderStr, 1, P - 1);
+      Delete(OrderStr, 1, P);
+    end
+    else
+    begin
+      Part := OrderStr;
+      OrderStr := '';
+    end;
+    Indices[I] := StrToInt(Trim(Part));
+    Inc(I);
+  end;
+
+  // Save originals
+  SetLength(OldMembers, N);
+  for I := 0 to N - 1 do
+    OldMembers[I] := Sec.Members[I];
+
+  // Reorder in-place
+  for I := 0 to N - 1 do
+    Sec.Members[I] := OldMembers[Indices[I]];
+end;
+
+procedure TDptDwsFormatter.dwsClassIsFormClass(Info: TProgramInfo);
+var
+  Node: TClassDeclarationSyntax;
+  Sec : TVisibilitySectionSyntax;
+begin
+  Info.ResultAsBoolean := False;
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  if not Assigned(Node) or not Assigned(Node.VisibilitySections) or
+     (Node.VisibilitySections.Count = 0) then
+    Exit;
+
+  // A form class has members in the FIRST section BEFORE any visibility keyword
+  Sec := Node.VisibilitySections[0];
+  if Assigned(Sec) and not Assigned(Sec.VisibilityKeyword) and
+     not Assigned(Sec.StrictKeyword) and
+     Assigned(Sec.Members) and (Sec.Members.Count > 0) then
+    Info.ResultAsBoolean := True;
+end;
+
+procedure TDptDwsFormatter.dwsClassSectionCanBeFormatted(Info: TProgramInfo);
+var
+  Node       : TClassDeclarationSyntax;
+  SectionIdx : Integer;
+  Sec        : TVisibilitySectionSyntax;
+  Member     : TClassMemberSyntax;
+  LTrivia    : String;
+  I, J, K    : Integer;
+begin
+  Info.ResultAsBoolean := False;
+  Node := TClassDeclarationSyntax(Info.ParamAsObject[0]);
+  SectionIdx := Info.ParamAsInteger[1];
+  if not Assigned(Node) or not Assigned(Node.VisibilitySections) then Exit;
+  if (SectionIdx < 0) or (SectionIdx >= Node.VisibilitySections.Count) then Exit;
+
+  Sec := Node.VisibilitySections[SectionIdx];
+  if not Assigned(Sec) or not Assigned(Sec.Members) then Exit;
+
+  // Check all member tokens' trivia for compiler directives ({$)
+  for I := 0 to Sec.Members.Count - 1 do
+  begin
+    Member := Sec.Members[I];
+    if not Assigned(Member) then Continue;
+    for J := 0 to Member.Tokens.Count - 1 do
+    begin
+      LTrivia := TDptFormatter.GetLeadingTrivia(Member.Tokens[J]);
+      for K := 1 to Length(LTrivia) - 1 do
+        if (LTrivia[K] = '{') and (LTrivia[K + 1] = '$') then Exit;
+      // Also check trailing
+      if Member.Tokens[J].HasTrailingTrivia then
+        for var T: TSyntaxTrivia in Member.Tokens[J].TrailingTrivia do
+        begin
+          LTrivia := T.Text;
+          for K := 1 to Length(LTrivia) - 1 do
+            if (LTrivia[K] = '{') and (LTrivia[K + 1] = '$') then Exit;
+        end;
     end;
   end;
 

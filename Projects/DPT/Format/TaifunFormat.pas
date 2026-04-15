@@ -3,6 +3,7 @@
 uses
 
   TaifunFormat.Banner,
+  TaifunFormat.ClassDecl,
   TaifunFormat.Header,
   TaifunFormat.Trivia,
   TaifunFormat.UsesSort,
@@ -732,6 +733,11 @@ end;
 procedure OnVisitVarSection(ASection: TVarSectionSyntax);
 begin
   GetFormatter.FormatVarSection(ASection);
+end;
+
+procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax);
+begin
+  FormatClassDeclaration(AClass);
 end;
 
 procedure OnVisitUnitEnd(AUnit: TCompilationUnitSyntax);

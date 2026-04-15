@@ -13,7 +13,7 @@ type
 implementation
 
 function TTaifunHeaderHelper.ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
-var S, LLine, LTrimmed: string; P, P2, P3: Integer; LFoundDesc, LFoundAuthor, LInBanner: Boolean;
+var S, LLine, LTrimmed: string; P, P2, P3, LAuthorLen: Integer; LFoundDesc, LFoundAuthor, LInBanner: Boolean;
 begin
   Result := Length(ATrivia) > 0; LFoundDesc := False; LFoundAuthor := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := ''; LInBanner := True;
   if Result then
@@ -23,29 +23,36 @@ begin
     begin
       P := Pos(#10, S);
       if P > 0 then begin LLine := Copy(S, 1, P - 1); if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then LLine := Copy(LLine, 1, Length(LLine) - 1); Delete(S, 1, P); end else begin LLine := S; S := ''; end;
-      
+
       if LInBanner then
       begin
         LTrimmed := LLine;
         while (Length(LTrimmed) > 0) and (LTrimmed[1] = ' ') do Delete(LTrimmed, 1, 1);
         if (Length(LTrimmed) = 0) or (Pos('//', LTrimmed) <> 1) then LInBanner := False;
       end;
-      
+
       if not LInBanner then
       begin
         if ADirectives <> '' then ADirectives := ADirectives + #13#10 + LLine else ADirectives := LLine;
       end
       else
       begin
-        P2 := Pos('Autor:', LLine); 
-        if P2 > 0 then 
-        begin 
-          AAuthor := Copy(LLine, P2 + 6, Length(LLine)); 
-          while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1); 
-          while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1); 
+        // Accept both German "Autor:" and English "Author:"
+        P2 := Pos('Autor:', LLine);
+        LAuthorLen := 6; // length of 'Autor:'
+        if P2 = 0 then
+        begin
+          P2 := Pos('Author:', LLine);
+          if P2 > 0 then LAuthorLen := 7; // length of 'Author:'
+        end;
+        if P2 > 0 then
+        begin
+          AAuthor := Copy(LLine, P2 + LAuthorLen, Length(LLine));
+          while (Length(AAuthor) > 0) and (AAuthor[1] = ' ') do Delete(AAuthor, 1, 1);
+          while (Length(AAuthor) > 0) and (AAuthor[Length(AAuthor)] = ' ') do Delete(AAuthor, Length(AAuthor), 1);
           LFoundAuthor := True;
         end
-        else if (Pos('//', LTrimmed) = 1) and (Pos('Autor:', LLine) = 0) and (Pos('// ===', LLine) = 0) then
+        else if (Pos('//', LTrimmed) = 1) and (Pos('// ===', LLine) = 0) then
         begin
           if (Length(LLine) > 3) and not LFoundDesc and ((Pos('-', LLine) > 0) or (Pos('–', LLine) > 0) or (Pos('â€', LLine) > 0)) then
           begin
