@@ -30,7 +30,7 @@ Win32
 /Projects/DPT/Lint/*.Descriptions.txt
 /Projects/DPT/Lint/*.Template.pas
 /Projects/DPT/Lint/*.Tests.txt
-/Projects/DPT/Test/**/*
+/Projects/DPT/Test/Win*/*
 /Projects/DPT/Test/FormatTaifunData
 /Projects/ParseTree/Test/Test.ParseTree.exe
 /Projects/ParseTree/Test/Test.ParseTree.res
