@@ -224,7 +224,10 @@ begin
 
   if GetMethodDepth(AMethod) > 1 then
   begin
-    AddLeadingTrivia(LToken, LPrefix + FBanner.CreateNestedMethodBanner() + LComments + LIndent);
+    if not LIsSuppressed then
+      AddLeadingTrivia(LToken, LPrefix + FBanner.CreateNestedMethodBanner() + LComments + LIndent)
+    else
+      AddLeadingTrivia(LToken, LPrefix + LComments + LIndent);
     InsertNestedMethodEndBanner(AMethod);
   end
   else

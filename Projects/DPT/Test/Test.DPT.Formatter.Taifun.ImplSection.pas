@@ -80,6 +80,8 @@ type
     procedure TestFormatImplementation_NoBannerAfterElseDirective;
     [Test]
     procedure TestFormatImplementation_BraceCommentAfterDashSeparator;
+    [Test]
+    procedure TestFormatImplementation_ShortDashSeparatorPreserved;
   end;
 
 implementation
@@ -1408,6 +1410,68 @@ begin
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2,
         'Brace comment after dash separator should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_ShortDashSeparatorPreserved;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Short dash separators (e.g. 26 dashes) are sub-section dividers within
+  // methods — they must NOT be treated as full-width banners and re-wrapped.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    'procedure TFoo.DoWork;' + #13#10 +
+    #13#10 +
+    '{ -------------------------- }' + #13#10 +
+    '{ Adressen                   }' + #13#10 +
+    '{ -------------------------- }' + #13#10 +
+    #13#10 +
+    'procedure DoSub;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // The short separator block must be preserved exactly
+    Assert.IsTrue(LResult.Contains(
+      '{ -------------------------- }' + #13#10 +
+      '{ Adressen                   }' + #13#10 +
+      '{ -------------------------- }'),
+      'Short dash separator block must be preserved as-is. Actual:' + #13#10 + LResult);
+
+    // Must NOT be re-wrapped into full-width 71-dash separators
+    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 +
+      '{ Adressen'),
+      'Short separator must not be expanded to full-width. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2,
+        'Short dash separator handling should be idempotent');
     finally
       LUnit2.Free;
     end;

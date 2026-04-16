@@ -66,9 +66,46 @@ begin
       LIsBanner := False;
       if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then
       begin
-        LIsBanner := True;
+        // Short dash separators that are part of a sub-section divider block
+        // (e.g. { --- } / { Text } / { --- }) must be preserved as comments.
+        // Peek ahead: if a short { -- } is followed by a { text } line, treat
+        // the whole block as a comment, not as a banner.
+        var LIsShortDash: Boolean := (Pos('{ --', LLine) > 0) and (Length(TrimLeadingCRLFSpace(LLine)) < 73);
+        if LIsShortDash then
+        begin
+          var LIsSubSection: Boolean := False;
+
+          // Forward check: opening separator followed by a brace comment { text }
+          var LPeekP: Integer := 1;
+          while (LPeekP <= Length(S)) and ((S[LPeekP] = ' ') or (S[LPeekP] = #13) or (S[LPeekP] = #10) or (S[LPeekP] = #9)) do Inc(LPeekP);
+          if (LPeekP <= Length(S)) and (S[LPeekP] = '{') and
+             (Copy(S, LPeekP, 3) <> '{ -') and (Copy(S, LPeekP, 3) <> '{ =') and
+             (Copy(S, LPeekP, 2) <> '{!') then
+            LIsSubSection := True;
+
+          // Backward check: closing separator preceded by a brace comment in AComments
+          if not LIsSubSection and (Length(AComments) > 0) then
+          begin
+            var LChk: Integer := Length(AComments);
+            while (LChk > 0) and ((AComments[LChk] = ' ') or (AComments[LChk] = #13) or (AComments[LChk] = #10)) do Dec(LChk);
+            if (LChk > 0) and (AComments[LChk] = '}') then
+              LIsSubSection := True;
+          end;
+
+          if LIsSubSection then
+          begin
+            // Sub-section divider — preserve as regular comment, skip brace comment wrapping
+            LCollectingForPrevious := False;
+            AComments := AComments + LLine;
+            Continue;
+          end
+          else
+            LIsBanner := True;  // Standalone short separator (nested method banner)
+        end
+        else
+          LIsBanner := True;
         LPrevWasSepBanner := Pos('{ ==', LLine) > 0;
-        LPrevWasDashSep := Pos('{ --', LLine) > 0;
+        LPrevWasDashSep := (Pos('{ --', LLine) > 0) and not LIsShortDash;
       end
       else if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and ((Pos(' }', LLine) > 0) or (Pos('}', LLine) = 0)) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
       begin
@@ -105,6 +142,14 @@ begin
           LNextIsBrace := (LPeekIdx <= Length(S)) and (S[LPeekIdx] = '{') and
             (Copy(S, LPeekIdx, 3) <> '{ -') and (Copy(S, LPeekIdx, 3) <> '{ =') and
             (Copy(S, LPeekIdx, 2) <> '{!');
+          // Short dash separators closing a sub-section block count as adjacent braces
+          if not LNextIsBrace and (Copy(S, LPeekIdx, 3) = '{ -') then
+          begin
+            var LEndP: Integer := LPeekIdx;
+            while (LEndP <= Length(S)) and (S[LEndP] <> #10) do Inc(LEndP);
+            if Length(TrimLeadingCRLFSpace(Copy(S, LPeekIdx, LEndP - LPeekIdx))) < 73 then
+              LNextIsBrace := True;
+          end;
           // Exclude empty brace comments (banner padding lines that will be stripped)
           if LNextIsBrace then
           begin
