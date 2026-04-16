@@ -8,6 +8,7 @@ uses
 
   DUnitX.TestFramework,
 
+  ParseTree.Nodes,
   ParseTree.Parser,
   ParseTree.Writer,
 
@@ -21,6 +22,7 @@ type
     FWriter: TSyntaxTreeWriter;
     FFormatter: TDptDwsFormatter;
     FScriptPath: string;
+    function FormatSource(const ASource: string): string;
   public
     [Setup]
     procedure Setup;
@@ -31,6 +33,20 @@ type
 implementation
 
 { TTestTaifunFormatterBase }
+
+function TTestTaifunFormatterBase.FormatSource(const ASource: string): string;
+var
+  LUnit: TCompilationUnitSyntax;
+begin
+  LUnit := FParser.Parse(ASource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    Result := FWriter.GenerateSource(LUnit);
+  finally
+    LUnit.Free;
+  end;
+end;
 
 procedure TTestTaifunFormatterBase.Setup;
 begin

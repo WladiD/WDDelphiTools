@@ -8,9 +8,6 @@ uses
 
   DUnitX.TestFramework,
 
-  ParseTree.Core,
-  ParseTree.Nodes,
-
   Test.DPT.Formatter.Taifun.Base;
 
 type
@@ -90,7 +87,6 @@ procedure TTestTaifunFormatter_Class.TestFormatClass_FieldsSortedAlphabetically;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -105,27 +101,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '    FAlpha: String;' + #13#10 +
-      '    FMiddle: Boolean;' + #13#10 +
-      '    FZebra: Integer;'),
-      'Fields should be sorted alphabetically. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '    FAlpha: String;' + #13#10 +
+    '    FMiddle: Boolean;' + #13#10 +
+    '    FZebra: Integer;'),
+    'Fields should be sorted alphabetically. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_ConstructorFirst;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -140,26 +128,18 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('procedure Alpha;', LResult),
-      'Constructor must come before Alpha. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Zebra;', LResult),
-      'Alpha must come before Zebra. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('procedure Alpha;', LResult),
+    'Constructor must come before Alpha. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Zebra;', LResult),
+    'Alpha must come before Zebra. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_DestructorAfterConstructor;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -174,26 +154,18 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('destructor  Destroy', LResult),
-      'Constructor must come before Destructor. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('destructor  Destroy', LResult) < Pos('procedure Alpha;', LResult),
-      'Destructor must come directly after Constructor, before Alpha. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('destructor  Destroy', LResult),
+    'Constructor must come before Destructor. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('destructor  Destroy', LResult) < Pos('procedure Alpha;', LResult),
+    'Destructor must come directly after Constructor, before Alpha. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_MethodsSortedAlphabetically;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -208,26 +180,18 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(
-      (Pos('procedure Alpha;', LResult) < Pos('procedure Middle;', LResult)) and
-      (Pos('procedure Middle;', LResult) < Pos('procedure Zebra;', LResult)),
-      'Methods should be sorted alphabetically. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(
+    (Pos('procedure Alpha;', LResult) < Pos('procedure Middle;', LResult)) and
+    (Pos('procedure Middle;', LResult) < Pos('procedure Zebra;', LResult)),
+    'Methods should be sorted alphabetically. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_PropertiesSortedAlphabetically;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -244,24 +208,16 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(Pos('property Alpha', LResult) < Pos('property Zebra', LResult),
-      'Properties should be sorted alphabetically. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(Pos('property Alpha', LResult) < Pos('property Zebra', LResult),
+    'Properties should be sorted alphabetically. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_OverloadsSortedBySignature;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // Overloads keep their original relative order (stable sort).
   LSource :=
@@ -277,27 +233,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Alpha comes first (alphabetical), then Bar overloads in ORIGINAL order.
-    Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Bar(A: String)', LResult),
-      'Alpha must come before Bar. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('procedure Bar(A: String)', LResult) < Pos('procedure Bar(A: Integer)', LResult),
-      'Overloads keep original relative order (String before Integer as in source). Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Alpha comes first (alphabetical), then Bar overloads in ORIGINAL order.
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Bar(A: String)', LResult),
+    'Alpha must come before Bar. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('procedure Bar(A: String)', LResult) < Pos('procedure Bar(A: Integer)', LResult),
+    'Overloads keep original relative order (String before Integer as in source). Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_FieldsBeforeMethodsBeforeProperties;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -312,26 +260,18 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(Pos('FAField:', LResult) < Pos('procedure AMethod;', LResult),
-      'Field must come before method. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('procedure AMethod;', LResult) < Pos('property AProp:', LResult),
-      'Method must come before property. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(Pos('FAField:', LResult) < Pos('procedure AMethod;', LResult),
+    'Field must come before method. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('procedure AMethod;', LResult) < Pos('property AProp:', LResult),
+    'Method must come before property. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_ClassMethodsAfterCtorBeforeRegularMethods;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // Class methods come after constructor/destructor but before regular methods
   LSource :=
@@ -348,29 +288,21 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Order: Field -> constructor -> class function -> regular method
-    Assert.IsTrue(Pos('FField:', LResult) < Pos('constructor Create;', LResult),
-      'Field must come before constructor. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('class function', LResult),
-      'Constructor must come before class function. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('class function', LResult) < Pos('procedure RegularMethod;', LResult),
-      'Class function must come before regular method. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Order: Field -> constructor -> class function -> regular method
+  Assert.IsTrue(Pos('FField:', LResult) < Pos('constructor Create;', LResult),
+    'Field must come before constructor. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('class function', LResult),
+    'Constructor must come before class function. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('class function', LResult) < Pos('procedure RegularMethod;', LResult),
+    'Class function must come before regular method. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_ClassCtorBeforeRegularCtor;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // class constructor/destructor come before regular constructor/destructor
   LSource :=
@@ -388,31 +320,23 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Order: class ctor -> class dtor -> constructor -> destructor -> regular method
-    Assert.IsTrue(Pos('class constructor ClassCreate;', LResult) < Pos('class destructor', LResult),
-      'Class constructor must come before class destructor. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('class destructor', LResult) < Pos('constructor Create;', LResult),
-      'Class destructor must come before regular constructor. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('destructor  Destroy', LResult),
-      'Regular constructor must come before destructor. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('destructor  Destroy', LResult) < Pos('procedure DoWork;', LResult),
-      'Destructor must come before regular method. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Order: class ctor -> class dtor -> constructor -> destructor -> regular method
+  Assert.IsTrue(Pos('class constructor ClassCreate;', LResult) < Pos('class destructor', LResult),
+    'Class constructor must come before class destructor. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('class destructor', LResult) < Pos('constructor Create;', LResult),
+    'Class destructor must come before regular constructor. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('destructor  Destroy', LResult),
+    'Regular constructor must come before destructor. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('destructor  Destroy', LResult) < Pos('procedure DoWork;', LResult),
+    'Destructor must come before regular method. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AlignsProcedureFunctionToColumn10;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -426,27 +350,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // procedure(9)+1 = function(8)+2, both names at col 14 (incl. 4-space indent + keyword + padding)
-    Assert.IsTrue(LResult.Contains(
-      '    procedure DoA;' + #13#10 +
-      '    function  GetB: Integer;'),
-      'function should get 2 spaces to align with procedure. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // procedure(9)+1 = function(8)+2, both names at col 14 (incl. 4-space indent + keyword + padding)
+  Assert.IsTrue(LResult.Contains(
+    '    procedure DoA;' + #13#10 +
+    '    function  GetB: Integer;'),
+    'function should get 2 spaces to align with procedure. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AlignsConstructorDestructorToColumn12;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -460,27 +376,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // constructor(11)+1 space, destructor(10)+2 spaces
-    Assert.IsTrue(LResult.Contains(
-      '    constructor Create;' + #13#10 +
-      '    destructor  Destroy; override;'),
-      'destructor should get 2 spaces to align with constructor. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // constructor(11)+1 space, destructor(10)+2 spaces
+  Assert.IsTrue(LResult.Contains(
+    '    constructor Create;' + #13#10 +
+    '    destructor  Destroy; override;'),
+    'destructor should get 2 spaces to align with constructor. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AlignsClassMethodsToColumn16;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -494,27 +402,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // class procedure(15)+1, class function(14)+2
-    Assert.IsTrue(LResult.Contains(
-      '    class procedure DoA;' + #13#10 +
-      '    class function  GetB: Integer;'),
-      'class function should get 2 spaces to align with class procedure. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // class procedure(15)+1, class function(14)+2
+  Assert.IsTrue(LResult.Contains(
+    '    class procedure DoA;' + #13#10 +
+    '    class function  GetB: Integer;'),
+    'class function should get 2 spaces to align with class procedure. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_PropertyUsesSingleSpace;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -530,27 +430,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // property always 1 space, not aligned with procedure
-    Assert.IsTrue(LResult.Contains('    property Name:'),
-      'property should have only 1 space between keyword and name. Actual:' + #13#10 + LResult);
-    Assert.IsFalse(LResult.Contains('    property  Name:'),
-      'property should NOT have 2 spaces (no alignment with methods). Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // property always 1 space, not aligned with procedure
+  Assert.IsTrue(LResult.Contains('    property Name:'),
+    'property should have only 1 space between keyword and name. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('    property  Name:'),
+    'property should NOT have 2 spaces (no alignment with methods). Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AllFourAlignmentGroupsIndependent;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -570,43 +462,35 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Class method group: col 16
-    Assert.IsTrue(LResult.Contains('class procedure ClassProc'),
-      'class procedure 1 space. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('class function  ClassFunc'),
-      'class function 2 spaces. Actual:' + #13#10 + LResult);
+  // Class method group: col 16
+  Assert.IsTrue(LResult.Contains('class procedure ClassProc'),
+    'class procedure 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('class function  ClassFunc'),
+    'class function 2 spaces. Actual:' + #13#10 + LResult);
 
-    // Constructor/destructor group: col 12
-    Assert.IsTrue(LResult.Contains('constructor Create'),
-      'constructor 1 space. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('destructor  Destroy'),
-      'destructor 2 spaces. Actual:' + #13#10 + LResult);
+  // Constructor/destructor group: col 12
+  Assert.IsTrue(LResult.Contains('constructor Create'),
+    'constructor 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('destructor  Destroy'),
+    'destructor 2 spaces. Actual:' + #13#10 + LResult);
 
-    // Regular proc/func group: col 10
-    Assert.IsTrue(LResult.Contains('procedure RegularProc'),
-      'procedure 1 space. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('function  RegularFunc'),
-      'function 2 spaces. Actual:' + #13#10 + LResult);
+  // Regular proc/func group: col 10
+  Assert.IsTrue(LResult.Contains('procedure RegularProc'),
+    'procedure 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('function  RegularFunc'),
+    'function 2 spaces. Actual:' + #13#10 + LResult);
 
-    // Property: 1 space
-    Assert.IsTrue(LResult.Contains('property RegularProp'),
-      'property 1 space. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Property: 1 space
+  Assert.IsTrue(LResult.Contains('property RegularProp'),
+    'property 1 space. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_VisibilityKeyword3Spaces;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -619,24 +503,16 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(#13#10 + '   private'),
-      'Visibility keyword must have 3 spaces indent. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(#13#10 + '   private'),
+    'Visibility keyword must have 3 spaces indent. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_Member4Spaces;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -649,24 +525,16 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(#13#10 + '    FA:'),
-      'Class member must have 4 spaces indent. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(#13#10 + '    FA:'),
+    'Class member must have 4 spaces indent. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_NoBlankLinesInClassBody;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -684,27 +552,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // No double newlines inside class body (between visibility keyword and member)
-    Assert.IsFalse(LResult.Contains('strict private' + #13#10 + #13#10),
-      'No blank line after visibility keyword. Actual:' + #13#10 + LResult);
-    Assert.IsFalse(LResult.Contains('FA: Integer;' + #13#10 + #13#10),
-      'No blank line between members. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // No double newlines inside class body (between visibility keyword and member)
+  Assert.IsFalse(LResult.Contains('strict private' + #13#10 + #13#10),
+    'No blank line after visibility keyword. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('FA: Integer;' + #13#10 + #13#10),
+    'No blank line between members. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_InImplementationSection;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -718,24 +578,16 @@ begin
     '  end;' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Zebra;', LResult),
-      'Local class in implementation must also be sorted. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Zebra;', LResult),
+    'Local class in implementation must also be sorted. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_SkipsFormClass;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // Form class: DFM-generated members BEFORE the first visibility keyword.
   // Only the default section (DFM members) must stay untouched.
@@ -754,31 +606,23 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // DFM components in default section must be preserved in original order
-    Assert.IsTrue(Pos('edName: TEdit', LResult) < Pos('lbCaption: TLabel', LResult),
-      'DFM components must keep original order. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('edName: TEdit;'),
-      'DFM components must be preserved. Actual:' + #13#10 + LResult);
+  // DFM components in default section must be preserved in original order
+  Assert.IsTrue(Pos('edName: TEdit', LResult) < Pos('lbCaption: TLabel', LResult),
+    'DFM components must keep original order. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('edName: TEdit;'),
+    'DFM components must be preserved. Actual:' + #13#10 + LResult);
 
-    // But the explicit 'private' section IS sorted: FAlpha before FZebra
-    Assert.IsTrue(Pos('FAlpha', LResult) < Pos('FZebra', LResult),
-      'Explicit visibility sections of form classes are still sorted. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // But the explicit 'private' section IS sorted: FAlpha before FZebra
+  Assert.IsTrue(Pos('FAlpha', LResult) < Pos('FZebra', LResult),
+    'Explicit visibility sections of form classes are still sorted. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_VisibilityOrderPreserved;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // Deliberately unusual order: public first, then strict private
   LSource :=
@@ -794,25 +638,17 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Public must still come BEFORE strict private (original order preserved)
-    Assert.IsTrue(Pos('   public', LResult) < Pos('strict private', LResult),
-      'Visibility order must NOT be reordered. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Public must still come BEFORE strict private (original order preserved)
+  Assert.IsTrue(Pos('   public', LResult) < Pos('strict private', LResult),
+    'Visibility order must NOT be reordered. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_SectionWithDirectiveNotSorted;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -829,27 +665,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // With {$IFDEF}, section must not be sorted -- Zebra stays before Alpha
-    Assert.IsTrue(Pos('Zebra', LResult) < Pos('Alpha', LResult),
-      'Section with $IFDEF must not be sorted. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('{$IFDEF TEST}'),
-      'Directive must be preserved. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // With {$IFDEF}, section must not be sorted -- Zebra stays before Alpha
+  Assert.IsTrue(Pos('Zebra', LResult) < Pos('Alpha', LResult),
+    'Section with $IFDEF must not be sorted. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('{$IFDEF TEST}'),
+    'Directive must be preserved. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_OtherSectionsFormattedDespiteDirective;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -868,25 +696,17 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // strict private section MUST still be sorted (no directive there)
-    Assert.IsTrue(Pos('FAlpha', LResult) < Pos('FZebra', LResult),
-      'strict private section must be sorted despite directive in public. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // strict private section MUST still be sorted (no directive there)
+  Assert.IsTrue(Pos('FAlpha', LResult) < Pos('FZebra', LResult),
+    'strict private section must be sorted despite directive in public. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_CommentMovesWithMethodOnSort;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -901,27 +721,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Comment must travel with Zebra after sorting
-    Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('// Comment for Zebra', LResult),
-      'Comment must move to the new position of Zebra. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('// Comment for Zebra', LResult) < Pos('procedure Zebra;', LResult),
-      'Comment must stay right before Zebra. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Comment must travel with Zebra after sorting
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('// Comment for Zebra', LResult),
+    'Comment must move to the new position of Zebra. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('// Comment for Zebra', LResult) < Pos('procedure Zebra;', LResult),
+    'Comment must stay right before Zebra. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AttributeMovesWithMethodOnSort;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -936,20 +748,13 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Attribute must travel with Zebra after sorting
-    Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('[Deprecated]', LResult),
-      'Attribute must move with Zebra. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('[Deprecated]', LResult) < Pos('procedure Zebra;', LResult),
-      'Attribute must stay right before Zebra. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Attribute must travel with Zebra after sorting
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('[Deprecated]', LResult),
+    'Attribute must move with Zebra. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('[Deprecated]', LResult) < Pos('procedure Zebra;', LResult),
+    'Attribute must stay right before Zebra. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_TrailingBraceCommentOnMember;
@@ -957,8 +762,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // A brace comment on the same line as a member's semicolon must be
   // preserved in place -- not moved to its own line or dropped.
@@ -975,27 +778,14 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains('MyValue = 1.5; { important ratio }'),
-      'Trailing brace comment must stay on the same line as the member. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('MyValue = 1.5; { important ratio }'),
+    'Trailing brace comment must stay on the same line as the member. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2, 'Trailing comment handling should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2, 'Trailing comment handling should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_Idempotent;
@@ -1003,8 +793,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   LSource :=
     'unit MyUnit;' + #13#10 +
@@ -1024,30 +812,15 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
-
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2, 'Class formatting should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  LResult := FormatSource(LSource);
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2, 'Class formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertiesAfterRegularProperties;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // On* event-handler properties must be placed after regular properties
   LSource :=
@@ -1064,29 +837,21 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Regular properties first (Name, Value), then On* properties (OnChange, OnClick)
-    Assert.IsTrue(Pos('property Name:', LResult) < Pos('property Value:', LResult),
-      'Name must come before Value (alphabetical). Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
-      'Value (regular) must come before OnChange (event). Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('property OnChange:', LResult) < Pos('property OnClick:', LResult),
-      'OnChange must come before OnClick (alphabetical within events). Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Regular properties first (Name, Value), then On* properties (OnChange, OnClick)
+  Assert.IsTrue(Pos('property Name:', LResult) < Pos('property Value:', LResult),
+    'Name must come before Value (alphabetical). Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
+    'Value (regular) must come before OnChange (event). Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('property OnChange:', LResult) < Pos('property OnClick:', LResult),
+    'OnChange must come before OnClick (alphabetical within events). Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertiesSortedAlphabetically;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // On* properties within their group are sorted alphabetically
   LSource :=
@@ -1103,27 +868,19 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(
-      (Pos('OnActivate', LResult) < Pos('OnClose', LResult)) and
-      (Pos('OnClose', LResult) < Pos('OnResize', LResult)) and
-      (Pos('OnResize', LResult) < Pos('OnZoom', LResult)),
-      'On* properties must be sorted alphabetically. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(
+    (Pos('OnActivate', LResult) < Pos('OnClose', LResult)) and
+    (Pos('OnClose', LResult) < Pos('OnResize', LResult)) and
+    (Pos('OnResize', LResult) < Pos('OnZoom', LResult)),
+    'On* properties must be sorted alphabetically. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertyCommentMovesWithProperty;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   // Comments before On* properties must travel with the property during sort
   LSource :=
@@ -1139,20 +896,13 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Name (regular) must come first, then the comment + OnClick (event)
-    Assert.IsTrue(Pos('property Name:', LResult) < Pos('// Fires when clicked', LResult),
-      'Regular property must come before the On* comment. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('// Fires when clicked', LResult) < Pos('property OnClick:', LResult),
-      'Comment must stay right before OnClick. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Name (regular) must come first, then the comment + OnClick (event)
+  Assert.IsTrue(Pos('property Name:', LResult) < Pos('// Fires when clicked', LResult),
+    'Regular property must come before the On* comment. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('// Fires when clicked', LResult) < Pos('property OnClick:', LResult),
+    'Comment must stay right before OnClick. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_MixedPropertiesIdempotent;
@@ -1160,8 +910,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // Full scenario: methods + regular props + On* props, verify idempotence
   LSource :=
@@ -1182,30 +930,17 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Verify ordering: method -> regular props -> On* props
-    Assert.IsTrue(Pos('procedure DoWork;', LResult) < Pos('property Name:', LResult),
-      'Method must come before properties. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
-      'Regular properties before On* events. Actual:' + #13#10 + LResult);
+  // Verify ordering: method -> regular props -> On* props
+  Assert.IsTrue(Pos('procedure DoWork;', LResult) < Pos('property Name:', LResult),
+    'Method must come before properties. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
+    'Regular properties before On* events. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2, 'Mixed properties formatting should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2, 'Mixed properties formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_DirectiveIndentPreservedAtVisibilityBoundary;
@@ -1213,8 +948,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // A {$ENDIF} directive before a visibility keyword must keep its original
   // member-level indent (4 spaces), not be re-indented to the visibility
@@ -1234,28 +967,15 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // {$ENDIF} must have 4-space indent (member level), not 3-space (visibility level)
-    Assert.IsTrue(LResult.Contains(#13#10 + '    {$ENDIF TEST}' + #13#10),
-      '{$ENDIF} must keep 4-space member indent. Actual:' + #13#10 + LResult);
+  // {$ENDIF} must have 4-space indent (member level), not 3-space (visibility level)
+  Assert.IsTrue(LResult.Contains(#13#10 + '    {$ENDIF TEST}' + #13#10),
+    '{$ENDIF} must keep 4-space member indent. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2, 'Directive indent at visibility boundary should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2, 'Directive indent at visibility boundary should be idempotent');
 end;
 
 end.

@@ -8,9 +8,6 @@ uses
 
   DUnitX.TestFramework,
 
-  ParseTree.Core,
-  ParseTree.Nodes,
-
   Test.DPT.Formatter.Taifun.Base;
 
 type
@@ -92,30 +89,21 @@ procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_NoExtraEm
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := 'unit MyUnit;' + #13#10 + 'interface' + #13#10 + 'implementation' + #13#10 + #13#10 + 'const' + #13#10 + '  MyConst = 1;' + #13#10 + 'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Initial format should have exactly one empty line between implementation banner and const
-    Assert.IsTrue(LResult.Contains(
-      #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'const' + #13#10
-    ), 'Implementation block should be followed by exactly one empty line before the const declaration. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Initial format should have exactly one empty line between implementation banner and const
+  Assert.IsTrue(LResult.Contains(
+    #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + 'implementation' + #13#10 + '{ ' + StringOfChar('=', 71) + ' }' + #13#10#13#10 + 'const' + #13#10
+  ), 'Implementation block should be followed by exactly one empty line before the const declaration. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesConstAroundIt;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -146,31 +134,23 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains('  MsgNoAccess = ''Funktion nicht verfügbar, weil die Leseberechtigung fehlt.'';' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      'implementation' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      'const' + #13#10 +
-      #13#10 +
-      '  AccessRightHelperNames : Array[Integer] of String'), 'Implementation banners should be properly inserted without mangling surrounding const declarations. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains('  MsgNoAccess = ''Funktion nicht verfügbar, weil die Leseberechtigung fehlt.'';' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'const' + #13#10 +
+    #13#10 +
+    '  AccessRightHelperNames : Array[Integer] of String'), 'Implementation banners should be properly inserted without mangling surrounding const declarations. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_OldClassBannerIsReplacedProperly;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -187,33 +167,25 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '{ ======================================================================= }' + #13#10 +
-      'implementation' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      '{ CBlacklist                                                              }' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);'
-    ), 'Old banner with suffixes like "- Class" must be completely replaced and no extra empty lines should be present before the new banner. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '{ ======================================================================= }' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CBlacklist                                                              }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'constructor CBlacklist.Create(ATblId: Word; AStt: PBlacklistStt);'
+  ), 'Old banner with suffixes like "- Class" must be completely replaced and no extra empty lines should be present before the new banner. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_OldClassBannerWithTypoIsReplacedProperly;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -230,33 +202,25 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '{ ======================================================================= }' + #13#10 +
-      'implementation' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      '{ CHierarchyObject                                                        }' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      'constructor CHierarchyObject.Create(AOwner: CHierarchyObject);'
-    ), 'Old banner with typos and "- Class" suffix must be replaced by the correct new banner. Actual:' + #13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '{ ======================================================================= }' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CHierarchyObject                                                        }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'constructor CHierarchyObject.Create(AOwner: CHierarchyObject);'
+  ), 'Old banner with typos and "- Class" suffix must be replaced by the correct new banner. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_NoExtraEmptyLinesBeforeFirstClass;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -275,34 +239,26 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '{ ======================================================================= }' + #13#10 +
-      'implementation' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      '{ CMongoBlobService                                                       }' + #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      'constructor CMongoBlobService.Create'),
-      'Should not have extra blank lines between implementation banner and the first class banner. Actual:' + #13#10 + LResult
-    );
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '{ ======================================================================= }' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    '{ CMongoBlobService                                                       }' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'constructor CMongoBlobService.Create'),
+    'Should not have extra blank lines between implementation banner and the first class banner. Actual:' + #13#10 + LResult
+  );
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_ClassToFunctionTransition;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -318,32 +274,24 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      'procedure CBlobDelThread.Execute;' + #13#10 +
-      'begin' + #13#10 +
-      'end;' + #13#10 +
-      #13#10 +
-      '{ ======================================================================= }' + #13#10 +
-      #13#10 +
-      'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;'),
-      'Transition from class method to unit-level function should use a double separator block. Actual:' + #13#10 + LResult
-    );
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    'procedure CBlobDelThread.Execute;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'function BlobRef2String(const ABlobRef: TBlobRef): String; overload;'),
+    'Transition from class method to unit-level function should use a double separator block. Actual:' + #13#10 + LResult
+  );
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_NoExtraEmptyLineBeforeXmlDoc;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -359,34 +307,24 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // After implementation banner, there should be exactly ONE empty line before XML-DOC
-    // implementation trailing trivia has { === }\r\n\r\n
-    // So if the method leading trivia is just the XML-DOC, we get ONE empty line total.
-    var LExpected := '''
-      { ======================================================================= }
-      implementation
-      { ======================================================================= }
+  // After implementation banner, there should be exactly ONE empty line before XML-DOC
+  var LExpected := '''
+    { ======================================================================= }
+    implementation
+    { ======================================================================= }
 
-      /// <summary>
-      ''';
+    /// <summary>
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpected), 'There should be exactly ONE empty line between implementation banner and XML-DOC. Actual result around implementation:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpected), 'There should be exactly ONE empty line between implementation banner and XML-DOC. Actual result around implementation:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesLeadingDirectives;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -398,32 +336,24 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Should preserve the blank line before the directive AND have a blank line before the banner
-    var LExpectedOrder := '''
-      type IList = interface end;
+  // Should preserve the blank line before the directive AND have a blank line before the banner
+  var LExpectedOrder := '''
+    type IList = interface end;
 
-      {$ENDREGION 'PARTIAL'}
+    {$ENDREGION 'PARTIAL'}
 
-      { ======================================================================= }
-      implementation
-      ''';
-    Assert.IsTrue(LResult.Contains(LExpectedOrder), 'Compiler directive should preserve leading blank line and be placed before the implementation banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+    { ======================================================================= }
+    implementation
+    ''';
+  Assert.IsTrue(LResult.Contains(LExpectedOrder), 'Compiler directive should preserve leading blank line and be placed before the implementation banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_AvoidDuplicateClassNameComment;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -440,25 +370,17 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Should contain the class banner but NOT the duplicate '// CListEnumerator_Integer' comment
-    Assert.IsTrue(LResult.Contains('{ CListEnumerator_Integer'), 'Should contain the class banner');
-    Assert.IsFalse(LResult.Contains('// CListEnumerator_Integer'), 'Should NOT contain the redundant class name comment. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Should contain the class banner but NOT the duplicate '// CListEnumerator_Integer' comment
+  Assert.IsTrue(LResult.Contains('{ CListEnumerator_Integer'), 'Should contain the class banner');
+  Assert.IsFalse(LResult.Contains('// CListEnumerator_Integer'), 'Should NOT contain the redundant class name comment. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_AvoidDuplicateClassNameComment_WithSpacesInGenerics;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -475,25 +397,17 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Should NOT contain a duplicate banner when the old one had spaces inside generics
-    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT contain a short separator since the class banner should replace the old one. Actual result:'#13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('{ CThreadPoolResult<TInput,TOutput>'), 'Should contain the class banner without spaces inside generics');
-  finally
-    LUnit.Free;
-  end;
+  // Should NOT contain a duplicate banner when the old one had spaces inside generics
+  Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT contain a short separator since the class banner should replace the old one. Actual result:'#13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('{ CThreadPoolResult<TInput,TOutput>'), 'Should contain the class banner without spaces inside generics');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesClassBannerWithDescriptiveText;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -509,24 +423,16 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'), 'Old banner with descriptive text should be replaced by a standard class banner. Actual result:'#13#10 + LResult);
-    Assert.IsFalse(LResult.Contains('{ TVersionNumber - Operatoren'), 'The descriptive text "- Operatoren" should NOT be preserved. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'), 'Old banner with descriptive text should be replaced by a standard class banner. Actual result:'#13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('{ TVersionNumber - Operatoren'), 'The descriptive text "- Operatoren" should NOT be preserved. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_ReplacesIncorrectGenericClassBanner;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -542,25 +448,17 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // We expect the old incorrect generic banner to be completely replaced by the correct non-generic banner
-    Assert.IsTrue(LResult.Contains('{ CRecordTableCacheBase' + StringOfChar(' ', 50) + ' }'), 'Should generate correct non-generic class banner. Actual result:'#13#10 + LResult);
-    Assert.IsFalse(LResult.Contains('{ CRecordTableCacheBase<TIdx, TRec>'), 'Should completely remove the old incorrect generic banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // We expect the old incorrect generic banner to be completely replaced by the correct non-generic banner
+  Assert.IsTrue(LResult.Contains('{ CRecordTableCacheBase' + StringOfChar(' ', 50) + ' }'), 'Should generate correct non-generic class banner. Actual result:'#13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('{ CRecordTableCacheBase<TIdx, TRec>'), 'Should completely remove the old incorrect generic banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_AvoidsBannersOnBodylessMethods;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -571,25 +469,17 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Should NOT contain a short separator between these bodyless methods
-    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT generate banners for bodyless methods like external functions. Actual result:'#13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetApiBufferFree'';' + #13#10 + 'function NetShareEnum'), 'Should keep external functions close together without empty lines inserted. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // Should NOT contain a short separator between these bodyless methods
+  Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }'), 'Should NOT generate banners for bodyless methods like external functions. Actual result:'#13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('function NetApiBufferFree(Buffer: Pointer): DWORD; stdcall; external ''NetAPI32.dll'' name ''NetApiBufferFree'';' + #13#10 + 'function NetShareEnum'), 'Should keep external functions close together without empty lines inserted. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_NoExtraEmptyLineBeforeRegion;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -600,30 +490,22 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Expected: implementation banner then ONE blank line then region
-    var LExpected := '''
-      implementation
-      { ======================================================================= }
+  // Expected: implementation banner then ONE blank line then region
+  var LExpected := '''
+    implementation
+    { ======================================================================= }
 
-      {$REGION 'TEST'}
-      ''';
-    Assert.IsTrue(LResult.Contains(LExpected), 'Should have exactly ONE blank line between implementation banner and region. Actual result around region:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+    {$REGION 'TEST'}
+    ''';
+  Assert.IsTrue(LResult.Contains(LExpected), 'Should have exactly ONE blank line between implementation banner and region. Actual result around region:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesTrailingComment;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -636,31 +518,23 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The comment should stay with the constant, NOT move below the class banner
-    var LExpected := '''
-      ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte
+  // The comment should stay with the constant, NOT move below the class banner
+  var LExpected := '''
+    ChunkSizeInByte = 261120; // 255 KiB, i.e. 255 * 1024 Byte
 
-      { ======================================================================= }
-      { CMongoGridFsService
-      ''';
+    { ======================================================================= }
+    { CMongoGridFsService
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpected), 'Trailing comment should not move below the class banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesCommentIndentation;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -673,33 +547,25 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The indentation of the second comment line should be perfectly preserved
-    var LExpected := '''
-        PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,
-                                            //dieser Kommentar ist eingerückt,
-                                            //das weiß ich genau.
+  // The indentation of the second comment line should be perfectly preserved
+  var LExpected := '''
+      PoemVersion = 26000000;             //Rosen sind rot, Veilchen sind blau,
+                                          //dieser Kommentar ist eingerückt,
+                                          //das weiß ich genau.
 
-      { ======================================================================= }
-      implementation
-      ''';
+    { ======================================================================= }
+    implementation
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpected), 'The indentation of multi-line comments before the implementation banner should be preserved. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpected), 'The indentation of multi-line comments before the implementation banner should be preserved. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesDirectivesBeforeBanner;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -719,32 +585,24 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The constant should end with a semicolon and a newline,
-    // then the {$ENDIF} should follow on its own indented line.
-    var LExpectedPart := '''
-      BtrieveDLLName  = 'WBTRV32.DLL';
-        {$ENDIF CPUX64}
+  // The constant should end with a semicolon and a newline,
+  // then the {$ENDIF} should follow on its own indented line.
+  var LExpectedPart := '''
+    BtrieveDLLName  = 'WBTRV32.DLL';
+      {$ENDIF CPUX64}
 
-      { ======================================================================= }
-      ''';
+    { ======================================================================= }
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpectedPart), 'Compiler directive {$ENDIF} should stay on its own line and above the class banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesIfDirectiveBlockBeforeBanner;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -765,32 +623,24 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    var LExpectedPart := '''
-      {$IF DEFINED(DEBUG)}
-        {$SetPEFlags $20}
-      {$ENDIF}
+  var LExpectedPart := '''
+    {$IF DEFINED(DEBUG)}
+      {$SetPEFlags $20}
+    {$ENDIF}
 
-      { ======================================================================= }
-      { CMyClass
-      ''';
+    { ======================================================================= }
+    { CMyClass
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpectedPart), 'The $IF block should stay strictly above the class banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpectedPart), 'The $IF block should stay strictly above the class banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesInlineBanners;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -805,26 +655,18 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The text inside the inline banner should be preserved
-    Assert.IsTrue(LResult.Contains('{ Prüfsummenberechnung'), 'Inline banner text should be preserved. Actual result:'#13#10 + LResult);
-    // The dashed lines around it should either be preserved or nicely formatted
-    Assert.IsTrue(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 + '{ Prüfsummenberechnung'), 'Inline banner should be formatted correctly. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  // The text inside the inline banner should be preserved
+  Assert.IsTrue(LResult.Contains('{ Prüfsummenberechnung'), 'Inline banner text should be preserved. Actual result:'#13#10 + LResult);
+  // The dashed lines around it should either be preserved or nicely formatted
+  Assert.IsTrue(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 + '{ Prüfsummenberechnung'), 'Inline banner should be formatted correctly. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesMultiLineCommentsWrappedInSeparators;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -841,31 +683,23 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    var LExpectedBlock := '''
-      { ----------------------------------------------------------------------- }
-      { Category A: XXX01234567890123456 (cpAlpha)                              }
-      {             XXX01234567890123457 (cpBeta)                               }
-      {             XXX01234567890123458 (cpGamma)                              }
-      { ----------------------------------------------------------------------- }
-      ''';
+  var LExpectedBlock := '''
+    { ----------------------------------------------------------------------- }
+    { Category A: XXX01234567890123456 (cpAlpha)                              }
+    {             XXX01234567890123457 (cpBeta)                               }
+    {             XXX01234567890123458 (cpGamma)                              }
+    { ----------------------------------------------------------------------- }
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpectedBlock), 'The entire block should be preserved perfectly. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpectedBlock), 'The entire block should be preserved perfectly. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesResourceDirectiveBeforeBanner;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit.Form;
@@ -885,30 +719,22 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    var LExpectedPart := '''
-      {$R *.dfm}
+  var LExpectedPart := '''
+    {$R *.dfm}
 
-      { ======================================================================= }
-      { TMyForm
-      ''';
+    { ======================================================================= }
+    { TMyForm
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpectedPart), '{$R *.dfm} should stay above the class banner. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpectedPart), '{$R *.dfm} should stay above the class banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesDashSeparatorBeforeResourcestring;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit.Form;
@@ -933,27 +759,19 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '{ ' + StringOfChar('-', 71) + ' }' + #13#10 +
-      #13#10 +
-      'resourcestring'),
-      '{ --- } separator before resourcestring should be preserved. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '{ ' + StringOfChar('-', 71) + ' }' + #13#10 +
+    #13#10 +
+    'resourcestring'),
+    '{ --- } separator before resourcestring should be preserved. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_StripsOrphanedClassNameFromOldBanner;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -973,24 +791,16 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsFalse(LResult.Contains('OldWrongClassName'),
-      'Orphaned class name from old banner should be stripped. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsFalse(LResult.Contains('OldWrongClassName'),
+    'Orphaned class name from old banner should be stripped. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_InsertsSectionBannerBeforeStandaloneProc;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit.Form;
@@ -1005,29 +815,21 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    Assert.IsTrue(LResult.Contains(
-      '{$R *.dfm}' + #13#10 +
-      #13#10 +
-      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
-      #13#10 +
-      'procedure DoSomething;'),
-      'Section banner { === } should be inserted before standalone procedure. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(
+    '{$R *.dfm}' + #13#10 +
+    #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    #13#10 +
+    'procedure DoSomething;'),
+    'Section banner { === } should be inserted before standalone procedure. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_CleansClassBannerInConstSection;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := '''
     unit MyUnit;
@@ -1059,38 +861,30 @@ begin
     end.
     ''';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    var LExpectedBanner :=
-      '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
-      '{ CToolButton' + StringOfChar(' ', 60) + ' }' + #13#10 +
-      '{ ' + StringOfChar('=', 71) + ' }';
+  var LExpectedBanner :=
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    '{ CToolButton' + StringOfChar(' ', 60) + ' }' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }';
 
-    Assert.IsTrue(LResult.Contains(LExpectedBanner),
-      'Class banner should be { CToolButton } (without - Class suffix). Actual result:'#13#10 + LResult);
+  Assert.IsTrue(LResult.Contains(LExpectedBanner),
+    'Class banner should be { CToolButton } (without - Class suffix). Actual result:'#13#10 + LResult);
 
-    Assert.IsFalse(LResult.Contains('CToolButton - Class'),
-      '- Class suffix should be stripped from banner. Actual result:'#13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('CToolButton - Class'),
+    '- Class suffix should be stripped from banner. Actual result:'#13#10 + LResult);
 
-    var LBannerLine := '{ CToolButton' + StringOfChar(' ', 60) + ' }';
-    var LFirstPos := Pos(LBannerLine, LResult);
-    var LSecondPos := Pos(LBannerLine, LResult, LFirstPos + 1);
-    Assert.AreEqual(0, LSecondPos,
-      'CToolButton class banner should appear only once (no duplicate). Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  var LBannerLine := '{ CToolButton' + StringOfChar(' ', 60) + ' }';
+  var LFirstPos := Pos(LBannerLine, LResult);
+  var LSecondPos := Pos(LBannerLine, LResult, LFirstPos + 1);
+  Assert.AreEqual(0, LSecondPos,
+    'CToolButton class banner should appear only once (no duplicate). Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_LowercaseEndif;
 var
   LResult: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
 begin
   LSource := // TODO: Bitte als Multiline-String-Literal (''')
     'unit MyUnit;' + #13#10 +
@@ -1109,25 +903,18 @@ begin
     '{$endif}' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The short separator for the second method should come AFTER the {$endif}
-    var LExpectedPart := '''
-      {$endif}
+  // The short separator for the second method should come AFTER the {$endif}
+  var LExpectedPart := '''
+    {$endif}
 
-      { ----------------------------------------------------------------------- }
+    { ----------------------------------------------------------------------- }
 
-      {$if CompilerVersion >= 32}
-      ''';
+    {$if CompilerVersion >= 32}
+    ''';
 
-    Assert.IsTrue(LResult.Contains(LExpectedPart), 'The short separator should be placed AFTER the {$endif} of the previous method. Actual result:'#13#10 + LResult);
-  finally
-    LUnit.Free;
-  end;
+  Assert.IsTrue(LResult.Contains(LExpectedPart), 'The short separator should be placed AFTER the {$endif} of the previous method. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_TrailingBraceCommentBeforeTypeSection;
@@ -1135,8 +922,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // Reproducer: a trailing brace comment on a const value line, followed by
   // a type section, caused the comment to be expanded into a multi-line
@@ -1156,30 +941,17 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The trailing comment must NOT be glued to the semicolon on the same
-    // line as a banner separator.  It should stay as a short trailing comment.
-    Assert.IsFalse(LResult.Contains(');{ '),
-      'Banner must not be glued to semicolon. Actual:' + #13#10 + LResult);
+  // The trailing comment must NOT be glued to the semicolon on the same
+  // line as a banner separator.  It should stay as a short trailing comment.
+  Assert.IsFalse(LResult.Contains(');{ '),
+    'Banner must not be glued to semicolon. Actual:' + #13#10 + LResult);
 
-    // Idempotence check
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Trailing brace comment before type section should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence check
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Trailing brace comment before type section should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_UnterminatedBraceInClassBanner;
@@ -1187,8 +959,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // Reproducer: a class banner where the class-name line has an opening
   // brace but no closing brace (e.g. "{ ClassName - class" instead of
@@ -1220,35 +990,22 @@ begin
     'end;' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Both methods must survive formatting
-    Assert.IsTrue(LResult.Contains('procedure TFoo.GetIt;'),
-      'GetIt must be preserved. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(LResult.Contains('procedure TFoo.SetIt;'),
-      'SetIt must be preserved. Actual:' + #13#10 + LResult);
+  // Both methods must survive formatting
+  Assert.IsTrue(LResult.Contains('procedure TFoo.GetIt;'),
+    'GetIt must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('procedure TFoo.SetIt;'),
+    'SetIt must be preserved. Actual:' + #13#10 + LResult);
 
-    // No unterminated brace comment in the output
-    Assert.IsFalse(LResult.Contains('{ TFoo - class' + #13#10),
-      'Unterminated brace comment must not appear in output. Actual:' + #13#10 + LResult);
+  // No unterminated brace comment in the output
+  Assert.IsFalse(LResult.Contains('{ TFoo - class' + #13#10),
+    'Unterminated brace comment must not appear in output. Actual:' + #13#10 + LResult);
 
-    // Idempotence check
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Unterminated brace in class banner should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence check
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Unterminated brace in class banner should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_MultiLineBraceCommentInBanner;
@@ -1256,8 +1013,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // Reproducer: a multi-line brace-comment block inside an { === } banner
   // followed by an empty brace padding line.  The peek for LNextIsBrace saw
@@ -1282,25 +1037,12 @@ begin
     'end;' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // Idempotence check
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Multi-line brace comment in banner should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence check
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Multi-line brace comment in banner should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_NoBannerAfterElseDirective;
@@ -1308,8 +1050,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // When a method follows an {$ELSE} directive, no method banner should be
   // inserted between the directive and the function keyword.
@@ -1332,35 +1072,22 @@ begin
     'end;' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // No banner between {$ELSE} and the procedure
-    Assert.IsFalse(
-      LResult.Contains('{$ELSE TEST}' + #13#10 + #13#10 + '{ ---'),
-      'No method banner should be inserted after {$ELSE}. Actual:' + #13#10 + LResult);
+  // No banner between {$ELSE} and the procedure
+  Assert.IsFalse(
+    LResult.Contains('{$ELSE TEST}' + #13#10 + #13#10 + '{ ---'),
+    'No method banner should be inserted after {$ELSE}. Actual:' + #13#10 + LResult);
 
-    // The function must follow the {$ELSE} directly (with at most a newline)
-    Assert.IsTrue(
-      LResult.Contains('{$ELSE TEST}' + #13#10 + 'procedure TFoo.DoWork;'),
-      '{$ELSE} and procedure must be adjacent. Actual:' + #13#10 + LResult);
+  // The function must follow the {$ELSE} directly (with at most a newline)
+  Assert.IsTrue(
+    LResult.Contains('{$ELSE TEST}' + #13#10 + 'procedure TFoo.DoWork;'),
+    '{$ELSE} and procedure must be adjacent. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Method after {$ELSE} should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Method after {$ELSE} should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_BraceCommentAfterDashSeparator;
@@ -1368,8 +1095,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // A brace comment immediately following a { --- } separator (e.g. a section
   // header like "{ Verkaufs-Belegkopf }") must not be re-wrapped in additional
@@ -1391,31 +1116,18 @@ begin
     'implementation' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // No duplicate { --- } banner before the comment block
-    Assert.IsFalse(LResult.Contains(
-      '{ ----------------------------------------------------------------------- }' + #13#10 + #13#10 +
-      '{ ----------------------------------------------------------------------- }'),
-      'Must not have two consecutive { --- } banners. Actual:' + #13#10 + LResult);
+  // No duplicate { --- } banner before the comment block
+  Assert.IsFalse(LResult.Contains(
+    '{ ----------------------------------------------------------------------- }' + #13#10 + #13#10 +
+    '{ ----------------------------------------------------------------------- }'),
+    'Must not have two consecutive { --- } banners. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Brace comment after dash separator should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Brace comment after dash separator should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_ShortDashSeparatorPreserved;
@@ -1423,8 +1135,6 @@ var
   LResult: string;
   LResult2: string;
   LSource: string;
-  LUnit: TCompilationUnitSyntax;
-  LUnit2: TCompilationUnitSyntax;
 begin
   // Short dash separators (e.g. 26 dashes) are sub-section dividers within
   // methods — they must NOT be treated as full-width banners and re-wrapped.
@@ -1447,37 +1157,24 @@ begin
     'end;' + #13#10 +
     'end.';
 
-  LUnit := FParser.Parse(LSource);
-  try
-    FFormatter.LoadScript(FScriptPath);
-    FFormatter.FormatUnit(LUnit);
-    LResult := FWriter.GenerateSource(LUnit);
+  LResult := FormatSource(LSource);
 
-    // The short separator block must be preserved exactly
-    Assert.IsTrue(LResult.Contains(
-      '{ -------------------------- }' + #13#10 +
-      '{ Adressen                   }' + #13#10 +
-      '{ -------------------------- }'),
-      'Short dash separator block must be preserved as-is. Actual:' + #13#10 + LResult);
+  // The short separator block must be preserved exactly
+  Assert.IsTrue(LResult.Contains(
+    '{ -------------------------- }' + #13#10 +
+    '{ Adressen                   }' + #13#10 +
+    '{ -------------------------- }'),
+    'Short dash separator block must be preserved as-is. Actual:' + #13#10 + LResult);
 
-    // Must NOT be re-wrapped into full-width 71-dash separators
-    Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 +
-      '{ Adressen'),
-      'Short separator must not be expanded to full-width. Actual:' + #13#10 + LResult);
+  // Must NOT be re-wrapped into full-width 71-dash separators
+  Assert.IsFalse(LResult.Contains('{ ----------------------------------------------------------------------- }' + #13#10 +
+    '{ Adressen'),
+    'Short separator must not be expanded to full-width. Actual:' + #13#10 + LResult);
 
-    // Idempotence
-    LUnit2 := FParser.Parse(LResult);
-    try
-      FFormatter.FormatUnit(LUnit2);
-      LResult2 := FWriter.GenerateSource(LUnit2);
-      Assert.AreEqual(LResult, LResult2,
-        'Short dash separator handling should be idempotent');
-    finally
-      LUnit2.Free;
-    end;
-  finally
-    LUnit.Free;
-  end;
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Short dash separator handling should be idempotent');
 end;
 
 end.
