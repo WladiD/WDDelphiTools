@@ -70,6 +70,14 @@ type
     procedure TestFormatClass_TrailingBraceCommentOnMember;
     [Test]
     procedure TestFormatClass_Idempotent;
+    [Test]
+    procedure TestFormatClass_OnPropertiesAfterRegularProperties;
+    [Test]
+    procedure TestFormatClass_OnPropertiesSortedAlphabetically;
+    [Test]
+    procedure TestFormatClass_OnPropertyCommentMovesWithProperty;
+    [Test]
+    procedure TestFormatClass_MixedPropertiesIdempotent;
   end;
 
 implementation
@@ -1025,6 +1033,171 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Class formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertiesAfterRegularProperties;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // On* event-handler properties must be placed after regular properties
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    property OnClick: TNotifyEvent read FOnClick write FOnClick;' + #13#10 +
+    '    property Name: String read FName;' + #13#10 +
+    '    property OnChange: TNotifyEvent read FOnChange write FOnChange;' + #13#10 +
+    '    property Value: Integer read FValue;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Regular properties first (Name, Value), then On* properties (OnChange, OnClick)
+    Assert.IsTrue(Pos('property Name:', LResult) < Pos('property Value:', LResult),
+      'Name must come before Value (alphabetical). Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
+      'Value (regular) must come before OnChange (event). Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('property OnChange:', LResult) < Pos('property OnClick:', LResult),
+      'OnChange must come before OnClick (alphabetical within events). Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertiesSortedAlphabetically;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // On* properties within their group are sorted alphabetically
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    property OnZoom: TNotifyEvent read FOnZoom;' + #13#10 +
+    '    property OnActivate: TNotifyEvent read FOnActivate;' + #13#10 +
+    '    property OnResize: TNotifyEvent read FOnResize;' + #13#10 +
+    '    property OnClose: TNotifyEvent read FOnClose;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    Assert.IsTrue(
+      (Pos('OnActivate', LResult) < Pos('OnClose', LResult)) and
+      (Pos('OnClose', LResult) < Pos('OnResize', LResult)) and
+      (Pos('OnResize', LResult) < Pos('OnZoom', LResult)),
+      'On* properties must be sorted alphabetically. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_OnPropertyCommentMovesWithProperty;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // Comments before On* properties must travel with the property during sort
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    // Fires when clicked' + #13#10 +
+    '    property OnClick: TNotifyEvent read FOnClick;' + #13#10 +
+    '    property Name: String read FName;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Name (regular) must come first, then the comment + OnClick (event)
+    Assert.IsTrue(Pos('property Name:', LResult) < Pos('// Fires when clicked', LResult),
+      'Regular property must come before the On* comment. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('// Fires when clicked', LResult) < Pos('property OnClick:', LResult),
+      'Comment must stay right before OnClick. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_MixedPropertiesIdempotent;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // Full scenario: methods + regular props + On* props, verify idempotence
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    FName: String;' + #13#10 +
+    '    FOnClick: TNotifyEvent;' + #13#10 +
+    '   public' + #13#10 +
+    '    property OnClick: TNotifyEvent read FOnClick;' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '    property Name: String read FName;' + #13#10 +
+    '    property OnChange: TNotifyEvent read FOnClick;' + #13#10 +
+    '    property Value: Integer read FName;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Verify ordering: method -> regular props -> On* props
+    Assert.IsTrue(Pos('procedure DoWork;', LResult) < Pos('property Name:', LResult),
+      'Method must come before properties. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
+      'Regular properties before On* events. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Mixed properties formatting should be idempotent');
     finally
       LUnit2.Free;
     end;

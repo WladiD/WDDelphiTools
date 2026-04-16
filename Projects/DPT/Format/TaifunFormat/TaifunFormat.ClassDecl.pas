@@ -157,6 +157,16 @@ begin
   Result := 5;
 end;
 
+// Returns the sort-order priority within group 3 (properties):
+//   0 = regular properties (not starting with On)
+//   1 = event-handler properties (starting with On)
+function GetPropertySortPriority(const AName: string): Integer;
+begin
+  if (Length(AName) >= 2) and (AName[1] = 'o') and (AName[2] = 'n') then
+    Exit(1);
+  Result := 0;
+end;
+
 // Returns the length of the member's keyword (for padding calculation).
 function GetKeywordLen(const AKind: string): Integer;
 begin
@@ -320,10 +330,24 @@ begin
               // Overloads (same name): keep original relative order (stable sort)
             end;
           end
+          else if LTempG = 3 then
+          begin
+            // Within property group: regular properties first, then On* events
+            var LPropPrioA: Integer := GetPropertySortPriority(LNames[LJ]);
+            var LPropPrioB: Integer := GetPropertySortPriority(LTempName);
+            if LKinds[LJ] = 'attribute' then
+              LPropPrioA := GetPropertySortPriority(LNames[LAttachedTo[LJ]]);
+            if LTempKind = 'attribute' then
+              LPropPrioB := GetPropertySortPriority(LNames[LTempAttached]);
+            if LPropPrioA > LPropPrioB then LShouldMove := True
+            else if LPropPrioA = LPropPrioB then
+            begin
+              if LNames[LJ] > LTempName then LShouldMove := True;
+            end;
+          end
           else
           begin
             if LNames[LJ] > LTempName then LShouldMove := True;
-            // Overloads (same name): keep original relative order (stable sort)
           end;
         end;
         if not LShouldMove then Break;
