@@ -15,7 +15,7 @@ implementation
 procedure TTaifunTriviaHelper.ProcessTrivia(const AOldTrivia: string; const AClassName: string; const ALastClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
 var
   S, LLine, S2, LPeek: string;
-  P, I, LIfLevel, LPeekIdx: Integer;
+  P, I, LIfLevel, LPeekIdx, LBraceNest: Integer;
   LCollectingForPrevious, LIsBanner, LIsText, LWasBraceComment, LIsBraceComment, LNextIsBrace, LPrevWasDashSep: Boolean;
 begin
   AComments := '';
@@ -43,6 +43,7 @@ begin
 
   var LPrevWasSepBanner: Boolean := False;
   LPrevWasDashSep := False;
+  LBraceNest := 0;
 
   LCollectingForPrevious := True;
   LIfLevel := 0;
@@ -64,7 +65,28 @@ begin
       var LOrigLine: string := LLine;
       LIsBraceComment := False;
       LIsBanner := False;
-      if (Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0) then
+
+      // Track brace nesting: lines inside a multi-line brace comment
+      // (opening { without closing } on the same line) must never be
+      // treated as banners — stripping them would leave the brace
+      // unterminated and swallow subsequent code on re-parse.
+      // The line that CLOSES the brace is also not a banner (it contains
+      // the } that terminates the multi-line comment).
+      var LInsideBrace: Boolean := False;
+      if LBraceNest > 0 then
+      begin
+        LInsideBrace := True;
+        if Pos('}', LLine) > 0 then
+          LBraceNest := 0;
+      end
+      else if (Pos('{', LLine) > 0) and (Pos('}', LLine) = 0) and
+              (Pos('{$', LLine) = 0) then
+      begin
+        LInsideBrace := True;
+        LBraceNest := 1;
+      end;
+
+      if (not LInsideBrace) and ((Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0)) then
       begin
         // Short dash separators that are part of a sub-section divider block
         // (e.g. { --- } / { Text } / { --- }) must be preserved as comments.

@@ -79,6 +79,8 @@ type
     procedure TestFormatImplementation_BraceCommentAfterDashSeparator;
     [Test]
     procedure TestFormatImplementation_ShortDashSeparatorPreserved;
+    [Test]
+    procedure TestFormatTypeSection_BannerBetweenTypeSectionsIdempotent;
   end;
 
 implementation
@@ -1175,6 +1177,49 @@ begin
   LResult2 := FormatSource(LResult);
   Assert.AreEqual(LResult, LResult2,
     'Short dash separator handling should be idempotent');
+end;
+
+procedure TTestTaifunFormatter_Implementation.TestFormatTypeSection_BannerBetweenTypeSectionsIdempotent;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+begin
+  // A { --- } banner between two consecutive type sections (at unit level)
+  // must be preserved on both passes for idempotence.
+  // The one-line class declaration is critical — it triggers FormatClassDeclaration
+  // which may affect the state for subsequent sections.
+  // An unterminated brace comment (opening { without }) whose closing }
+  // happens to be on a { --- } separator line.  The separator must NOT be
+  // stripped as a banner, because doing so would leave the brace unterminated,
+  // which on re-parse swallows subsequent code.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = Integer;' + #13#10 +
+    #13#10 +
+    ' {Multiline comment that starts here' + #13#10 +
+    '  and continues on the next line' + #13#10 +
+    #13#10 +
+    '{ ----------------------------------------------------------------------- }' + #13#10 +
+    #13#10 +
+    'type' + #13#10 +
+    '  TBar = String;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // The banner must be present between the two type sections
+  Assert.IsTrue(LResult.Contains(
+    '{ ----------------------------------------------------------------------- }' + #13#10 + #13#10 + 'type'),
+    'Banner between type sections must be preserved. Actual:' + #13#10 + LResult);
+
+  // Idempotence
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2,
+    'Banner between type sections should be idempotent');
 end;
 
 end.
