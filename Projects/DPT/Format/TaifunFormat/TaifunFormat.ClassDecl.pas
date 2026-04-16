@@ -106,15 +106,10 @@ begin
   // If there are middle lines OR the first line had content, ensure a newline
   if (LNewTrivia <> '') or (Length(LMiddleLines) > 0) or (LTrivia <> '') then
     LNewTrivia := LNewTrivia + #13#10;
-  // Middle lines, each with the indent and their content
+  // Middle lines preserved with their original indentation (they may contain
+  // directives or comments at different nesting levels).
   for I := 0 to Length(LMiddleLines) - 1 do
-  begin
-    // Strip any leading whitespace from the middle line so we can re-indent uniformly
-    var LContent: string := LMiddleLines[I];
-    while (Length(LContent) > 0) and ((LContent[1] = ' ') or (LContent[1] = #9)) do
-      Delete(LContent, 1, 1);
-    LNewTrivia := LNewTrivia + AIndent + LContent + #13#10;
-  end;
+    LNewTrivia := LNewTrivia + LMiddleLines[I] + #13#10;
   // Final indent before the current token
   LNewTrivia := LNewTrivia + AIndent;
 

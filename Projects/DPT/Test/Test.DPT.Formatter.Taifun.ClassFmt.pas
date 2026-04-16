@@ -78,6 +78,8 @@ type
     procedure TestFormatClass_OnPropertyCommentMovesWithProperty;
     [Test]
     procedure TestFormatClass_MixedPropertiesIdempotent;
+    [Test]
+    procedure TestFormatClass_DirectiveIndentPreservedAtVisibilityBoundary;
   end;
 
 implementation
@@ -1198,6 +1200,56 @@ begin
       FFormatter.FormatUnit(LUnit2);
       LResult2 := FWriter.GenerateSource(LUnit2);
       Assert.AreEqual(LResult, LResult2, 'Mixed properties formatting should be idempotent');
+    finally
+      LUnit2.Free;
+    end;
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_DirectiveIndentPreservedAtVisibilityBoundary;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+  LUnit2: TCompilationUnitSyntax;
+begin
+  // A {$ENDIF} directive before a visibility keyword must keep its original
+  // member-level indent (4 spaces), not be re-indented to the visibility
+  // keyword level (3 spaces).
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   private' + #13#10 +
+    '    {$IFDEF TEST}' + #13#10 +
+    '    procedure ConditionalMethod;' + #13#10 +
+    '    {$ENDIF TEST}' + #13#10 +
+    '   public' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // {$ENDIF} must have 4-space indent (member level), not 3-space (visibility level)
+    Assert.IsTrue(LResult.Contains(#13#10 + '    {$ENDIF TEST}' + #13#10),
+      '{$ENDIF} must keep 4-space member indent. Actual:' + #13#10 + LResult);
+
+    // Idempotence
+    LUnit2 := FParser.Parse(LResult);
+    try
+      FFormatter.FormatUnit(LUnit2);
+      LResult2 := FWriter.GenerateSource(LUnit2);
+      Assert.AreEqual(LResult, LResult2, 'Directive indent at visibility boundary should be idempotent');
     finally
       LUnit2.Free;
     end;
