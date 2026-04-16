@@ -125,30 +125,36 @@ end;
 // Returns the group index (0-based) for member sorting:
 //   0 = attribute (glued to next member, never sorts on its own)
 //   1 = field
-//   2 = class procedure / class function
-//   3 = constructor / destructor / procedure / function
-//   4 = property
-//   5 = other (unknown)
+//   2 = all methods (class ctor/dtor, ctor/dtor, class proc/func, proc/func)
+//   3 = property
+//   4 = other (unknown)
 function GetMemberGroup(const AKind: string): Integer;
 begin
   if AKind = 'attribute' then Exit(0);
   if AKind = 'field' then Exit(1);
-  if (AKind = 'class procedure') or (AKind = 'class function') then Exit(2);
   if (AKind = 'constructor') or (AKind = 'destructor') or
-     (AKind = 'procedure') or (AKind = 'function') then Exit(3);
-  if AKind = 'property' then Exit(4);
-  Result := 5;
+     (AKind = 'procedure') or (AKind = 'function') or
+     (AKind = 'class constructor') or (AKind = 'class destructor') or
+     (AKind = 'class procedure') or (AKind = 'class function') then Exit(2);
+  if AKind = 'property' then Exit(3);
+  Result := 4;
 end;
 
-// Returns the sort-order priority within group 3 (methods):
-//   0 = constructor
-//   1 = destructor
-//   2 = procedure/function (alphabetical + signature)
+// Returns the sort-order priority within group 2 (all methods):
+//   0 = class constructor
+//   1 = class destructor
+//   2 = constructor
+//   3 = destructor
+//   4 = class procedure / class function (alphabetical)
+//   5 = procedure / function (alphabetical)
 function GetMethodSortPriority(const AKind: string): Integer;
 begin
-  if AKind = 'constructor' then Exit(0);
-  if AKind = 'destructor' then Exit(1);
-  Result := 2;
+  if AKind = 'class constructor' then Exit(0);
+  if AKind = 'class destructor' then Exit(1);
+  if AKind = 'constructor' then Exit(2);
+  if AKind = 'destructor' then Exit(3);
+  if (AKind = 'class procedure') or (AKind = 'class function') then Exit(4);
+  Result := 5;
 end;
 
 // Returns the length of the member's keyword (for padding calculation).
@@ -158,6 +164,8 @@ begin
   if AKind = 'function' then Exit(8);
   if AKind = 'constructor' then Exit(11);
   if AKind = 'destructor' then Exit(10);
+  if AKind = 'class constructor' then Exit(17);
+  if AKind = 'class destructor' then Exit(16);
   if AKind = 'class procedure' then Exit(15);
   if AKind = 'class function' then Exit(14);
   if AKind = 'property' then Exit(8);
@@ -166,19 +174,21 @@ end;
 
 // Returns the alignment-group-id for a member (split from sort-group):
 //   0 = field (no keyword alignment)
-//   1 = constructor/destructor (aligned together)
-//   2 = procedure/function (aligned together)
-//   3 = class procedure/class function (aligned together)
-//   4 = property (always 1 space)
-//   5 = other
+//   1 = class constructor/class destructor (aligned together)
+//   2 = constructor/destructor (aligned together)
+//   3 = procedure/function (aligned together)
+//   4 = class procedure/class function (aligned together)
+//   5 = property (always 1 space)
+//   6 = other
 function GetAlignmentGroup(const AKind: string): Integer;
 begin
   if AKind = 'field' then Exit(0);
-  if (AKind = 'constructor') or (AKind = 'destructor') then Exit(1);
-  if (AKind = 'procedure') or (AKind = 'function') then Exit(2);
-  if (AKind = 'class procedure') or (AKind = 'class function') then Exit(3);
-  if AKind = 'property' then Exit(4);
-  Result := 5;
+  if (AKind = 'class constructor') or (AKind = 'class destructor') then Exit(1);
+  if (AKind = 'constructor') or (AKind = 'destructor') then Exit(2);
+  if (AKind = 'procedure') or (AKind = 'function') then Exit(3);
+  if (AKind = 'class procedure') or (AKind = 'class function') then Exit(4);
+  if AKind = 'property' then Exit(5);
+  Result := 6;
 end;
 
 procedure FormatClassDeclaration(AClass: TClassDeclarationSyntax);
@@ -294,7 +304,7 @@ begin
         else if LGroups[LJ] = LTempG then
         begin
           // Within methods group: constructor first, destructor second
-          if LTempG = 3 then
+          if LTempG = 2 then
           begin
             var LPrioA: Integer := GetMethodSortPriority(LKinds[LJ]);
             var LPrioB: Integer := GetMethodSortPriority(LTempKind);
@@ -381,7 +391,7 @@ begin
       end;
 
       // Property: always 1 space
-      if LAGroups[LI] = 4 then
+      if LAGroups[LI] = 5 then
         LPadLen := 1
       else
         LPadLen := LMaxKwLen - GetKeywordLen(LKind) + 1;

@@ -1155,9 +1155,9 @@ begin
     tkFunctionKeyword:
       if LIsClass then Result := 'class function' else Result := 'function';
     tkConstructorKeyword:
-      Result := 'constructor';
+      if LIsClass then Result := 'class constructor' else Result := 'constructor';
     tkDestructorKeyword:
-      Result := 'destructor';
+      if LIsClass then Result := 'class destructor' else Result := 'destructor';
     tkPropertyKeyword:
       Result := 'property';
   end;

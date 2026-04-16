@@ -33,7 +33,9 @@ type
     [Test]
     procedure TestFormatClass_FieldsBeforeMethodsBeforeProperties;
     [Test]
-    procedure TestFormatClass_ClassMethodsSeparateGroup;
+    procedure TestFormatClass_ClassMethodsAfterCtorBeforeRegularMethods;
+    [Test]
+    procedure TestFormatClass_ClassCtorBeforeRegularCtor;
     [Test]
     procedure TestFormatClass_AlignsProcedureFunctionToColumn10;
     [Test]
@@ -315,21 +317,23 @@ begin
   end;
 end;
 
-procedure TTestTaifunFormatter_Class.TestFormatClass_ClassMethodsSeparateGroup;
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassMethodsAfterCtorBeforeRegularMethods;
 var
   LResult: string;
   LSource: string;
   LUnit: TCompilationUnitSyntax;
 begin
+  // Class methods come after constructor/destructor but before regular methods
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
     'type' + #13#10 +
     '  TFoo = class' + #13#10 +
     '   public' + #13#10 +
-    '    procedure RegularMethod;' + #13#10 +
-    '    class procedure StaticMethod;' + #13#10 +
     '    FField: Integer;' + #13#10 +
+    '    procedure RegularMethod;' + #13#10 +
+    '    class function Select: Boolean;' + #13#10 +
+    '    constructor Create;' + #13#10 +
     '  end;' + #13#10 +
     'implementation' + #13#10 +
     'end.';
@@ -340,11 +344,55 @@ begin
     FFormatter.FormatUnit(LUnit);
     LResult := FWriter.GenerateSource(LUnit);
 
-    // Order: Field -> class method -> regular method
-    Assert.IsTrue(Pos('FField:', LResult) < Pos('class procedure StaticMethod;', LResult),
-      'Field must come before class method. Actual:' + #13#10 + LResult);
-    Assert.IsTrue(Pos('class procedure StaticMethod;', LResult) < Pos('procedure RegularMethod;', LResult),
-      'Class method must come before regular method. Actual:' + #13#10 + LResult);
+    // Order: Field -> constructor -> class function -> regular method
+    Assert.IsTrue(Pos('FField:', LResult) < Pos('constructor Create;', LResult),
+      'Field must come before constructor. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('class function', LResult),
+      'Constructor must come before class function. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('class function', LResult) < Pos('procedure RegularMethod;', LResult),
+      'Class function must come before regular method. Actual:' + #13#10 + LResult);
+  finally
+    LUnit.Free;
+  end;
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassCtorBeforeRegularCtor;
+var
+  LResult: string;
+  LSource: string;
+  LUnit: TCompilationUnitSyntax;
+begin
+  // class constructor/destructor come before regular constructor/destructor
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    constructor Create;' + #13#10 +
+    '    class constructor ClassCreate;' + #13#10 +
+    '    destructor Destroy; override;' + #13#10 +
+    '    class destructor ClassDestroy;' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LUnit := FParser.Parse(LSource);
+  try
+    FFormatter.LoadScript(FScriptPath);
+    FFormatter.FormatUnit(LUnit);
+    LResult := FWriter.GenerateSource(LUnit);
+
+    // Order: class ctor -> class dtor -> constructor -> destructor -> regular method
+    Assert.IsTrue(Pos('class constructor ClassCreate;', LResult) < Pos('class destructor', LResult),
+      'Class constructor must come before class destructor. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('class destructor', LResult) < Pos('constructor Create;', LResult),
+      'Class destructor must come before regular constructor. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('constructor Create;', LResult) < Pos('destructor  Destroy', LResult),
+      'Regular constructor must come before destructor. Actual:' + #13#10 + LResult);
+    Assert.IsTrue(Pos('destructor  Destroy', LResult) < Pos('procedure DoWork;', LResult),
+      'Destructor must come before regular method. Actual:' + #13#10 + LResult);
   finally
     LUnit.Free;
   end;
