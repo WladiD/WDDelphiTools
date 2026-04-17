@@ -4,6 +4,7 @@ interface
 
 uses
   System.Classes,
+  System.StrUtils,
   System.SysUtils,
 
   DUnitX.TestFramework,
@@ -37,6 +38,10 @@ type
     procedure TestFormatMethodImplementation_LocalVarNotBannered;
     [Test]
     procedure TestFormatMethodImplementation_LocalRecordWithoutTrailingSemicolon;
+    [Test]
+    procedure TestFormatMethodImplementation_ConditionalAsmElseBody;
+    [Test]
+    procedure TestFormatMethodImplementation_GenericMethodWithVarParamAndLocalVar;
   end;
 
 implementation
@@ -462,6 +467,133 @@ begin
   // 'strict private type' must stay together — no banner before 'type'
   Assert.IsTrue(LResult.Contains('strict private type'),
     'strict private type must remain on one line. Actual:'#13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_MethodImpl.TestFormatMethodImplementation_ConditionalAsmElseBody;
+var
+  LResult: String;
+  LSource: String;
+begin
+  // Reproducer (Base.Utils.pas MemEqualZero): A method whose body is split by
+  // {$IFDEF}/{$ELSE}/{$ENDIF} — one branch is `asm ... end;`, the other is
+  // `var ... begin ... end;`. The parser used to close the method at the first
+  // inner `end;`, treating the `{$ELSE}` branch as a new top-level declaration.
+  // That then caused the formatter to inject a spurious class banner before the
+  // following real method.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TByteCast = array[0..7] of Byte;' + #13#10 +
+    '  CUtils = class' + #13#10 +
+    '    class function  MemEqualZero(const AData; ASize: Integer): Boolean; static;' + #13#10 +
+    '    class function  MemNew(const [ref] ATarget: Pointer; ASize: Integer): Boolean; static;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'class function CUtils.MemEqualZero(const AData; ASize: Integer): Boolean;' + #13#10 +
+    '{$IFDEF CPUX86}' + #13#10 +
+    'asm' + #13#10 +
+    '  CLD' + #13#10 +
+    '  PUSH   EDI' + #13#10 +
+    '  POP    EDI' + #13#10 +
+    'end;' + #13#10 +
+    '{$ELSE !CPUX86}' + #13#10 +
+    'var' + #13#10 +
+    '  Data: TByteCast absolute AData;' + #13#10 +
+    '  Loop: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result:=true;' + #13#10 +
+    '  for Loop:=0 to ASize-1 do' + #13#10 +
+    '    if Data[Loop]<>0 then' + #13#10 +
+    '    begin' + #13#10 +
+    '      Result:=false;' + #13#10 +
+    '      Break;' + #13#10 +
+    '    end;' + #13#10 +
+    'end;' + #13#10 +
+    '{$ENDIF !CPUX86}' + #13#10 +
+    'class function CUtils.MemNew(const [ref] ATarget: Pointer; ASize: Integer): Boolean;' + #13#10 +
+    'begin' + #13#10 +
+    '  Result := True;' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // The class banner for CUtils must appear exactly once — before MemEqualZero,
+  // not again in the middle after the {$ENDIF}.
+  var LClassBanner := '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+                      '{ CUtils' + StringOfChar(' ', 65) + ' }' + #13#10 +
+                      '{ ' + StringOfChar('=', 71) + ' }';
+  var LFirst := Pos(LClassBanner, LResult);
+  Assert.IsTrue(LFirst > 0, 'CUtils class banner missing. Actual:'#13#10 + LResult);
+  var LSecond := PosEx(LClassBanner, LResult, LFirst + 1);
+  Assert.AreEqual(0, LSecond, 'CUtils class banner must appear exactly once — the conditional method body was incorrectly split. Actual:'#13#10 + LResult);
+
+  // The {$ELSE} and {$ENDIF} directives must be preserved in the output.
+  Assert.IsTrue(LResult.Contains('{$IFDEF CPUX86}'), '{$IFDEF CPUX86} directive must be preserved');
+  Assert.IsTrue(LResult.Contains('{$ELSE !CPUX86}'), '{$ELSE !CPUX86} directive must be preserved');
+  Assert.IsTrue(LResult.Contains('{$ENDIF !CPUX86}'), '{$ENDIF !CPUX86} directive must be preserved');
+end;
+
+procedure TTestTaifunFormatter_MethodImpl.TestFormatMethodImplementation_GenericMethodWithVarParamAndLocalVar;
+var
+  LResult: String;
+  LSource: String;
+begin
+  // Reproducer (from Base.Utils.Arrays.pas): A generic constraint `<T:class>`
+  // on a class member made ParseClassMember treat the constraint keyword `class`
+  // as the start of a nested type body (because LPrevKind was tkColon from the
+  // constraint separator). LDeclBlockNest got stuck > 0, swallowing every
+  // following class member into one. The subsequent method implementations then
+  // fell out of sync with the interface — a later method with a local `var`
+  // section was parsed with its body closed at the signature semicolon, and the
+  // formatter inserted a spurious banner between signature and var.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  THelper = class helper for TArray' + #13#10 +
+    '    class procedure FreeAndNil<T:class>(var AValues: TArray<T>); static;' + #13#10 +
+    '    class procedure AddRange<T>(var AValues: TArray<T>; const AValuesToInsert: array of T); static;' + #13#10 +
+    '  end;' + #13#10 +
+    '  TOther = record' + #13#10 +
+    '    Value: Integer;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'class procedure THelper.FreeAndNil<T:class>(var AValues: TArray<T>);' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'class procedure THelper.AddRange<T>(var AValues: TArray<T>; const AValuesToInsert: array of T);' + #13#10 +
+    'var' + #13#10 +
+    '  Index: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    '  Index:=Length(AValues);' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // Without the fix, the `class` token inside `<T:class>` made ParseClassMember
+  // leak `LDeclBlockNest` past the class boundary. The whole class body was
+  // consumed as one giant member, TOther was swallowed into it, and the
+  // implementation section ended up one type deep. The formatter therefore
+  // never visited the implementation section, so its banner is missing.
+  Assert.IsTrue(
+    LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+                     'implementation' + #13#10 +
+                     '{ ' + StringOfChar('=', 71) + ' }'),
+    'Implementation section banner missing — the class body parse leaked past the class end. Actual:'#13#10 + LResult);
+
+  // With a correctly-parsed class, AddRange's local `var` section lives inside
+  // the method and must NOT receive a unit-level method banner.
+  Assert.IsFalse(
+    LResult.Contains('AddRange<T>(var AValues: TArray<T>; const AValuesToInsert: array of T);' + #13#10 + #13#10 +
+                     '{ ' + StringOfChar('-', 71) + ' }' + #13#10 + #13#10 + 'var'),
+    'Method banner must not be inserted between AddRange signature and local var section. Actual:'#13#10 + LResult);
+
+  Assert.IsTrue(
+    LResult.Contains('AddRange<T>(var AValues: TArray<T>; const AValuesToInsert: array of T);' + #13#10 + 'var'),
+    'Local var section must directly follow AddRange signature. Actual:'#13#10 + LResult);
 end;
 
 end.

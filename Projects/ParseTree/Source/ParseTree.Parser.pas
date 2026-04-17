@@ -450,8 +450,11 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
       else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) or
               ((Current.Kind = tkGreaterOrEquals) and (LNestLevel > 0)) then
         Dec(LNestLevel)
-      // Track nested declaration blocks (e.g. record/case inside member types)
-      else if (
+      // Track nested declaration blocks (e.g. record/case inside member types).
+      // Only at paren/generic nesting 0 — inside `<...>` or `(...)` the same
+      // keywords are generic constraints (e.g. `<T: class>`) or param types,
+      // not the start of a nested type body.
+      else if (LNestLevel = 0) and (
         ((Current.Kind = tkClassKeyword) and (LPrevKind in [tkEquals, tkColon]) and
          ((Peek(1) = nil) or (Peek(1).Kind <> tkOfKeyword)) and not IsForwardClassLikeDecl) or
         ((Current.Kind = tkInterfaceKeyword) and (LPrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
@@ -1488,6 +1491,82 @@ var
     end;
   end;
 
+  function HasConditionalElseInTrivia(AToken: TSyntaxToken): Boolean;
+  var
+    LTrivia: TSyntaxTrivia;
+    LUpper : string;
+  begin
+    Result := False;
+    if (AToken = nil) or (not AToken.HasLeadingTrivia) then Exit;
+    for LTrivia in AToken.LeadingTrivia do
+    begin
+      if (Length(LTrivia.Text) < 7) or (LTrivia.Text[1] <> '{') then Continue;
+      LUpper := UpperCase(LTrivia.Text);
+      if (Copy(LUpper, 1, 7) = '{$ELSE ') or (Copy(LUpper, 1, 7) = '{$ELSE}') or
+         (Copy(LUpper, 1, 9) = '{$ELSEIF ') or (Copy(LUpper, 1, 9) = '{$ELSEIF(') or
+         (Copy(LUpper, 1, 9) = '{$ELSEIF}') then
+        Exit(True);
+    end;
+  end;
+
+  function CollectRawBodyTokens(AResult: TMethodImplementationSyntax): Boolean;
+  // Raw-collection fallback for method bodies split by {$IFDEF}/{$ELSE}/{$ENDIF}
+  // (e.g. an asm branch and a begin/end branch). The caller has determined that
+  // the current `end` closes a conditional branch rather than the method, so we
+  // preserve the remaining tokens verbatim in BodyTokens until we reach the end
+  // that actually terminates the method.
+  var
+    LNest: Integer;
+  begin
+    Result := False;
+    LNest := 0;
+
+    // The `end` and `;` that would have closed the method belong to a branch body.
+    if (Current <> nil) and (Current.Kind = tkEndKeyword) then
+      AResult.BodyTokens.Add(NextToken);
+    if (Current <> nil) and (Current.Kind = tkSemicolon) then
+      AResult.BodyTokens.Add(NextToken);
+
+    while (Current <> nil) and (Current.Kind <> tkEOF) do
+    begin
+      if IsQualifiedMethodStart(Current) and (LNest = 0) then
+        Exit;
+
+      if Current.Kind in [tkBeginKeyword, tkAsmKeyword, tkTryKeyword, tkCaseKeyword] then
+      begin
+        Inc(LNest);
+        AResult.BodyTokens.Add(NextToken);
+        Continue;
+      end;
+
+      if Current.Kind = tkEndKeyword then
+      begin
+        if LNest = 0 then
+        begin
+          // Candidate method end. If the token after the `;` still belongs to a
+          // conditional alternate branch, keep collecting; otherwise this is
+          // the method's real end.
+          if (Peek(1) <> nil) and (Peek(1).Kind = tkSemicolon) and
+             (Peek(2) <> nil) and HasConditionalElseInTrivia(Peek(2)) then
+          begin
+            AResult.BodyTokens.Add(NextToken); // end
+            AResult.BodyTokens.Add(NextToken); // ;
+            Continue;
+          end;
+          AResult.EndKeyword := MatchToken(tkEndKeyword);
+          if (Current <> nil) and (Current.Kind = tkSemicolon) then
+            AResult.FinalSemicolon := MatchToken(tkSemicolon);
+          Exit(True);
+        end;
+        Dec(LNest);
+        AResult.BodyTokens.Add(NextToken);
+        Continue;
+      end;
+
+      AResult.BodyTokens.Add(NextToken);
+    end;
+  end;
+
 begin
   // If source is provided, we need to tokenize it first (used by tests)
   if AFullSource <> '' then
@@ -1642,6 +1721,15 @@ begin
       Dec(NestLevel);
       if NestLevel = 0 then
       begin
+        // If the `end;` closes a {$IFDEF} branch and another branch follows
+        // via {$ELSE}/{$ELSEIF}, the method continues past this `end;`. Switch
+        // to raw-collection mode to preserve all branches in BodyTokens.
+        if (Peek(1) <> nil) and (Peek(1).Kind = tkSemicolon) and
+           (Peek(2) <> nil) and HasConditionalElseInTrivia(Peek(2)) then
+        begin
+          CollectRawBodyTokens(Result);
+          Exit;
+        end;
         Result.EndKeyword := MatchToken(tkEndKeyword);
         Break;
       end;
