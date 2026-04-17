@@ -4,6 +4,8 @@ interface
 
 uses
   DUnitX.TestFramework,
+  System.Classes,
+  System.IOUtils,
   System.SysUtils,
   DPT.MapFileParser;
 
@@ -13,6 +15,7 @@ type
   private
     function MapPath32: string;
     function MapPath64: string;
+    function WriteDottedUnitFixture(const ASourceMap: string): string;
   public
     // 32-bit map file tests
     [Test]
@@ -47,6 +50,12 @@ type
     procedure NonExistentFile;
     [Test]
     procedure AddressNotFound;
+
+    // Regression: dotted unit names must survive the parser verbatim
+    [Test]
+    procedure LineNumberIterationDottedUnit32;
+    [Test]
+    procedure LineNumberIterationDottedUnit64;
   end;
 
 implementation
@@ -63,6 +72,33 @@ begin
   Result := ExpandFileName('Projects\DPT\Test\Win64\DebugTarget.map');
   if not FileExists(Result) then
     Result := ExpandFileName('Win64\DebugTarget.map');
+end;
+
+function TTestMapFileParser.WriteDottedUnitFixture(const ASourceMap: string): string;
+const
+  OldHeader = 'Line numbers for DebugTarget(';
+  NewHeader = 'Line numbers for My.Dotted.DebugTarget(';
+var
+  Bytes: TBytes;
+  Content: RawByteString;
+  P: Integer;
+begin
+  Bytes := TFile.ReadAllBytes(ASourceMap);
+  SetLength(Content, Length(Bytes));
+  if Length(Bytes) > 0 then
+    Move(Bytes[0], Content[1], Length(Bytes));
+
+  P := Pos(RawByteString(OldHeader), Content);
+  Assert.IsTrue(P > 0, 'Fixture must contain "' + OldHeader + '"');
+  Delete(Content, P, Length(OldHeader));
+  Insert(RawByteString(NewHeader), Content, P);
+
+  Result := TPath.Combine(TPath.GetTempPath,
+    Format('DPT.DottedUnit.%s.map', [GUIDToString(TGUID.NewGuid)]));
+  SetLength(Bytes, Length(Content));
+  if Length(Content) > 0 then
+    Move(Content[1], Bytes[0], Length(Content));
+  TFile.WriteAllBytes(Result, Bytes);
 end;
 
 // === 32-bit tests ===
@@ -316,6 +352,68 @@ begin
     Assert.AreEqual(0, Parser.LineNumberFromAddr($FFFFFFFF));
   finally
     Parser.Free;
+  end;
+end;
+
+procedure TTestMapFileParser.LineNumberIterationDottedUnit32;
+var
+  FixturePath: string;
+  Parser: TMapFileParser;
+  Found: Boolean;
+begin
+  FixturePath := WriteDottedUnitFixture(MapPath32);
+  try
+    Parser := TMapFileParser.Create(FixturePath);
+    try
+      Found := False;
+      for var I := 0 to Parser.LineNumbersCnt - 1 do
+      begin
+        var LI := Parser.LineNumberByIndex[I];
+        if LI.UnitName = 'My.Dotted.DebugTarget' then
+        begin
+          Found := True;
+          Assert.IsTrue(LI.VA > 0, 'VA should be > 0');
+          Break;
+        end;
+      end;
+      Assert.IsTrue(Found,
+        'Dotted unit name must be preserved verbatim (not trimmed at first dot)');
+    finally
+      Parser.Free;
+    end;
+  finally
+    TFile.Delete(FixturePath);
+  end;
+end;
+
+procedure TTestMapFileParser.LineNumberIterationDottedUnit64;
+var
+  FixturePath: string;
+  Parser: TMapFileParser;
+  Found: Boolean;
+begin
+  FixturePath := WriteDottedUnitFixture(MapPath64);
+  try
+    Parser := TMapFileParser.Create(FixturePath);
+    try
+      Found := False;
+      for var I := 0 to Parser.LineNumbersCnt - 1 do
+      begin
+        var LI := Parser.LineNumberByIndex[I];
+        if LI.UnitName = 'My.Dotted.DebugTarget' then
+        begin
+          Found := True;
+          Assert.IsTrue(LI.VA > 0, 'VA should be > 0');
+          Break;
+        end;
+      end;
+      Assert.IsTrue(Found,
+        'Dotted unit name must be preserved verbatim (not trimmed at first dot)');
+    finally
+      Parser.Free;
+    end;
+  finally
+    TFile.Delete(FixturePath);
   end;
 end;
 

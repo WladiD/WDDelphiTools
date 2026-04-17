@@ -456,7 +456,6 @@ procedure TMapFileParser.ParseLineNumbers(var P: PAnsiChar; EndP: PAnsiChar);
 const
   LineNumberPrefix: RawByteString = 'Line numbers for ';
 var
-  DotPos  : Integer;
   LineNum : Integer;
   Offset  : UInt64;
   Seg     : Word;
@@ -467,15 +466,13 @@ begin
   while SyncToPrefix(P, EndP, LineNumberPrefix) do
   begin
     Inc(P, Length(LineNumberPrefix));
-    // Read unit name until '('
+    // Read unit name until '('. Header format is "Line numbers for <UnitName>(<SourceFile>)"
+    // where <UnitName> is the fully qualified Delphi module name (may contain dots,
+    // e.g. "My.Dotted.Unit"). Do not trim at the first dot.
     var Start := P;
     while (P < EndP) and (P^ <> '(') and (P^ <> #13) and (P^ <> #10) do
       Inc(P);
     SetString(UnitName, Start, P - Start);
-    // Remove path prefix if present (extract last component before dot)
-    DotPos := Pos('.', UnitName);
-    if DotPos > 0 then
-      UnitName := Copy(UnitName, 1, DotPos - 1);
     SkipToNextLine(P, EndP);
 
     // Skip empty lines
