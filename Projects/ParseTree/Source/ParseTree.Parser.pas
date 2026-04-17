@@ -456,7 +456,7 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
          ((Peek(1) = nil) or (Peek(1).Kind <> tkOfKeyword)) and not IsForwardClassLikeDecl) or
         ((Current.Kind = tkInterfaceKeyword) and (LPrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
         ((Current.Kind = tkDispinterfaceKeyword) and (LPrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
-        ((Current.Kind = tkRecordKeyword) and (LPrevKind in [tkEquals, tkColon])) or
+        ((Current.Kind = tkRecordKeyword) and ((LPrevKind in [tkEquals, tkColon]) or ((LPrevKind = tkIdentifier) and (LMember.Tokens.Count > 0) and SameText(LMember.Tokens[LMember.Tokens.Count - 1].Text, 'packed')))) or
         ((Current.Kind = tkCaseKeyword) and (LDeclBlockNest > 0))
       ) then
         Inc(LDeclBlockNest)
@@ -1774,7 +1774,7 @@ begin
             ((Peek(1) = nil) or (Peek(1).Kind <> tkOfKeyword)) and not IsForwardClassLikeDecl) or
            ((Current.Kind = tkInterfaceKeyword) and (PrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
            ((Current.Kind = tkDispinterfaceKeyword) and (PrevKind in [tkEquals, tkColon]) and not IsForwardClassLikeDecl) or
-           ((Current.Kind = tkRecordKeyword) and (PrevKind in [tkEquals, tkColon])) or
+           ((Current.Kind = tkRecordKeyword) and ((PrevKind in [tkEquals, tkColon]) or ((PrevKind = tkIdentifier) and (Unparsed.Tokens.Count > 0) and SameText(Unparsed.Tokens[Unparsed.Tokens.Count - 1].Text, 'packed')))) or
            ((Current.Kind = tkCaseKeyword) and (DeclBlockNest > 0))
          ) then
         Inc(DeclBlockNest)

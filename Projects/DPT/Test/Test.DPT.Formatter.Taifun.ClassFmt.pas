@@ -1038,7 +1038,10 @@ begin
     '  CMapQuery = class(TInterfacedObject,IMapQuery)' + #13#10 +
     '   strict private' + #13#10 +
     '    type' + #13#10 +
-    '     TAnschriftOpt = Integer;' + #13#10 +
+    '     TAnschriftOpt = packed record' + #13#10 +
+    '      HNr: String;' + #13#10 +
+    '     end;' + #13#10 +
+    '     PAnschriftOpt = ^TAnschriftOpt;' + #13#10 +
     '   strict private' + #13#10 +
     '    class var FCrc32Tab: array [0 .. 255] of Longint;' + #13#10 +
     '    class var FCache: Integer;' + #13#10 +
