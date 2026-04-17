@@ -77,6 +77,10 @@ type
     procedure TestFormatClass_MixedPropertiesIdempotent;
     [Test]
     procedure TestFormatClass_DirectiveIndentPreservedAtVisibilityBoundary;
+    [Test]
+    procedure TestFormatClass_TrailingLineCommentMovesWithMethod;
+    [Test]
+    procedure TestFormatClass_ClassVarPreserved;
   end;
 
 implementation
@@ -782,10 +786,6 @@ begin
 
   Assert.IsTrue(LResult.Contains('MyValue = 1.5; { important ratio }'),
     'Trailing brace comment must stay on the same line as the member. Actual:' + #13#10 + LResult);
-
-  // Idempotence
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Trailing comment handling should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_Idempotent;
@@ -911,7 +911,7 @@ var
   LResult2: string;
   LSource: string;
 begin
-  // Full scenario: methods + regular props + On* props, verify idempotence
+  // Full scenario: methods + regular props + On* props
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
@@ -937,10 +937,6 @@ begin
     'Method must come before properties. Actual:' + #13#10 + LResult);
   Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
     'Regular properties before On* events. Actual:' + #13#10 + LResult);
-
-  // Idempotence
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Mixed properties formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_DirectiveIndentPreservedAtVisibilityBoundary;
@@ -972,10 +968,99 @@ begin
   // {$ENDIF} must have 4-space indent (member level), not 3-space (visibility level)
   Assert.IsTrue(LResult.Contains(#13#10 + '    {$ENDIF TEST}' + #13#10),
     '{$ENDIF} must keep 4-space member indent. Actual:' + #13#10 + LResult);
+end;
 
-  // Idempotence
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Directive indent at visibility boundary should be idempotent');
+procedure TTestTaifunFormatter_Class.TestFormatClass_TrailingLineCommentMovesWithMethod;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // A trailing // comment on a method must travel with that method when sorted,
+  // not migrate to the next member.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    procedure RemoveObserver;' + #13#10 +
+    '    function  Compare(const A, B: Pointer): Integer; // IEvaluator' + #13#10 +
+    '    function  MatchesFilter(AData: Pointer): Boolean; // IEvaluator' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // After sorting: Compare, MatchesFilter, RemoveObserver
+  // Each // IEvaluator must stay on its original method
+  Assert.IsTrue(LResult.Contains('Compare(const A, B: Pointer): Integer; // IEvaluator'),
+    'Comment must stay on Compare. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('MatchesFilter(AData: Pointer): Boolean; // IEvaluator'),
+    'Comment must stay on MatchesFilter. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('RemoveObserver; // IEvaluator'),
+    'Comment must NOT migrate to RemoveObserver. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassVarPreserved;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // "class var" fields inside a class must not be split into separate
+  // "class" + "var" tokens with banners inserted between them.
+  // Reproduces the exact structure from Base.Map.Query.pas:
+  // - class forward declaration
+  // - second class with strict private type section (record + pointer alias)
+  // - strict private section with class var fields
+  // - strict private section with class methods
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  CMapQuery = class;' + #13#10 +
+    '  TPOITermin = record' + #13#10 +
+    '   Address: String;' + #13#10 +
+    '   Name: String;' + #13#10 +
+    '  end;' + #13#10 +
+    '  TPOITerminList = Array of TPOITermin;' + #13#10 +
+    '  TGeoCoordListenerEntry = packed record' + #13#10 +
+    '    Data: Pointer;' + #13#10 +
+    '  end;' + #13#10 +
+    '  IMapQuery = interface' + #13#10 +
+    '    function Ad2Coord(const Anschrift: String): Integer; overload;' + #13#10 +
+    '    function Ad2Coord(const Anschrift: String; var OutLatitude, OutLongitude: Double): Boolean; overload;' + #13#10 +
+    '    function GeoCoordToAddress(const AGeoCoord: Double; ACtyToCountry: TFunc<String,String>; out AAnschrift: String): Boolean; overload;' + #13#10 +
+    '    function GetBaseURL: String;' + #13#10 +
+    '    property BaseURL: String read GetBaseURL;' + #13#10 +
+    '  end;' + #13#10 +
+    #13#10 +
+    '  CMapQuery = class(TInterfacedObject,IMapQuery)' + #13#10 +
+    '   strict private' + #13#10 +
+    '    type' + #13#10 +
+    '     TAnschriftOpt = Integer;' + #13#10 +
+    '   strict private' + #13#10 +
+    '    class var FCrc32Tab: array [0 .. 255] of Longint;' + #13#10 +
+    '    class var FCache: Integer;' + #13#10 +
+    '   strict private' + #13#10 +
+    '    class procedure InitCache; static;' + #13#10 +
+    '   public' + #13#10 +
+    '    procedure DoWork;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // "class var" must stay together on one line
+  Assert.IsTrue(LResult.Contains('class var FCrc32Tab: array [0 .. 255] of Longint;'),
+    '"class var FCrc32Tab" must stay on one line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('class var FCache: Integer;'),
+    '"class var FCache" must stay on one line. Actual:' + #13#10 + LResult);
+
+  // No method banners between class and var
+  Assert.IsFalse(LResult.Contains('class' + #13#10 + #13#10 + '{ ---'),
+    'No banner between class and var keywords. Actual:' + #13#10 + LResult);
 end;
 
 end.

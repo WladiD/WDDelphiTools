@@ -86,7 +86,16 @@ begin
         LBraceNest := 1;
       end;
 
-      if (not LInsideBrace) and ((Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0)) then
+      // Lines inside (or closing) a multi-line brace comment are preserved
+      // as-is — skip all banner/brace-comment classification.
+      if LInsideBrace then
+      begin
+        LCollectingForPrevious := False;
+        AComments := AComments + LLine;
+        Continue;
+      end;
+
+      if ((Pos('{ ==', LLine) > 0) or (Pos('{ --', LLine) > 0) or (Pos('// ==', LLine) > 0) or (Pos('// --', LLine) > 0)) then
       begin
         // Short dash separators that are part of a sub-section divider block
         // (e.g. { --- } / { Text } / { --- }) must be preserved as comments.

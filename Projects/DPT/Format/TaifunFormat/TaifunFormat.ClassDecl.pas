@@ -131,7 +131,7 @@ begin
      (AKind = 'procedure') or (AKind = 'function') or
      (AKind = 'class constructor') or (AKind = 'class destructor') or
      (AKind = 'class procedure') or (AKind = 'class function') then Exit(2);
-  if AKind = 'property' then Exit(3);
+  if (AKind = 'property') or (AKind = 'default') then Exit(3);
   Result := 4;
 end;
 
@@ -196,6 +196,90 @@ begin
   Result := 6;
 end;
 
+// Move trailing // comments from a member's next sibling's leading trivia
+// to the current member's last token's trailing trivia.  This ensures that
+// when members are sorted, the comment travels with the correct member.
+procedure FixTrailingCommentsInSection(AClass: TClassDeclarationSyntax; ASectionIdx: Integer);
+var
+  LCount: Integer;
+  LFirstTok: TSyntaxToken;
+  LLastTok: TSyntaxToken;
+  LTrivia: string;
+  LComStart, LComEnd: Integer;
+  LComment, LRest: string;
+  LHasNL: Boolean;
+  I, J: Integer;
+begin
+  LCount := GetClassMemberCount(AClass, ASectionIdx);
+  if LCount < 2 then Exit;
+
+  for I := 1 to LCount - 1 do
+  begin
+    LFirstTok := GetClassMemberFirstToken(AClass, ASectionIdx, I);
+    LLastTok := GetClassMemberLastToken(AClass, ASectionIdx, I - 1);
+    if not Assigned(LFirstTok) or not Assigned(LLastTok) then Continue;
+
+    LTrivia := GetLeadingTrivia(LFirstTok);
+    LComStart := Pos('//', LTrivia);
+    if LComStart = 0 then Continue;
+
+    LHasNL := False;
+    for J := 1 to LComStart - 1 do
+      if (LTrivia[J] = #13) or (LTrivia[J] = #10) then
+      begin
+        LHasNL := True;
+        Break;
+      end;
+    if LHasNL then Continue;
+
+    LComEnd := LComStart;
+    while (LComEnd <= Length(LTrivia)) and (LTrivia[LComEnd] <> #13) and (LTrivia[LComEnd] <> #10) do
+      Inc(LComEnd);
+
+    LComment := Copy(LTrivia, 1, LComEnd - 1);
+    LRest := Copy(LTrivia, LComEnd, Length(LTrivia) - LComEnd + 1);
+
+    AddTrailingTrivia(LLastTok, LComment);
+    ClearTrivia(LFirstTok);
+    if LRest <> '' then
+      AddLeadingTrivia(LFirstTok, LRest);
+  end;
+
+  // Also check the token after the last member (next visibility keyword or 'end')
+  LLastTok := GetClassMemberLastToken(AClass, ASectionIdx, LCount - 1);
+  if Assigned(LLastTok) then
+  begin
+    var LNextTok: TSyntaxToken := GetNextToken(LLastTok);
+    if Assigned(LNextTok) then
+    begin
+      LTrivia := GetLeadingTrivia(LNextTok);
+      LComStart := Pos('//', LTrivia);
+      if LComStart > 0 then
+      begin
+        LHasNL := False;
+        for J := 1 to LComStart - 1 do
+          if (LTrivia[J] = #13) or (LTrivia[J] = #10) then
+          begin
+            LHasNL := True;
+            Break;
+          end;
+        if not LHasNL then
+        begin
+          LComEnd := LComStart;
+          while (LComEnd <= Length(LTrivia)) and (LTrivia[LComEnd] <> #13) and (LTrivia[LComEnd] <> #10) do
+            Inc(LComEnd);
+          LComment := Copy(LTrivia, 1, LComEnd - 1);
+          LRest := Copy(LTrivia, LComEnd, Length(LTrivia) - LComEnd + 1);
+          AddTrailingTrivia(LLastTok, LComment);
+          ClearTrivia(LNextTok);
+          if LRest <> '' then
+            AddLeadingTrivia(LNextTok, LRest);
+        end;
+      end;
+    end;
+  end;
+end;
+
 procedure FormatClassDeclaration(AClass: TClassDeclarationSyntax);
 var
   LSectionCount: Integer;
@@ -234,6 +318,10 @@ begin
       // members in form classes.  Do not touch these.
       Continue;
 
+    // Move trailing // comments from next member's leading trivia to
+    // previous member's last token, so they travel with the correct member.
+    FixTrailingCommentsInSection(AClass, LSectionIdx);
+
     if not ClassSectionCanBeFormatted(AClass, LSectionIdx) then Continue;
 
     LMemberCount := GetClassMemberCount(AClass, LSectionIdx);
@@ -266,19 +354,31 @@ begin
     // original member trivia.
     if LHasOther then Continue;
 
-    // Resolve attribute attachments: each attribute member attaches to the
-    // NEXT non-attribute member.  When sorting, the attribute inherits the
-    // sort key of its target.
+    // Resolve attachments:
+    // - Attributes ([...]) attach FORWARD to the next real member
+    // - 'default;' trailing modifier attaches BACKWARD to the previous property
     for LI := 0 to LMemberCount - 1 do
     begin
       if LKinds[LI] = 'attribute' then
       begin
         // Find the next non-attribute member
         for LJ := LI + 1 to LMemberCount - 1 do
-          if LKinds[LJ] <> 'attribute' then
+          if (LKinds[LJ] <> 'attribute') and (LKinds[LJ] <> 'default') then
           begin
             LAttachedTo[LI] := LJ;
-            // Attribute inherits its target's sort key
+            LGroups[LI] := LGroups[LJ];
+            LNames[LI] := LNames[LJ];
+            LSigs[LI] := LSigs[LJ];
+            Break;
+          end;
+      end
+      else if LKinds[LI] = 'default' then
+      begin
+        // Find the previous property member
+        for LJ := LI - 1 downto 0 do
+          if LKinds[LJ] = 'property' then
+          begin
+            LAttachedTo[LI] := LJ;
             LGroups[LI] := LGroups[LJ];
             LNames[LI] := LNames[LJ];
             LSigs[LI] := LSigs[LJ];
@@ -381,10 +481,18 @@ begin
       LKind := GetClassMemberKind(AClass, LSectionIdx, LI);
 
       // 1. Indent: set leading trivia on first member token.
-      // SetLeadingIndent preserves trailing comments from the previous line.
+      // 'default;' trailing modifiers stay on the same line as the preceding property.
       LToken := GetClassMemberFirstToken(AClass, LSectionIdx, LI);
       if Assigned(LToken) then
-        SetLeadingIndent(LToken, '    ');
+      begin
+        if LKind = 'default' then
+        begin
+          ClearTrivia(LToken);
+          AddLeadingTrivia(LToken, ' ');
+        end
+        else
+          SetLeadingIndent(LToken, '    ');
+      end;
 
       // 2. Keyword alignment: compute padding and set trailing trivia on keyword token
       LToken := GetClassMemberKeywordToken(AClass, LSectionIdx, LI);

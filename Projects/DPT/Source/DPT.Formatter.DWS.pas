@@ -100,6 +100,7 @@ type
     procedure dwsGetClassMemberSignature(Info: TProgramInfo);
     procedure dwsGetClassMemberFirstToken(Info: TProgramInfo);
     procedure dwsGetClassMemberKeywordToken(Info: TProgramInfo);
+    procedure dwsGetClassMemberLastToken(Info: TProgramInfo);
     procedure dwsReorderClassMembers(Info: TProgramInfo);
     procedure dwsClassIsFormClass(Info: TProgramInfo);
     procedure dwsClassSectionCanBeFormatted(Info: TProgramInfo);
@@ -431,6 +432,13 @@ begin
   Func.ResultType := 'TSyntaxToken';
   Func.OnEval := dwsGetClassMemberKeywordToken;
 
+  Func := FUnit.Functions.Add('GetClassMemberLastToken');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'TSyntaxToken';
+  Func.OnEval := dwsGetClassMemberLastToken;
+
   Func := FUnit.Functions.Add('ReorderClassMembers');
   Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
   Func.Parameters.Add('ASectionIdx', 'Integer');
@@ -447,6 +455,7 @@ begin
   Func.Parameters.Add('ASectionIdx', 'Integer');
   Func.ResultType := 'Boolean';
   Func.OnEval := dwsClassSectionCanBeFormatted;
+
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -1143,6 +1152,13 @@ begin
 
   if LKeywordIdx < 0 then
   begin
+    // Detect 'default;' trailing modifier (parsed as separate member)
+    if (LNameIdx >= 0) and (LNameIdx < AMember.Tokens.Count) and
+       SameText(AMember.Tokens[LNameIdx].Text, 'default') then
+    begin
+      Result := 'default';
+      Exit;
+    end;
     // Field
     Result := 'field';
     Exit;
@@ -1312,6 +1328,23 @@ begin
     Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
   if Assigned(Member) and (Member.Tokens.Count > 0) then
     Tok := Member.Tokens[0];
+  if Assigned(Tok) then
+    Info.ResultAsVariant := Info.RegisterExternalObject(Tok, False, False)
+  else
+    Info.ResultAsVariant := IUnknown(nil);
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberLastToken(Info: TProgramInfo);
+var
+  Member: TClassMemberSyntax;
+  Tok   : TSyntaxToken;
+begin
+  Tok := nil;
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  if Assigned(Member) and (Member.Tokens.Count > 0) then
+    Tok := Member.Tokens[Member.Tokens.Count - 1];
   if Assigned(Tok) then
     Info.ResultAsVariant := Info.RegisterExternalObject(Tok, False, False)
   else

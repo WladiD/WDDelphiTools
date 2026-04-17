@@ -37,15 +37,27 @@ implementation
 function TTestTaifunFormatterBase.FormatSource(const ASource: string): string;
 var
   LUnit: TCompilationUnitSyntax;
+  LSecondPass: string;
 begin
+  FFormatter.LoadScript(FScriptPath);
+
   LUnit := FParser.Parse(ASource);
   try
-    FFormatter.LoadScript(FScriptPath);
     FFormatter.FormatUnit(LUnit);
     Result := FWriter.GenerateSource(LUnit);
   finally
     LUnit.Free;
   end;
+
+  // Built-in idempotence check: formatting twice must produce the same result
+  LUnit := FParser.Parse(Result);
+  try
+    FFormatter.FormatUnit(LUnit);
+    LSecondPass := FWriter.GenerateSource(LUnit);
+  finally
+    LUnit.Free;
+  end;
+  Assert.AreEqual(Result, LSecondPass, 'Formatting must be idempotent');
 end;
 
 procedure TTestTaifunFormatterBase.Setup;
