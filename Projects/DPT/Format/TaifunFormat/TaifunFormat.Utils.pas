@@ -3,6 +3,7 @@
 interface
 
 function GetSep(const C: string; Count: Integer): string;
+function GetLastLineIndent(const S: string): string;
 function PadRight(const S: string; ALen: Integer): string;
 function RemoveSpaces(const S: string): string;
 function TrimLeadingCRLFSpace(const S: string): string;
@@ -24,6 +25,15 @@ begin
   Result := '';
   for I := 1 to Count do
     Result := Result + C;
+end;
+
+function GetLastLineIndent(const S: string): string;
+var
+  P: Integer;
+begin
+  P := Length(S);
+  while (P > 0) and (S[P] = ' ') do Dec(P);
+  Result := Copy(S, P + 1, Length(S) - P);
 end;
 
 function PadRight(const S: string; ALen: Integer): string;

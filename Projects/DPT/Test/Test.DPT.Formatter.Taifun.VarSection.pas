@@ -37,6 +37,8 @@ type
     procedure TestFormatVarSection_SingleVar;
     [Test]
     procedure TestFormatVarSection_NestedProcedureIndent;
+    [Test]
+    procedure TestFormatVarSection_NestedProcedureFlatIndent;
   end;
 
 implementation
@@ -351,6 +353,40 @@ begin
     '    Alpha: Integer;' + #13#10 +
     '    Zebra: String;'),
     'Nested procedure var declarations must be indented with 4 spaces. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_NestedProcedureFlatIndent;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // A nested procedure may be written with 'flat' indentation (at column 0
+  // despite being logically nested). The var declarations must then align
+  // relative to their own 'var' keyword, not the nesting depth.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Outer;' + #13#10 +
+    #13#10 +
+    'procedure Inner;' + #13#10 +
+    'var' + #13#10 +
+    '  Zebra: String;' + #13#10 +
+    '  Alpha: Integer;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    #13#10 + 'var' + #13#10 +
+    '  Alpha: Integer;' + #13#10 +
+    '  Zebra: String;'),
+    'Flat-indented nested procedure var declarations must align to the var keyword (2 spaces). Actual:' + #13#10 + LResult);
 end;
 
 end.

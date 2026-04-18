@@ -357,10 +357,16 @@ var
   LColonToken: TSyntaxToken;
   LTypeToken: TSyntaxToken;
   LIndent: string;
+  LVarKeyword: TSyntaxToken;
 begin
-  // Declarations of a method-level var section are indented by the method
-  // nesting depth times 2 spaces (depth 1 = 2 spaces, depth 2 = 4 spaces, ...).
-  LIndent := GetSep(' ', GetMethodDepth() * 2);
+  // Var declarations align to the indent of their own 'var' keyword plus
+  // two spaces. This handles both conventional nesting (var keyword already
+  // indented by method depth) and flat-style nested procedures.
+  LVarKeyword := GetVarKeyword(ASection);
+  if Assigned(LVarKeyword) then
+    LIndent := GetLastLineIndent(GetLeadingTrivia(LVarKeyword)) + '  '
+  else
+    LIndent := '  ';
 
   LCount := GetVarDeclCount(ASection);
   if LCount <= 0 then
