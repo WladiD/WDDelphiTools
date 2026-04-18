@@ -121,7 +121,7 @@ end;
 //   0 = attribute (glued to next member, never sorts on its own)
 //   1 = field
 //   2 = all methods (class ctor/dtor, ctor/dtor, class proc/func, proc/func)
-//   3 = property
+//   3 = property (incl. class property)
 //   4 = other (unknown)
 function GetMemberGroup(const AKind: string): Integer;
 begin
@@ -131,7 +131,7 @@ begin
      (AKind = 'procedure') or (AKind = 'function') or
      (AKind = 'class constructor') or (AKind = 'class destructor') or
      (AKind = 'class procedure') or (AKind = 'class function') then Exit(2);
-  if (AKind = 'property') or (AKind = 'default') then Exit(3);
+  if (AKind = 'property') or (AKind = 'class property') or (AKind = 'default') then Exit(3);
   Result := 4;
 end;
 
@@ -174,6 +174,7 @@ begin
   if AKind = 'class procedure' then Exit(15);
   if AKind = 'class function' then Exit(14);
   if AKind = 'property' then Exit(8);
+  if AKind = 'class property' then Exit(14);
   Result := 0;
 end;
 
@@ -181,10 +182,15 @@ end;
 //   0 = field (no keyword alignment)
 //   1 = class constructor/class destructor (aligned together)
 //   2 = constructor/destructor (aligned together)
-//   3 = procedure/function (aligned together)
-//   4 = class procedure/class function (aligned together)
-//   5 = property (always 1 space)
+//   3 = procedure/function (and properties that align with them)
+//   4 = class procedure/class function (and class properties that align with them)
+//   5 = standalone property (section has no procedure/function)
 //   6 = other
+//   7 = standalone class property (section has no class procedure/function)
+//
+// Properties and class properties receive their group via
+// GetEffectiveAlignmentGroup which knows whether the surrounding visibility
+// section contains matching (class) procedures/functions.
 function GetAlignmentGroup(const AKind: string): Integer;
 begin
   if AKind = 'field' then Exit(0);
@@ -193,7 +199,28 @@ begin
   if (AKind = 'procedure') or (AKind = 'function') then Exit(3);
   if (AKind = 'class procedure') or (AKind = 'class function') then Exit(4);
   if AKind = 'property' then Exit(5);
+  if AKind = 'class property' then Exit(7);
   Result := 6;
+end;
+
+// Resolves the alignment group for a member considering section context.
+// - 'property' joins the procedure/function alignment group (3) when the
+//   section contains at least one procedure/function, otherwise stays
+//   standalone (5) with 1-space padding.
+// - 'class property' joins class procedure/function group (4) when the
+//   section contains at least one of those, otherwise stays standalone (7).
+function GetEffectiveAlignmentGroup(const AKind: string;
+  AHasProcFunc, AHasClassProcFunc: Boolean): Integer;
+begin
+  if AKind = 'property' then
+  begin
+    if AHasProcFunc then Exit(3) else Exit(5);
+  end;
+  if AKind = 'class property' then
+  begin
+    if AHasClassProcFunc then Exit(4) else Exit(7);
+  end;
+  Result := GetAlignmentGroup(AKind);
 end;
 
 // Move trailing // comments from a member's next sibling's leading trivia
@@ -337,17 +364,23 @@ begin
     LIndices.SetLength(LMemberCount);
 
     var LHasOther: Boolean := False;
+    var LHasProcFunc: Boolean := False;
+    var LHasClassProcFunc: Boolean := False;
     for LI := 0 to LMemberCount - 1 do
     begin
       LKinds[LI] := GetClassMemberKind(AClass, LSectionIdx, LI);
       if LKinds[LI] = 'other' then LHasOther := True;
+      if (LKinds[LI] = 'procedure') or (LKinds[LI] = 'function') then LHasProcFunc := True;
+      if (LKinds[LI] = 'class procedure') or (LKinds[LI] = 'class function') then LHasClassProcFunc := True;
       LNames[LI] := LowerCase(GetClassMemberName(AClass, LSectionIdx, LI));
       LSigs[LI] := GetClassMemberSignature(AClass, LSectionIdx, LI);
       LGroups[LI] := GetMemberGroup(LKinds[LI]);
-      LAGroups[LI] := GetAlignmentGroup(LKinds[LI]);
-      LAttachedTo[LI] := -1;
       LIndices[LI] := LI;
+      LAttachedTo[LI] := -1;
     end;
+
+    for LI := 0 to LMemberCount - 1 do
+      LAGroups[LI] := GetEffectiveAlignmentGroup(LKinds[LI], LHasProcFunc, LHasClassProcFunc);
 
     // Safety: if section contains 'other' members (nested type/const inside
     // class, or special 'strict private type' visibility), preserve ALL
@@ -498,30 +531,19 @@ begin
       LToken := GetClassMemberKeywordToken(AClass, LSectionIdx, LI);
       if not Assigned(LToken) then Continue; // fields and attributes: no keyword alignment
 
-      // Find alignment group boundaries (contiguous same-alignment-group runs)
-      var LAGStart: Integer := LI;
-      while (LAGStart > 0) and (LAGroups[LAGStart - 1] = LAGroups[LI]) and
-            (GetAlignmentGroup(GetClassMemberKind(AClass, LSectionIdx, LAGStart - 1)) = LAGroups[LI]) do
-        Dec(LAGStart);
-      var LAGEnd: Integer := LI;
-      while (LAGEnd < LMemberCount - 1) and (LAGroups[LAGEnd + 1] = LAGroups[LI]) and
-            (GetAlignmentGroup(GetClassMemberKind(AClass, LSectionIdx, LAGEnd + 1)) = LAGroups[LI]) do
-        Inc(LAGEnd);
-
-      // Find longest keyword in this alignment-group run
+      // Find longest keyword across all section members in the same alignment
+      // group. Properties may join the proc/func group (see
+      // GetEffectiveAlignmentGroup), so the run is not necessarily contiguous
+      // — a full-section scan is required.
       var LMaxKwLen: Integer := 0;
-      for LJ := LAGStart to LAGEnd do
-      begin
-        var LK: string := GetClassMemberKind(AClass, LSectionIdx, LJ);
-        var LL: Integer := GetKeywordLen(LK);
-        if LL > LMaxKwLen then LMaxKwLen := LL;
-      end;
+      for LJ := 0 to LMemberCount - 1 do
+        if LAGroups[LJ] = LAGroups[LI] then
+        begin
+          var LL: Integer := GetKeywordLen(LKinds[LJ]);
+          if LL > LMaxKwLen then LMaxKwLen := LL;
+        end;
 
-      // Property: always 1 space
-      if LAGroups[LI] = 5 then
-        LPadLen := 1
-      else
-        LPadLen := LMaxKwLen - GetKeywordLen(LKind) + 1;
+      LPadLen := LMaxKwLen - GetKeywordLen(LKind) + 1;
       if LPadLen < 1 then LPadLen := 1;
 
       LPadStr := '';

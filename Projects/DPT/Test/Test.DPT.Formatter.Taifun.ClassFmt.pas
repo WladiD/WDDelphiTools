@@ -42,6 +42,12 @@ type
     [Test]
     procedure TestFormatClass_PropertyUsesSingleSpace;
     [Test]
+    procedure TestFormatClass_PropertyAlignsWithProcedure;
+    [Test]
+    procedure TestFormatClass_ClassPropertyAlignsWithClassProcedure;
+    [Test]
+    procedure TestFormatClass_ClassPropertyUsesSingleSpaceWithoutClassMethods;
+    [Test]
     procedure TestFormatClass_AllFourAlignmentGroupsIndependent;
     [Test]
     procedure TestFormatClass_VisibilityKeyword3Spaces;
@@ -268,7 +274,7 @@ begin
 
   Assert.IsTrue(Pos('FAField:', LResult) < Pos('procedure AMethod;', LResult),
     'Field must come before method. Actual:' + #13#10 + LResult);
-  Assert.IsTrue(Pos('procedure AMethod;', LResult) < Pos('property AProp:', LResult),
+  Assert.IsTrue(Pos('procedure AMethod;', LResult) < Pos('AProp:', LResult),
     'Method must come before property. Actual:' + #13#10 + LResult);
 end;
 
@@ -420,6 +426,8 @@ var
   LResult: string;
   LSource: string;
 begin
+  // When the visibility section has no procedures/functions, properties
+  // keep a single space between the 'property' keyword and the name.
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
@@ -428,7 +436,6 @@ begin
     '   strict private' + #13#10 +
     '    FA: Integer;' + #13#10 +
     '   public' + #13#10 +
-    '    procedure DoWork;' + #13#10 +
     '    property Name: Integer read FA;' + #13#10 +
     '  end;' + #13#10 +
     'implementation' + #13#10 +
@@ -436,11 +443,98 @@ begin
 
   LResult := FormatSource(LSource);
 
-  // property always 1 space, not aligned with procedure
   Assert.IsTrue(LResult.Contains('    property Name:'),
-    'property should have only 1 space between keyword and name. Actual:' + #13#10 + LResult);
+    'Property without neighbouring procedure/function should have 1 space. Actual:' + #13#10 + LResult);
   Assert.IsFalse(LResult.Contains('    property  Name:'),
-    'property should NOT have 2 spaces (no alignment with methods). Actual:' + #13#10 + LResult);
+    'Property without neighbouring procedure/function should not be padded. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_PropertyAlignsWithProcedure;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // When the section contains a procedure/function, the property name must
+  // align with those member names (longest keyword in the run is 'procedure').
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    function Bar: Integer;' + #13#10 +
+    '    procedure Foo;' + #13#10 +
+    '    property Baz: Integer read FBaz;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('procedure Foo'),
+    'procedure has 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('function  Bar'),
+    'function has 2 spaces (aligned with procedure). Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('property  Baz'),
+    'property should be padded to align name column with procedure/function. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassPropertyAlignsWithClassProcedure;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Class properties align with class procedures/functions in the same
+  // section. 'class procedure' is the longest keyword (15 chars); a 'class
+  // property' (14 chars) gets 2 spaces, 'class function' (14 chars) also 2.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    class procedure CP;' + #13#10 +
+    '    class function CF: Integer; static;' + #13#10 +
+    '    class property CProp: Integer read FCProp;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('class procedure CP'),
+    'class procedure 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('class function  CF'),
+    'class function 2 spaces (aligned with class procedure). Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('class property  CProp'),
+    'class property should align with class procedure/function names. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassPropertyUsesSingleSpaceWithoutClassMethods;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Without class procedures/functions, a class property takes just 1 space
+  // between its keyword and name — even if regular procs/funcs are present.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   public' + #13#10 +
+    '    procedure Foo;' + #13#10 +
+    '    class property CProp: Integer read FCProp;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('class property CProp'),
+    'class property without sibling class proc/func should have 1 space. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('class property  CProp'),
+    'class property must not be padded when no class proc/func is present. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_AllFourAlignmentGroupsIndependent;
@@ -486,9 +580,9 @@ begin
   Assert.IsTrue(LResult.Contains('function  RegularFunc'),
     'function 2 spaces. Actual:' + #13#10 + LResult);
 
-  // Property: 1 space
-  Assert.IsTrue(LResult.Contains('property RegularProp'),
-    'property 1 space. Actual:' + #13#10 + LResult);
+  // Property name aligns with procedure/function names (2 spaces after 'property')
+  Assert.IsTrue(LResult.Contains('property  RegularProp'),
+    'property name should align with procedure/function names when the section has procs/funcs. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_VisibilityKeyword3Spaces;
@@ -932,10 +1026,12 @@ begin
 
   LResult := FormatSource(LSource);
 
-  // Verify ordering: method -> regular props -> On* props
-  Assert.IsTrue(Pos('procedure DoWork;', LResult) < Pos('property Name:', LResult),
+  // Verify ordering: method -> regular props -> On* props. Since the section
+  // contains a procedure, property names are padded to align — searches
+  // deliberately omit the leading whitespace between 'property' and name.
+  Assert.IsTrue(Pos('procedure DoWork;', LResult) < Pos(' Name:', LResult),
     'Method must come before properties. Actual:' + #13#10 + LResult);
-  Assert.IsTrue(Pos('property Value:', LResult) < Pos('property OnChange:', LResult),
+  Assert.IsTrue(Pos(' Value:', LResult) < Pos(' OnChange:', LResult),
     'Regular properties before On* events. Actual:' + #13#10 + LResult);
 end;
 

@@ -1174,7 +1174,7 @@ begin
     tkDestructorKeyword:
       if LIsClass then Result := 'class destructor' else Result := 'destructor';
     tkPropertyKeyword:
-      Result := 'property';
+      if LIsClass then Result := 'class property' else Result := 'property';
   end;
 end;
 
