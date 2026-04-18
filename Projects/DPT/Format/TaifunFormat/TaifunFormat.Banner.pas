@@ -68,10 +68,20 @@ begin
   if LTrivia = '' then Exit;
   LNewTrivia := ''; S := LTrivia;
   LPrevWasSepBanner := False;
-  while Length(S) > 0 do
+  var LCur: Integer := 1;
+  while LCur <= Length(S) do
   begin
-    P := Pos(#10, S);
-    if P > 0 then begin LLine := Copy(S, 1, P); Delete(S, 1, P); end else begin LLine := S; S := ''; end;
+    P := Pos(#10, S, LCur);
+    if P > 0 then
+    begin
+      LLine := Copy(S, LCur, P - LCur + 1);
+      LCur := P + 1;
+    end
+    else
+    begin
+      LLine := Copy(S, LCur, Length(S) - LCur + 1);
+      LCur := Length(S) + 1;
+    end;
     LIsText := False;
     for I := 1 to Length(LLine) do if (LLine[I] <> ' ') and (LLine[I] <> #13) and (LLine[I] <> #10) and (LLine[I] <> #9) then begin LIsText := True; Break; end;
     LIsBanner := False;

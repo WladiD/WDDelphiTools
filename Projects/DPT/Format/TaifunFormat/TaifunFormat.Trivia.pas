@@ -49,11 +49,22 @@ begin
   LIfLevel := 0;
   LWasBraceComment := False;
 
-  while Length(S) > 0 do
+  var LCur: Integer := 1;
+  while LCur <= Length(S) do
   begin
-    P := Pos(#10, S);
-    if P > 0 then begin LLine := Copy(S, 1, P); Delete(S, 1, P); end
-    else begin LLine := S; S := ''; end;
+    // Extract next line (including trailing #10 if present) without mutating S,
+    // so forward peeks into S still see absolute positions.
+    P := Pos(#10, S, LCur);
+    if P > 0 then
+    begin
+      LLine := Copy(S, LCur, P - LCur + 1);
+      LCur := P + 1;
+    end
+    else
+    begin
+      LLine := Copy(S, LCur, Length(S) - LCur + 1);
+      LCur := Length(S) + 1;
+    end;
 
     LIsText := False;
     for I := 1 to Length(LLine) do
@@ -107,7 +118,7 @@ begin
           var LIsSubSection: Boolean := False;
 
           // Forward check: opening separator followed by a brace comment { text }
-          var LPeekP: Integer := 1;
+          var LPeekP: Integer := LCur;
           while (LPeekP <= Length(S)) and ((S[LPeekP] = ' ') or (S[LPeekP] = #13) or (S[LPeekP] = #10) or (S[LPeekP] = #9)) do Inc(LPeekP);
           if (LPeekP <= Length(S)) and (S[LPeekP] = '{') and
              (Copy(S, LPeekP, 3) <> '{ -') and (Copy(S, LPeekP, 3) <> '{ =') and
@@ -168,7 +179,7 @@ begin
         else if Pos(' - Class', S2) > 0 then LIsBanner := True
         else 
         begin
-          LPeekIdx := 1;
+          LPeekIdx := LCur;
           while (LPeekIdx <= Length(S)) and ((S[LPeekIdx] = ' ') or (S[LPeekIdx] = #13) or (S[LPeekIdx] = #10) or (S[LPeekIdx] = #9)) do Inc(LPeekIdx);
           LNextIsBrace := (LPeekIdx <= Length(S)) and (S[LPeekIdx] = '{') and
             (Copy(S, LPeekIdx, 3) <> '{ -') and (Copy(S, LPeekIdx, 3) <> '{ =') and

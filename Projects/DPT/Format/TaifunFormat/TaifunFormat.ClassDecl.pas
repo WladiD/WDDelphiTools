@@ -2,7 +2,7 @@ unit TaifunFormat.ClassDecl;
 
 interface
 
-uses DptFormatterAPI;
+uses DptFormatterAPI, TaifunFormat.Utils;
 
 procedure FormatClassDeclaration(AClass: TClassDeclarationSyntax);
 
@@ -37,15 +37,15 @@ var
   LLine: string;
   LFirstLine: string;
   LFirstLineSeen: Boolean;
-  LMiddleLines: array of string;
+  LMiddlePart: string;
   LNewTrivia: string;
-  I: Integer;
 begin
   if not Assigned(AToken) then Exit;
   LTrivia := GetLeadingTrivia(AToken);
 
   LFirstLine := '';
   LFirstLineSeen := False;
+  LMiddlePart := '';
 
   // Walk the trivia line by line.
   LIdx := 1;
@@ -88,11 +88,7 @@ begin
       end;
     end
     else if LineHasContent(LLine) then
-    begin
-      // Middle content line (block comment, directive, etc.) — preserve
-      LMiddleLines.SetLength(Length(LMiddleLines) + 1);
-      LMiddleLines[Length(LMiddleLines) - 1] := LLine;
-    end;
+      LMiddlePart := LMiddlePart + LLine + #13#10;
     // Whitespace-only middle lines are skipped (blank lines collapsed)
 
     LIdx := LStart;
@@ -104,14 +100,11 @@ begin
   if LineHasContent(LFirstLine) then
     LNewTrivia := LFirstLine;
   // If there are middle lines OR the first line had content, ensure a newline
-  if (LNewTrivia <> '') or (Length(LMiddleLines) > 0) or (LTrivia <> '') then
+  if (LNewTrivia <> '') or (LMiddlePart <> '') or (LTrivia <> '') then
     LNewTrivia := LNewTrivia + #13#10;
   // Middle lines preserved with their original indentation (they may contain
   // directives or comments at different nesting levels).
-  for I := 0 to Length(LMiddleLines) - 1 do
-    LNewTrivia := LNewTrivia + LMiddleLines[I] + #13#10;
-  // Final indent before the current token
-  LNewTrivia := LNewTrivia + AIndent;
+  LNewTrivia := LNewTrivia + LMiddlePart + AIndent;
 
   ClearTrivia(AToken);
   AddLeadingTrivia(AToken, LNewTrivia);
@@ -545,10 +538,7 @@ begin
 
       LPadLen := LMaxKwLen - GetKeywordLen(LKind) + 1;
       if LPadLen < 1 then LPadLen := 1;
-
-      LPadStr := '';
-      for LJ := 1 to LPadLen do
-        LPadStr := LPadStr + ' ';
+      LPadStr := GetSep(' ', LPadLen);
 
       // Set padding as trailing trivia of the keyword token.
       // Default tokenizer typically stores the space as trailing of keyword

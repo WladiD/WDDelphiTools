@@ -19,10 +19,22 @@ begin
   if Result then
   begin
     S := ATrivia;
-    while Length(S) > 0 do
+    var LCur: Integer := 1;
+    while LCur <= Length(S) do
     begin
-      P := Pos(#10, S);
-      if P > 0 then begin LLine := Copy(S, 1, P - 1); if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then LLine := Copy(LLine, 1, Length(LLine) - 1); Delete(S, 1, P); end else begin LLine := S; S := ''; end;
+      P := Pos(#10, S, LCur);
+      if P > 0 then
+      begin
+        LLine := Copy(S, LCur, P - LCur);
+        if (Length(LLine) > 0) and (LLine[Length(LLine)] = #13) then
+          LLine := Copy(LLine, 1, Length(LLine) - 1);
+        LCur := P + 1;
+      end
+      else
+      begin
+        LLine := Copy(S, LCur, Length(S) - LCur + 1);
+        LCur := Length(S) + 1;
+      end;
 
       if LInBanner then
       begin

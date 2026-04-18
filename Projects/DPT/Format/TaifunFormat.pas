@@ -91,8 +91,9 @@ begin
 
   for I := 0 to LCount - 1 do
   begin
-    LLower[I] := LowerCase(GetUsesItemName(AUses, I));
-    LGroups[I] := GetNamespaceGroup(GetUsesItemName(AUses, I));
+    var LName: string := GetUsesItemName(AUses, I);
+    LLower[I] := LowerCase(LName);
+    LGroups[I] := GetNamespaceGroup(LName);
     LIndices[I] := I;
   end;
 
@@ -277,11 +278,20 @@ begin
   LExtractedClass := '';
   S := LOldTrivia;
   LInBanner := False;
-  while Length(S) > 0 do
+  var LCur: Integer := 1;
+  while LCur <= Length(S) do
   begin
-    P := Pos(#10, S);
-    if P > 0 then begin LLine := Copy(S, 1, P); Delete(S, 1, P); end
-    else begin LLine := S; S := ''; end;
+    P := Pos(#10, S, LCur);
+    if P > 0 then
+    begin
+      LLine := Copy(S, LCur, P - LCur + 1);
+      LCur := P + 1;
+    end
+    else
+    begin
+      LLine := Copy(S, LCur, Length(S) - LCur + 1);
+      LCur := Length(S) + 1;
+    end;
 
     LIsText := False;
     for I := 1 to Length(LLine) do
@@ -472,10 +482,7 @@ begin
     begin
       // Padding: longest name + 1 space, minus this name's length
       LPadding := LMaxLen - Length(GetVarDeclName(ASection, I));
-      LPadStr := '';
-      var P: Integer;
-      for P := 1 to LPadding do
-        LPadStr := LPadStr + ' ';
+      LPadStr := GetSep(' ', LPadding);
 
       ClearTrivia(LColonToken);
       AddLeadingTrivia(LColonToken, LPadStr);
