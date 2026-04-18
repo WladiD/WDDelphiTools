@@ -79,7 +79,8 @@ begin
             if ADescription <> '' then LFoundDesc := True;
           end
           else if (LowerCase(LLine) <> LowerCase('// ' + AUnitName)) and (Pos(LowerCase('// ' + AUnitName + ' -'), LowerCase(LLine)) <> 1) and
-                  (Pos(LowerCase(LLine) + '.', LowerCase('// ' + AUnitName)) <> 1) then
+                  (Pos(LowerCase(LLine) + '.', LowerCase('// ' + AUnitName)) <> 1) and
+                  (Pos(LowerCase('// ' + AUnitName + '.'), LowerCase(LLine)) <> 1) then
           begin
             if LFoundDesc and not LFoundAuthor and (LLine <> '//') and (LLine <> '// ') then
             begin

@@ -46,6 +46,8 @@ type
     [Test]
     procedure TestFormatUnitHeader_OldPartialUnitNameNotPreserved;
     [Test]
+    procedure TestFormatUnitHeader_OldExtendedUnitNameNotPreserved;
+    [Test]
     procedure TestFormatUnitHeader_OldUnitNameWithDifferentCaseNotPreserved;
     [Test]
     procedure TestFormatUnitHeader_EnglishAuthorLabel;
@@ -433,6 +435,41 @@ begin
     'Old partial unit name should not be preserved in header. Actual:'#13#10 + Copy(LResult, 1, 400));
   // The correct unit name must be present
   Assert.IsTrue(LResult.Contains('// Tfw.Dms.Inbox.Form'),
+    'Correct unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_OldExtendedUnitNameNotPreserved;
+var
+  LResult: String;
+  LSource: String;
+begin
+  // Mirror of _OldPartialUnitNameNotPreserved: when the banner contains the
+  // unit name with an additional dotted suffix (e.g. Base.UI.Controls.Db.Bars.Dlg
+  // instead of Base.UI.Controls.Db.Bars), the formatter should drop the old
+  // extended name, not keep it as an extra comment.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// Base.UI.Controls.Db.Bars.Dlg' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Mister X' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Base.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit Base.UI.Controls.Db.Bars;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // The old extended name must not appear in the output
+  Assert.IsFalse(LResult.Contains('// Base.UI.Controls.Db.Bars.Dlg'),
+    'Old extended unit name should not be preserved in header. Actual:'#13#10 + Copy(LResult, 1, 400));
+  // The correct unit name must be present
+  Assert.IsTrue(LResult.Contains('// Base.UI.Controls.Db.Bars' + #13#10),
     'Correct unit name should be in header. Actual:'#13#10 + Copy(LResult, 1, 400));
 end;
 
