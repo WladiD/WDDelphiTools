@@ -222,7 +222,7 @@ begin
   else
     LPrefix := LTrailingPart + #13#10#13#10;
 
-  if GetMethodDepth(AMethod) > 1 then
+  if GetMethodDepth() > 1 then
   begin
     if not LIsSuppressed then
       AddLeadingTrivia(LToken, LPrefix + FBanner.CreateNestedMethodBanner() + LComments + LIndent)
@@ -356,7 +356,12 @@ var
   LIdToken: TSyntaxToken;
   LColonToken: TSyntaxToken;
   LTypeToken: TSyntaxToken;
+  LIndent: string;
 begin
+  // Declarations of a method-level var section are indented by the method
+  // nesting depth times 2 spaces (depth 1 = 2 spaces, depth 2 = 4 spaces, ...).
+  LIndent := GetSep(' ', GetMethodDepth() * 2);
+
   LCount := GetVarDeclCount(ASection);
   if LCount <= 0 then
     Exit;
@@ -454,7 +459,7 @@ begin
     if Assigned(LIdToken) then
     begin
       ClearTrivia(LIdToken);
-      AddLeadingTrivia(LIdToken, #13#10 + '  ');
+      AddLeadingTrivia(LIdToken, #13#10 + LIndent);
     end;
 
     if Assigned(LColonToken) then

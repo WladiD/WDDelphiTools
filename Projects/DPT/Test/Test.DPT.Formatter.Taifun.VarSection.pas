@@ -35,6 +35,8 @@ type
     procedure TestFormatVarSection_SkipsUnitLevel;
     [Test]
     procedure TestFormatVarSection_SingleVar;
+    [Test]
+    procedure TestFormatVarSection_NestedProcedureIndent;
   end;
 
 implementation
@@ -317,6 +319,38 @@ begin
     'var' + #13#10 +
     '  Result: String;'),
     'Single var should have 2-space indent and colon right after name. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_NestedProcedureIndent;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Var section inside a nested procedure must be indented relative to the
+  // nesting depth. At depth 2, declarations should use 4 spaces of indent,
+  // not the 2 spaces used for top-level methods.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'procedure Outer;' + #13#10 +
+    '  procedure Inner;' + #13#10 +
+    '  var' + #13#10 +
+    '    Zebra: String;' + #13#10 +
+    '    Alpha: Integer;' + #13#10 +
+    '  begin' + #13#10 +
+    '  end;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    '  var' + #13#10 +
+    '    Alpha: Integer;' + #13#10 +
+    '    Zebra: String;'),
+    'Nested procedure var declarations must be indented with 4 spaces. Actual:' + #13#10 + LResult);
 end;
 
 end.

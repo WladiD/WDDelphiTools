@@ -264,7 +264,6 @@ begin
   Func.OnEval := dwsGetMethodClassName;
 
   Func := FUnit.Functions.Add('GetMethodDepth');
-  Func.Parameters.Add('ANode', 'TMethodImplementationSyntax');
   Func.ResultType := 'Integer';
   Func.OnEval := dwsGetMethodDepth;
 
