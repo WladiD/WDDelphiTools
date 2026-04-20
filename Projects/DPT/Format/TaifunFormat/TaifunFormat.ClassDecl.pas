@@ -1,4 +1,4 @@
-unit TaifunFormat.ClassDecl;
+﻿unit TaifunFormat.ClassDecl;
 
 interface
 
