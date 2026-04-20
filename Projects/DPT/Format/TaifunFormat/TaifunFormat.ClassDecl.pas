@@ -329,14 +329,13 @@ begin
 
   for LSectionIdx := 0 to LSectionCount - 1 do
   begin
-    // Apply indentation to the visibility keyword
+    // Apply indentation to the visibility keyword.
+    // Implicit first section (no keyword, e.g. `published` in form classes)
+    // is still formatted — DFM streaming order is driven by the .dfm file,
+    // not by field-declaration order, so sorting is safe.
     LVisToken := GetClassVisibilityKeyword(AClass, LSectionIdx);
     if Assigned(LVisToken) then
-      SetLeadingIndent(LVisToken, '   ')
-    else
-      // Implicit default section (no visibility keyword) — typically DFM-generated
-      // members in form classes.  Do not touch these.
-      Continue;
+      SetLeadingIndent(LVisToken, '   ');
 
     // Move trailing // comments from next member's leading trivia to
     // previous member's last token, so they travel with the correct member.

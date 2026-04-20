@@ -58,7 +58,7 @@ type
     [Test]
     procedure TestFormatClass_InImplementationSection;
     [Test]
-    procedure TestFormatClass_SkipsFormClass;
+    procedure TestFormatClass_SortsImplicitPublishedSection;
     [Test]
     procedure TestFormatClass_VisibilityOrderPreserved;
     [Test]
@@ -682,21 +682,22 @@ begin
     'Local class in implementation must also be sorted. Actual:' + #13#10 + LResult);
 end;
 
-procedure TTestTaifunFormatter_Class.TestFormatClass_SkipsFormClass;
+procedure TTestTaifunFormatter_Class.TestFormatClass_SortsImplicitPublishedSection;
 var
   LResult: string;
   LSource: string;
 begin
-  // Form class: DFM-generated members BEFORE the first visibility keyword.
-  // Only the default section (DFM members) must stay untouched.
-  // Explicit visibility sections (like 'private') ARE still formatted.
+  // The implicit first section (no visibility keyword) of a form class is
+  // `published` by default.  Component instantiation order is driven by the
+  // DFM, not by field-declaration order, so sorting these members alphabetically
+  // is safe and consistent with how every other section is treated.
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
     'type' + #13#10 +
     '  TFormFoo = class(TForm)' + #13#10 +
-    '    edName: TEdit;' + #13#10 +
     '    lbCaption: TLabel;' + #13#10 +
+    '    edName: TEdit;' + #13#10 +
     '   private' + #13#10 +
     '    FZebra: Integer;' + #13#10 +
     '    FAlpha: String;' + #13#10 +
@@ -706,15 +707,17 @@ begin
 
   LResult := FormatSource(LSource);
 
-  // DFM components in default section must be preserved in original order
+  // Implicit published section is sorted alphabetically
   Assert.IsTrue(Pos('edName: TEdit', LResult) < Pos('lbCaption: TLabel', LResult),
-    'DFM components must keep original order. Actual:' + #13#10 + LResult);
-  Assert.IsTrue(LResult.Contains('edName: TEdit;'),
-    'DFM components must be preserved. Actual:' + #13#10 + LResult);
+    'Implicit published section must be sorted alphabetically. Actual:' + #13#10 + LResult);
 
-  // But the explicit 'private' section IS sorted: FAlpha before FZebra
+  // Members are indented with 4 spaces like any other section
+  Assert.IsTrue(LResult.Contains('    edName: TEdit;'),
+    'Implicit-section members must use 4-space indent. Actual:' + #13#10 + LResult);
+
+  // Explicit 'private' section is also sorted (regression safeguard)
   Assert.IsTrue(Pos('FAlpha', LResult) < Pos('FZebra', LResult),
-    'Explicit visibility sections of form classes are still sorted. Actual:' + #13#10 + LResult);
+    'Explicit visibility sections must still be sorted. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_VisibilityOrderPreserved;
