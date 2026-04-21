@@ -61,6 +61,16 @@ type
     Esi   : UIntPtr;
     Edi   : UIntPtr;
     EFlags: Cardinal;
+    {$IFDEF CPUX64}
+    R8 : UIntPtr;
+    R9 : UIntPtr;
+    R10: UIntPtr;
+    R11: UIntPtr;
+    R12: UIntPtr;
+    R13: UIntPtr;
+    R14: UIntPtr;
+    R15: UIntPtr;
+    {$ENDIF}
   end;
 
   TStackSlot = record
@@ -578,6 +588,14 @@ begin
     Result.Esi := Context.Rsi;
     Result.Edi := Context.Rdi;
     Result.EFlags := Context.EFlags;
+    Result.R8  := Context.R8;
+    Result.R9  := Context.R9;
+    Result.R10 := Context.R10;
+    Result.R11 := Context.R11;
+    Result.R12 := Context.R12;
+    Result.R13 := Context.R13;
+    Result.R14 := Context.R14;
+    Result.R15 := Context.R15;
   end;
   {$ELSE}
   Result.Eip := Context.Eip;

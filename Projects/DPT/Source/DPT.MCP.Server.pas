@@ -413,6 +413,23 @@ begin
         CapObj.AddPair('tools', TJSONObject.Create);
         ResultObj.AddPair('capabilities', CapObj);
         ResultObj.AddPair('serverInfo', TJSONObject.Create.AddPair('name', 'DPT-Debugger').AddPair('version', '1.0.0'));
+        ResultObj.AddPair('instructions',
+          'DPT-Debugger - a hardware-breakpoint debugger for Delphi Win32/Win64 executables built with a .map file.' + sLineBreak +
+          sLineBreak +
+          'State model: no_session -> paused <-> running -> exited. Most inspection tools require "paused".' + sLineBreak +
+          sLineBreak +
+          'Typical workflow:' + sLineBreak +
+          '  1. set_breakpoint(unit, line) - max 4 hardware breakpoints; can be queued before a session.' + sLineBreak +
+          '  2. start_debug_session(executable_path) - process launches paused; pending breakpoints apply.' + sLineBreak +
+          '  3. continue / step_into / step_over - non-blocking; always follow with wait_until_paused.' + sLineBreak +
+          '  4. Inspect at a pause: get_stack_trace, get_registers, get_stack_slots (structured locals), read_memory, read_global_variable.' + sLineBreak +
+          '  5. stop_debug_session (detach) or terminate_debug_session (kill).' + sLineBreak +
+          sLineBreak +
+          'Addresses: hex without "0x" prefix; addresses from get_stack_trace / get_registers can be pasted directly into read_memory.' + sLineBreak +
+          sLineBreak +
+          'Architecture: x86 targets expose 32-bit e-registers; x64 targets expose 64-bit r-registers including r8-r15. Check the "arch" field in get_registers. Disassembly (get_proc_asm) returns raw opcode bytes - you must decode them yourself.' + sLineBreak +
+          sLineBreak +
+          'Requirements: a .map file next to the executable (build with /p:DCC_MapFile=3) is required for source-level breakpoints and named stack frames.');
         SendResponse(ID, ResultObj);
       end
       else if Method = 'notifications/initialized' then
@@ -503,7 +520,7 @@ begin
 
   var ToolSetBP := TJSONObject.Create;
   ToolSetBP.AddPair('name', 'set_breakpoint');
-  ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. The "unit" parameter is the source file name (e.g. "MyUnit.pas" or just "MyUnit" - the .pas extension is added automatically if omitted). Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Returns an error if the unit/line cannot be resolved to a code address. Typical workflow: set_breakpoint -> start_debug_session -> continue -> get_state (poll until paused) -> inspect with get_stack_trace etc.');
+  ToolSetBP.AddPair('description', 'Sets a hardware breakpoint at a specific line in a Delphi unit. The "unit" parameter is the source file name (e.g. "MyUnit.pas" or just "MyUnit" - the .pas extension is added automatically if omitted). Can be called before start_debug_session (breakpoints will be applied automatically on session start) or during a session. Maximum 4 hardware breakpoints. Returns an error if the unit/line cannot be resolved to a code address. Typical workflow: set_breakpoint -> start_debug_session -> continue -> wait_until_paused -> inspect with get_stack_trace etc.');
   var SchemaSetBP := TJSONObject.Create;
   SchemaSetBP.AddPair('type', 'object');
   var PropSetBP := TJSONObject.Create;
@@ -595,19 +612,19 @@ begin
 
   var ToolContinue := TJSONObject.Create;
   ToolContinue.AddPair('name', 'continue');
-  ToolContinue.AddPair('description', 'Resumes execution of the debugged process. Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"breakpoint"|"exited",...}} when execution pauses again or the process exits. If notifications are not available, poll with get_state until state is "paused" or "exited". Only callable when state is "paused".');
+  ToolContinue.AddPair('description', 'Resumes execution of the debugged process. Returns immediately (non-blocking). Call wait_until_paused next to block until execution pauses (breakpoint, exception) or the process exits. Only callable when state is "paused".');
   ToolContinue.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolContinue);
 
   var ToolStepInto := TJSONObject.Create;
   ToolStepInto.AddPair('name', 'step_into');
-  ToolStepInto.AddPair('description', 'Steps into the next source line (enters function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
+  ToolStepInto.AddPair('description', 'Steps into the next source line (enters function calls). Returns immediately (non-blocking). Call wait_until_paused next to block until the step completes. Only callable when state is "paused".');
   ToolStepInto.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolStepInto);
 
   var ToolStepOver := TJSONObject.Create;
   ToolStepOver.AddPair('name', 'step_over');
-  ToolStepOver.AddPair('description', 'Steps over the current source line (does not enter function calls). Returns immediately (non-blocking). The debugger sends a JSON-RPC notification {"method":"notifications/stopped","params":{"reason":"step",...}} when the step completes. If notifications are not available, poll with get_state until state is "paused". Only callable when state is "paused".');
+  ToolStepOver.AddPair('description', 'Steps over the current source line (does not enter function calls). Returns immediately (non-blocking). Call wait_until_paused next to block until the step completes. Only callable when state is "paused".');
   ToolStepOver.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolStepOver);
 
@@ -619,11 +636,11 @@ begin
 
   var ToolReadMem := TJSONObject.Create;
   ToolReadMem.AddPair('name', 'read_memory');
-  ToolReadMem.AddPair('description', 'Reads raw memory bytes from the debugged process at a given address. Returns a hex dump. To interpret the result, consider the data type and byte order (little-endian on x86). For example, 4 bytes for a 32-bit integer, pointer, or single float. Only callable when state is "paused".');
+  ToolReadMem.AddPair('description', 'Reads raw memory bytes from the debugged process at a given address. Returns a hex dump (space-separated bytes). Byte order is little-endian. The address must be a hex string without "0x" prefix; 8-digit (x86) or 16-digit (x64) addresses from get_stack_trace/get_registers can be pasted directly. Only callable when state is "paused".');
   var SchemaReadMem := TJSONObject.Create;
   SchemaReadMem.AddPair('type', 'object');
   var PropReadMem := TJSONObject.Create;
-  PropReadMem.AddPair('address', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex address string, e.g. "00401000"'));
+  PropReadMem.AddPair('address', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex address string without "0x" prefix, e.g. "00401000" (x86) or "00007FF770C2CA4" (x64). Addresses from get_stack_trace and get_registers are in the correct format.'));
   PropReadMem.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
   SchemaReadMem.AddPair('properties', PropReadMem);
   var ReqReadMem := TJSONArray.Create;
@@ -657,7 +674,7 @@ begin
 
   var ToolRegs := TJSONObject.Create;
   ToolRegs.AddPair('name', 'get_registers');
-  ToolRegs.AddPair('description', 'Returns the current x86 CPU register values (EAX, EBX, ECX, EDX, ESI, EDI, EBP, ESP, EIP, EFLAGS). Only callable when state is "paused".');
+  ToolRegs.AddPair('description', 'Returns the current CPU register values of the focused thread as a JSON object. The "arch" field is "x86" or "x64". For x86 targets: eip, esp, ebp, eax, ebx, ecx, edx, esi, edi, eflags (8-digit hex). For x64 targets: rip, rsp, rbp, rax, rbx, rcx, rdx, rsi, rdi, r8..r15 (16-digit hex) and rflags (8-digit hex). Segment, XMM/YMM and FPU registers are not exposed. Only callable when state is "paused".');
   ToolRegs.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolRegs);
 
@@ -669,7 +686,7 @@ begin
 
   var ToolAsm := TJSONObject.Create;
   ToolAsm.AddPair('name', 'get_proc_asm');
-  ToolAsm.AddPair('description', 'Returns the raw assembly bytes (machine code) of the current procedure from its entry point to the return instruction. Useful for low-level analysis when source-level debugging is insufficient. Only callable when state is "paused".');
+  ToolAsm.AddPair('description', 'Returns up to 64 raw machine-code bytes of the current procedure, starting at its entry point, as a hex string. These are NOT disassembled mnemonics - you must disassemble them yourself (x86/x64 opcode decoding). Useful only when you need low-level analysis and source-level debugging is insufficient. Only callable when state is "paused".');
   ToolAsm.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolAsm);
 
@@ -1238,21 +1255,41 @@ begin
   try
     if FDebugger.TargetIs32Bit then
     begin
+      RegObj.AddPair('arch', 'x86');
       RegObj.AddPair('eip', Format('%.8x', [DWORD(Regs.Eip)]));
       RegObj.AddPair('esp', Format('%.8x', [DWORD(Regs.Esp)]));
       RegObj.AddPair('ebp', Format('%.8x', [DWORD(Regs.Ebp)]));
       RegObj.AddPair('eax', Format('%.8x', [DWORD(Regs.Eax)]));
-      RegObj.AddPair('edx', Format('%.8x', [DWORD(Regs.Edx)]));
+      RegObj.AddPair('ebx', Format('%.8x', [DWORD(Regs.Ebx)]));
       RegObj.AddPair('ecx', Format('%.8x', [DWORD(Regs.Ecx)]));
+      RegObj.AddPair('edx', Format('%.8x', [DWORD(Regs.Edx)]));
+      RegObj.AddPair('esi', Format('%.8x', [DWORD(Regs.Esi)]));
+      RegObj.AddPair('edi', Format('%.8x', [DWORD(Regs.Edi)]));
+      RegObj.AddPair('eflags', Format('%.8x', [Regs.EFlags]));
     end
     else
     begin
+      RegObj.AddPair('arch', 'x64');
       RegObj.AddPair('rip', Format('%.16x', [Regs.Eip]));
       RegObj.AddPair('rsp', Format('%.16x', [Regs.Esp]));
       RegObj.AddPair('rbp', Format('%.16x', [Regs.Ebp]));
       RegObj.AddPair('rax', Format('%.16x', [Regs.Eax]));
-      RegObj.AddPair('rdx', Format('%.16x', [Regs.Edx]));
+      RegObj.AddPair('rbx', Format('%.16x', [Regs.Ebx]));
       RegObj.AddPair('rcx', Format('%.16x', [Regs.Ecx]));
+      RegObj.AddPair('rdx', Format('%.16x', [Regs.Edx]));
+      RegObj.AddPair('rsi', Format('%.16x', [Regs.Esi]));
+      RegObj.AddPair('rdi', Format('%.16x', [Regs.Edi]));
+      {$IFDEF CPUX64}
+      RegObj.AddPair('r8',  Format('%.16x', [Regs.R8]));
+      RegObj.AddPair('r9',  Format('%.16x', [Regs.R9]));
+      RegObj.AddPair('r10', Format('%.16x', [Regs.R10]));
+      RegObj.AddPair('r11', Format('%.16x', [Regs.R11]));
+      RegObj.AddPair('r12', Format('%.16x', [Regs.R12]));
+      RegObj.AddPair('r13', Format('%.16x', [Regs.R13]));
+      RegObj.AddPair('r14', Format('%.16x', [Regs.R14]));
+      RegObj.AddPair('r15', Format('%.16x', [Regs.R15]));
+      {$ENDIF}
+      RegObj.AddPair('rflags', Format('%.8x', [Regs.EFlags]));
     end;
     Result := MakeTextResult(RegObj.ToJSON);
   finally
