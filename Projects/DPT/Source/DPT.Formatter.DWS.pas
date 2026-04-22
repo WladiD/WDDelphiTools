@@ -20,7 +20,9 @@ uses
   ParseTree.Core,
   ParseTree.Nodes,
   ParseTree.Tokens,
-  
+
+  WDDT.StringTools,
+
   DPT.Formatter;
 
 type
@@ -104,6 +106,7 @@ type
     procedure dwsReorderClassMembers(Info: TProgramInfo);
     procedure dwsClassIsFormClass(Info: TProgramInfo);
     procedure dwsClassSectionCanBeFormatted(Info: TProgramInfo);
+    procedure dwsNaturalCompareStr(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -454,6 +457,12 @@ begin
   Func.Parameters.Add('ASectionIdx', 'Integer');
   Func.ResultType := 'Boolean';
   Func.OnEval := dwsClassSectionCanBeFormatted;
+
+  Func := FUnit.Functions.Add('NaturalCompareStr');
+  Func.Parameters.Add('AStringA', 'String');
+  Func.Parameters.Add('AStringB', 'String');
+  Func.ResultType := 'Integer';
+  Func.OnEval := dwsNaturalCompareStr;
 
 end;
 
@@ -1483,6 +1492,11 @@ begin
   end;
 
   Info.ResultAsBoolean := True;
+end;
+
+procedure TDptDwsFormatter.dwsNaturalCompareStr(Info: TProgramInfo);
+begin
+  Info.ResultAsInteger := CompareStringNatural(Info.ParamAsString[0], Info.ParamAsString[1]);
 end;
 
 procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);

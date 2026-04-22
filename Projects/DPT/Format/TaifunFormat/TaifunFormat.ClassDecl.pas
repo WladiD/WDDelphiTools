@@ -446,7 +446,7 @@ begin
             if LPrioA > LPrioB then LShouldMove := True
             else if LPrioA = LPrioB then
             begin
-              if LNames[LJ] > LTempName then LShouldMove := True;
+              if NaturalCompareStr(LNames[LJ], LTempName) > 0 then LShouldMove := True;
               // Overloads (same name): keep original relative order (stable sort)
             end;
           end
@@ -462,12 +462,12 @@ begin
             if LPropPrioA > LPropPrioB then LShouldMove := True
             else if LPropPrioA = LPropPrioB then
             begin
-              if LNames[LJ] > LTempName then LShouldMove := True;
+              if NaturalCompareStr(LNames[LJ], LTempName) > 0 then LShouldMove := True;
             end;
           end
           else
           begin
-            if LNames[LJ] > LTempName then LShouldMove := True;
+            if NaturalCompareStr(LNames[LJ], LTempName) > 0 then LShouldMove := True;
           end;
         end;
         if not LShouldMove then Break;

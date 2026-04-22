@@ -18,6 +18,8 @@ type
     [Test]
     procedure TestFormatClass_FieldsSortedAlphabetically;
     [Test]
+    procedure TestFormatClass_FieldsSortedNumerically;
+    [Test]
     procedure TestFormatClass_ConstructorFirst;
     [Test]
     procedure TestFormatClass_DestructorAfterConstructor;
@@ -118,6 +120,40 @@ begin
     '    FMiddle: Boolean;' + #13#10 +
     '    FZebra: Integer;'),
     'Fields should be sorted alphabetically. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_FieldsSortedNumerically;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Names that share a prefix and only differ by a numeric suffix must sort
+  // by the numeric value, not lexicographically. DFM-driven form classes
+  // routinely expose designer-generated members like CLabel1..CLabel17, and
+  // the expected order is CLabel2 before CLabel10.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFormFoo = class(TForm)' + #13#10 +
+    '    CLabel1: CLabel;' + #13#10 +
+    '    CLabel10: CLabel;' + #13#10 +
+    '    CLabel2: CLabel;' + #13#10 +
+    '    CLabel11: CLabel;' + #13#10 +
+    '    CLabel3: CLabel;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    '    CLabel1: CLabel;' + #13#10 +
+    '    CLabel2: CLabel;' + #13#10 +
+    '    CLabel3: CLabel;' + #13#10 +
+    '    CLabel10: CLabel;' + #13#10 +
+    '    CLabel11: CLabel;'),
+    'Numeric suffixes must sort by value, not lexicographically. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_ConstructorFirst;
