@@ -24,10 +24,13 @@ type
     procedure OnBreakpointForStack(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnException(Sender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
     function ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
+    function ResolveMapPath(AUse64Bit: Boolean): string;
+    function WriteDottedMapFixture(AUse64Bit: Boolean): string;
     procedure DoTestBreakpoint(AUse64Bit: Boolean);
     procedure DoTestStackTrace(AUse64Bit: Boolean);
     procedure DoTestIgnoredException(AUse64Bit: Boolean);
     procedure DoTestTargetBitness(AUse64Bit: Boolean);
+    procedure DoTestResolveDottedUnitLine(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestBreakpointInTarget32;
@@ -37,6 +40,11 @@ type
     procedure TestIgnoredException32;
     [Test]
     procedure TestTargetBitness32;
+    // Regression: dotted unit names (e.g. 'My.Dotted.Unit') must resolve to
+    // a breakpoint address. Previously ChangeFileExt stripped the trailing
+    // dot-segment, turning 'My.Dotted.Unit' into 'My.Dotted' and breaking lookup.
+    [Test]
+    procedure TestResolveDottedUnitLine32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestBreakpointInTarget64;
@@ -46,6 +54,8 @@ type
     procedure TestIgnoredException64;
     [Test]
     procedure TestTargetBitness64;
+    [Test]
+    procedure TestResolveDottedUnitLine64;
     {$ENDIF}
   end;
 
@@ -85,6 +95,38 @@ begin
     if not FileExists(Result) then
       Result := ExpandFileName('Win32\' + AExeName);
   end;
+end;
+
+function TDebuggerTests.ResolveMapPath(AUse64Bit: Boolean): string;
+begin
+  Result := ChangeFileExt(ResolveTargetPath('DebugTarget.exe', AUse64Bit), '.map');
+end;
+
+function TDebuggerTests.WriteDottedMapFixture(AUse64Bit: Boolean): string;
+const
+  OldHeader: RawByteString = 'Line numbers for DebugTarget(';
+  NewHeader: RawByteString = 'Line numbers for My.Dotted.DebugTarget(';
+var
+  Bytes  : TBytes;
+  Content: RawByteString;
+  P      : Integer;
+begin
+  Bytes := TFile.ReadAllBytes(ResolveMapPath(AUse64Bit));
+  SetLength(Content, Length(Bytes));
+  if Length(Bytes) > 0 then
+    Move(Bytes[0], Content[1], Length(Bytes));
+
+  P := Pos(OldHeader, Content);
+  Assert.IsTrue(P > 0, 'Fixture must contain "Line numbers for DebugTarget("');
+  Delete(Content, P, Length(OldHeader));
+  Insert(NewHeader, Content, P);
+
+  Result := TPath.Combine(TPath.GetTempPath,
+    Format('DPT.DebuggerDottedUnit.%s.map', [GUIDToString(TGUID.NewGuid)]));
+  SetLength(Bytes, Length(Content));
+  if Length(Content) > 0 then
+    Move(Content[1], Bytes[0], Length(Content));
+  TFile.WriteAllBytes(Result, Bytes);
 end;
 
 procedure TDebuggerTests.DoTestBreakpoint(AUse64Bit: Boolean);
@@ -249,6 +291,68 @@ begin
     Debugger.Free;
   end;
 end;
+
+procedure TDebuggerTests.DoTestResolveDottedUnitLine(AUse64Bit: Boolean);
+var
+  AddrDotted : Pointer;
+  AddrPath   : Pointer;
+  AddrStem   : Pointer;
+  AddrUnknown: Pointer;
+  AddrWithPas: Pointer;
+  Debugger   : TDebugger;
+  FixturePath: string;
+begin
+  FixturePath := WriteDottedMapFixture(AUse64Bit);
+  try
+    Debugger := TDebugger.Create;
+    try
+      Debugger.LoadMapFile(FixturePath);
+
+      // Dotted unit name must resolve verbatim.
+      AddrDotted := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget', 13);
+      Assert.IsTrue(AddrDotted <> nil,
+        'Dotted unit name must resolve (regression: ChangeFileExt stripped ".DebugTarget")');
+
+      // Appending .pas must yield the same address (extension is stripped explicitly,
+      // not via ChangeFileExt on the whole name).
+      AddrWithPas := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget.pas', 13);
+      Assert.AreEqual(NativeUInt(AddrDotted), NativeUInt(AddrWithPas),
+        'Appending .pas must not change the resolved address');
+
+      // Full path with .pas must also resolve to the same address.
+      AddrPath := Debugger.GetAddressFromUnitLine(
+        'C:\SomeDir\My.Dotted.DebugTarget.pas', 13);
+      Assert.AreEqual(NativeUInt(AddrDotted), NativeUInt(AddrPath),
+        'Path-qualified .pas must resolve identically');
+
+      // Truncated dotted name must NOT resolve (this was the buggy lookup result).
+      AddrStem := Debugger.GetAddressFromUnitLine('My.Dotted', 13);
+      Assert.IsTrue(AddrStem = nil,
+        'Partial dotted name must not resolve');
+
+      // Completely unknown unit must return nil.
+      AddrUnknown := Debugger.GetAddressFromUnitLine('Does.Not.Exist', 13);
+      Assert.IsTrue(AddrUnknown = nil,
+        'Unknown unit must return nil');
+    finally
+      Debugger.Free;
+    end;
+  finally
+    TFile.Delete(FixturePath);
+  end;
+end;
+
+procedure TDebuggerTests.TestResolveDottedUnitLine32;
+begin
+  DoTestResolveDottedUnitLine(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TDebuggerTests.TestResolveDottedUnitLine64;
+begin
+  DoTestResolveDottedUnitLine(True);
+end;
+{$ENDIF}
 
 procedure TDebuggerTests.TestBreakpointInTarget32;
 begin

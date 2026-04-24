@@ -845,6 +845,7 @@ end;
 
 function TDebugger.GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
 var
+  Ext       : String;
   LineInfo  : TMapLineNumber;
   SearchUnit: String;
 begin
@@ -852,18 +853,21 @@ begin
   if not Assigned(FMapScanner) then
     Exit;
 
-  SearchUnit := ChangeFileExt(AUnitName, '');
+  // Normalize input: strip path, then strip only .pas/.dpr extension.
+  // ChangeFileExt must not be used unconditionally — dotted unit names like
+  // 'My.Dotted.Unit' would otherwise have their last dot-segment stripped.
+  SearchUnit := ExtractFileName(AUnitName);
+  Ext := ExtractFileExt(SearchUnit);
+  if SameText(Ext, '.pas') or SameText(Ext, '.dpr') then
+    SearchUnit := Copy(SearchUnit, 1, Length(SearchUnit) - Length(Ext));
 
   for var I: Integer := 0 to FMapScanner.LineNumbersCnt - 1 do
   begin
     LineInfo := FMapScanner.LineNumberByIndex[I];
-    if LineInfo.LineNumber = ALineNumber then
+    if (LineInfo.LineNumber = ALineNumber) and SameText(LineInfo.UnitName, SearchUnit) then
     begin
-      if SameText(LineInfo.UnitName, SearchUnit) or SameText(ExtractFileName(LineInfo.UnitName), SearchUnit) then
-      begin
-        Result := Pointer(FBaseAddress + $1000 + LineInfo.VA);
-        Exit;
-      end;
+      Result := Pointer(FBaseAddress + $1000 + LineInfo.VA);
+      Exit;
     end;
   end;
 end;
