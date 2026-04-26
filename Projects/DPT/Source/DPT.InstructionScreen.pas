@@ -84,6 +84,30 @@ begin
         '  -- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
+      TActionInfo.Create('DcuAnalyze', '<DcuFile> [--Header] [--Uses] [--Symbols] [--Sections] [--All] [--Format=Text|Json] [--Verbose]', [
+        'Analyzes a Delphi compiled unit (.dcu) and prints structural information.',
+        'This is the iteration-1 reader: it decodes the magic bytes, the embedded source',
+        'file references (primary unit source + includes), the unit name and the',
+        'interface uses table with each entry''s stored CRC.',
+        'Symbols and Sections inventories are reported as placeholders and will be',
+        'filled in by future iterations.',
+        'Section filters (default: --All):',
+        '  --Header   Magic, compiler guess, unit name, source file references.',
+        '             The header''s source-file list is the closest thing to a',
+        '             unit dependency overview that iteration 1 can give you.',
+        '  --Uses     Implicit System reference embedded in the modern DCU header.',
+        '             This is NOT yet the full interface uses table; the full',
+        '             dependency tree requires symbol-section parsing in a',
+        '             later iteration.',
+        '  --Symbols  Reserved for iteration 2.',
+        '  --Sections Reserved for iteration 2.',
+        'Output:',
+        '  --Format=Text (default) or --Format=Json for machine-readable output.',
+        '  --Verbose adds a hex preview of the first bytes and any analyzer diagnostics.',
+        'The DelphiVersion argument is irrelevant for this action: the compiler that',
+        'produced the DCU is detected from the file itself.',
+        'Example: DPT DcuAnalyze C:\Path\To\MyUnit.dcu --Format=Json'
+      ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
         'Lists all build configurations defined in the specified .dproj file.',
         'Example: DPT D13 DProjPrintConfigs MyProject.dproj'

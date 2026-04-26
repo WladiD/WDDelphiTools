@@ -15,6 +15,9 @@ uses
   DUnitX.TestFramework,
 
   Test.DPT.BuildAndRunTask,
+  Test.DPT.Dcu.Analyzer,
+  Test.DPT.Dcu.MultiVersion,
+  Test.DPT.Dcu.Reader,
   Test.DPT.DProjAnalyzer,
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
