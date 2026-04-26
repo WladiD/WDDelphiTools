@@ -104,6 +104,23 @@ begin
         'produced the DCU is detected from the file itself.',
         'Example: DPT DcuAnalyze C:\Path\To\MyUnit.dcu --Format=Json'
       ]),
+      TActionInfo.Create('DcuDiff', '<DcuFileA> <DcuFileB> [--Format=Text|Json] [--Quiet]', [
+        'Compares two Delphi compiled units (.dcu) and reports the differences',
+        'in the dimensions DcuAnalyze can extract: header (magic/compiler/platform),',
+        'source-file references, interface uses and implementation uses.',
+        'Uses lists are compared as ordered sequences: the report distinguishes',
+        '"set membership changed" (units added/removed) from "order changed"',
+        '(same set, different sequence). Order matters because Delphi uses the',
+        'uses-clause order for unit initialization and name resolution.',
+        'Options:',
+        '  --Format=Text (default) or --Format=Json for machine-readable output.',
+        '  --Quiet suppresses output and reports only via the exit code (CI mode).',
+        'Exit codes:',
+        '  0  the two DCUs are identical in every tracked dimension',
+        '  1  the two DCUs differ',
+        '  2  one of the input files could not be read',
+        'Example: DPT DcuDiff old\MyUnit.dcu new\MyUnit.dcu --Format=Json'
+      ]),
       TActionInfo.Create('DProjPrintConfigs', '<ProjectFile>', [
         'Lists all build configurations defined in the specified .dproj file.',
         'Example: DPT D13 DProjPrintConfigs MyProject.dproj'

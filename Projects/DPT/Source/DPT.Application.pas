@@ -53,6 +53,7 @@ uses
   DPT.Build.Task,
   DPT.BuildEnvironment.Task,
   DPT.Dcu.Analyze.Task,
+  DPT.Dcu.Diff.Task,
   DPT.Detection,
   DPT.DProj.Task,
   DPT.DProjAnalyzer,
@@ -92,6 +93,7 @@ begin
   RegisterTask('PrintPath', TDptPrintPathTask);
   RegisterTask('OpenUnit', TDptOpenUnitTask);
   RegisterTask('DcuAnalyze', TDptDcuAnalyzeTask);
+  RegisterTask('DcuDiff', TDptDcuDiffTask);
   RegisterTask('DProjPrintConfigs', TDptDProjPrintConfigsTask);
   RegisterTask('DProjPrintCurConfig', TDptDProjPrintCurConfigTask);
   RegisterTask('DProjPrintOutputFile', TDptDProjPrintOutputFileTask);
