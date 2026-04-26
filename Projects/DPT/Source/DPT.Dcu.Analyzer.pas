@@ -42,6 +42,9 @@ type
       ///   dozen; the cap is intentionally generous.
       ///   </summary>
       MaxUsesEntries = 1024;
+
+      /// <summary>Hard cap on how many symbol references to record.</summary>
+      MaxSymbolRefs = 65536;
   private
     class function ExtractUnitName(const ASourceFileName: string): string;
     class function HasKnownSourceExtension(const AFileName: string): Boolean;
@@ -54,6 +57,10 @@ type
     class procedure ScanSourceReferences(AReader: TDcuReader;
       var AHeader: TDcuHeaderInfo; ADiagnostics: IList<string>);
     class procedure ScanUsesTable(AReader: TDcuReader;
+      var AResult: TDcuAnalysisResult);
+    class function LooksLikeSymbolName(const AName: string;
+      AKind: TDcuSymbolKind): Boolean;
+    class procedure ScanSymbolRefs(AReader: TDcuReader;
       var AResult: TDcuAnalysisResult);
   public
     class function Analyze(const AFilePath: string): TDcuAnalysisResult; overload;
@@ -317,6 +324,147 @@ begin
     (AResult.InterfaceUses.Count > 0) or (AResult.ImplementationUses.Count > 0);
 end;
 
+class function TDcuAnalyzer.LooksLikeSymbolName(const AName: string;
+  AKind: TDcuSymbolKind): Boolean;
+var
+  I    : Integer;
+  Start: Integer;
+begin
+  Result := False;
+  if (Length(AName) = 0) or (Length(AName) > DcuSymbolRefMaxLen) then
+    Exit;
+
+  // Method names occasionally appear with a leading dot (anchored to
+  // the previously emitted owning type, e.g. ".TDptBuildTask"). Type
+  // refs never start with a dot.
+  Start := 1;
+  if (AKind = dskMethod) and (AName[1] = '.') then
+  begin
+    if Length(AName) = 1 then
+      Exit;
+    Start := 2;
+  end;
+
+  // First non-dot character must be a letter or underscore.
+  case AName[Start] of
+    'A'..'Z', 'a'..'z', '_': ;
+  else
+    Exit;
+  end;
+
+  // Every character must belong to a Pascal qualified identifier.
+  for I := Start to Length(AName) do
+    if not IsValidUnitNameChar(Ord(AName[I])) then
+      Exit;
+  // No double dots and no trailing dot.
+  if AName[Length(AName)] = '.' then
+    Exit;
+  for I := Start to Length(AName) - 1 do
+    if (AName[I] = '.') and (AName[I + 1] = '.') then
+      Exit;
+
+  Result := True;
+end;
+
+class procedure TDcuAnalyzer.ScanSymbolRefs(AReader: TDcuReader;
+  var AResult: TDcuAnalysisResult);
+var
+  Consumed : Integer;
+  Hash     : UInt32;
+  Kind     : TDcuSymbolKind;
+  Name     : string;
+  Offset   : Integer;
+  Seen     : IKeyValue<string, Boolean>;
+  TagByte  : Byte;
+  TrailerOk: Boolean;
+
+  function MatchUsesEntryAt(AOffset: Integer; out AEntryLen: Integer): Boolean;
+  var
+    UCons: Integer;
+    UName: string;
+  begin
+    AEntryLen := 0;
+    Result := False;
+    if (AOffset + 2 >= AReader.Size) then Exit;
+    if AReader.Bytes[AOffset] <> DcuUsesTag_Marker then Exit;
+    if not (AReader.Bytes[AOffset + 1] in
+      [DcuUsesTag_InterfaceScope, DcuUsesTag_ImplScope]) then Exit;
+    if not AReader.TryReadShortStringAt(AOffset + 2, UName, UCons) then Exit;
+    if not LooksLikeUnitName(UName) then Exit;
+    if AOffset + 2 + UCons + 3 > AReader.Size then Exit;
+    if (AReader.Bytes[AOffset + 2 + UCons]     <> 0) or
+       (AReader.Bytes[AOffset + 2 + UCons + 1] <> 0) or
+       (AReader.Bytes[AOffset + 2 + UCons + 2] <> 0) then Exit;
+    AEntryLen := 2 + UCons + 3;
+    Result := True;
+  end;
+
+var
+  UsesLen: Integer;
+begin
+  AResult.SymbolsParsed := False;
+  Seen := Collections.NewPlainKeyValue<string, Boolean>;
+  Offset := 0;
+
+  while (Offset < AReader.Size - 1) and (AResult.Symbols.Count < MaxSymbolRefs) do
+  begin
+    // Walk past valid uses entries verbatim so a $66/$67 byte that
+    // happens to live inside a uses entry's hash trailer does not get
+    // misread as a symbol-ref tag.
+    if MatchUsesEntryAt(Offset, UsesLen) then
+    begin
+      Inc(Offset, UsesLen);
+      Continue;
+    end;
+
+    TagByte := AReader.Bytes[Offset];
+    if TagByte = DcuSymbolTag_Type then
+      Kind := dskType
+    else if TagByte = DcuSymbolTag_Method then
+      Kind := dskMethod
+    else
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    if not AReader.TryReadShortStringAt(Offset + 1, Name, Consumed) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    if not LooksLikeSymbolName(Name, Kind) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    // 4-byte hash/CRC trailer is unconstrained but must fit in the file.
+    TrailerOk := Offset + 1 + Consumed + 4 <= AReader.Size;
+    if not TrailerOk then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    Hash :=
+      UInt32(AReader.Bytes[Offset + 1 + Consumed])              or
+      (UInt32(AReader.Bytes[Offset + 1 + Consumed + 1]) shl  8) or
+      (UInt32(AReader.Bytes[Offset + 1 + Consumed + 2]) shl 16) or
+      (UInt32(AReader.Bytes[Offset + 1 + Consumed + 3]) shl 24);
+
+    // First-encounter dedup: a single type/method may be referenced
+    // many times in the file - we record only the earliest occurrence.
+    var Key := DcuSymbolKindName[Kind] + ':' + Name;
+    if not Seen.ContainsKey(Key) then
+    begin
+      Seen.Add(Key, True);
+      AResult.Symbols.Add(TDcuSymbolRef.Create(Kind, Name, Hash, Offset));
+    end;
+    Inc(Offset, 1 + Consumed + 4);
+  end;
+
+  AResult.SymbolsParsed := AResult.Symbols.Count > 0;
+end;
+
 class function TDcuAnalyzer.Analyze(const AFilePath: string): TDcuAnalysisResult;
 var
   Reader: TDcuReader;
@@ -339,6 +487,7 @@ begin
   Result.FileSize := Length(AContent);
   Result.InterfaceUses := Collections.NewPlainList<TDcuUsesEntry>;
   Result.ImplementationUses := Collections.NewPlainList<TDcuUsesEntry>;
+  Result.Symbols := Collections.NewPlainList<TDcuSymbolRef>;
   Result.Diagnostics := Collections.NewList<string>;
   Result.Header.IncludeSources := Collections.NewPlainList<TDcuSourceRef>;
 
@@ -369,6 +518,7 @@ begin
 
     ScanSourceReferences(Reader, Result.Header, Result.Diagnostics);
     ScanUsesTable(Reader, Result);
+    ScanSymbolRefs(Reader, Result);
   finally
     Reader.Free;
   end;

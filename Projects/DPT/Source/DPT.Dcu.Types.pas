@@ -24,6 +24,33 @@ type
   TDcuUsesScope = (dusUnknown, dusInterface, dusImplementation);
 
   /// <summary>
+  ///   Classifies an imported-symbol cross-reference found in the DCU.
+  ///   The mapping comes from the modern-DCU tag byte that precedes each
+  ///   length-prefixed symbol name:
+  ///   * <c>$66</c> = type reference (e.g. <c>TObject</c>, <c>string</c>)
+  ///   * <c>$67</c> = method reference (often qualified like
+  ///     <c>TObject.Equals</c>; sometimes with a leading dot when
+  ///     anchored to the previous type in scope)
+  /// </summary>
+  TDcuSymbolKind = (dskType, dskMethod);
+
+  /// <summary>
+  ///   A single imported-symbol cross-reference. The DCU records these
+  ///   as fixed-layout entries: tag byte, 1-byte length, ASCII name,
+  ///   4-byte stored hash/CRC. Iteration 3 of the analyzer extracts
+  ///   only the imported references, not the unit's own declared
+  ///   symbols.
+  /// </summary>
+  TDcuSymbolRef = record
+    Kind  : TDcuSymbolKind;
+    Name  : string;
+    Hash  : UInt32;
+    Offset: Integer;
+    constructor Create(AKind: TDcuSymbolKind; const AName: string;
+      AHash: UInt32; AOffset: Integer);
+  end;
+
+  /// <summary>
   ///   Represents an entry in the DCU's uses table. Each entry carries
   ///   the imported unit's name, the scope (interface/implementation)
   ///   the compiler tagged it with, and the byte offset at which the
@@ -98,6 +125,8 @@ type
     InterfaceUses     : IList<TDcuUsesEntry>;
     ImplementationUses: IList<TDcuUsesEntry>;
     UsesParsed        : Boolean;
+    Symbols           : IList<TDcuSymbolRef>;
+    SymbolsParsed     : Boolean;
     Diagnostics       : IList<string>;
     FirstBytesPreview : string;
   end;
@@ -124,6 +153,22 @@ const
 
   /// <summary>Maximum length we will accept for a uses-entry name.</summary>
   DcuUsesEntryMaxLen = 200;
+
+  /// <summary>
+  ///   Tag bytes that prefix imported-symbol cross-reference entries in
+  ///   the modern DCU layout. Each entry is followed by a 1-byte length,
+  ///   the ASCII name, and a 4-byte hash/CRC trailer.
+  /// </summary>
+  DcuSymbolTag_Type   = $66;
+  DcuSymbolTag_Method = $67;
+
+  /// <summary>Maximum length we will accept for a symbol-ref name.</summary>
+  DcuSymbolRefMaxLen = 200;
+
+  DcuSymbolKindName: array[TDcuSymbolKind] of string = (
+    { dskType   } 'Type',
+    { dskMethod } 'Method'
+  );
 
   /// <summary>
   ///   Identifiers that look like valid Pascal unit names but are in
@@ -196,6 +241,17 @@ constructor TDcuUsesEntry.Create(const AUnitName: string; AScope: TDcuUsesScope;
 begin
   UnitName := AUnitName;
   Scope := AScope;
+  Offset := AOffset;
+end;
+
+{ TDcuSymbolRef }
+
+constructor TDcuSymbolRef.Create(AKind: TDcuSymbolKind; const AName: string;
+  AHash: UInt32; AOffset: Integer);
+begin
+  Kind := AKind;
+  Name := AName;
+  Hash := AHash;
   Offset := AOffset;
 end;
 

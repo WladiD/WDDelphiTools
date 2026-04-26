@@ -236,8 +236,34 @@ begin
   if dasSymbols in FSections then
   begin
     ALines.Add('');
-    ALines.Add('[Symbols]');
-    ALines.Add('  (reserved for a later iteration)');
+    var TypeCount := 0;
+    var MethodCount := 0;
+    for var Sym in AResult.Symbols do
+      case Sym.Kind of
+        dskType  : Inc(TypeCount);
+        dskMethod: Inc(MethodCount);
+      end;
+    ALines.Add(System.SysUtils.Format('[Symbols] (types: %d, methods: %d)',
+      [TypeCount, MethodCount]));
+    if AResult.Symbols.Count = 0 then
+      ALines.Add('  (none detected)')
+    else
+    begin
+      if TypeCount > 0 then
+      begin
+        ALines.Add('  Type references:');
+        for var Sym in AResult.Symbols do
+          if Sym.Kind = dskType then
+            ALines.Add('    ' + Sym.Name);
+      end;
+      if MethodCount > 0 then
+      begin
+        ALines.Add('  Method references:');
+        for var Sym in AResult.Symbols do
+          if Sym.Kind = dskMethod then
+            ALines.Add('    ' + Sym.Name);
+      end;
+    end;
   end;
 
   if dasSections in FSections then
@@ -321,7 +347,27 @@ begin
     end;
 
     if dasSymbols in FSections then
-      Add('  "symbols": null,');
+    begin
+      Sb.Append('  "symbols": { "types": [');
+      First := True;
+      for var Sym in AResult.Symbols do
+        if Sym.Kind = dskType then
+        begin
+          if not First then Sb.Append(', ');
+          Sb.Append(JsonStr(Sym.Name));
+          First := False;
+        end;
+      Sb.Append('], "methods": [');
+      First := True;
+      for var Sym in AResult.Symbols do
+        if Sym.Kind = dskMethod then
+        begin
+          if not First then Sb.Append(', ');
+          Sb.Append(JsonStr(Sym.Name));
+          First := False;
+        end;
+      Add('] },');
+    end;
 
     if dasSections in FSections then
       Add('  "sections": null,');

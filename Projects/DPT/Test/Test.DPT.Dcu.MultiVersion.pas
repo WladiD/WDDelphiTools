@@ -394,6 +394,35 @@ begin
         Continue;
       end;
 
+      // Iteration 4: the fixture references TStringList, calls
+      // IntToStr and uses Integer/string types. The symbol scanner
+      // must surface at least one type and one method reference.
+      if not Res.SymbolsParsed then
+      begin
+        Run.Reason := 'SymbolsParsed=false on a fixture that references types and methods';
+        Failures.Add(Run);
+        Probed.Add(Run);
+        Continue;
+      end;
+      var FoundType, FoundMethod: Boolean;
+      FoundType := False;
+      FoundMethod := False;
+      for var Sym in Res.Symbols do
+        case Sym.Kind of
+          dskType  : FoundType := True;
+          dskMethod: FoundMethod := True;
+        end;
+      if not (FoundType and FoundMethod) then
+      begin
+        Run.Reason := Format(
+          'Symbols incomplete: type=%s, method=%s (total %d)',
+          [BoolToStr(FoundType, True), BoolToStr(FoundMethod, True),
+           Res.Symbols.Count]);
+        Failures.Add(Run);
+        Probed.Add(Run);
+        Continue;
+      end;
+
       Run.Ok := True;
       Run.MagicHex := Res.Header.MagicHex
         + ' -> ' + DcuKnownCompilerName[Res.Header.DetectedCompiler]
