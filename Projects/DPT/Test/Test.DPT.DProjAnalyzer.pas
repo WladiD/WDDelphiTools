@@ -10,6 +10,8 @@ interface
 
 uses
 
+  Winapi.Windows,
+
   System.IOUtils,
   System.SysUtils,
 
@@ -54,6 +56,14 @@ type
     procedure GetProjectOutputFile_MultipleGroups;
     [Test]
     procedure GetProjectOutputFile_ComplexConditions;
+    [Test]
+    procedure GetProjectOutputFile_CustomVariableWithDefault;
+    [Test]
+    procedure GetProjectOutputFile_CustomVariableOverridden;
+    [Test]
+    procedure GetProjectOutputFile_ExeOutputElementCondition;
+    [Test]
+    procedure GetProjectOutputFile_EnvironmentVariableFallback;
   end;
 
 implementation
@@ -359,6 +369,109 @@ begin
     Assert.AreEqual(ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'ReleaseOutput\TestProject.exe')), Analyzer.GetProjectOutputFile('Release', 'Win32'));
   finally
     Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_CustomVariableWithDefault;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // Mirrors the TAIFUN_TEST_DIR pattern: a custom property declares its own
+  // default via a Condition, and DCC_ExeOutput references the variable.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <CUSTOM_DIR Condition="'$(CUSTOM_DIR)'==''">.\Default</CUSTOM_DIR>
+        <DCC_ExeOutput>$(CUSTOM_DIR)</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(
+      ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Default\TestProject.exe')),
+      Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_CustomVariableOverridden;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // When the custom property already has a value (set earlier in the file or
+  // by an outer group), the conditional default must not overwrite it.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <CUSTOM_DIR>.\Explicit</CUSTOM_DIR>
+        <CUSTOM_DIR Condition="'$(CUSTOM_DIR)'==''">.\Default</CUSTOM_DIR>
+        <DCC_ExeOutput>$(CUSTOM_DIR)</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(
+      ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Explicit\TestProject.exe')),
+      Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_ExeOutputElementCondition;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // <DCC_ExeOutput Condition="..."> with element-level conditions:
+  // only the matching one wins; the non-matching one must be ignored.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_ExeOutput Condition="'$(OVERRIDE)'!=''">.\Override</DCC_ExeOutput>
+        <DCC_ExeOutput Condition="'$(OVERRIDE)'==''">.\Fallback</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual(
+      ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'Fallback\TestProject.exe')),
+      Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_EnvironmentVariableFallback;
+const
+  EnvVarName = 'DPT_TEST_OUTPUT_DIR_F1A2B3';
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // Variables not declared in the dproj must fall back to the process
+  // environment so MSBuild-style external configuration keeps working.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <DCC_ExeOutput>$(DPT_TEST_OUTPUT_DIR_F1A2B3)</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  SetEnvironmentVariable(PChar(EnvVarName), PChar('.\FromEnv'));
+  try
+    Analyzer := TDProjAnalyzer.Create(FTestFile);
+    try
+      Assert.AreEqual(
+        ExpandFileName(TPath.Combine(ExtractFilePath(FTestFile), 'FromEnv\TestProject.exe')),
+        Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    finally
+      Analyzer.Free;
+    end;
+  finally
+    SetEnvironmentVariable(PChar(EnvVarName), nil);
   end;
 end;
 

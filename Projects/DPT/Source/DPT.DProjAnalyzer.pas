@@ -21,6 +21,7 @@ type
     function  EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
     procedure LoadContent;
     procedure ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
+    function  ResolveVariables(const AValue: String; const ADefinitions: IDictionary_String_String): String;
   public
     class function ResolvePath(const APath, ABaseDir: String): String;
   public
@@ -138,18 +139,52 @@ end;
 
 procedure TDProjAnalyzer.ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
 var
-  Key        : String;
-  PropMatch  : TMatch;
-  PropMatches: TMatchCollection;
-  Value      : String;
+  CondAttrMatch: TMatch;
+  Condition    : String;
+  Key          : String;
+  PropMatch    : TMatch;
+  PropMatches  : TMatchCollection;
+  Value        : String;
 begin
-  // Regex to find <Key>Value</Key>
-  PropMatches := TRegEx.Matches(ABody, '<(\w+)>([^<]+)</\1>');
+  // Match <Key>Value</Key> as well as <Key Attr1="..." Attr2="...">Value</Key>.
+  // Group 1: tag name, Group 2: attributes (optional), Group 3: value.
+  PropMatches := TRegEx.Matches(ABody, '<(\w+)((?:\s+\w+="[^"]*")*)\s*>([^<]+)</\1>');
   for PropMatch in PropMatches do
   begin
     Key := PropMatch.Groups[1].Value;
-    Value := PropMatch.Groups[2].Value;
-    ADefinitions[LowerCase(Key)] := Value;
+    Value := PropMatch.Groups[3].Value;
+
+    Condition := '';
+    CondAttrMatch := TRegEx.Match(PropMatch.Groups[2].Value, 'Condition="([^"]+)"', [roIgnoreCase]);
+    if CondAttrMatch.Success then
+      Condition := CondAttrMatch.Groups[1].Value;
+
+    if (Condition = '') or EvaluateCondition(Condition, ADefinitions) then
+      ADefinitions[LowerCase(Key)] := Value;
+  end;
+end;
+
+function TDProjAnalyzer.ResolveVariables(const AValue: String; const ADefinitions: IDictionary_String_String): String;
+var
+  EnvValue  : String;
+  VarMatch  : TMatch;
+  VarMatches: TMatchCollection;
+  VarName   : String;
+  VarValue  : String;
+begin
+  Result := AValue;
+  VarMatches := TRegEx.Matches(Result, '\$\((\w+)\)');
+  for VarMatch in VarMatches do
+  begin
+    VarName := VarMatch.Groups[1].Value;
+    if ADefinitions.TryGetValue(LowerCase(VarName), VarValue) and (VarValue <> '') then
+      Result := StringReplace(Result, VarMatch.Value, VarValue, [rfReplaceAll, rfIgnoreCase])
+    else
+    begin
+      EnvValue := GetEnvironmentVariable(VarName);
+      if EnvValue <> '' then
+        Result := StringReplace(Result, VarMatch.Value, EnvValue, [rfReplaceAll, rfIgnoreCase]);
+    end;
   end;
 end;
 
@@ -188,25 +223,16 @@ begin
     Body := GroupMatch.Groups[2].Value;
 
     if EvaluateCondition(RawCondition, Definitions) then
-    begin
-      // Parse properties to update Definitions (like Cfg_1, Base, etc.)
       ParseProperties(Body, Definitions);
-
-      // Check for DCC_ExeOutput in this active block
-      ValMatch := TRegEx.Match(Body, '<DCC_ExeOutput>(.*?)</DCC_ExeOutput>', [roIgnoreCase]);
-      if ValMatch.Success then
-      begin
-        ExeOutput := ValMatch.Groups[1].Value;
-      end;
-    end;
   end;
+
+  if not Definitions.TryGetValue('dcc_exeoutput', ExeOutput) then
+    ExeOutput := '';
 
   if ExeOutput <> '' then
   begin
-    // Replace variables
-    ExeOutput := ExeOutput.Replace('$(Platform)', APlatform, [rfReplaceAll, rfIgnoreCase]);
-    ExeOutput := ExeOutput.Replace('$(Config)', AConfig, [rfReplaceAll, rfIgnoreCase]);
-    
+    ExeOutput := ResolveVariables(ExeOutput, Definitions);
+
     // Construct path
     if TPath.IsPathRooted(ExeOutput) then
       PossiblePath := TPath.Combine(ExeOutput, BaseName)
