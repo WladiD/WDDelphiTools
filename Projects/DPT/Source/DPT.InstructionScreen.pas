@@ -74,12 +74,13 @@ begin
         'Same parameters and features as Build action (rsvars.bat, TmplCodeGen preprocessing).',
         'Example: DPT LATEST Compile MyProject.dproj Win64 Release'
       ]),
-      TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [-- <Args>]', [
+      TActionInfo.Create('BuildAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [ExtraArgs] [-- <Args>]', [
         'Builds and executes the project.',
         'Supports standard Build parameters and TmplCodeGen preprocessing (see Build action).',
         'Options:',
         '  --OnlyIfChanged: Skips build if executable is newer than source files.',
         '  --NoWait: Launches the executable asynchronously without waiting for it to terminate.',
+        '  ExtraArgs: Any unrecognized arguments are forwarded to MSBuild (e.g. /p:DCC_DcuOutput=...).',
         '  -- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
