@@ -199,6 +199,7 @@ begin
     ALines.Add('[Header]');
     ALines.Add('  Magic:    ' + AResult.Header.MagicHex);
     ALines.Add('  Compiler: ' + DcuKnownCompilerName[AResult.Header.DetectedCompiler]);
+    ALines.Add('  Platform: ' + DcuPlatformName[AResult.Header.DetectedPlatform]);
     if AResult.Header.UnitName <> '' then
       ALines.Add('  Unit:     ' + AResult.Header.UnitName);
     if AResult.Header.PrimarySource.FileName <> '' then
@@ -216,29 +217,34 @@ begin
   if dasUses in FSections then
   begin
     ALines.Add('');
-    ALines.Add('[Implicit System Reference]');
-    if not AResult.UsesParsed then
-      ALines.Add('  (not detected)')
+    ALines.Add('[Interface uses] (' + IntToStr(AResult.InterfaceUses.Count) + ')');
+    if AResult.InterfaceUses.Count = 0 then
+      ALines.Add('  (none detected)')
     else
-    begin
       for UsesEntry in AResult.InterfaceUses do
-        ALines.Add(System.SysUtils.Format('  %-32s trailer=$%.8x',
-          [UsesEntry.UnitName, UsesEntry.CRC]));
-    end;
+        ALines.Add('  ' + UsesEntry.UnitName);
+
+    ALines.Add('');
+    ALines.Add('[Implementation uses] (' + IntToStr(AResult.ImplementationUses.Count) + ')');
+    if AResult.ImplementationUses.Count = 0 then
+      ALines.Add('  (none detected)')
+    else
+      for UsesEntry in AResult.ImplementationUses do
+        ALines.Add('  ' + UsesEntry.UnitName);
   end;
 
   if dasSymbols in FSections then
   begin
     ALines.Add('');
     ALines.Add('[Symbols]');
-    ALines.Add('  (not implemented in iteration 1)');
+    ALines.Add('  (reserved for a later iteration)');
   end;
 
   if dasSections in FSections then
   begin
     ALines.Add('');
     ALines.Add('[Sections]');
-    ALines.Add('  (not implemented in iteration 1)');
+    ALines.Add('  (reserved for a later iteration)');
   end;
 
   if (AResult.Diagnostics.Count > 0) and FVerbose then
@@ -276,6 +282,7 @@ begin
       Add('  "header": {');
       Add('    "magic": ' + JsonStr(AResult.Header.MagicHex) + ',');
       Add('    "compiler": ' + JsonStr(DcuKnownCompilerName[AResult.Header.DetectedCompiler]) + ',');
+      Add('    "platform": ' + JsonStr(DcuPlatformName[AResult.Header.DetectedPlatform]) + ',');
       Add('    "unit": ' + JsonStr(AResult.Header.UnitName) + ',');
       Add('    "source": ' + JsonStr(AResult.Header.PrimarySource.FileName) + ',');
       Sb.Append('    "includes": [');
@@ -292,21 +299,25 @@ begin
 
     if dasUses in FSections then
     begin
-      Add('  "interfaceUses": {');
-      Add('    "parsed": ' + IfThen(AResult.UsesParsed, 'true', 'false') + ',');
-      Add('    "count": ' + IntToStr(AResult.InterfaceUses.Count) + ',');
-      Add('    "entries": [');
+      Sb.Append('  "interfaceUses": [');
       First := True;
       for UsesEntry in AResult.InterfaceUses do
       begin
-        if not First then Sb.AppendLine(',');
-        Sb.Append(System.SysUtils.Format('      { "unit": %s, "crc": "0x%.8x" }',
-          [JsonStr(UsesEntry.UnitName), UsesEntry.CRC]));
+        if not First then Sb.Append(', ');
+        Sb.Append(JsonStr(UsesEntry.UnitName));
         First := False;
       end;
-      Sb.AppendLine;
-      Add('    ]');
-      Add('  },');
+      Add('],');
+
+      Sb.Append('  "implementationUses": [');
+      First := True;
+      for UsesEntry in AResult.ImplementationUses do
+      begin
+        if not First then Sb.Append(', ');
+        Sb.Append(JsonStr(UsesEntry.UnitName));
+        First := False;
+      end;
+      Add('],');
     end;
 
     if dasSymbols in FSections then

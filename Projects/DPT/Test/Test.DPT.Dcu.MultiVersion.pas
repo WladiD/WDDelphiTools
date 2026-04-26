@@ -48,6 +48,7 @@ type
     function MakeFixturePas(const ADir, AUnitName: string): string;
     function RunRedirectedCmd(const ACommandLine, AWorkingDir: string;
       out AOutput: string): Integer;
+    function ExpectedCompilerFor(AInstallation: TJclBorRADToolInstallation): TDcuKnownCompiler;
     function VersionLabelOf(AInstallation: TJclBorRADToolInstallation): string;
   public
     [Test] procedure AnalyzerHandlesEveryInstalledDelphiVersion;
@@ -61,18 +62,37 @@ uses
 
 const
   FixtureUnitName = 'DptDcuFixture';
+  // The fixture mentions one specific interface uses entry and one
+  // specific implementation uses entry so the analyzer's scope
+  // discrimination can be verified independently of the compiler.
+  FixtureInterfaceUsesUnit = 'System.SysUtils';
+  FixtureImplementationUsesUnit = 'System.Classes';
   FixtureSource =
     'unit ' + FixtureUnitName + ';' + sLineBreak +
     sLineBreak +
     'interface' + sLineBreak +
     sLineBreak +
-    'function GiveOne: Integer;' + sLineBreak +
+    'uses' + sLineBreak +
+    '  ' + FixtureInterfaceUsesUnit + ';' + sLineBreak +
+    sLineBreak +
+    'function GiveMessage: string;' + sLineBreak +
     sLineBreak +
     'implementation' + sLineBreak +
     sLineBreak +
-    'function GiveOne: Integer;' + sLineBreak +
+    'uses' + sLineBreak +
+    '  ' + FixtureImplementationUsesUnit + ';' + sLineBreak +
+    sLineBreak +
+    'function GiveMessage: string;' + sLineBreak +
+    'var' + sLineBreak +
+    '  L: TStringList;' + sLineBreak +
     'begin' + sLineBreak +
-    '  Result := 1;' + sLineBreak +
+    '  L := TStringList.Create;' + sLineBreak +
+    '  try' + sLineBreak +
+    '    L.Add(IntToStr(1));' + sLineBreak +
+    '    Result := L.Text;' + sLineBreak +
+    '  finally' + sLineBreak +
+    '    L.Free;' + sLineBreak +
+    '  end;' + sLineBreak +
     'end;' + sLineBreak +
     sLineBreak +
     'end.' + sLineBreak;
@@ -213,6 +233,23 @@ begin
     AErrorOutput := 'Compiled successfully but no .dcu produced in ' + AOutputDir;
 end;
 
+function TTestDcuMultiVersion.ExpectedCompilerFor(
+  AInstallation: TJclBorRADToolInstallation): TDcuKnownCompiler;
+begin
+  // Mapping IDE version (BDS) -> known compiler for the empirical magic
+  // byte table. Only versions that the analyzer can identify return a
+  // non-Unknown value; everything else (older or newer than what has
+  // been sampled) stays dccUnknown so the test does not impose a
+  // mapping the analyzer cannot match yet.
+  case AInstallation.IDEVersionNumber of
+    22: Result := dccDelphi11;
+    23: Result := dccDelphi12;
+    37: Result := dccDelphi13;
+  else
+    Result := dccUnknown;
+  end;
+end;
+
 function TTestDcuMultiVersion.VersionLabelOf(AInstallation: TJclBorRADToolInstallation): string;
 begin
   Result := AInstallation.Name + ' (IDE ' + IntToStr(AInstallation.IDEVersionNumber) + ')';
@@ -282,6 +319,31 @@ begin
         Probed.Add(Run);
         Continue;
       end;
+      // The fixture is compiled with dcc32, so the platform must always
+      // resolve to Win32 if the empirical platform table is correct.
+      if Res.Header.DetectedPlatform <> dpWin32 then
+      begin
+        Run.Reason := Format('Platform expected dpWin32, got %s (magic %s)',
+          [DcuPlatformName[Res.Header.DetectedPlatform], Res.Header.MagicHex]);
+        Failures.Add(Run);
+        Probed.Add(Run);
+        Continue;
+      end;
+      // Only enforce compiler identification for versions whose byte-3
+      // mapping has actually been wired in. Untracked versions keep the
+      // run marked OK (they still passed IsDcu/uses checks) but emit a
+      // hint in the corpus log.
+      var Expected := ExpectedCompilerFor(Inst);
+      if (Expected <> dccUnknown) and (Res.Header.DetectedCompiler <> Expected) then
+      begin
+        Run.Reason := Format('Compiler expected %s, got %s (magic %s)',
+          [DcuKnownCompilerName[Expected],
+           DcuKnownCompilerName[Res.Header.DetectedCompiler],
+           Res.Header.MagicHex]);
+        Failures.Add(Run);
+        Probed.Add(Run);
+        Continue;
+      end;
       if not SameText(Res.Header.UnitName, FixtureName) then
       begin
         Run.Reason := Format('UnitName mismatch (got "%s", expected "%s")',
@@ -298,23 +360,44 @@ begin
         Continue;
       end;
 
+      // Iteration 2: verify the fixture's specific interface and
+      // implementation uses entries are recovered with the right scope.
       UsesContainsSystem := False;
       for Entry in Res.InterfaceUses do
-        if SameText(Entry.UnitName, 'System') then
+        if SameText(Entry.UnitName, FixtureInterfaceUsesUnit) then
         begin
           UsesContainsSystem := True;
           Break;
         end;
-
       if not UsesContainsSystem then
       begin
-        Run.Reason := 'Interface uses table does not contain "System"';
+        Run.Reason := Format('Interface uses missing "%s"; got %d interface entries',
+          [FixtureInterfaceUsesUnit, Res.InterfaceUses.Count]);
+        Failures.Add(Run);
+        Probed.Add(Run);
+        Continue;
+      end;
+
+      UsesContainsSystem := False;
+      for Entry in Res.ImplementationUses do
+        if SameText(Entry.UnitName, FixtureImplementationUsesUnit) then
+        begin
+          UsesContainsSystem := True;
+          Break;
+        end;
+      if not UsesContainsSystem then
+      begin
+        Run.Reason := Format('Implementation uses missing "%s"; got %d impl entries',
+          [FixtureImplementationUsesUnit, Res.ImplementationUses.Count]);
         Failures.Add(Run);
         Probed.Add(Run);
         Continue;
       end;
 
       Run.Ok := True;
+      Run.MagicHex := Res.Header.MagicHex
+        + ' -> ' + DcuKnownCompilerName[Res.Header.DetectedCompiler]
+        + '/' + DcuPlatformName[Res.Header.DetectedPlatform];
       Probed.Add(Run);
     end;
   finally

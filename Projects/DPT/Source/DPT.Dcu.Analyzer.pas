@@ -37,25 +37,24 @@ type
       PreviewByteCount = 64;
 
       /// <summary>
-      ///   The "00 64" block in modern DCUs has been observed to contain a
-      ///   single implicit System reference followed by the symbol section.
-      ///   Reading more entries here would simply mis-classify type symbols
-      ///   ("string", "Integer", ...) as units. Iteration 1 therefore caps
-      ///   the extraction at one entry and treats this list as the implicit
-      ///   System reference rather than the full interface uses table; the
-      ///   real uses-with-source information is exposed via the source file
-      ///   references in the Header section.
-      /// </summary>
-      MaxUsesEntries = 1;
+      ///   Hard cap on how many uses entries to extract before bailing out;
+      ///   acts as a runaway-loop guard. Real units rarely exceed a few
+      ///   dozen; the cap is intentionally generous.
+      ///   </summary>
+      MaxUsesEntries = 1024;
   private
     class function ExtractUnitName(const ASourceFileName: string): string;
     class function HasKnownSourceExtension(const AFileName: string): Boolean;
     class function MagicHex(const ABytes: array of Byte): string;
     class function CompilerFromMagic(const ABytes: array of Byte): TDcuKnownCompiler;
+    class function PlatformFromMagic(const ABytes: array of Byte): TDcuPlatform;
+    class function IsValidUnitNameChar(AByte: Byte): Boolean;
+    class function IsBuiltinNonUnitName(const AName: string): Boolean;
+    class function LooksLikeUnitName(const AName: string): Boolean;
     class procedure ScanSourceReferences(AReader: TDcuReader;
       var AHeader: TDcuHeaderInfo; ADiagnostics: IList<string>);
-    class procedure ScanInterfaceUses(AReader: TDcuReader;
-      AStartOffset: Integer; var AResult: TDcuAnalysisResult);
+    class procedure ScanUsesTable(AReader: TDcuReader;
+      var AResult: TDcuAnalysisResult);
   public
     class function Analyze(const AFilePath: string): TDcuAnalysisResult; overload;
     class function Analyze(const AContent: TBytes;
@@ -92,13 +91,31 @@ end;
 
 class function TDcuAnalyzer.CompilerFromMagic(const ABytes: array of Byte): TDcuKnownCompiler;
 begin
-  // The empirical mapping is intentionally narrow in iteration 1.
-  // The multi-Delphi-version test suite is responsible for filling in
-  // additional rows here as more compiler versions get observed.
-  if ABytes[0] = DcuMagicByte_Modern then
-    Result := dccUnknown // recognised as DCU but compiler not yet pinned
+  // Empirical: byte 3 increments per compiler version. Only values that
+  // have actually been observed in the multi-version test corpus are
+  // mapped here; everything else stays dccUnknown so a future compiler's
+  // DCU is honestly reported as unidentified instead of misclassified.
+  if ABytes[0] <> DcuMagicByte_Modern then
+    Exit(dccUnknown);
+  case ABytes[3] of
+    DcuVersionByte_Delphi11: Result := dccDelphi11;
+    DcuVersionByte_Delphi12: Result := dccDelphi12;
+    DcuVersionByte_Delphi13: Result := dccDelphi13;
   else
     Result := dccUnknown;
+  end;
+end;
+
+class function TDcuAnalyzer.PlatformFromMagic(const ABytes: array of Byte): TDcuPlatform;
+begin
+  if ABytes[0] <> DcuMagicByte_Modern then
+    Exit(dpUnknown);
+  case ABytes[1] of
+    DcuPlatformByte_Win32: Result := dpWin32;
+    DcuPlatformByte_Win64: Result := dpWin64;
+  else
+    Result := dpUnknown;
+  end;
 end;
 
 class procedure TDcuAnalyzer.ScanSourceReferences(AReader: TDcuReader;
@@ -117,9 +134,12 @@ begin
   if EndScan > SourceScanWindow then
     EndScan := SourceScanWindow;
 
-  // Stop the scan at the first uses-anchor occurrence so includes that
-  // happen to embed a printable byte stream do not bleed into uses data.
-  UsesAnchorOfs := AReader.IndexOf(DcuUsesAnchor_Modern, 0);
+  // Stop the source-reference scan at the first $63 $64 / $63 $65 marker
+  // (uses-table start) so its byte stream does not bleed into source
+  // references.
+  UsesAnchorOfs := AReader.IndexOf([DcuUsesTag_Marker, DcuUsesTag_InterfaceScope], 0);
+  if (UsesAnchorOfs <= 0) or (UsesAnchorOfs >= EndScan) then
+    UsesAnchorOfs := AReader.IndexOf([DcuUsesTag_Marker, DcuUsesTag_ImplScope], 0);
   if (UsesAnchorOfs > 0) and (UsesAnchorOfs < EndScan) then
     EndScan := UsesAnchorOfs;
 
@@ -168,41 +188,133 @@ begin
   end;
 end;
 
-class procedure TDcuAnalyzer.ScanInterfaceUses(AReader: TDcuReader;
-  AStartOffset: Integer; var AResult: TDcuAnalysisResult);
-var
-  Consumed: Integer;
-  CRC     : UInt32;
-  Name    : string;
-  Offset  : Integer;
+class function TDcuAnalyzer.IsValidUnitNameChar(AByte: Byte): Boolean;
 begin
-  AResult.UsesParsed := False;
-  AResult.UsesParseStopAt := AStartOffset;
-  if AStartOffset < 0 then
-  begin
-    AResult.Diagnostics.Add('Interface uses anchor not found; uses table not parsed');
+  // Pascal qualified identifiers: A..Z, a..z, 0..9, '_', '.'.
+  // No spaces, no quotes, no operators.
+  Result :=
+    ((AByte >= Ord('A')) and (AByte <= Ord('Z'))) or
+    ((AByte >= Ord('a')) and (AByte <= Ord('z'))) or
+    ((AByte >= Ord('0')) and (AByte <= Ord('9'))) or
+    (AByte = Ord('_')) or
+    (AByte = Ord('.'));
+end;
+
+class function TDcuAnalyzer.IsBuiltinNonUnitName(const AName: string): Boolean;
+var
+  Builtin: string;
+begin
+  Result := False;
+  for Builtin in DcuBuiltinNonUnitNames do
+    if SameText(Builtin, AName) then
+      Exit(True);
+end;
+
+class function TDcuAnalyzer.LooksLikeUnitName(const AName: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if (Length(AName) = 0) or (Length(AName) > DcuUsesEntryMaxLen) then
+    Exit;
+  // Must start with a letter or underscore (not a digit, not a dot).
+  case AName[1] of
+    'A'..'Z', 'a'..'z', '_': ;
+  else
     Exit;
   end;
+  // Every character must be a valid identifier character; no two adjacent
+  // dots; must not end on a dot.
+  for I := 1 to Length(AName) do
+    if not IsValidUnitNameChar(Ord(AName[I])) then
+      Exit;
+  if AName[Length(AName)] = '.' then
+    Exit;
+  for I := 1 to Length(AName) - 1 do
+    if (AName[I] = '.') and (AName[I + 1] = '.') then
+      Exit;
+  // Reject built-in type names that pass all syntactic checks but never
+  // refer to a real unit. These are the typical false-positive matches
+  // when bytes happen to align in the symbol section.
+  if IsBuiltinNonUnitName(AName) then
+    Exit;
+  Result := True;
+end;
 
-  // Anchor sequence is "00 64"; entries start right after.
-  Offset := AStartOffset + Length(DcuUsesAnchor_Modern);
-  while (Offset < AReader.Size) and (AResult.InterfaceUses.Count < MaxUsesEntries) do
+class procedure TDcuAnalyzer.ScanUsesTable(AReader: TDcuReader;
+  var AResult: TDcuAnalysisResult);
+var
+  Consumed   : Integer;
+  Name       : string;
+  Offset     : Integer;
+  Scope      : TDcuUsesScope;
+  ScopeByte  : Byte;
+  TrailerOk  : Boolean;
+  TotalParsed: Integer;
+begin
+  AResult.UsesParsed := False;
+  TotalParsed := 0;
+  Offset := 0;
+
+  while (Offset < AReader.Size - 3) and (TotalParsed < MaxUsesEntries) do
   begin
-    if not AReader.TryReadShortStringAt(Offset, Name, Consumed) then
-      Break;
-    if Offset + Consumed + 4 > AReader.Size then
-      Break;
-    CRC :=
-      UInt32(AReader.Bytes[Offset + Consumed])              or
-      (UInt32(AReader.Bytes[Offset + Consumed + 1]) shl  8) or
-      (UInt32(AReader.Bytes[Offset + Consumed + 2]) shl 16) or
-      (UInt32(AReader.Bytes[Offset + Consumed + 3]) shl 24);
-    AResult.InterfaceUses.Add(TDcuUsesEntry.Create(Name, CRC));
-    Inc(Offset, Consumed + 4);
+    if AReader.Bytes[Offset] <> DcuUsesTag_Marker then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    ScopeByte := AReader.Bytes[Offset + 1];
+    case ScopeByte of
+      DcuUsesTag_InterfaceScope: Scope := dusInterface;
+      DcuUsesTag_ImplScope     : Scope := dusImplementation;
+    else
+      Inc(Offset);
+      Continue;
+    end;
+
+    if not AReader.TryReadShortStringAt(Offset + 2, Name, Consumed) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    if not LooksLikeUnitName(Name) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    // The 3 bytes immediately after the name must all be zero in the
+    // observed layout. This is the strongest filter against false
+    // positives where a $63 byte happens to appear inside a longer
+    // textual symbol name.
+    if Offset + 2 + Consumed + 3 > AReader.Size then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    TrailerOk :=
+      (AReader.Bytes[Offset + 2 + Consumed]     = 0) and
+      (AReader.Bytes[Offset + 2 + Consumed + 1] = 0) and
+      (AReader.Bytes[Offset + 2 + Consumed + 2] = 0);
+    if not TrailerOk then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    case Scope of
+      dusInterface     : AResult.InterfaceUses.Add(
+        TDcuUsesEntry.Create(Name, Scope, Offset));
+      dusImplementation: AResult.ImplementationUses.Add(
+        TDcuUsesEntry.Create(Name, Scope, Offset));
+    end;
+    Inc(TotalParsed);
+    Inc(Offset, 2 + Consumed + 3);
   end;
 
-  AResult.UsesParseStopAt := Offset;
-  AResult.UsesParsed := AResult.InterfaceUses.Count > 0;
+  AResult.UsesParsed :=
+    (AResult.InterfaceUses.Count > 0) or (AResult.ImplementationUses.Count > 0);
 end;
 
 class function TDcuAnalyzer.Analyze(const AFilePath: string): TDcuAnalysisResult;
@@ -220,13 +332,13 @@ end;
 class function TDcuAnalyzer.Analyze(const AContent: TBytes;
   const AFilePath: string): TDcuAnalysisResult;
 var
-  Reader        : TDcuReader;
-  UsesAnchorOfs : Integer;
+  Reader: TDcuReader;
 begin
   Result := Default(TDcuAnalysisResult);
   Result.FilePath := AFilePath;
   Result.FileSize := Length(AContent);
   Result.InterfaceUses := Collections.NewPlainList<TDcuUsesEntry>;
+  Result.ImplementationUses := Collections.NewPlainList<TDcuUsesEntry>;
   Result.Diagnostics := Collections.NewList<string>;
   Result.Header.IncludeSources := Collections.NewPlainList<TDcuSourceRef>;
 
@@ -246,6 +358,7 @@ begin
     Result.Header.MagicBytes[3] := Reader.Bytes[3];
     Result.Header.MagicHex := MagicHex(Result.Header.MagicBytes);
     Result.Header.DetectedCompiler := CompilerFromMagic(Result.Header.MagicBytes);
+    Result.Header.DetectedPlatform := PlatformFromMagic(Result.Header.MagicBytes);
 
     Result.IsDcu := Result.Header.MagicBytes[0] = DcuMagicByte_Modern;
     if not Result.IsDcu then
@@ -255,9 +368,7 @@ begin
     Result.FirstBytesPreview := Reader.HexPreview(0, PreviewByteCount);
 
     ScanSourceReferences(Reader, Result.Header, Result.Diagnostics);
-
-    UsesAnchorOfs := Reader.IndexOf(DcuUsesAnchor_Modern, 0);
-    ScanInterfaceUses(Reader, UsesAnchorOfs, Result);
+    ScanUsesTable(Reader, Result);
   finally
     Reader.Free;
   end;

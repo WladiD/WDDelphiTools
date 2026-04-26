@@ -17,14 +17,24 @@ uses
 type
 
   /// <summary>
-  ///   Represents an entry in the DCU's interface or implementation uses
-  ///   table. Each entry carries the imported unit's name and the CRC the
-  ///   compiler stored to detect "must rebuild" situations.
+  ///   Distinguishes whether an imported unit was referenced from the
+  ///   unit's interface section ($63 $64 marker in the DCU) or from the
+  ///   implementation section ($63 $65 marker).
+  /// </summary>
+  TDcuUsesScope = (dusUnknown, dusInterface, dusImplementation);
+
+  /// <summary>
+  ///   Represents an entry in the DCU's uses table. Each entry carries
+  ///   the imported unit's name, the scope (interface/implementation)
+  ///   the compiler tagged it with, and the byte offset at which the
+  ///   entry was found - useful for diagnostics and round-trip dumps.
   /// </summary>
   TDcuUsesEntry = record
     UnitName: string;
-    CRC     : UInt32;
-    constructor Create(const AUnitName: string; ACRC: UInt32);
+    Scope   : TDcuUsesScope;
+    Offset  : Integer;
+    constructor Create(const AUnitName: string; AScope: TDcuUsesScope;
+      AOffset: Integer);
   end;
 
   /// <summary>
@@ -55,6 +65,13 @@ type
     dccDelphi13);
 
   /// <summary>
+  ///   Identifies the target platform encoded in the DCU header. The
+  ///   mapping is derived from byte 1 of the magic-byte sequence; only
+  ///   values that have been observed on a real DCU are returned.
+  /// </summary>
+  TDcuPlatform = (dpUnknown, dpWin32, dpWin64);
+
+  /// <summary>
   ///   Aggregated header information that the iteration-1 analyzer is
   ///   confident to extract: raw magic bytes, the unit's primary source
   ///   file name, the derived unit name and any embedded source includes.
@@ -63,6 +80,7 @@ type
     MagicBytes      : array[0..3] of Byte;
     MagicHex        : string;
     DetectedCompiler: TDcuKnownCompiler;
+    DetectedPlatform: TDcuPlatform;
     UnitName        : string;
     PrimarySource   : TDcuSourceRef;
     IncludeSources  : IList<TDcuSourceRef>;
@@ -73,15 +91,15 @@ type
   ///   iterations will add Symbols and Sections inventories.
   /// </summary>
   TDcuAnalysisResult = record
-    FilePath        : string;
-    FileSize        : Int64;
-    IsDcu           : Boolean;
-    Header          : TDcuHeaderInfo;
-    InterfaceUses   : IList<TDcuUsesEntry>;
-    UsesParsed      : Boolean;
-    UsesParseStopAt : Integer;
-    Diagnostics     : IList<string>;
-    FirstBytesPreview: string;
+    FilePath          : string;
+    FileSize          : Int64;
+    IsDcu             : Boolean;
+    Header            : TDcuHeaderInfo;
+    InterfaceUses     : IList<TDcuUsesEntry>;
+    ImplementationUses: IList<TDcuUsesEntry>;
+    UsesParsed        : Boolean;
+    Diagnostics       : IList<string>;
+    FirstBytesPreview : string;
   end;
 
 const
@@ -94,11 +112,45 @@ const
   DcuMagicByte_Modern = $4D;
 
   /// <summary>
-  ///   Tag byte sequence that has been observed immediately before the
-  ///   interface uses list on the modern DCU layout. Used as a heuristic
-  ///   anchor point when searching for the uses table.
+  ///   Marker bytes that prefix every uses-table entry in the modern DCU
+  ///   layout. The 2-byte pair always starts with $63 ('c'); the second
+  ///   byte distinguishes the scope: $64 ('d') = interface uses, $65
+  ///   ('e') = implementation uses. Followed by a length-prefixed name
+  ///   and three zero trailer bytes.
   /// </summary>
-  DcuUsesAnchor_Modern: array[0..1] of Byte = ($00, $64);
+  DcuUsesTag_Marker         = $63;
+  DcuUsesTag_InterfaceScope = $64;
+  DcuUsesTag_ImplScope      = $65;
+
+  /// <summary>Maximum length we will accept for a uses-entry name.</summary>
+  DcuUsesEntryMaxLen = 200;
+
+  /// <summary>
+  ///   Identifiers that look like valid Pascal unit names but are in
+  ///   fact built-in types or compiler intrinsics. They never refer to
+  ///   a real unit, so any candidate uses-table entry whose name appears
+  ///   here is a coincidental byte alignment in the symbol section and
+  ///   must be discarded. Comparison is case-insensitive.
+  /// </summary>
+  DcuBuiltinNonUnitNames: array[0..47] of string = (
+    // Integer types
+    'Integer', 'Cardinal', 'Word', 'Byte', 'ShortInt', 'SmallInt',
+    'LongInt', 'LongWord', 'Int8', 'Int16', 'Int32', 'Int64',
+    'UInt8', 'UInt16', 'UInt32', 'UInt64',
+    'NativeInt', 'NativeUInt', 'FixedInt', 'FixedUInt',
+    // Floating point
+    'Single', 'Double', 'Extended', 'Currency', 'Comp', 'Real', 'Real48',
+    // Boolean
+    'Boolean', 'ByteBool', 'WordBool', 'LongBool',
+    // Character & string types
+    'Char', 'AnsiChar', 'WideChar',
+    'string', 'AnsiString', 'UnicodeString', 'RawByteString',
+    'WideString', 'ShortString', 'UTF8String',
+    // Pointer types
+    'Pointer', 'PChar', 'PAnsiChar', 'PWideChar',
+    // Misc intrinsics
+    'Variant', 'OleVariant', 'TDateTime'
+  );
 
   /// <summary>
   ///   File extensions accepted as primary source / include-source
@@ -116,14 +168,35 @@ const
     { dccDelphi13   } 'Delphi 13'
   );
 
+  DcuPlatformName: array[TDcuPlatform] of string = (
+    { dpUnknown } 'Unknown',
+    { dpWin32   } 'Win32',
+    { dpWin64   } 'Win64'
+  );
+
+  /// <summary>
+  ///   Empirically observed mapping byte-3 -> compiler. Each entry must
+  ///   be backed by a real DCU sample produced by the corresponding
+  ///   compiler version, captured in the multi-version test corpus.
+  /// </summary>
+  DcuVersionByte_Delphi11 = $23;
+  DcuVersionByte_Delphi12 = $24;
+  DcuVersionByte_Delphi13 = $25;
+
+  /// <summary>Empirically observed mapping byte-1 -> platform.</summary>
+  DcuPlatformByte_Win32 = $03;
+  DcuPlatformByte_Win64 = $23;
+
 implementation
 
 { TDcuUsesEntry }
 
-constructor TDcuUsesEntry.Create(const AUnitName: string; ACRC: UInt32);
+constructor TDcuUsesEntry.Create(const AUnitName: string; AScope: TDcuUsesScope;
+  AOffset: Integer);
 begin
   UnitName := AUnitName;
-  CRC := ACRC;
+  Scope := AScope;
+  Offset := AOffset;
 end;
 
 { TDcuSourceRef }
