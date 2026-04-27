@@ -17,6 +17,7 @@ uses
   Test.DPT.BuildAndRunTask,
   Test.DPT.Dcu.Analyzer,
   Test.DPT.Dcu.Diff,
+  Test.DPT.Dcu.Index,
   Test.DPT.Dcu.MultiVersion,
   Test.DPT.Dcu.Reader,
   Test.DPT.DProjAnalyzer,
