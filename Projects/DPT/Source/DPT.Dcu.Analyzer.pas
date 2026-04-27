@@ -66,6 +66,18 @@ type
     class function Analyze(const AFilePath: string): TDcuAnalysisResult; overload;
     class function Analyze(const AContent: TBytes;
       const AFilePath: string = ''): TDcuAnalysisResult; overload;
+
+    /// <summary>
+    ///   Walks the uses tables of an existing analysis result and tries
+    ///   to locate each imported unit's DCU on disk by probing the given
+    ///   search paths in order. The first hit wins. Entries that resolve
+    ///   get their <c>ResolvedPath</c> field set; entries that do not
+    ///   stay empty.
+    ///   The directory of the analysed DCU is automatically prepended
+    ///   to the search paths so peer DCUs always resolve cheaply.
+    /// </summary>
+    class procedure ResolveUses(var AResult: TDcuAnalysisResult;
+      const ASearchPaths: array of string);
   end;
 
 implementation
@@ -475,6 +487,69 @@ begin
   finally
     Reader.Free;
   end;
+end;
+
+class procedure TDcuAnalyzer.ResolveUses(var AResult: TDcuAnalysisResult;
+  const ASearchPaths: array of string);
+var
+  EffectivePaths: TArray<string>;
+
+  function ResolveOne(const AUnitName: string): string;
+  var
+    Candidate: string;
+    PathDir  : string;
+  begin
+    Result := '';
+    for PathDir in EffectivePaths do
+    begin
+      if PathDir = '' then
+        Continue;
+      Candidate := IncludeTrailingPathDelimiter(PathDir) + AUnitName + '.dcu';
+      if FileExists(Candidate) then
+        Exit(Candidate);
+    end;
+  end;
+
+  procedure ResolveList(AList: IList<TDcuUsesEntry>);
+  var
+    Entry: TDcuUsesEntry;
+    I    : Integer;
+  begin
+    for I := 0 to AList.Count - 1 do
+    begin
+      Entry := AList[I];
+      Entry.ResolvedPath := ResolveOne(Entry.UnitName);
+      AList[I] := Entry;
+    end;
+  end;
+
+var
+  DcuDir   : string;
+  PathCount: Integer;
+  I        : Integer;
+begin
+  // Prepend the analysed DCU's own directory so peer DCUs resolve
+  // without the caller having to mention the obvious. Empty strings
+  // are dropped silently; duplicates are tolerated by ResolveOne's
+  // first-hit-wins semantics.
+  PathCount := 0;
+  if AResult.FilePath <> '' then
+  begin
+    DcuDir := ExtractFilePath(AResult.FilePath);
+    if DcuDir <> '' then
+    begin
+      SetLength(EffectivePaths, Length(ASearchPaths) + 1);
+      EffectivePaths[0] := ExcludeTrailingPathDelimiter(DcuDir);
+      PathCount := 1;
+    end;
+  end;
+  if Length(EffectivePaths) < Length(ASearchPaths) + PathCount then
+    SetLength(EffectivePaths, Length(ASearchPaths) + PathCount);
+  for I := 0 to High(ASearchPaths) do
+    EffectivePaths[PathCount + I] := ASearchPaths[I];
+
+  ResolveList(AResult.InterfaceUses);
+  ResolveList(AResult.ImplementationUses);
 end;
 
 class function TDcuAnalyzer.Analyze(const AContent: TBytes;

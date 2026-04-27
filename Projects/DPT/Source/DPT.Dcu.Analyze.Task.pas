@@ -25,10 +25,13 @@ type
 
   TDptDcuAnalyzeTask = class(TDptTaskBase)
   private
-    FDcuFile : string;
-    FFormat  : TDcuAnalyzeFormat;
-    FSections: TDcuAnalyzeSections;
-    FVerbose : Boolean;
+    FDcuFile    : string;
+    FFormat     : TDcuAnalyzeFormat;
+    FResolve    : Boolean;
+    FSearchPaths: TArray<string>;
+    FSections   : TDcuAnalyzeSections;
+    FVerbose    : Boolean;
+    function  AutoSearchPathsFor(const AResult: TDcuAnalysisResult): TArray<string>;
     procedure RenderJson(const AResult: TDcuAnalysisResult; ALines: TStrings);
     procedure RenderText(const AResult: TDcuAnalysisResult; ALines: TStrings);
   public
@@ -37,6 +40,8 @@ type
     procedure Execute; override;
     property DcuFile: string read FDcuFile write FDcuFile;
     property Format: TDcuAnalyzeFormat read FFormat write FFormat;
+    property Resolve: Boolean read FResolve write FResolve;
+    property SearchPaths: TArray<string> read FSearchPaths write FSearchPaths;
     property Sections: TDcuAnalyzeSections read FSections write FSections;
     property Verbose: Boolean read FVerbose write FVerbose;
   end;
@@ -47,6 +52,9 @@ uses
 
   System.StrUtils,
   System.SysUtils,
+  System.Types,
+
+  JclIDEUtils,
 
   DPT.Dcu.Analyzer;
 
@@ -86,7 +94,74 @@ begin
   Result := '"' + JsonEscape(S) + '"';
 end;
 
+function CompilerToIdeVersion(ACompiler: TDcuKnownCompiler): Integer;
+begin
+  case ACompiler of
+    dccDelphi11: Result := 22;
+    dccDelphi12: Result := 23;
+    dccDelphi13: Result := 37;
+  else
+    Result := 0;
+  end;
+end;
+
+function PlatformToJclPlatform(APlatform: TDcuPlatform;
+  out AJclPlatform: TJclBDSPlatform): Boolean;
+begin
+  Result := True;
+  case APlatform of
+    dpWin32: AJclPlatform := bpWin32;
+    dpWin64: AJclPlatform := bpWin64;
+  else
+    Result := False;
+  end;
+end;
+
 { TDptDcuAnalyzeTask }
+
+function TDptDcuAnalyzeTask.AutoSearchPathsFor(
+  const AResult: TDcuAnalysisResult): TArray<string>;
+var
+  IdeVer       : Integer;
+  Installation : TJclBorRADToolInstallation;
+  Installations: TJclBorRADToolInstallations;
+  JclPlatform  : TJclBDSPlatform;
+  Parts        : TStringDynArray;
+  RawPath      : string;
+  S            : string;
+begin
+  // Auto-derive the Delphi RTL search path from the magic-byte-detected
+  // (compiler, platform) tuple. Anything we cannot identify (unknown
+  // compiler, unknown platform, version not installed on this machine)
+  // returns an empty array so the resolver falls back to the explicit
+  // --SearchPath list and the DCU's own directory only.
+  Result := nil;
+
+  IdeVer := CompilerToIdeVersion(AResult.Header.DetectedCompiler);
+  if IdeVer = 0 then
+    Exit;
+  if not PlatformToJclPlatform(AResult.Header.DetectedPlatform, JclPlatform) then
+    Exit;
+
+  Installations := TJclBorRADToolInstallations.Create;
+  try
+    if not Installations.DelphiVersionInstalled[IdeVer] then
+      Exit;
+    Installation := Installations.DelphiInstallationFromVersion[IdeVer];
+    RawPath := Installation.LibrarySearchPath[JclPlatform];
+    if RawPath = '' then
+      Exit;
+    Parts := SplitString(RawPath, ';');
+    for S in Parts do
+      if Trim(S) <> '' then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := ExcludeTrailingPathDelimiter(Trim(S));
+      end;
+  finally
+    Installations.Free;
+  end;
+end;
 
 constructor TDptDcuAnalyzeTask.Create;
 begin
@@ -94,6 +169,8 @@ begin
   FFormat := dafText;
   FSections := AllSections;
   FVerbose := False;
+  FResolve := False;
+  FSearchPaths := nil;
 end;
 
 procedure TDptDcuAnalyzeTask.Parse(CmdLine: TCmdLineConsumer);
@@ -155,6 +232,27 @@ begin
     else if SameText(Param, '--Verbose') then
     begin
       FVerbose := True;
+      CmdLine.ConsumeParameter;
+    end
+    else if SameText(Param, '--Resolve') then
+    begin
+      FResolve := True;
+      CmdLine.ConsumeParameter;
+    end
+    else if Param.StartsWith('--SearchPath=', True) then
+    begin
+      var RawValue := Param.Substring(13).DeQuotedString('"');
+      var Parts := SplitString(RawValue, ';');
+      for var P in Parts do
+        if Trim(P) <> '' then
+        begin
+          SetLength(FSearchPaths, Length(FSearchPaths) + 1);
+          FSearchPaths[High(FSearchPaths)] :=
+            ExcludeTrailingPathDelimiter(ExpandFileName(Trim(P)));
+        end;
+      // Setting a search path implies resolution; the user only mentions
+      // them when they want lookups to actually happen.
+      FResolve := True;
       CmdLine.ConsumeParameter;
     end
     else if Param.StartsWith('--') then
@@ -222,7 +320,16 @@ begin
       ALines.Add('  (none detected)')
     else
       for UsesEntry in AResult.InterfaceUses do
-        ALines.Add('  ' + UsesEntry.UnitName);
+      begin
+        if FResolve and (UsesEntry.ResolvedPath <> '') then
+          ALines.Add(System.SysUtils.Format('  %-30s -> %s',
+            [UsesEntry.UnitName, UsesEntry.ResolvedPath]))
+        else if FResolve then
+          ALines.Add(System.SysUtils.Format('  %-30s -> (unresolved)',
+            [UsesEntry.UnitName]))
+        else
+          ALines.Add('  ' + UsesEntry.UnitName);
+      end;
 
     ALines.Add('');
     ALines.Add('[Implementation uses] (' + IntToStr(AResult.ImplementationUses.Count) + ')');
@@ -230,7 +337,16 @@ begin
       ALines.Add('  (none detected)')
     else
       for UsesEntry in AResult.ImplementationUses do
-        ALines.Add('  ' + UsesEntry.UnitName);
+      begin
+        if FResolve and (UsesEntry.ResolvedPath <> '') then
+          ALines.Add(System.SysUtils.Format('  %-30s -> %s',
+            [UsesEntry.UnitName, UsesEntry.ResolvedPath]))
+        else if FResolve then
+          ALines.Add(System.SysUtils.Format('  %-30s -> (unresolved)',
+            [UsesEntry.UnitName]))
+        else
+          ALines.Add('  ' + UsesEntry.UnitName);
+      end;
   end;
 
   if dasSymbols in FSections then
@@ -330,7 +446,14 @@ begin
       for UsesEntry in AResult.InterfaceUses do
       begin
         if not First then Sb.Append(', ');
-        Sb.Append(JsonStr(UsesEntry.UnitName));
+        if FResolve then
+          Sb.Append(System.SysUtils.Format(
+            '{"unit": %s, "resolvedPath": %s}',
+            [JsonStr(UsesEntry.UnitName),
+             IfThen(UsesEntry.ResolvedPath = '', 'null',
+               JsonStr(UsesEntry.ResolvedPath))]))
+        else
+          Sb.Append(JsonStr(UsesEntry.UnitName));
         First := False;
       end;
       Add('],');
@@ -340,7 +463,14 @@ begin
       for UsesEntry in AResult.ImplementationUses do
       begin
         if not First then Sb.Append(', ');
-        Sb.Append(JsonStr(UsesEntry.UnitName));
+        if FResolve then
+          Sb.Append(System.SysUtils.Format(
+            '{"unit": %s, "resolvedPath": %s}',
+            [JsonStr(UsesEntry.UnitName),
+             IfThen(UsesEntry.ResolvedPath = '', 'null',
+               JsonStr(UsesEntry.ResolvedPath))]))
+        else
+          Sb.Append(JsonStr(UsesEntry.UnitName));
         First := False;
       end;
       Add('],');
@@ -399,6 +529,23 @@ begin
     raise EDptRuntimeError.Create('DCU file not found: ' + FDcuFile);
 
   Result := TDcuAnalyzer.Analyze(FDcuFile);
+
+  // Optional resolver pass: combine the user's --SearchPath list with the
+  // Delphi RTL search path inferred from the magic-byte detected
+  // (compiler, platform) tuple. The DCU's own directory is added by the
+  // resolver itself, so peer DCUs always resolve cheaply.
+  if FResolve then
+  begin
+    var EffectivePaths := FSearchPaths;
+    var AutoPaths := AutoSearchPathsFor(Result);
+    for var P in AutoPaths do
+    begin
+      SetLength(EffectivePaths, Length(EffectivePaths) + 1);
+      EffectivePaths[High(EffectivePaths)] := P;
+    end;
+    TDcuAnalyzer.ResolveUses(Result, EffectivePaths);
+  end;
+
   Lines := TStringList.Create;
   try
     case FFormat of

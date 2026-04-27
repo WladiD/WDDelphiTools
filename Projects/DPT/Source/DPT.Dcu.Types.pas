@@ -55,11 +55,16 @@ type
   ///   the imported unit's name, the scope (interface/implementation)
   ///   the compiler tagged it with, and the byte offset at which the
   ///   entry was found - useful for diagnostics and round-trip dumps.
+  ///   <c>ResolvedPath</c> is filled in by the optional uses-resolver
+  ///   pass with the absolute path to the located DCU on disk; an
+  ///   empty value means either the resolver did not run or no DCU
+  ///   was found.
   /// </summary>
   TDcuUsesEntry = record
-    UnitName: string;
-    Scope   : TDcuUsesScope;
-    Offset  : Integer;
+    UnitName    : string;
+    Scope       : TDcuUsesScope;
+    Offset      : Integer;
+    ResolvedPath: string;
     constructor Create(const AUnitName: string; AScope: TDcuUsesScope;
       AOffset: Integer);
   end;
@@ -242,6 +247,7 @@ begin
   UnitName := AUnitName;
   Scope := AScope;
   Offset := AOffset;
+  ResolvedPath := '';
 end;
 
 { TDcuSymbolRef }

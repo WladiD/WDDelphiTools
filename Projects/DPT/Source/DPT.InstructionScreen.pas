@@ -84,7 +84,7 @@ begin
         '  -- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
-      TActionInfo.Create('DcuAnalyze', '<DcuFile> [--Header] [--Uses] [--Symbols] [--Sections] [--All] [--Format=Text|Json] [--Verbose]', [
+      TActionInfo.Create('DcuAnalyze', '<DcuFile> [--Header] [--Uses] [--Symbols] [--Sections] [--All] [--Resolve] [--SearchPath=<dirs>] [--Format=Text|Json] [--Verbose]', [
         'Analyzes a Delphi compiled unit (.dcu) and prints structural information.',
         'Decodes the magic bytes, the embedded source file references (primary',
         'unit source + includes), the unit name and the full uses table split',
@@ -100,6 +100,15 @@ begin
         '             from other units. The unit''s own declared symbols are not',
         '             yet extracted in this iteration.',
         '  --Sections Reserved for a later iteration.',
+        'Uses resolution:',
+        '  --Resolve              For every uses entry, locate the imported',
+        '                         unit''s .dcu on disk and report the path.',
+        '                         The DCU''s own directory is always probed first,',
+        '                         then any --SearchPath dirs, then the Delphi RTL',
+        '                         library path inferred from the detected',
+        '                         (compiler, platform) tuple.',
+        '  --SearchPath=<dirs>    Semicolon-separated list of additional search',
+        '                         directories. Implies --Resolve.',
         'Output:',
         '  --Format=Text (default) or --Format=Json for machine-readable output.',
         '  --Verbose adds a hex preview of the first bytes and any analyzer diagnostics.',

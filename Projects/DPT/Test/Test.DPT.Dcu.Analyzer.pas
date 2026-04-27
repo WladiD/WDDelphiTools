@@ -60,13 +60,22 @@ type
     [Test] procedure SymbolNamesAreNonEmptyAndPrintable;
     [Test] procedure SymbolsParsedFlagReflectsAtLeastOneEntry;
     [Test] procedure NonDcuFileYieldsNoSymbols;
+
+    // Iteration 5: search-path-aware uses resolution
+    [Test] procedure ResolveUsesAgainstCommittedDcuDirectory;
+    [Test] procedure ResolveUsesLeavesPathEmptyForMissingUnits;
+    [Test] procedure ResolveUsesAutoAddsDcuDirectory;
+    [Test] procedure ResolveUsesHonorsExplicitSearchPathsInOrder;
+    [Test] procedure ResolveUsesIsNoOpWhenNotInvoked;
   end;
 
 implementation
 
 uses
 
-  System.Generics.Collections;
+  System.Classes,
+
+  mormot.core.collections;
 
 { TTestDcuAnalyzer }
 
@@ -280,27 +289,23 @@ procedure TTestDcuAnalyzer.UsesEntriesAreNonEmptyAndUnique;
 var
   Entry: TDcuUsesEntry;
   Res  : TDcuAnalysisResult;
-  Seen : TDictionary<string, Integer>;
+  Seen : IKeyValue<string, Boolean>;
 begin
   Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Application'));
-  Seen := TDictionary<string, Integer>.Create;
-  try
-    for Entry in Res.InterfaceUses do
-    begin
-      Assert.IsTrue(Length(Entry.UnitName) > 0, 'Empty unit name in interface uses');
-      Assert.IsFalse(Seen.ContainsKey('I:' + LowerCase(Entry.UnitName)),
-        'Duplicate interface uses entry: ' + Entry.UnitName);
-      Seen.Add('I:' + LowerCase(Entry.UnitName), 1);
-    end;
-    for Entry in Res.ImplementationUses do
-    begin
-      Assert.IsTrue(Length(Entry.UnitName) > 0, 'Empty unit name in implementation uses');
-      Assert.IsFalse(Seen.ContainsKey('M:' + LowerCase(Entry.UnitName)),
-        'Duplicate implementation uses entry: ' + Entry.UnitName);
-      Seen.Add('M:' + LowerCase(Entry.UnitName), 1);
-    end;
-  finally
-    Seen.Free;
+  Seen := Collections.NewPlainKeyValue<string, Boolean>;
+  for Entry in Res.InterfaceUses do
+  begin
+    Assert.IsTrue(Length(Entry.UnitName) > 0, 'Empty unit name in interface uses');
+    Assert.IsFalse(Seen.ContainsKey('I:' + LowerCase(Entry.UnitName)),
+      'Duplicate interface uses entry: ' + Entry.UnitName);
+    Seen.Add('I:' + LowerCase(Entry.UnitName), True);
+  end;
+  for Entry in Res.ImplementationUses do
+  begin
+    Assert.IsTrue(Length(Entry.UnitName) > 0, 'Empty unit name in implementation uses');
+    Assert.IsFalse(Seen.ContainsKey('M:' + LowerCase(Entry.UnitName)),
+      'Duplicate implementation uses entry: ' + Entry.UnitName);
+    Seen.Add('M:' + LowerCase(Entry.UnitName), True);
   end;
 end;
 
@@ -449,22 +454,18 @@ end;
 procedure TTestDcuAnalyzer.SymbolEntriesAreDeduplicatedByKindAndName;
 var
   Res : TDcuAnalysisResult;
-  Seen: TDictionary<string, Integer>;
+  Seen: IKeyValue<string, Boolean>;
   Sym : TDcuSymbolRef;
   Key : string;
 begin
   Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Application'));
-  Seen := TDictionary<string, Integer>.Create;
-  try
-    for Sym in Res.Symbols do
-    begin
-      Key := IntToStr(Ord(Sym.Kind)) + ':' + LowerCase(Sym.Name);
-      Assert.IsFalse(Seen.ContainsKey(Key),
-        'Duplicate symbol entry: ' + Sym.Name);
-      Seen.Add(Key, 1);
-    end;
-  finally
-    Seen.Free;
+  Seen := Collections.NewPlainKeyValue<string, Boolean>;
+  for Sym in Res.Symbols do
+  begin
+    Key := IntToStr(Ord(Sym.Kind)) + ':' + LowerCase(Sym.Name);
+    Assert.IsFalse(Seen.ContainsKey(Key),
+      'Duplicate symbol entry: ' + Sym.Name);
+    Seen.Add(Key, True);
   end;
 end;
 
@@ -507,6 +508,152 @@ begin
   Assert.IsFalse(Res.IsDcu);
   Assert.AreEqual(0, Res.Symbols.Count);
   Assert.IsFalse(Res.SymbolsParsed);
+end;
+
+procedure TTestDcuAnalyzer.ResolveUsesAgainstCommittedDcuDirectory;
+var
+  DcuDir : string;
+  Found  : Boolean;
+  Entry  : TDcuUsesEntry;
+  Res    : TDcuAnalysisResult;
+begin
+  // The committed DCU directory contains all DPT.* peer DCUs as well
+  // as JclIDEUtils. Resolving against that directory must turn at least
+  // those peers into populated ResolvedPath values.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  DcuDir := ExtractFilePath(FixtureDcu('DPT.Detection'));
+  TDcuAnalyzer.ResolveUses(Res, [ExcludeTrailingPathDelimiter(DcuDir)]);
+
+  Found := False;
+  for Entry in Res.InterfaceUses do
+    if SameText(Entry.UnitName, 'DPT.Types') then
+    begin
+      Assert.IsTrue(Entry.ResolvedPath <> '',
+        'DPT.Types must resolve when its DCU sits next to DPT.Detection.dcu');
+      Assert.IsTrue(FileExists(Entry.ResolvedPath),
+        'ResolvedPath must point to an existing file');
+      Found := True;
+      Break;
+    end;
+  Assert.IsTrue(Found, 'DPT.Types must appear in the interface uses');
+
+  Found := False;
+  for Entry in Res.ImplementationUses do
+    if SameText(Entry.UnitName, 'JclIDEUtils') then
+    begin
+      Assert.IsTrue(Entry.ResolvedPath <> '',
+        'JclIDEUtils must resolve in the committed DCU directory');
+      Found := True;
+      Break;
+    end;
+  Assert.IsTrue(Found, 'JclIDEUtils must appear in the implementation uses');
+end;
+
+procedure TTestDcuAnalyzer.ResolveUsesLeavesPathEmptyForMissingUnits;
+var
+  Entry  : TDcuUsesEntry;
+  Res    : TDcuAnalysisResult;
+  TempDir: string;
+begin
+  // An empty temp directory ensures nothing can be resolved. Every
+  // entry must come back with ResolvedPath = ''.
+  TempDir := TPath.Combine(TPath.GetTempPath,
+    'DPT.ResolveTest.' + GUIDToString(TGUID.NewGuid));
+  ForceDirectories(TempDir);
+  try
+    Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+    TDcuAnalyzer.ResolveUses(Res, [TempDir]);
+    // FilePath of DPT.Detection.dcu still adds its own directory, so
+    // peer DCUs from there will resolve - but System.SysUtils etc. are
+    // not in either location.
+    for Entry in Res.ImplementationUses do
+      if SameText(Entry.UnitName, 'System.StrUtils') then
+      begin
+        Assert.AreEqual('', Entry.ResolvedPath,
+          'System.StrUtils must remain unresolved without RTL search path');
+        Exit;
+      end;
+    Assert.Fail('System.StrUtils not found in implementation uses');
+  finally
+    if DirectoryExists(TempDir) then TDirectory.Delete(TempDir, True);
+  end;
+end;
+
+procedure TTestDcuAnalyzer.ResolveUsesAutoAddsDcuDirectory;
+var
+  Entry: TDcuUsesEntry;
+  Res  : TDcuAnalysisResult;
+  Found: Boolean;
+begin
+  // Calling ResolveUses with an empty search-path array still has to
+  // resolve peer DCUs because the analysed DCU's own directory is
+  // implicitly prepended.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  TDcuAnalyzer.ResolveUses(Res, []);
+  Found := False;
+  for Entry in Res.InterfaceUses do
+    if SameText(Entry.UnitName, 'DPT.Types') and (Entry.ResolvedPath <> '') then
+    begin
+      Found := True;
+      Break;
+    end;
+  Assert.IsTrue(Found,
+    'Auto-added DCU directory must let peer DPT.Types resolve');
+end;
+
+procedure TTestDcuAnalyzer.ResolveUsesHonorsExplicitSearchPathsInOrder;
+var
+  Entry  : TDcuUsesEntry;
+  Higher : string;
+  Lower  : string;
+  Res    : TDcuAnalysisResult;
+begin
+  // Build two temp dirs with a fake "Foo.dcu" in each. The auto-added
+  // DCU directory does not contain it, so the resolver picks the first
+  // explicit search-path hit - in our list "Higher" comes before
+  // "Lower" so it must win.
+  Higher := TPath.Combine(TPath.GetTempPath,
+    'DPT.ResolveTestHigh.' + GUIDToString(TGUID.NewGuid));
+  Lower := TPath.Combine(TPath.GetTempPath,
+    'DPT.ResolveTestLow.' + GUIDToString(TGUID.NewGuid));
+  ForceDirectories(Higher);
+  ForceDirectories(Lower);
+  try
+    TFile.WriteAllText(TPath.Combine(Higher, 'Foo.dcu'), 'higher');
+    TFile.WriteAllText(TPath.Combine(Lower, 'Foo.dcu'), 'lower');
+
+    Res := Default(TDcuAnalysisResult);
+    Res.FilePath := '';
+    Res.InterfaceUses := Collections.NewPlainList<TDcuUsesEntry>;
+    Res.ImplementationUses := Collections.NewPlainList<TDcuUsesEntry>;
+    Res.InterfaceUses.Add(TDcuUsesEntry.Create('Foo', dusInterface, 0));
+
+    TDcuAnalyzer.ResolveUses(Res, [Higher, Lower]);
+    Entry := Res.InterfaceUses[0];
+    Assert.AreEqual(
+      ExcludeTrailingPathDelimiter(Higher) + PathDelim + 'Foo.dcu',
+      Entry.ResolvedPath,
+      'First search-path entry must win on a tie');
+  finally
+    if DirectoryExists(Higher) then TDirectory.Delete(Higher, True);
+    if DirectoryExists(Lower) then TDirectory.Delete(Lower, True);
+  end;
+end;
+
+procedure TTestDcuAnalyzer.ResolveUsesIsNoOpWhenNotInvoked;
+var
+  Entry: TDcuUsesEntry;
+  Res  : TDcuAnalysisResult;
+begin
+  // Plain Analyze must not resolve anything; ResolvedPath stays empty
+  // until the caller opts in via ResolveUses.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  for Entry in Res.InterfaceUses do
+    Assert.AreEqual('', Entry.ResolvedPath,
+      Format('Entry %s should not be auto-resolved', [Entry.UnitName]));
+  for Entry in Res.ImplementationUses do
+    Assert.AreEqual('', Entry.ResolvedPath,
+      Format('Entry %s should not be auto-resolved', [Entry.UnitName]));
 end;
 
 initialization

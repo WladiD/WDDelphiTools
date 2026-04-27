@@ -36,19 +36,25 @@ type
   TTestDcuMultiVersion = class
   private
     type
+      TPlatformProbe = (ppWin32, ppWin64);
       TVersionCheckResult = record
         VersionLabel: string;
+        Platform    : TPlatformProbe;
         Ok          : Boolean;
         Reason      : string;
         MagicHex    : string;
       end;
     function CompileFixture(AInstallation: TJclBorRADToolInstallation;
-      const AOutputDir, AFixtureName: string; out AErrorOutput: string): Boolean;
+      APlatform: TPlatformProbe; const AOutputDir, AFixtureName: string;
+      out AErrorOutput: string): Boolean;
     function FindRsvars(AInstallation: TJclBorRADToolInstallation): string;
     function MakeFixturePas(const ADir, AUnitName: string): string;
     function RunRedirectedCmd(const ACommandLine, AWorkingDir: string;
       out AOutput: string): Integer;
     function ExpectedCompilerFor(AInstallation: TJclBorRADToolInstallation): TDcuKnownCompiler;
+    function ExpectedPlatformFor(APlatform: TPlatformProbe): TDcuPlatform;
+    function PlatformLabelOf(APlatform: TPlatformProbe): string;
+    function CompilerExeNameFor(APlatform: TPlatformProbe): string;
     function VersionLabelOf(AInstallation: TJclBorRADToolInstallation): string;
   public
     [Test] procedure AnalyzerHandlesEveryInstalledDelphiVersion;
@@ -189,13 +195,15 @@ begin
 end;
 
 function TTestDcuMultiVersion.CompileFixture(AInstallation: TJclBorRADToolInstallation;
-  const AOutputDir, AFixtureName: string; out AErrorOutput: string): Boolean;
+  APlatform: TPlatformProbe; const AOutputDir, AFixtureName: string;
+  out AErrorOutput: string): Boolean;
 var
   Cmd      : string;
+  ExeName  : string;
+  ExePath  : string;
   ExitCode : Integer;
-  RsvarsBat: string;
   PasPath  : string;
-  Dcu32Exe : string;
+  RsvarsBat: string;
 begin
   Result := False;
   AErrorOutput := '';
@@ -207,10 +215,11 @@ begin
     Exit;
   end;
 
-  Dcu32Exe := IncludeTrailingPathDelimiter(AInstallation.BinFolderName) + 'dcc32.exe';
-  if not FileExists(Dcu32Exe) then
+  ExeName := CompilerExeNameFor(APlatform);
+  ExePath := IncludeTrailingPathDelimiter(AInstallation.BinFolderName) + ExeName;
+  if not FileExists(ExePath) then
   begin
-    AErrorOutput := 'dcc32.exe not found at ' + Dcu32Exe;
+    AErrorOutput := ExeName + ' not found at ' + ExePath;
     Exit;
   end;
 
@@ -218,19 +227,49 @@ begin
   ForceDirectories(AOutputDir);
 
   Cmd := Format('cmd.exe /c ""%s" && "%s" -B -Q -N"%s" "%s""',
-    [RsvarsBat, Dcu32Exe, AOutputDir, PasPath]);
+    [RsvarsBat, ExePath, AOutputDir, PasPath]);
 
   ExitCode := RunRedirectedCmd(Cmd, AOutputDir, AErrorOutput);
   if ExitCode <> 0 then
   begin
-    AErrorOutput := Format('dcc32 exited with %d. Output:%s%s',
-      [ExitCode, sLineBreak, AErrorOutput]);
+    AErrorOutput := Format('%s exited with %d. Output:%s%s',
+      [ExeName, ExitCode, sLineBreak, AErrorOutput]);
     Exit;
   end;
 
   Result := FileExists(TPath.Combine(AOutputDir, AFixtureName + '.dcu'));
   if not Result then
     AErrorOutput := 'Compiled successfully but no .dcu produced in ' + AOutputDir;
+end;
+
+function TTestDcuMultiVersion.CompilerExeNameFor(APlatform: TPlatformProbe): string;
+begin
+  case APlatform of
+    ppWin32: Result := 'dcc32.exe';
+    ppWin64: Result := 'dcc64.exe';
+  else
+    Result := '';
+  end;
+end;
+
+function TTestDcuMultiVersion.ExpectedPlatformFor(APlatform: TPlatformProbe): TDcuPlatform;
+begin
+  case APlatform of
+    ppWin32: Result := dpWin32;
+    ppWin64: Result := dpWin64;
+  else
+    Result := dpUnknown;
+  end;
+end;
+
+function TTestDcuMultiVersion.PlatformLabelOf(APlatform: TPlatformProbe): string;
+begin
+  case APlatform of
+    ppWin32: Result := 'Win32';
+    ppWin64: Result := 'Win64';
+  else
+    Result := '?';
+  end;
 end;
 
 function TTestDcuMultiVersion.ExpectedCompilerFor(
@@ -289,46 +328,58 @@ begin
     for I := 0 to Installations.Count - 1 do
     begin
       Inst := Installations[I];
-      // We only deal with Delphi personalities (not C++Builder)
-      if not (bpDelphi32 in Inst.Personalities) then
-        Continue;
-
-      Run.VersionLabel := VersionLabelOf(Inst);
-      Run.MagicHex := '';
-      Run.Ok := False;
-      Run.Reason := '';
-
-      FixtureName := 'DptDcuFixture_v' + IntToStr(Inst.IDEVersionNumber);
-      TestOutDir := TPath.Combine(RootTempDir, FixtureName);
-
-      if not CompileFixture(Inst, TestOutDir, FixtureName, ErrOut) then
+      // Iterate every Delphi personality available in this installation:
+      // Win32 (dcc32) is mandatory, Win64 (dcc64) is gated by the
+      // bpDelphi64 personality flag so older personalities or
+      // C++Builder-only installs do not produce false failures.
+      for var Plat: TPlatformProbe := Low(TPlatformProbe) to High(TPlatformProbe) do
       begin
-        Run.Reason := 'Compilation failed: ' + ErrOut;
-        Failures.Add(Run);
-        Probed.Add(Run);
-        Continue;
-      end;
+        case Plat of
+          ppWin32: if not (bpDelphi32 in Inst.Personalities) then Continue;
+          ppWin64: if not (bpDelphi64 in Inst.Personalities) then Continue;
+        end;
 
-      Res := TDcuAnalyzer.Analyze(TPath.Combine(TestOutDir, FixtureName + '.dcu'));
-      Run.MagicHex := Res.Header.MagicHex;
+        Run.VersionLabel := VersionLabelOf(Inst) + ' / ' + PlatformLabelOf(Plat);
+        Run.Platform := Plat;
+        Run.MagicHex := '';
+        Run.Ok := False;
+        Run.Reason := '';
 
-      if not Res.IsDcu then
-      begin
-        Run.Reason := 'IsDcu=false (magic ' + Res.Header.MagicHex + ')';
-        Failures.Add(Run);
-        Probed.Add(Run);
-        Continue;
-      end;
-      // The fixture is compiled with dcc32, so the platform must always
-      // resolve to Win32 if the empirical platform table is correct.
-      if Res.Header.DetectedPlatform <> dpWin32 then
-      begin
-        Run.Reason := Format('Platform expected dpWin32, got %s (magic %s)',
-          [DcuPlatformName[Res.Header.DetectedPlatform], Res.Header.MagicHex]);
-        Failures.Add(Run);
-        Probed.Add(Run);
-        Continue;
-      end;
+        FixtureName := 'DptDcuFixture_v' + IntToStr(Inst.IDEVersionNumber)
+          + '_' + PlatformLabelOf(Plat);
+        TestOutDir := TPath.Combine(RootTempDir, FixtureName);
+
+        if not CompileFixture(Inst, Plat, TestOutDir, FixtureName, ErrOut) then
+        begin
+          Run.Reason := 'Compilation failed: ' + ErrOut;
+          Failures.Add(Run);
+          Probed.Add(Run);
+          Continue;
+        end;
+
+        Res := TDcuAnalyzer.Analyze(TPath.Combine(TestOutDir, FixtureName + '.dcu'));
+        Run.MagicHex := Res.Header.MagicHex;
+
+        if not Res.IsDcu then
+        begin
+          Run.Reason := 'IsDcu=false (magic ' + Res.Header.MagicHex + ')';
+          Failures.Add(Run);
+          Probed.Add(Run);
+          Continue;
+        end;
+        // The platform must round-trip through the magic-byte mapping
+        // exactly as the compiler we just invoked.
+        var ExpectedPlatform := ExpectedPlatformFor(Plat);
+        if Res.Header.DetectedPlatform <> ExpectedPlatform then
+        begin
+          Run.Reason := Format('Platform expected %s, got %s (magic %s)',
+            [DcuPlatformName[ExpectedPlatform],
+             DcuPlatformName[Res.Header.DetectedPlatform],
+             Res.Header.MagicHex]);
+          Failures.Add(Run);
+          Probed.Add(Run);
+          Continue;
+        end;
       // Only enforce compiler identification for versions whose byte-3
       // mapping has actually been wired in. Untracked versions keep the
       // run marked OK (they still passed IsDcu/uses checks) but emit a
@@ -423,11 +474,12 @@ begin
         Continue;
       end;
 
-      Run.Ok := True;
-      Run.MagicHex := Res.Header.MagicHex
-        + ' -> ' + DcuKnownCompilerName[Res.Header.DetectedCompiler]
-        + '/' + DcuPlatformName[Res.Header.DetectedPlatform];
-      Probed.Add(Run);
+        Run.Ok := True;
+        Run.MagicHex := Res.Header.MagicHex
+          + ' -> ' + DcuKnownCompilerName[Res.Header.DetectedCompiler]
+          + '/' + DcuPlatformName[Res.Header.DetectedPlatform];
+        Probed.Add(Run);
+      end;
     end;
   finally
     Installations.Free;
