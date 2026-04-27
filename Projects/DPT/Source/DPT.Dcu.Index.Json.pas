@@ -192,6 +192,14 @@ begin
 
   WriteUtf8(AStream, '      "methodRefs": ');
   WriteStringArray(AStream, AEntry.MethodRefs);
+  WriteUtf8(AStream, ','#10);
+
+  WriteUtf8(AStream, '      "exportedTypes": ');
+  WriteStringArray(AStream, AEntry.ExportedTypes);
+  WriteUtf8(AStream, ','#10);
+
+  WriteUtf8(AStream, '      "exportedRoutines": ');
+  WriteStringArray(AStream, AEntry.ExportedRoutines);
   WriteUtf8(AStream, #10);
 
   if AIsLast then
@@ -200,18 +208,19 @@ begin
     WriteUtf8(AStream, '    },'#10);
 end;
 
-procedure WriteReverseIndex(AStream: TStream; const AIndex: TDcuIndex);
+procedure WriteStringMap(AStream: TStream; const AKey: string;
+  AMap: IKeyValue<string, IList<string>>);
 var
-  Bucket: IList<string>;
-  First : Boolean;
-  Item  : string;
-  Pair  : TPair<string, IList<string>>;
+  Bucket   : IList<string>;
+  First    : Boolean;
+  Item     : string;
+  Pair     : TPair<string, IList<string>>;
   PairFirst: Boolean;
 begin
-  WriteUtf8(AStream, '  "reverseImportIndex": {'#10);
+  WriteUtf8(AStream, '  "' + AKey + '": {'#10);
   PairFirst := True;
-  if AIndex.ReverseImportIndex <> nil then
-    for Pair in AIndex.ReverseImportIndex do
+  if AMap <> nil then
+    for Pair in AMap do
     begin
       if not PairFirst then WriteUtf8(AStream, ','#10);
       Bucket := Pair.Value;
@@ -228,6 +237,16 @@ begin
       PairFirst := False;
     end;
   WriteUtf8(AStream, #10'  }'#10);
+end;
+
+procedure WriteReverseIndex(AStream: TStream; const AIndex: TDcuIndex);
+begin
+  WriteStringMap(AStream, 'reverseImportIndex', AIndex.ReverseImportIndex);
+end;
+
+procedure WriteSymbolDefIndex(AStream: TStream; const AIndex: TDcuIndex);
+begin
+  WriteStringMap(AStream, 'symbolToDefiningUnit', AIndex.SymbolToDefiningUnit);
 end;
 
 { TDcuIndexJsonWriter }
@@ -260,6 +279,8 @@ begin
   WriteUtf8(AStream, '  ],'#10);
 
   WriteReverseIndex(AStream, AIndex);
+  WriteUtf8(AStream, '  ,'#10);
+  WriteSymbolDefIndex(AStream, AIndex);
 
   WriteUtf8(AStream, '}'#10);
 end;
@@ -377,11 +398,17 @@ begin
   Result.ImplementationUses := Collections.NewList<string>;
   Result.TypeRefs := Collections.NewList<string>;
   Result.MethodRefs := Collections.NewList<string>;
+  Result.ExportedTypes := Collections.NewList<string>;
+  Result.ExportedRoutines := Collections.NewList<string>;
   ReadStringArray(ArrField('includes'), Result.Includes);
   ReadStringArray(ArrField('interfaceUses'), Result.InterfaceUses);
   ReadStringArray(ArrField('implementationUses'), Result.ImplementationUses);
   ReadStringArray(ArrField('typeRefs'), Result.TypeRefs);
   ReadStringArray(ArrField('methodRefs'), Result.MethodRefs);
+  // Schema v2 additions; absent in v1 indices, in which case the
+  // empty lists already created above are the correct default.
+  ReadStringArray(ArrField('exportedTypes'), Result.ExportedTypes);
+  ReadStringArray(ArrField('exportedRoutines'), Result.ExportedRoutines);
 end;
 
 class function TDcuIndexJsonReader.LoadFromFile(const AFilePath: string): TDcuIndex;
@@ -405,6 +432,7 @@ begin
   Result.RootDirs := Collections.NewList<string>;
   Result.Units := Collections.NewPlainList<TDcuIndexEntry>;
   Result.ReverseImportIndex := Collections.NewKeyValue<string, IList<string>>;
+  Result.SymbolToDefiningUnit := Collections.NewKeyValue<string, IList<string>>;
 
   Root := TJSONObject.ParseJSONValue(AJson);
   if not (Root is TJSONObject) then
@@ -438,6 +466,19 @@ begin
           Bucket := Collections.NewList<string>;
           ReadStringArray(TJSONArray(Pair.JsonValue), Bucket);
           Result.ReverseImportIndex.Add(LowerCase(Pair.JsonString.Value), Bucket);
+        end;
+
+    // Schema v2 added the symbol-to-defining-unit map. v1 indices
+    // simply omit this object - the empty IKeyValue created above
+    // remains the default.
+    Reverse := RootObj.GetValue('symbolToDefiningUnit') as TJSONObject;
+    if Reverse <> nil then
+      for Pair in Reverse do
+        if Pair.JsonValue is TJSONArray then
+        begin
+          Bucket := Collections.NewList<string>;
+          ReadStringArray(TJSONArray(Pair.JsonValue), Bucket);
+          Result.SymbolToDefiningUnit.Add(LowerCase(Pair.JsonString.Value), Bucket);
         end;
   finally
     RootObj.Free;

@@ -24,30 +24,36 @@ type
   TDcuUsesScope = (dusUnknown, dusInterface, dusImplementation);
 
   /// <summary>
-  ///   Classifies an imported-symbol cross-reference found in the DCU.
-  ///   The mapping comes from the modern-DCU tag byte that precedes each
-  ///   length-prefixed symbol name:
-  ///   * <c>$66</c> = type reference (e.g. <c>TObject</c>, <c>string</c>)
-  ///   * <c>$67</c> = method reference (often qualified like
-  ///     <c>TObject.Equals</c>; sometimes with a leading dot when
-  ///     anchored to the previous type in scope)
+  ///   Classifies a symbol entry found in the DCU. The mapping comes
+  ///   from the modern-DCU tag byte that precedes each length-prefixed
+  ///   symbol name. Imported and exported entries share the same two
+  ///   broad classes (type vs. routine) but use different tag bytes:
+  ///   imports use <c>$66</c>/<c>$67</c>, exports use <c>$2A</c>/<c>$28</c>.
   /// </summary>
   TDcuSymbolKind = (dskType, dskMethod);
 
   /// <summary>
-  ///   A single imported-symbol cross-reference. The DCU records these
-  ///   as fixed-layout entries: tag byte, 1-byte length, ASCII name,
-  ///   4-byte stored hash/CRC. Iteration 3 of the analyzer extracts
-  ///   only the imported references, not the unit's own declared
-  ///   symbols.
+  ///   Whether the symbol is referenced from another unit
+  ///   (<c>dsoImported</c>) or declared in this unit
+  ///   (<c>dsoExported</c>). The two classes are extracted by separate
+  ///   scanner passes; consumers can filter by Origin to ask "what does
+  ///   this DCU export?" vs. "what does it consume?".
+  /// </summary>
+  TDcuSymbolOrigin = (dsoImported, dsoExported);
+
+  /// <summary>
+  ///   A single symbol entry from the DCU. Fixed-layout: tag byte,
+  ///   1-byte length, ASCII name, 4-byte stored hash/CRC. The exact
+  ///   tag determines the (Kind, Origin) combination.
   /// </summary>
   TDcuSymbolRef = record
     Kind  : TDcuSymbolKind;
+    Origin: TDcuSymbolOrigin;
     Name  : string;
     Hash  : UInt32;
     Offset: Integer;
-    constructor Create(AKind: TDcuSymbolKind; const AName: string;
-      AHash: UInt32; AOffset: Integer);
+    constructor Create(AKind: TDcuSymbolKind; AOrigin: TDcuSymbolOrigin;
+      const AName: string; AHash: UInt32; AOffset: Integer);
   end;
 
   /// <summary>
@@ -164,15 +170,36 @@ const
   ///   the modern DCU layout. Each entry is followed by a 1-byte length,
   ///   the ASCII name, and a 4-byte hash/CRC trailer.
   /// </summary>
-  DcuSymbolTag_Type   = $66;
-  DcuSymbolTag_Method = $67;
+  DcuImportTag_Type   = $66;
+  DcuImportTag_Method = $67;
+
+  /// <summary>
+  ///   Tag bytes that prefix exported-symbol declarations (the unit's
+  ///   own types and routines). Same fixed-layout (tag, length, name,
+  ///   4-byte hash) as the import variants. <c>$26</c> is a dot-prefixed
+  ///   anchor that the compiler emits before <c>$2A</c> for the same
+  ///   type and is intentionally skipped during extraction - it would
+  ///   only produce duplicate entries with a leading dot.
+  /// </summary>
+  DcuExportTag_TypeAnchor = $26;
+  DcuExportTag_Routine    = $28;
+  DcuExportTag_Type       = $2A;
 
   /// <summary>Maximum length we will accept for a symbol-ref name.</summary>
   DcuSymbolRefMaxLen = 200;
 
+  // Backwards-compatibility aliases (older callers still in flight).
+  DcuSymbolTag_Type   = DcuImportTag_Type;
+  DcuSymbolTag_Method = DcuImportTag_Method;
+
   DcuSymbolKindName: array[TDcuSymbolKind] of string = (
     { dskType   } 'Type',
     { dskMethod } 'Method'
+  );
+
+  DcuSymbolOriginName: array[TDcuSymbolOrigin] of string = (
+    { dsoImported } 'Imported',
+    { dsoExported } 'Exported'
   );
 
   /// <summary>
@@ -252,10 +279,12 @@ end;
 
 { TDcuSymbolRef }
 
-constructor TDcuSymbolRef.Create(AKind: TDcuSymbolKind; const AName: string;
-  AHash: UInt32; AOffset: Integer);
+constructor TDcuSymbolRef.Create(AKind: TDcuSymbolKind;
+  AOrigin: TDcuSymbolOrigin; const AName: string; AHash: UInt32;
+  AOffset: Integer);
 begin
   Kind := AKind;
+  Origin := AOrigin;
   Name := AName;
   Hash := AHash;
   Offset := AOffset;

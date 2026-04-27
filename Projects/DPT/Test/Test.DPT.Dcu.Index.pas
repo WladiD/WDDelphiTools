@@ -26,6 +26,11 @@ type
       AKnownCompiler: TDcuKnownCompiler; APlatform: TDcuPlatform;
       const AInterfaceUses, AImplUses, ATypeRefs, AMethodRefs: array of string)
       : TDcuIndexEntry;
+    function MakeSyntheticEntryEx(const AUnitName: string;
+      AKnownCompiler: TDcuKnownCompiler; APlatform: TDcuPlatform;
+      const AInterfaceUses, AImplUses, ATypeRefs, AMethodRefs,
+            AExportedTypes, AExportedRoutines: array of string)
+      : TDcuIndexEntry;
     function MakeSyntheticIndex(
       const AEntries: array of TDcuIndexEntry): TDcuIndex;
   public
@@ -44,8 +49,13 @@ type
     [Test] procedure QueryFindReferencesScansBothKinds;
     [Test] procedure QueryReturnsEmptyForUnknownNames;
 
+    // Iteration 7: definition lookup
+    [Test] procedure QueryFindDefinitionOfReturnsDeclaringUnit;
+    [Test] procedure BuildPopulatesSymbolToDefiningUnitMap;
+
     // JSON round-trip
     [Test] procedure JsonRoundTripPreservesUnitsAndReverseIndex;
+    [Test] procedure JsonRoundTripPreservesExportedSymbolsAndDefMap;
     [Test] procedure JsonReadFailsOnMalformedInput;
   end;
 
@@ -90,6 +100,21 @@ begin
   for S in AMethodRefs do Result.MethodRefs.Add(S);
 end;
 
+function TTestDcuIndex.MakeSyntheticEntryEx(const AUnitName: string;
+  AKnownCompiler: TDcuKnownCompiler; APlatform: TDcuPlatform;
+  const AInterfaceUses, AImplUses, ATypeRefs, AMethodRefs,
+        AExportedTypes, AExportedRoutines: array of string): TDcuIndexEntry;
+var
+  S: string;
+begin
+  Result := MakeSyntheticEntry(AUnitName, AKnownCompiler, APlatform,
+    AInterfaceUses, AImplUses, ATypeRefs, AMethodRefs);
+  Result.ExportedTypes := Collections.NewList<string>;
+  Result.ExportedRoutines := Collections.NewList<string>;
+  for S in AExportedTypes do Result.ExportedTypes.Add(S);
+  for S in AExportedRoutines do Result.ExportedRoutines.Add(S);
+end;
+
 function TTestDcuIndex.MakeSyntheticIndex(
   const AEntries: array of TDcuIndexEntry): TDcuIndex;
 var
@@ -103,9 +128,12 @@ begin
   Result.RootDirs := Collections.NewList<string>;
   Result.Units := Collections.NewPlainList<TDcuIndexEntry>;
   Result.ReverseImportIndex := Collections.NewKeyValue<string, IList<string>>;
+  Result.SymbolToDefiningUnit := Collections.NewKeyValue<string, IList<string>>;
   for Entry in AEntries do
     Result.Units.Add(Entry);
-  // Inline reverse-index build to mirror what the real Builder does.
+  // Inline reverse-index + symbol-definition map build to mirror what
+  // the real Builder does so query tests work without going through
+  // disk IO.
   for Entry in Result.Units do
   begin
     for Imp in Entry.InterfaceUses do
@@ -128,6 +156,28 @@ begin
       end;
       Bucket.Add(Entry.UnitName);
     end;
+    if Entry.ExportedTypes <> nil then
+      for Imp in Entry.ExportedTypes do
+      begin
+        LowKey := LowerCase(Imp);
+        if not Result.SymbolToDefiningUnit.TryGetValue(LowKey, Bucket) then
+        begin
+          Bucket := Collections.NewList<string>;
+          Result.SymbolToDefiningUnit.Add(LowKey, Bucket);
+        end;
+        Bucket.Add(Entry.UnitName);
+      end;
+    if Entry.ExportedRoutines <> nil then
+      for Imp in Entry.ExportedRoutines do
+      begin
+        LowKey := LowerCase(Imp);
+        if not Result.SymbolToDefiningUnit.TryGetValue(LowKey, Bucket) then
+        begin
+          Bucket := Collections.NewList<string>;
+          Result.SymbolToDefiningUnit.Add(LowKey, Bucket);
+        end;
+        Bucket.Add(Entry.UnitName);
+      end;
   end;
 end;
 
@@ -348,6 +398,76 @@ begin
   end;
 end;
 
+procedure TTestDcuIndex.QueryFindDefinitionOfReturnsDeclaringUnit;
+var
+  Hits: IList<string>;
+  Idx : TDcuIndex;
+  Q   : TDcuIndexQuery;
+begin
+  // System.Classes declares TStringList; Foo just uses it. Looking up
+  // the definition of TStringList must yield exactly System.Classes.
+  Idx := MakeSyntheticIndex([
+    MakeSyntheticEntryEx('System.Classes', dccDelphi13, dpWin64,
+      [], [], [], [], ['TStringList', 'TList'], ['TStringList.Add']),
+    MakeSyntheticEntryEx('Foo', dccDelphi13, dpWin64,
+      ['System.Classes'], [], ['TStringList'], [], [], [])
+  ]);
+  Q := TDcuIndexQuery.Create(Idx);
+  try
+    Hits := Q.FindDefinitionOf('TStringList');
+    Assert.AreEqual(1, Hits.Count, 'TStringList must resolve to one unit');
+    Assert.AreEqual('System.Classes', Hits[0]);
+
+    Hits := Q.FindDefinitionOf('TStringList.Add');
+    Assert.AreEqual(1, Hits.Count);
+    Assert.AreEqual('System.Classes', Hits[0]);
+
+    // Imported-only name: nobody declares it
+    Assert.AreEqual(0, Q.FindDefinitionOf('NotDeclaredAnywhere').Count);
+  finally
+    Q.Free;
+  end;
+end;
+
+procedure TTestDcuIndex.BuildPopulatesSymbolToDefiningUnitMap;
+var
+  Hits : IList<string>;
+  Idx  : TDcuIndex;
+  Q    : TDcuIndexQuery;
+begin
+  // Real builder against the committed DCU corpus: TProcessTreeScanner
+  // is declared in DPT.Detection, TDcuAnalyzer in DPT.Dcu.Analyzer.
+  Idx := TDcuIndexBuilder.Build([CommittedDcuDir], True, True);
+  Q := TDcuIndexQuery.Create(Idx);
+  try
+    Hits := Q.FindDefinitionOf('TProcessTreeScanner');
+    Assert.IsTrue(Hits.Count >= 1,
+      'TProcessTreeScanner must resolve via the live index');
+    var Found := False;
+    for var Item in Hits do
+      if SameText(Item, 'DPT.Detection') then
+      begin
+        Found := True;
+        Break;
+      end;
+    Assert.IsTrue(Found,
+      'TProcessTreeScanner must be reported as defined in DPT.Detection');
+
+    Hits := Q.FindDefinitionOf('TDcuAnalyzer');
+    Found := False;
+    for var Item in Hits do
+      if SameText(Item, 'DPT.Dcu.Analyzer') then
+      begin
+        Found := True;
+        Break;
+      end;
+    Assert.IsTrue(Found,
+      'TDcuAnalyzer must be reported as defined in DPT.Dcu.Analyzer');
+  finally
+    Q.Free;
+  end;
+end;
+
 procedure TTestDcuIndex.JsonRoundTripPreservesUnitsAndReverseIndex;
 var
   Bucket   : IList<string>;
@@ -384,6 +504,35 @@ begin
     'Lower-cased reverse-import key must survive round-trip');
   Assert.AreEqual(1, Bucket.Count);
   Assert.AreEqual('Bar', Bucket[0]);
+end;
+
+procedure TTestDcuIndex.JsonRoundTripPreservesExportedSymbolsAndDefMap;
+var
+  Bucket : IList<string>;
+  Idx    : TDcuIndex;
+  Json   : string;
+  Loaded : TDcuIndex;
+begin
+  Idx := MakeSyntheticIndex([
+    MakeSyntheticEntryEx('System.Classes', dccDelphi13, dpWin64,
+      [], [], [], [], ['TStringList', 'TList'], ['TStringList.Add'])
+  ]);
+  Json := TDcuIndexJsonWriter.WriteToString(Idx);
+  Loaded := TDcuIndexJsonReader.LoadFromString(Json);
+
+  Assert.AreEqual(1, Loaded.Units.Count);
+  Assert.AreEqual(2, Loaded.Units[0].ExportedTypes.Count,
+    'Two exported types must round-trip');
+  Assert.AreEqual('TStringList', Loaded.Units[0].ExportedTypes[0]);
+  Assert.AreEqual('TList', Loaded.Units[0].ExportedTypes[1]);
+  Assert.AreEqual(1, Loaded.Units[0].ExportedRoutines.Count);
+  Assert.AreEqual('TStringList.Add', Loaded.Units[0].ExportedRoutines[0]);
+
+  // Definition-of-symbol map must round-trip too.
+  Assert.IsTrue(Loaded.SymbolToDefiningUnit.TryGetValue('tstringlist', Bucket),
+    'symbolToDefiningUnit must round-trip with lower-cased keys');
+  Assert.AreEqual(1, Bucket.Count);
+  Assert.AreEqual('System.Classes', Bucket[0]);
 end;
 
 procedure TTestDcuIndex.JsonReadFailsOnMalformedInput;

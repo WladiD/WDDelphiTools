@@ -18,8 +18,13 @@ uses
   DPT.Dcu.Types;
 
 const
-  /// <summary>JSON schema version emitted by the index builder.</summary>
-  DcuIndexSchemaVersion = 1;
+  /// <summary>
+  ///   JSON schema version emitted by the index builder. v2 added the
+  ///   exported-symbol fields and the symbol-to-defining-unit map.
+  ///   The reader still accepts v1 documents (the new fields just stay
+  ///   empty in that case).
+  /// </summary>
+  DcuIndexSchemaVersion = 2;
 
 type
 
@@ -41,6 +46,8 @@ type
     ImplementationUses: IList<string>;
     TypeRefs          : IList<string>;
     MethodRefs        : IList<string>;
+    ExportedTypes     : IList<string>;
+    ExportedRoutines  : IList<string>;
   end;
 
   /// <summary>
@@ -55,6 +62,13 @@ type
     Units             : IList<TDcuIndexEntry>;
     /// <summary>imported-unit-name -> [importing unit names]</summary>
     ReverseImportIndex: IKeyValue<string, IList<string>>;
+    /// <summary>
+    ///   exported-symbol-name (lower-case) -> [unit names declaring it].
+    ///   Pre-computed at Build time so <c>DcuIndex Query --DefinedIn</c>
+    ///   resolves in O(1). Multiple unit names per key are possible
+    ///   when the same symbol exists across compiler/platform variants.
+    /// </summary>
+    SymbolToDefiningUnit: IKeyValue<string, IList<string>>;
   end;
 
   /// <summary>
@@ -115,6 +129,11 @@ type
     /// <summary>Returns the names of every unit that references
     /// <c>ASymbol</c> via its imported type or method cross-references.</summary>
     function FindReferences(const ASymbol: string): IList<string>;
+    /// <summary>Returns every unit that **declares** <c>ASymbol</c> as
+    /// one of its own exported types or routines. Inverse of
+    /// <see cref="FindReferences"/>: that one finds consumers, this one
+    /// finds the definition site.</summary>
+    function FindDefinitionOf(const ASymbol: string): IList<string>;
     property Index: TDcuIndex read FIndex;
   end;
 
@@ -151,18 +170,28 @@ begin
 end;
 
 procedure SplitSymbols(ASource: IList<TDcuSymbolRef>;
-  out ATypeRefs, AMethodRefs: IList<string>);
+  out AImpTypes, AImpMethods, AExpTypes, AExpRoutines: IList<string>);
 var
   Sym: TDcuSymbolRef;
 begin
-  ATypeRefs := Collections.NewList<string>;
-  AMethodRefs := Collections.NewList<string>;
+  AImpTypes := Collections.NewList<string>;
+  AImpMethods := Collections.NewList<string>;
+  AExpTypes := Collections.NewList<string>;
+  AExpRoutines := Collections.NewList<string>;
   if ASource = nil then
     Exit;
   for Sym in ASource do
-    case Sym.Kind of
-      dskType  : ATypeRefs.Add(Sym.Name);
-      dskMethod: AMethodRefs.Add(Sym.Name);
+    case Sym.Origin of
+      dsoImported:
+        case Sym.Kind of
+          dskType  : AImpTypes.Add(Sym.Name);
+          dskMethod: AImpMethods.Add(Sym.Name);
+        end;
+      dsoExported:
+        case Sym.Kind of
+          dskType  : AExpTypes.Add(Sym.Name);
+          dskMethod: AExpRoutines.Add(Sym.Name);
+        end;
     end;
 end;
 
@@ -192,7 +221,8 @@ begin
   Result.Includes := ListFromAnalyzerList(R.Header.IncludeSources);
   Result.InterfaceUses := ListFromAnalyzerList(R.InterfaceUses);
   Result.ImplementationUses := ListFromAnalyzerList(R.ImplementationUses);
-  SplitSymbols(R.Symbols, Result.TypeRefs, Result.MethodRefs);
+  SplitSymbols(R.Symbols, Result.TypeRefs, Result.MethodRefs,
+    Result.ExportedTypes, Result.ExportedRoutines);
 end;
 
 { TDcuIndexBuildFailure }
@@ -237,6 +267,7 @@ var
   Entry     : TDcuIndexEntry;
   Imported  : string;
   LowerKey  : string;
+  Symbol    : string;
 
   procedure RecordImport(const AImported, AImporter: string);
   begin
@@ -249,14 +280,30 @@ var
     Bucket.Add(AImporter);
   end;
 
+  procedure RecordDefinition(const ASymbol, ADefiningUnit: string);
+  begin
+    LowerKey := LowerCase(ASymbol);
+    if not AIndex.SymbolToDefiningUnit.TryGetValue(LowerKey, Bucket) then
+    begin
+      Bucket := Collections.NewList<string>;
+      AIndex.SymbolToDefiningUnit.Add(LowerKey, Bucket);
+    end;
+    Bucket.Add(ADefiningUnit);
+  end;
+
 begin
   AIndex.ReverseImportIndex := Collections.NewKeyValue<string, IList<string>>;
+  AIndex.SymbolToDefiningUnit := Collections.NewKeyValue<string, IList<string>>;
   for Entry in AIndex.Units do
   begin
     for Imported in Entry.InterfaceUses do
       RecordImport(Imported, Entry.UnitName);
     for Imported in Entry.ImplementationUses do
       RecordImport(Imported, Entry.UnitName);
+    for Symbol in Entry.ExportedTypes do
+      RecordDefinition(Symbol, Entry.UnitName);
+    for Symbol in Entry.ExportedRoutines do
+      RecordDefinition(Symbol, Entry.UnitName);
   end;
 end;
 
@@ -375,6 +422,19 @@ begin
       for Item in Entry.ImplementationUses do
         Result.Add(Item);
     end;
+end;
+
+function TDcuIndexQuery.FindDefinitionOf(const ASymbol: string): IList<string>;
+var
+  Bucket: IList<string>;
+  Item  : string;
+begin
+  Result := Collections.NewList<string>;
+  if FIndex.SymbolToDefiningUnit = nil then
+    Exit;
+  if FIndex.SymbolToDefiningUnit.TryGetValue(LowerCase(ASymbol), Bucket) then
+    for Item in Bucket do
+      Result.Add(Item);
 end;
 
 function TDcuIndexQuery.FindReferences(const ASymbol: string): IList<string>;

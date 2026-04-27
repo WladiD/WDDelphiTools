@@ -381,14 +381,16 @@ end;
 class procedure TDcuAnalyzer.ScanSymbolRefs(AReader: TDcuReader;
   var AResult: TDcuAnalysisResult);
 var
-  Consumed : Integer;
-  Hash     : UInt32;
-  Kind     : TDcuSymbolKind;
-  Name     : string;
-  Offset   : Integer;
-  Seen     : IKeyValue<string, Boolean>;
-  TagByte  : Byte;
-  TrailerOk: Boolean;
+  Consumed     : Integer;
+  Hash         : UInt32;
+  IsAnchorOnly : Boolean;
+  Kind         : TDcuSymbolKind;
+  Name         : string;
+  Offset       : Integer;
+  Origin       : TDcuSymbolOrigin;
+  Seen         : IKeyValue<string, Boolean>;
+  TagByte      : Byte;
+  TrailerOk    : Boolean;
 
   function MatchUsesEntryAt(AOffset: Integer; out AEntryLen: Integer): Boolean;
   var
@@ -420,22 +422,37 @@ begin
 
   while (Offset < AReader.Size - 1) and (AResult.Symbols.Count < MaxSymbolRefs) do
   begin
-    // Walk past valid uses entries verbatim so a $66/$67 byte that
-    // happens to live inside a uses entry's hash trailer does not get
-    // misread as a symbol-ref tag.
+    // Walk past valid uses entries verbatim so a tag byte that happens
+    // to live inside a uses entry's hash trailer does not get misread
+    // as the start of a symbol entry.
     if MatchUsesEntryAt(Offset, UsesLen) then
     begin
       Inc(Offset, UsesLen);
       Continue;
     end;
 
+    IsAnchorOnly := False;
     TagByte := AReader.Bytes[Offset];
-    if TagByte = DcuSymbolTag_Type then
-      Kind := dskType
-    else if TagByte = DcuSymbolTag_Method then
-      Kind := dskMethod
+    case TagByte of
+      DcuImportTag_Type:
+        begin Kind := dskType;   Origin := dsoImported; end;
+      DcuImportTag_Method:
+        begin Kind := dskMethod; Origin := dsoImported; end;
+      DcuExportTag_Type:
+        begin Kind := dskType;   Origin := dsoExported; end;
+      DcuExportTag_Routine:
+        begin Kind := dskMethod; Origin := dsoExported; end;
+      DcuExportTag_TypeAnchor:
+        begin
+          // Same layout as $2A but the name is dot-prefixed; we consume
+          // the bytes so the cursor advances correctly but do not record
+          // the entry - it would only duplicate the matching $2A entry
+          // with a leading dot.
+          Kind := dskType;
+          Origin := dsoExported;
+          IsAnchorOnly := True;
+        end;
     else
-    begin
       Inc(Offset);
       Continue;
     end;
@@ -463,13 +480,35 @@ begin
       (UInt32(AReader.Bytes[Offset + 1 + Consumed + 2]) shl 16) or
       (UInt32(AReader.Bytes[Offset + 1 + Consumed + 3]) shl 24);
 
-    // First-encounter dedup: a single type/method may be referenced
-    // many times in the file - we record only the earliest occurrence.
-    var Key := DcuSymbolKindName[Kind] + ':' + Name;
-    if not Seen.ContainsKey(Key) then
+    if not IsAnchorOnly then
     begin
-      Seen.Add(Key, True);
-      AResult.Symbols.Add(TDcuSymbolRef.Create(Kind, Name, Hash, Offset));
+      // Filter compiler-emitted bookkeeping entries that satisfy the
+      // tag pattern but are not real declarations:
+      //   * The unit's own qualified name (a sentinel marker);
+      //   * The literal Initialization / Finalization block names.
+      var IsBookkeeping :=
+        (Origin = dsoExported) and
+        (
+          SameText(Name, AResult.Header.UnitName) or
+          SameText(Name, 'Initialization') or
+          SameText(Name, 'Finalization')
+        );
+
+      if not IsBookkeeping then
+      begin
+        // First-encounter dedup keyed by (Origin, Kind, Name) so the
+        // same identifier can legitimately exist as both an imported
+        // reference and a re-exported declaration without one
+        // shadowing the other.
+        var Key := DcuSymbolOriginName[Origin] + ':' +
+                   DcuSymbolKindName[Kind] + ':' + Name;
+        if not Seen.ContainsKey(Key) then
+        begin
+          Seen.Add(Key, True);
+          AResult.Symbols.Add(
+            TDcuSymbolRef.Create(Kind, Origin, Name, Hash, Offset));
+        end;
+      end;
     end;
     Inc(Offset, 1 + Consumed + 4);
   end;

@@ -17,7 +17,7 @@ type
 
   TDcuIndexMode = (dimNone, dimBuild, dimQuery, dimStats);
   TDcuIndexQueryKind = (dqkNone, dqkUnit, dqkImportedBy, dqkImportsOf,
-    dqkReferences);
+    dqkReferences, dqkDefinedIn);
 
   TDptDcuIndexTask = class(TDptTaskBase)
   private
@@ -150,6 +150,12 @@ begin
       FQueryArg := Param.Substring(13).DeQuotedString('"');
       CmdLine.ConsumeParameter;
     end
+    else if Param.StartsWith('--DefinedIn=', True) then
+    begin
+      FQueryKind := dqkDefinedIn;
+      FQueryArg := Param.Substring(12).DeQuotedString('"');
+      CmdLine.ConsumeParameter;
+    end
     else if Param.StartsWith('--') then
       CmdLine.InvalidParameter('Unknown option: ' + Param)
     else
@@ -184,7 +190,8 @@ begin
             'DcuIndex Query requires the index file path');
         if FQueryKind = dqkNone then
           raise EInvalidParameter.Create(
-            'DcuIndex Query requires one of --Unit / --ImportedBy / --ImportsOf / --References');
+            'DcuIndex Query requires one of --Unit / --ImportedBy / '
+            + '--ImportsOf / --References / --DefinedIn');
       end;
     dimStats:
       if FIndexFile = '' then
@@ -298,6 +305,16 @@ begin
       dqkReferences:
         begin
           Hits := Query.FindReferences(FQueryArg);
+          if Hits.Count = 0 then
+          begin
+            System.ExitCode := 1;
+            Exit;
+          end;
+          for Hit in Hits do Writeln(Hit);
+        end;
+      dqkDefinedIn:
+        begin
+          Hits := Query.FindDefinitionOf(FQueryArg);
           if Hits.Count = 0 then
           begin
             System.ExitCode := 1;

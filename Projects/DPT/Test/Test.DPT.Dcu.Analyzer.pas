@@ -22,6 +22,8 @@ type
       AScope: TDcuUsesScope): Boolean;
     function ContainsSymbol(const AResult: TDcuAnalysisResult; const AName: string;
       AKind: TDcuSymbolKind): Boolean;
+    function ContainsExport(const AResult: TDcuAnalysisResult; const AName: string;
+      AKind: TDcuSymbolKind): Boolean;
     function CountKind(const AResult: TDcuAnalysisResult;
       AKind: TDcuSymbolKind): Integer;
   public
@@ -67,6 +69,13 @@ type
     [Test] procedure ResolveUsesAutoAddsDcuDirectory;
     [Test] procedure ResolveUsesHonorsExplicitSearchPathsInOrder;
     [Test] procedure ResolveUsesIsNoOpWhenNotInvoked;
+
+    // Iteration 7: own-declared (exported) symbols
+    [Test] procedure DetectionDcuExportsKnownTypes;
+    [Test] procedure DetectionDcuExportsKnownRoutines;
+    [Test] procedure DetectionDcuExportsClassMethods;
+    [Test] procedure ExportedAndImportedDoNotConflate;
+    [Test] procedure UnitOwnNameIsNotReportedAsExportedRoutine;
   end;
 
 implementation
@@ -113,7 +122,20 @@ var
 begin
   Result := False;
   for Sym in AResult.Symbols do
-    if (Sym.Kind = AKind) and SameText(Sym.Name, AName) then
+    if (Sym.Kind = AKind) and (Sym.Origin = dsoImported)
+      and SameText(Sym.Name, AName) then
+      Exit(True);
+end;
+
+function TTestDcuAnalyzer.ContainsExport(const AResult: TDcuAnalysisResult;
+  const AName: string; AKind: TDcuSymbolKind): Boolean;
+var
+  Sym: TDcuSymbolRef;
+begin
+  Result := False;
+  for Sym in AResult.Symbols do
+    if (Sym.Kind = AKind) and (Sym.Origin = dsoExported)
+      and SameText(Sym.Name, AName) then
       Exit(True);
 end;
 
@@ -654,6 +676,84 @@ begin
   for Entry in Res.ImplementationUses do
     Assert.AreEqual('', Entry.ResolvedPath,
       Format('Entry %s should not be auto-resolved', [Entry.UnitName]));
+end;
+
+procedure TTestDcuAnalyzer.DetectionDcuExportsKnownTypes;
+var
+  Res: TDcuAnalysisResult;
+begin
+  // DPT.Detection declares exactly one type: TProcessTreeScanner.
+  // Other types referenced (TDelphiVersion, TAIMode, TObject, ...) are
+  // imported from System / DPT.Types and must not appear as exports.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  Assert.IsTrue(ContainsExport(Res, 'TProcessTreeScanner', dskType),
+    'TProcessTreeScanner must be reported as an exported type');
+  Assert.IsFalse(ContainsExport(Res, 'TDelphiVersion', dskType),
+    'TDelphiVersion is imported from DPT.Types, not exported here');
+  Assert.IsFalse(ContainsExport(Res, 'TObject', dskType),
+    'TObject is imported from System, not exported here');
+end;
+
+procedure TTestDcuAnalyzer.DetectionDcuExportsKnownRoutines;
+var
+  Res: TDcuAnalysisResult;
+begin
+  // Standalone routines declared in DPT.Detection's interface section.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  Assert.IsTrue(ContainsExport(Res, 'FindMostRecentDelphiVersion', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'IsValidDelphiVersion', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'IsLatestVersionAlias', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'DetectAIMode', dskMethod));
+end;
+
+procedure TTestDcuAnalyzer.DetectionDcuExportsClassMethods;
+var
+  Res: TDcuAnalysisResult;
+begin
+  // Methods of the declared TProcessTreeScanner class - emitted with
+  // qualified names by the compiler.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  Assert.IsTrue(ContainsExport(Res, 'TProcessTreeScanner.Create', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'TProcessTreeScanner.Destroy', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'TProcessTreeScanner.GetProcessEntry', dskMethod));
+  Assert.IsTrue(ContainsExport(Res, 'TProcessTreeScanner.DetectAIMode', dskMethod));
+end;
+
+procedure TTestDcuAnalyzer.ExportedAndImportedDoNotConflate;
+var
+  ExpFound, ImpFound: Boolean;
+  Res                : TDcuAnalysisResult;
+  Sym                : TDcuSymbolRef;
+begin
+  // TObject is imported (System.TObject); the analyzer must classify
+  // it under dsoImported only - never as both.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  ExpFound := False;
+  ImpFound := False;
+  for Sym in Res.Symbols do
+    if SameText(Sym.Name, 'TObject') and (Sym.Kind = dskType) then
+      case Sym.Origin of
+        dsoImported: ImpFound := True;
+        dsoExported: ExpFound := True;
+      end;
+  Assert.IsTrue(ImpFound, 'TObject must appear as imported');
+  Assert.IsFalse(ExpFound, 'TObject must NOT also appear as exported');
+end;
+
+procedure TTestDcuAnalyzer.UnitOwnNameIsNotReportedAsExportedRoutine;
+var
+  Res: TDcuAnalysisResult;
+begin
+  // The compiler emits a $28 sentinel entry whose name equals the unit's
+  // own qualified name; the analyzer's bookkeeping filter must drop it
+  // so the export list stays clean.
+  Res := TDcuAnalyzer.Analyze(FixtureDcu('DPT.Detection'));
+  Assert.IsFalse(ContainsExport(Res, 'DPT.Detection', dskMethod),
+    'Unit own name must not appear as an exported routine');
+  Assert.IsFalse(ContainsExport(Res, 'Initialization', dskMethod),
+    'Initialization sentinel must be filtered out');
+  Assert.IsFalse(ContainsExport(Res, 'Finalization', dskMethod),
+    'Finalization sentinel must be filtered out');
 end;
 
 initialization

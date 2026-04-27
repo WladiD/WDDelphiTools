@@ -352,31 +352,57 @@ begin
   if dasSymbols in FSections then
   begin
     ALines.Add('');
-    var TypeCount := 0;
-    var MethodCount := 0;
+    var ImpTypeCount := 0;
+    var ImpMethodCount := 0;
+    var ExpTypeCount := 0;
+    var ExpRoutineCount := 0;
     for var Sym in AResult.Symbols do
-      case Sym.Kind of
-        dskType  : Inc(TypeCount);
-        dskMethod: Inc(MethodCount);
+      case Sym.Origin of
+        dsoImported:
+          case Sym.Kind of
+            dskType  : Inc(ImpTypeCount);
+            dskMethod: Inc(ImpMethodCount);
+          end;
+        dsoExported:
+          case Sym.Kind of
+            dskType  : Inc(ExpTypeCount);
+            dskMethod: Inc(ExpRoutineCount);
+          end;
       end;
-    ALines.Add(System.SysUtils.Format('[Symbols] (types: %d, methods: %d)',
-      [TypeCount, MethodCount]));
+
+    ALines.Add(System.SysUtils.Format(
+      '[Symbols] imported %d types + %d methods, exported %d types + %d routines',
+      [ImpTypeCount, ImpMethodCount, ExpTypeCount, ExpRoutineCount]));
     if AResult.Symbols.Count = 0 then
       ALines.Add('  (none detected)')
     else
     begin
-      if TypeCount > 0 then
+      if ExpTypeCount > 0 then
       begin
-        ALines.Add('  Type references:');
+        ALines.Add('  Exported types (declared by this unit):');
         for var Sym in AResult.Symbols do
-          if Sym.Kind = dskType then
+          if (Sym.Origin = dsoExported) and (Sym.Kind = dskType) then
             ALines.Add('    ' + Sym.Name);
       end;
-      if MethodCount > 0 then
+      if ExpRoutineCount > 0 then
       begin
-        ALines.Add('  Method references:');
+        ALines.Add('  Exported routines (functions / methods declared here):');
         for var Sym in AResult.Symbols do
-          if Sym.Kind = dskMethod then
+          if (Sym.Origin = dsoExported) and (Sym.Kind = dskMethod) then
+            ALines.Add('    ' + Sym.Name);
+      end;
+      if ImpTypeCount > 0 then
+      begin
+        ALines.Add('  Imported types (referenced from other units):');
+        for var Sym in AResult.Symbols do
+          if (Sym.Origin = dsoImported) and (Sym.Kind = dskType) then
+            ALines.Add('    ' + Sym.Name);
+      end;
+      if ImpMethodCount > 0 then
+      begin
+        ALines.Add('  Imported methods/values:');
+        for var Sym in AResult.Symbols do
+          if (Sym.Origin = dsoImported) and (Sym.Kind = dskMethod) then
             ALines.Add('    ' + Sym.Name);
       end;
     end;
@@ -478,10 +504,12 @@ begin
 
     if dasSymbols in FSections then
     begin
-      Sb.Append('  "symbols": { "types": [');
+      Sb.Append('  "symbols": {');
+      // Imported references
+      Sb.Append(' "imported": { "types": [');
       First := True;
       for var Sym in AResult.Symbols do
-        if Sym.Kind = dskType then
+        if (Sym.Origin = dsoImported) and (Sym.Kind = dskType) then
         begin
           if not First then Sb.Append(', ');
           Sb.Append(JsonStr(Sym.Name));
@@ -490,13 +518,34 @@ begin
       Sb.Append('], "methods": [');
       First := True;
       for var Sym in AResult.Symbols do
-        if Sym.Kind = dskMethod then
+        if (Sym.Origin = dsoImported) and (Sym.Kind = dskMethod) then
         begin
           if not First then Sb.Append(', ');
           Sb.Append(JsonStr(Sym.Name));
           First := False;
         end;
-      Add('] },');
+      Sb.Append('] },');
+      // Exported declarations
+      Sb.Append(' "exported": { "types": [');
+      First := True;
+      for var Sym in AResult.Symbols do
+        if (Sym.Origin = dsoExported) and (Sym.Kind = dskType) then
+        begin
+          if not First then Sb.Append(', ');
+          Sb.Append(JsonStr(Sym.Name));
+          First := False;
+        end;
+      Sb.Append('], "routines": [');
+      First := True;
+      for var Sym in AResult.Symbols do
+        if (Sym.Origin = dsoExported) and (Sym.Kind = dskMethod) then
+        begin
+          if not First then Sb.Append(', ');
+          Sb.Append(JsonStr(Sym.Name));
+          First := False;
+        end;
+      Sb.Append('] }');
+      Add(' },');
     end;
 
     if dasSections in FSections then
