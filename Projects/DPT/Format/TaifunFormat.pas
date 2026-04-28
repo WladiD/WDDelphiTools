@@ -16,6 +16,7 @@ type
     FLastClassName: string;
     FExpectedTokenTextForSuppressedBanner: string;
     FSuppressNextMethodBanner: Boolean;
+    FCurrentUnitName: string;
     FBanner: TTaifunBannerHelper;
     FTrivia: TTaifunTriviaHelper;
     FHeader: TTaifunHeaderHelper;
@@ -51,9 +52,10 @@ begin
   FLastClassName := '';
   FExpectedTokenTextForSuppressedBanner := '';
   FSuppressNextMethodBanner := False;
+  FCurrentUnitName := '';
 end;
 
-procedure SortAndFormatUsesItems(AUses: TUsesClauseSyntax);
+procedure SortAndFormatUsesItems(AUses: TUsesClauseSyntax; const ACurrentUnitName: string);
 var
   LCount: Integer;
   I, J: Integer;
@@ -93,7 +95,7 @@ begin
   begin
     var LName: string := GetUsesItemName(AUses, I);
     LLower[I] := LowerCase(LName);
-    LGroups[I] := GetNamespaceGroup(LName);
+    LGroups[I] := GetNamespaceGroup(LName, ACurrentUnitName);
     LIndices[I] := I;
   end;
 
@@ -161,7 +163,7 @@ begin
     AddTrailingTrivia(LToken, '');
 
     if UsesClauseCanBeSorted(AUses) then
-      SortAndFormatUsesItems(AUses)
+      SortAndFormatUsesItems(AUses, FCurrentUnitName)
     else
     begin
       // Fallback: only format first item trivia (preserves directives/comments)
@@ -670,7 +672,7 @@ begin
   LToken := GetUnitKeyword(AUnit);
   if Assigned(LToken) then
   begin
-    LUnitName := GetUnitName(AUnit); LTrivia := GetLeadingTrivia(LToken);
+    LUnitName := GetUnitName(AUnit); FCurrentUnitName := LUnitName; LTrivia := GetLeadingTrivia(LToken);
     FHeader.ExtractHeaderInfo(LTrivia, LUnitName, LDesc, LAuthor, LDirectives, LExtra);
     LRule := '// ' + GetSep('=', 70); LDescLine := '// ' + LUnitName; if LDesc <> '' then LDescLine := LDescLine + ' - ' + LDesc;
     LNewBanner := LRule + #13#10 + '//' + #13#10 + LDescLine + #13#10 + '//' + #13#10 + '// Autor: ' + LAuthor + #13#10 + '//';

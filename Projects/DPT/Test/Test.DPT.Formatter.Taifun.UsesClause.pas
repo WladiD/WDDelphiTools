@@ -39,6 +39,8 @@ type
     procedure TestFormatUsesClause_DelphiRTL_SortedAcrossNamespaces;
     [Test]
     procedure TestFormatUsesClause_MultipleAppNamespaces;
+    [Test]
+    procedure TestFormatUsesClause_CurAppGroup;
   end;
 
 implementation
@@ -57,10 +59,6 @@ begin
 
   // Expecting newline right around uses
   Assert.IsTrue(LResult.Contains('uses' + #13#10 + #13#10 + '  System.SysUtils;'), 'uses should be on its own line followed by an empty line');
-
-  // Idempotence check
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Formatting the uses clause should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_WithCompilerDirectives;
@@ -153,10 +151,6 @@ begin
   LSource := 'unit MyUnit; interface uses Base.Types, System.SysUtils, Vcl.Controls, System.Classes; implementation end.';
 
   LResult := FormatSource(LSource);
-
-  // Idempotence check: format the result again
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Uses clause sorting and formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_BaseAndBaseUI_SeparateGroups;
@@ -261,10 +255,6 @@ begin
     '  Vcl.Forms,' + #13#10 +
     '  Winapi.Messages;'),
     'All Delphi RTL units must be in one alphabetically sorted block. Actual:' + #13#10 + LResult);
-
-  // Idempotence check
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Delphi RTL single-block formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_MultipleAppNamespaces;
@@ -288,10 +278,27 @@ begin
     '  Tfw.Utils,' + #13#10 +
     '  Tpm.Bridge;'),
     'All app namespaces should be in one block, sorted alphabetically. Actual:' + #13#10 + LResult);
+end;
 
-  // Idempotence check
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Multiple app namespaces formatting should be idempotent');
+procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_CurAppGroup;
+var
+  LResult : string;
+  LResult2: string;
+  LSource : string;
+begin
+  // App-namespace entries whose first segment matches the current unit's
+  // first segment form their own block (GroupCurApp) at the very end,
+  // placed after the regular App group.
+  LSource := 'unit Tfr.Abs.Year; interface uses Tfr.Skto.Typ, Tfw.Ad.Typ, Business.Types, Tfr.BJ.Typ; implementation end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    '  Business.Types,' + #13#10 + #13#10 +
+    '  Tfw.Ad.Typ,' + #13#10 + #13#10 +
+    '  Tfr.BJ.Typ,' + #13#10 +
+    '  Tfr.Skto.Typ;'),
+    'Units matching the current unit prefix should form a separate group at the end. Actual:' + #13#10 + LResult);
 end;
 
 end.

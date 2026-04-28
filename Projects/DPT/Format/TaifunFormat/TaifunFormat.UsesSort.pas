@@ -12,8 +12,9 @@ const
   GroupBusinessUI = 5;
   GroupShared     = 6;  // Dms.Shared.*, Tos.Shared.*, Tpm.Shared.*
   GroupApp        = 7;  // Application namespaces: DMS, MKH, PB, PLZ, RKA, SOA, TDM, TED, TES, TFH, TFI, TFK, TFR, TFW, TIM, TLS, TMS, TOS, TPM, TRD
+  GroupCurApp     = 8;  // Subset of GroupApp where the entry's first segment matches the current unit's first segment
 
-function GetNamespaceGroup(const AName: string): Integer;
+function GetNamespaceGroup(const AName: string; const ACurrentUnitName: string): Integer;
 
 implementation
 
@@ -22,9 +23,22 @@ begin
   Result := Copy(ALower, 1, Length(APrefix)) = APrefix;
 end;
 
-function GetNamespaceGroup(const AName: string): Integer;
+function GetFirstSegment(const AName: string): string;
+var
+  P: Integer;
+begin
+  P := Pos('.', AName);
+  if P > 0 then
+    Result := Copy(AName, 1, P - 1)
+  else
+    Result := AName;
+end;
+
+function GetNamespaceGroup(const AName: string; const ACurrentUnitName: string): Integer;
 var
   LLower: string;
+  LCurFirst: string;
+  LFirst: string;
 begin
   LLower := LowerCase(AName);
 
@@ -81,7 +95,13 @@ begin
      LowerStartsWith(LLower, 'tos.') or (LLower = 'tos') or
      LowerStartsWith(LLower, 'tpm.') or (LLower = 'tpm') or
      LowerStartsWith(LLower, 'trd.') or (LLower = 'trd') then
+  begin
+    LCurFirst := LowerCase(GetFirstSegment(ACurrentUnitName));
+    LFirst := LowerCase(GetFirstSegment(AName));
+    if (LCurFirst <> '') and (LFirst = LCurFirst) then
+      Exit(GroupCurApp);
     Exit(GroupApp);
+  end;
 
   // Everything else is third-party
   Result := GroupThirdParty;
