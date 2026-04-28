@@ -32,6 +32,10 @@ Win32
 /Projects/DPT/Lint/*.Tests.txt
 /Projects/DPT/Test/Win*/*
 /Projects/DPT/Test/FormatTaifunData
+/Projects/DPT/Test/Test.DPT.exe
+/Projects/DPT/Test/Test.DPT.res
+/Projects/DPT/Test/Test.DptDebugger.exe
+/Projects/DPT/Test/Test.DptDebugger.res
 /Projects/ParseTree/Test/Test.ParseTree.exe
 /Projects/ParseTree/Test/Test.ParseTree.res
 /.DptAiWorkflow-Example
