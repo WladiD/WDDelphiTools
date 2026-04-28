@@ -46,6 +46,12 @@ type
     procedure Execute; override;
   end;
 
+  TDptCompileAndRunTask = class(TDptBuildAndRunTask)
+  protected
+    function GetMSBuildTarget: String; override;
+    function GetActionDisplayName: String; override;
+  end;
+
 implementation
 
 uses
@@ -244,6 +250,18 @@ begin
 end;
 
 function TDptCompileTask.GetActionDisplayName: String;
+begin
+  Result := 'Compile';
+end;
+
+{ TDptCompileAndRunTask }
+
+function TDptCompileAndRunTask.GetMSBuildTarget: String;
+begin
+  Result := 'Make';
+end;
+
+function TDptCompileAndRunTask.GetActionDisplayName: String;
 begin
   Result := 'Compile';
 end;

@@ -84,6 +84,11 @@ begin
         '  -- <Args>: Passes all subsequent arguments to the executable.',
         'Example: DPT LATEST BuildAndRun MyProject.dproj Win64 Release --OnlyIfChanged --NoWait -- -run -debug'
       ]),
+      TActionInfo.Create('CompileAndRun', '<ProjectFile> [Platform] [Config] [--OnlyIfChanged] [--NoWait] [ExtraArgs] [-- <Args>]', [
+        'Performs an incremental build (MSBuild /t:Make) and executes the project.',
+        'Same parameters and features as BuildAndRun, but only recompiles changed units.',
+        'Example: DPT LATEST CompileAndRun MyProject.dproj Win64 Release --OnlyIfChanged -- -run'
+      ]),
       TActionInfo.Create('DcuAnalyze', '<DcuFile> [--Header] [--Uses] [--Symbols] [--Sections] [--All] [--Resolve] [--SearchPath=<dirs>] [--Format=Text|Json] [--Verbose]', [
         'Analyzes a Delphi compiled unit (.dcu) and prints structural information.',
         'Decodes the magic bytes, the embedded source file references (primary',

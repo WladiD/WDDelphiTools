@@ -85,6 +85,7 @@ begin
   RegisterTask('Build', TDptBuildTask);
   RegisterTask('BuildAndRun', TDptBuildAndRunTask);
   RegisterTask('Compile', TDptCompileTask);
+  RegisterTask('CompileAndRun', TDptCompileAndRunTask);
   RegisterTask('RemovePackage', TDptRemovePackageTask);
   RegisterTask('RegisterPackage', TDptRegisterPackageTask);
   RegisterTask('IsPackageRegistered', TDptIsPackageRegisteredTask);
@@ -332,7 +333,7 @@ begin
           LCmdLine := TCmdLineConsumer.Create;
 
           // Configure context for engine
-          if (SameText(LAction, 'Build') or SameText(LAction, 'BuildAndRun') or SameText(LAction, 'Compile')) and (ParamCount >= 2) then
+          if (SameText(LAction, 'Build') or SameText(LAction, 'BuildAndRun') or SameText(LAction, 'Compile') or SameText(LAction, 'CompileAndRun')) and (ParamCount >= 2) then
           begin
             var LProjFileArgIdx := 2;
             if IsLatestVersionAlias(ParamStr(1)) or IsValidDelphiVersion(ParamStr(1), LDummyVersion) then LProjFileArgIdx := 3;
