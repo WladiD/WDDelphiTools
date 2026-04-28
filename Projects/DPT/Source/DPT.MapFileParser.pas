@@ -59,6 +59,8 @@ type
     FSegments        : IList<TMapSegment>;
     function GetLineNumberByIndex(Index: Integer): TMapLineNumber;
     function GetLineNumbersCnt: Integer;
+    function GetSegmentByIndex(Index: Integer): TMapSegment;
+    function GetSegmentsCnt: Integer;
     function IndexOfSegment(Addr: UInt64): Integer;
     function MAPAddrToVA(Addr: UInt64): UInt64;
     function ModuleStartFromAddr(Addr: UInt64): UInt64;
@@ -78,6 +80,8 @@ type
     function VAFromUnitAndProcName(const AUnitName, AProcName: string): UInt64;
     property LineNumberByIndex[Index: Integer]: TMapLineNumber read GetLineNumberByIndex;
     property LineNumbersCnt: Integer read GetLineNumbersCnt;
+    property SegmentByIndex[Index: Integer]: TMapSegment read GetSegmentByIndex;
+    property SegmentsCnt: Integer read GetSegmentsCnt;
   end;
 
 implementation
@@ -576,6 +580,16 @@ end;
 function TMapFileParser.GetLineNumbersCnt: Integer;
 begin
   Result := FLineNumbers.Count;
+end;
+
+function TMapFileParser.GetSegmentByIndex(Index: Integer): TMapSegment;
+begin
+  Result := FSegments[Index];
+end;
+
+function TMapFileParser.GetSegmentsCnt: Integer;
+begin
+  Result := FSegments.Count;
 end;
 
 function TMapFileParser.IndexOfSegment(Addr: UInt64): Integer;
