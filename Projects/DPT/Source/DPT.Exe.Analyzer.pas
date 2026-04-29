@@ -32,9 +32,15 @@ type
     class procedure ReadPEHeader(const AContent: TBytes;
       var AResult: TExeAnalysisResult);
     class function  SubsystemNameOf(AValue: Word): string;
-    class procedure DetectAndPopulateUnits(var AResult: TExeAnalysisResult);
+    class procedure DetectAndPopulateUnits(const AContent: TBytes;
+      var AResult: TExeAnalysisResult);
     class procedure PopulateUnitsFromMap(const AMapFilePath: string;
       var AResult: TExeAnalysisResult);
+    class function  PopulateUnitsFromTD32(const AContent: TBytes;
+      var AResult: TExeAnalysisResult): Boolean;
+    class function  PopulateUnitsFromRttiScan(const AContent: TBytes;
+      var AResult: TExeAnalysisResult): Boolean;
+    class function  LooksLikeUnitName(const AName: string): Boolean;
   public
     class function Analyze(const AExePath: string): TExeAnalysisResult; overload;
     class function Analyze(const AExePath: string;
@@ -57,6 +63,8 @@ uses
 
   System.DateUtils,
   System.IOUtils,
+
+  JclTD32,
 
   DPT.MapFileParser;
 
@@ -306,7 +314,240 @@ begin
   end;
 end;
 
-class procedure TExeAnalyzer.DetectAndPopulateUnits(
+class function TExeAnalyzer.LooksLikeUnitName(const AName: string): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  if (Length(AName) < 3) or (Length(AName) > 200) then
+    Exit;
+  // First char must be a letter or underscore.
+  case AName[1] of
+    'A'..'Z', 'a'..'z', '_': ;
+  else
+    Exit;
+  end;
+  // Every byte: letter, digit, dot, underscore. No double dots, no
+  // trailing dot.
+  for I := 1 to Length(AName) do
+    case AName[I] of
+      'A'..'Z', 'a'..'z', '0'..'9', '_', '.': ;
+    else
+      Exit;
+    end;
+  if AName[Length(AName)] = '.' then Exit;
+  for I := 1 to Length(AName) - 1 do
+    if (AName[I] = '.') and (AName[I + 1] = '.') then Exit;
+  Result := True;
+end;
+
+class function TExeAnalyzer.PopulateUnitsFromTD32(const AContent: TBytes;
+  var AResult: TExeAnalysisResult): Boolean;
+var
+  AddedNames: IKeyValue<string, Boolean>;
+  I         : Integer;
+  ModuleName: string;
+  Parser    : TJclTD32InfoParser;
+  Sig       : UInt32;
+  Stream    : TBytesStream;
+  TD32Bytes : TBytes;
+  TD32Start : Integer;
+
+  function FindTd32Start: Integer;
+  // Scan forward for the FB09 / FB0A signature on a 4-byte boundary.
+  // The header sits at the very start of the TD32 stream; the same
+  // signature appears again in the trailer at EOF. We accept the
+  // earliest hit because that is the header. The scan starts after
+  // the PE optional header (the magic bytes never appear that early
+  // in legitimate Delphi binaries) to skip the obvious noise of the
+  // DOS stub.
+  var
+    Idx   : Integer;
+    Probe : UInt32;
+    Sig09 : UInt32;
+    Sig0A : UInt32;
+  begin
+    Result := -1;
+    Sig09 := $39304246; // 'FB09' little-endian DWORD value
+    Sig0A := $41304246; // 'FB0A'
+    Idx := 256;         // skip DOS stub + early PE header noise
+    while Idx + 8 <= Length(AContent) do
+    begin
+      Probe :=
+        UInt32(AContent[Idx])           or
+        (UInt32(AContent[Idx + 1]) shl  8) or
+        (UInt32(AContent[Idx + 2]) shl 16) or
+        (UInt32(AContent[Idx + 3]) shl 24);
+      if (Probe = Sig09) or (Probe = Sig0A) then
+        Exit(Idx);
+      Inc(Idx, 4);
+    end;
+  end;
+
+begin
+  Result := False;
+  TD32Start := FindTd32Start;
+  if TD32Start < 0 then
+  begin
+    AResult.Diagnostics.Add('No FB09/FB0A signature found - no TD32 debug info');
+    Exit;
+  end;
+
+  // Validate: signature must be followed by a plausible Offset that
+  // points within the remaining bytes. The 8-byte trailer at EOF has
+  // the same signature, so accepting only the FIRST hit guarantees we
+  // get the header.
+  Sig :=
+    UInt32(AContent[TD32Start])           or
+    (UInt32(AContent[TD32Start + 1]) shl  8) or
+    (UInt32(AContent[TD32Start + 2]) shl 16) or
+    (UInt32(AContent[TD32Start + 3]) shl 24);
+  if not ((Sig = $39304246) or (Sig = $41304246)) then
+    Exit;
+
+  SetLength(TD32Bytes, Length(AContent) - TD32Start);
+  if Length(TD32Bytes) > 0 then
+    Move(AContent[TD32Start], TD32Bytes[0], Length(TD32Bytes));
+
+  Stream := TBytesStream.Create(TD32Bytes);
+  Parser := nil;
+  try
+    if not TJclTD32InfoParser.IsTD32DebugInfoValid(Stream.Memory, Stream.Size) then
+    begin
+      AResult.Diagnostics.Add('TD32 signature located but JCL parser ' +
+        'rejects the data layout');
+      Exit;
+    end;
+    Parser := TJclTD32InfoParser.Create(Stream);
+    if not Parser.ValidData then
+    begin
+      AResult.Diagnostics.Add('TD32 parser ran but reports invalid data');
+      Exit;
+    end;
+
+    AddedNames := Collections.NewPlainKeyValue<string, Boolean>;
+    for I := 0 to Parser.ModuleCount - 1 do
+    begin
+      ModuleName := Parser.Names[Parser.Modules[I].NameIndex];
+      if (ModuleName = '') or
+         AddedNames.ContainsKey(LowerCase(ModuleName)) then
+        Continue;
+      AResult.Units.Add(TExeUnitEntry.Create(ModuleName, 0, 0));
+      AddedNames.Add(LowerCase(ModuleName), True);
+    end;
+    Result := AResult.Units.Count > 0;
+  finally
+    Parser.Free;
+    Stream.Free;
+  end;
+end;
+
+class function TExeAnalyzer.PopulateUnitsFromRttiScan(const AContent: TBytes;
+  var AResult: TExeAnalysisResult): Boolean;
+// Last-resort scan: walk the file looking for length-prefixed ASCII
+// short-strings whose payload looks like a Pascal qualified identifier.
+// Two boundary checks suppress the dominant false-positive class
+// (length bytes coincidentally embedded inside other strings - in
+// particular generic-instantiation names where '<' = $3C looks like
+// a 60-byte length):
+//   * the byte BEFORE the candidate length must not be an identifier
+//     character; real length bytes are preceded by a structure tag,
+//     padding or a non-textual byte
+//   * the byte AFTER the captured string must not continue the
+//     identifier; otherwise we are truncating a longer string
+// Dotted names only - undotted ones (SysUtils, JclMath) are
+// indistinguishable from class/type names without proper RTTI parsing.
+
+  function IsIdentChar(AByte: Byte): Boolean; inline;
+  begin
+    Result :=
+      ((AByte >= Ord('A')) and (AByte <= Ord('Z'))) or
+      ((AByte >= Ord('a')) and (AByte <= Ord('z'))) or
+      ((AByte >= Ord('0')) and (AByte <= Ord('9'))) or
+      (AByte = Ord('_')) or (AByte = Ord('.'));
+  end;
+
+var
+  AddedNames: IKeyValue<string, Boolean>;
+  Buf       : TBytes;
+  Candidate : string;
+  Len       : Integer;
+  Offset    : Integer;
+begin
+  AddedNames := Collections.NewPlainKeyValue<string, Boolean>;
+  Offset := 0;
+  while Offset < Length(AContent) - 1 do
+  begin
+    Len := AContent[Offset];
+    if (Len < 4) or (Len > 100)
+      or (Offset + 1 + Len > Length(AContent))
+    then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    // Boundary check 1: byte before the length must not look like an
+    // identifier byte - we would otherwise sit inside another string.
+    if (Offset > 0) and IsIdentChar(AContent[Offset - 1]) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    // Boundary check 2: byte after the captured string must not
+    // continue the identifier - otherwise we are reading a truncated
+    // prefix of a longer string.
+    if (Offset + 1 + Len < Length(AContent))
+      and IsIdentChar(AContent[Offset + 1 + Len])
+    then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+
+    SetLength(Buf, Len);
+    Move(AContent[Offset + 1], Buf[0], Len);
+    try
+      Candidate := TEncoding.ASCII.GetString(Buf);
+    except
+      Inc(Offset);
+      Continue;
+    end;
+    if not LooksLikeUnitName(Candidate) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    if Pos('.', Candidate) = 0 then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    // Class-prefix filter: real Delphi unit names virtually never start
+    // with the Pascal class-name pattern T<UpperCase>. Names like
+    // "TMask.TMaskSet" or "TDirectory.TEnumerator" are nested class /
+    // type references, not units. Discarding them improves the
+    // signal-to-noise ratio of the heuristic dramatically. Edge case:
+    // the Taifun-style unit name "TaifunFormat" survives because its
+    // second char is lowercase.
+    if (Length(Candidate) >= 2) and (Candidate[1] = 'T')
+       and CharInSet(Candidate[2], ['A'..'Z']) then
+    begin
+      Inc(Offset);
+      Continue;
+    end;
+    if not AddedNames.ContainsKey(LowerCase(Candidate)) then
+    begin
+      AddedNames.Add(LowerCase(Candidate), True);
+      AResult.Units.Add(TExeUnitEntry.Create(Candidate, 0, 0));
+    end;
+    Inc(Offset, 1 + Len);
+  end;
+  Result := AResult.Units.Count > 0;
+end;
+
+class procedure TExeAnalyzer.DetectAndPopulateUnits(const AContent: TBytes;
   var AResult: TExeAnalysisResult);
 var
   MapPath: string;
@@ -314,8 +555,7 @@ begin
   AResult.Detection := edmNone;
   AResult.DetectionDetail := '';
 
-  // Probe for a sibling .map file - default Delphi convention is the
-  // same base name with a .map extension.
+  // Strategy 1 (most reliable): a sibling .map file alongside the EXE.
   MapPath := ChangeFileExt(AResult.FilePath, '.map');
   if FileExists(MapPath) then
   begin
@@ -327,8 +567,26 @@ begin
     Exit;
   end;
 
-  AResult.DetectionDetail := 'No .map file found alongside the EXE; '
-    + 'TD32 and RTTI fallbacks are not yet implemented';
+  // Strategy 2: TD32 (FB09) debug info embedded in the EXE.
+  if PopulateUnitsFromTD32(AContent, AResult) then
+  begin
+    AResult.Detection := edmTd32;
+    AResult.DetectionDetail := 'embedded TD32 debug info ('
+      + IntToStr(AResult.Units.Count) + ' units)';
+    Exit;
+  end;
+
+  // Strategy 3 (last resort): heuristic identifier scan.
+  if PopulateUnitsFromRttiScan(AContent, AResult) then
+  begin
+    AResult.Detection := edmRtti;
+    AResult.DetectionDetail := 'heuristic identifier scan ('
+      + IntToStr(AResult.Units.Count) + ' candidates - dotted names only)';
+    Exit;
+  end;
+
+  AResult.DetectionDetail := 'No .map, no TD32 debug info, no plausible '
+    + 'identifier candidates - unit list cannot be reconstructed';
   AResult.Diagnostics.Add(AResult.DetectionDetail);
 end;
 
@@ -401,13 +659,14 @@ begin
   Stream := TFileStream.Create(AExePath, fmOpenRead or fmShareDenyWrite);
   try
     Result.FileSize := Stream.Size;
-    // 4 KB are enough for the DOS stub + PE header + section table of
-    // every realistic Delphi binary, so we do not pull the whole exe
-    // into memory.
-    SetLength(Bytes, 4096);
-    var ReadBytes := Stream.Read(Bytes, Length(Bytes));
-    if ReadBytes < Length(Bytes) then
-      SetLength(Bytes, ReadBytes);
+    // The header parser needs only the first ~4 KB; the TD32 / RTTI
+    // fallbacks need the whole file. We pull everything because the
+    // file size is bounded (a multi-hundred-MB EXE is unrealistic for
+    // Delphi) and the alternative - two passes with a stream rewind -
+    // adds complexity without saving meaningful memory.
+    SetLength(Bytes, Stream.Size);
+    if Stream.Size > 0 then
+      Stream.ReadBuffer(Bytes[0], Stream.Size);
   finally
     Stream.Free;
   end;
@@ -416,7 +675,7 @@ begin
   if not Result.IsPE then
     Exit;
 
-  DetectAndPopulateUnits(Result);
+  DetectAndPopulateUnits(Bytes, Result);
 end;
 
 class function TExeAnalyzer.Analyze(const AExePath: string;

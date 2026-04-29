@@ -25,7 +25,9 @@ type
   /// </summary>
   TExeDetectionMethod = (
     edmNone,    // No method succeeded - units list is empty.
-    edmMap      // Sibling .map file found and parsed.
+    edmMap,     // Sibling .map file found and parsed.
+    edmTd32,    // TD32 (FB09) debug info embedded in the EXE.
+    edmRtti     // Heuristic identifier scan over the EXE bytes.
   );
 
   /// <summary>One section of the PE image (.text, .data, .rsrc, ...).</summary>
@@ -84,7 +86,9 @@ type
 const
   TExeDetectionMethodName: array[TExeDetectionMethod] of string = (
     { edmNone } 'none',
-    { edmMap  } 'map'
+    { edmMap  } 'map',
+    { edmTd32 } 'td32',
+    { edmRtti } 'rtti-scan'
   );
 
 implementation
