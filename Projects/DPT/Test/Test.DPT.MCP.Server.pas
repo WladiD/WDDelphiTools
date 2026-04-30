@@ -58,6 +58,10 @@ type
     [Test]
     procedure TestMcpStartSessionWithoutMapFile;
     [Test]
+    procedure TestMcpStartSessionWithoutMapAndPendingBreakpoint;
+    [Test]
+    procedure TestMcpSetBreakpointWithoutMapHintsAtMissingMap;
+    [Test]
     procedure TestMcpWaitUntilPaused;
     [Test]
     procedure TestMcpIgnoredExceptions;
@@ -1245,6 +1249,115 @@ begin
       except
         // ignore errors
       end;
+    end;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpStartSessionWithoutMapAndPendingBreakpoint;
+var
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  TempPath    : String;
+  StartLine   : String;
+begin
+  // When the user has queued breakpoints but the executable ships without
+  // a .map file, the start-session response must explain BOTH facts: the
+  // missing map (root cause) AND the breakpoints that won't trigger as a
+  // consequence. Previously the unresolved-breakpoints warning hid the
+  // missing-map message, leaving the AI agent guessing at the root cause.
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  TempPath := ChangeFileExt(ExePath, Format('.NoMapBP.%d.exe', [GetTickCount]));
+  TFile.Copy(ExePath, TempPath, True);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
+        StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_breakpoint (queued as pending, no resolution yet)
+      Server.RunOnce; // start_debug_session
+
+      StartLine := OutputWriter.GetLine(2);
+      Assert.IsTrue(StartLine.Contains('No .map file found'),
+        'Missing-map warning must appear even when breakpoints are pending: ' + StartLine);
+      Assert.IsTrue(StartLine.Contains('DebugTarget.dpr:13'),
+        'Pending unresolvable breakpoint must be listed: ' + StartLine);
+      Assert.IsTrue(StartLine.Contains('will not trigger'),
+        'Consequence must be stated explicitly: ' + StartLine);
+
+      Server.RunOnce; // terminate
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempPath) then
+    begin
+      Sleep(100);
+      try TFile.Delete(TempPath); except end;
+    end;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpSetBreakpointWithoutMapHintsAtMissingMap;
+var
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  TempPath    : String;
+  ErrorLine   : String;
+begin
+  // After the session is started against a no-.map binary, calling
+  // set_breakpoint must point the AI agent at the missing .map as the
+  // most likely cause - rather than vaguely suggesting to "verify unit
+  // names and line numbers" - because that is the actionable fix.
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  TempPath := ChangeFileExt(ExePath, Format('.NoMapSB.%d.exe', [GetTickCount]));
+  TFile.Copy(ExePath, TempPath, True);
+  try
+    InputReader := TStringTextReader.Create(
+      '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
+        StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // start_debug_session (no map)
+      Server.RunOnce; // set_breakpoint (must error with map-missing hint)
+
+      ErrorLine := OutputWriter.GetLine(2);
+      Assert.IsTrue(ErrorLine.Contains('Could not resolve address'),
+        'Generic resolution-failure message expected: ' + ErrorLine);
+      Assert.IsTrue(ErrorLine.Contains('No .map file'),
+        'Hint must explicitly call out the missing .map file: ' + ErrorLine);
+      Assert.IsTrue(ErrorLine.Contains('DCC_MapFile=3'),
+        'Hint must mention the actionable rebuild parameter: ' + ErrorLine);
+
+      Server.RunOnce; // terminate
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    if FileExists(TempPath) then
+    begin
+      Sleep(100);
+      try TFile.Delete(TempPath); except end;
     end;
   end;
 end;

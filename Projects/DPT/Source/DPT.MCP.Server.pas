@@ -29,6 +29,7 @@ type
 
   TMcpServer = class
   private
+    FCurrentExePath    : String;
     FDebugger          : TDebugger;
     FExitRequest       : Boolean;
     FInputReader       : TTextReader;
@@ -773,9 +774,28 @@ begin
     if not FDebugger.SetBreakpoint(LUnit, LLine, True) then
     begin
       if FDebugger.Breakpoints.Count >= 4 then
-        Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'))
-      else
-        Exit(MakeErrorResult(Format('Error: Could not resolve address for %s:%d. Verify that the unit name and line number are correct and that debug info is available.', [LUnit, LLine])));
+        Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'));
+
+      // The most common cause for an unresolvable line is a missing
+      // .map file next to the executable. Detect that explicitly so
+      // an AI agent does not waste a step verifying unit names.
+      if (FCurrentExePath <> '') and
+         (not FileExists(ChangeFileExt(FCurrentExePath, '.map'))) then
+        Exit(MakeErrorResult(Format(
+          'Error: Could not resolve address for %s:%d. ' +
+          'No .map file was found next to the executable, which is the ' +
+          'most likely cause: line-based breakpoints require it. ' +
+          'Rebuild via DPT with /p:DCC_MapFile=3 ' +
+          '(e.g. DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"), ' +
+          'or terminate this session, rebuild, and restart.',
+          [LUnit, LLine])));
+
+      Exit(MakeErrorResult(Format(
+        'Error: Could not resolve address for %s:%d. ' +
+        'A .map file is present, so verify that the unit name and line ' +
+        'number are correct (the line must contain executable code, not a ' +
+        'comment, blank line, or var declaration).',
+        [LUnit, LLine])));
     end;
     Result := MakeTextResult(Format('Breakpoint set at %s:%d', [LUnit, LLine]));
   end;
@@ -947,8 +967,10 @@ function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 var
   Args       : String;
   ExePath    : String;
+  HasMap     : Boolean;
   I          : Integer;
   MapFile    : String;
+  Msg        : String;
   Unresolved : String;
 begin
   if not RequireState([dsNoSession, dsExited], Result) then
@@ -970,9 +992,11 @@ begin
   FDebugger := TDebugger.Create;
   FOwnsDebugger := True;
   ConnectDebuggerEvents;
+  FCurrentExePath := ExePath;
 
   MapFile := ChangeFileExt(ExePath, '.map');
-  if FileExists(MapFile) then
+  HasMap := FileExists(MapFile);
+  if HasMap then
     FDebugger.LoadMapFile(MapFile);
 
   // Best-effort load of TD32 debug info from the EXE itself; required by
@@ -1007,20 +1031,30 @@ begin
     end;
   end;
 
+  // Compose warnings cumulatively. The map-file warning is independent
+  // of breakpoints: it always fires when the file is missing, so users
+  // hear about it regardless of whether they tried to set breakpoints
+  // already. When BOTH problems apply we present them as cause + effect
+  // rather than two separate "verify names" hints.
+  Msg := 'Debug session started for ' + ExePath;
+  if not HasMap then
+    Msg := Msg +
+      '. WARNING: No .map file found next to the executable. ' +
+      'Source-level debugging (setting breakpoints by line, named stack frames) will NOT work without it. ' +
+      'Rebuild the project with DPT using /p:DCC_MapFile=3 ' +
+      '(e.g., DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"), ' +
+      'or terminate this session, rebuild, and restart.';
   if Unresolved <> '' then
-    Result := MakeTextResult('Debug session started for ' + ExePath +
-      '. WARNING: Could not resolve address for breakpoint(s): ' + Unresolved +
-      '. These breakpoints will not trigger. Verify unit names and line numbers.')
-  else
   begin
-    if not FileExists(MapFile) then
-      Result := MakeTextResult('Debug session started for ' + ExePath +
-        '. WARNING: No .map file found! Source-level debugging (setting breakpoints by line, stack trace with lines) will NOT work. ' +
-        'You can rebuild the project with DPT to generate the map file using the following parameter: /p:DCC_MapFile=3 ' +
-        '(e.g., DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"). Alternatively, terminate this session, rebuild, and restart.')
+    if HasMap then
+      Msg := Msg +
+        '. WARNING: Could not resolve address for breakpoint(s): ' + Unresolved +
+        '. These breakpoints will not trigger. Verify unit names and line numbers.'
     else
-      Result := MakeTextResult('Debug session started for ' + ExePath);
+      Msg := Msg +
+        ' As a consequence, the following breakpoint(s) will not trigger: ' + Unresolved + '.';
   end;
+  Result := MakeTextResult(Msg);
 end;
 
 function TMcpServer.HandleContinue(AParams: TJSONObject): TJSONObject;
@@ -1114,6 +1148,7 @@ begin
   else
     FDebugger := nil;
   FOwnsDebugger := False;
+  FCurrentExePath := '';
   Result := MakeTextResult('Debug session stopped. The process continues running.');
 end;
 
@@ -1131,6 +1166,7 @@ begin
   else
     FDebugger := nil;
   FOwnsDebugger := False;
+  FCurrentExePath := '';
   Result := MakeTextResult('Debug session terminated. The process has been killed.');
 end;
 
