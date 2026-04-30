@@ -36,6 +36,12 @@ type
     [Test]
     procedure TestMcpStackFrameInfo;
     [Test]
+    procedure TestMcpGetLocalsHappyPath;
+    [Test]
+    procedure TestMcpGetLocalsNoLocalsInProcedure;
+    [Test]
+    procedure TestMcpGetLocalsListedInTools;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -538,6 +544,245 @@ begin
     end;
   finally
     Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetLocalsHappyPath;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  ContentArr  : TJSONArray;
+  Inner       : TJSONObject;
+  Locals      : TJSONArray;
+  Names       : TStringList;
+  HexValues   : TStringList;
+  I           : Integer;
+  Line        : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // Break on the Writeln in LocalsProcedure once all three locals
+  // (LocalA / LocalB / LocalC) have been assigned.
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp line 38
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue (async)
+
+      WaitForOutput(OutputWriter, 6); // stopped notification + sampling request
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_locals", "arguments": {}}}');
+      Server.RunOnce;
+
+      Assert.AreEqual(7, OutputWriter.GetCount, 'get_locals response missing');
+      Line := OutputWriter.GetLine(6);
+      LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+      try
+        ResultObj := LJSON.GetValue('result') as TJSONObject;
+        Assert.IsNotNull(ResultObj, 'No result object in get_locals response');
+        ContentArr := ResultObj.GetValue('content') as TJSONArray;
+        Assert.IsNotNull(ContentArr, 'No content array in get_locals response');
+        Assert.IsTrue(ContentArr.Count > 0, 'Empty content array');
+
+        // Inner payload is a JSON string inside content[0].text.
+        Inner := TJSONObject.ParseJSONValue(
+          (ContentArr.Items[0] as TJSONObject).GetValue('text').Value) as TJSONObject;
+        try
+          Assert.IsTrue(Inner.GetValue('procedure').Value.Contains('LocalsProcedure'),
+            'procedure field should reference LocalsProcedure, got: ' +
+            Inner.GetValue('procedure').Value);
+          Locals := Inner.GetValue('locals') as TJSONArray;
+          Assert.IsNotNull(Locals, 'locals array missing');
+          Assert.IsTrue(Locals.Count >= 3,
+            Format('Expected at least 3 locals, got %d', [Locals.Count]));
+
+          Names := TStringList.Create;
+          HexValues := TStringList.Create;
+          try
+            for I := 0 to Locals.Count - 1 do
+            begin
+              Names.Add((Locals.Items[I] as TJSONObject).GetValue('name').Value);
+              HexValues.Values[(Locals.Items[I] as TJSONObject).GetValue('name').Value] :=
+                (Locals.Items[I] as TJSONObject).GetValue('hex').Value;
+            end;
+            Assert.IsTrue(Names.IndexOf('LocalA') >= 0, 'LocalA missing');
+            Assert.IsTrue(Names.IndexOf('LocalB') >= 0, 'LocalB missing');
+            Assert.IsTrue(Names.IndexOf('LocalC') >= 0, 'LocalC missing');
+            // LocalA = $12345678 -> first 4 LE bytes "78 56 34 12"
+            Assert.IsTrue(HexValues.Values['LocalA'].StartsWith('78 56 34 12'),
+              'LocalA hex must start with "78 56 34 12", got: ' + HexValues.Values['LocalA']);
+            // LocalB = $1122334455667788 -> 8 LE bytes "88 77 66 55 44 33 22 11"
+            Assert.AreEqual('88 77 66 55 44 33 22 11',
+              HexValues.Values['LocalB'].ToUpper,
+              'LocalB hex mismatch');
+            // LocalC = $DEADBEEF -> first 4 LE bytes "EF BE AD DE"
+            Assert.IsTrue(HexValues.Values['LocalC'].ToUpper.StartsWith('EF BE AD DE'),
+              'LocalC hex must start with "EF BE AD DE", got: ' + HexValues.Values['LocalC']);
+          finally
+            HexValues.Free;
+            Names.Free;
+          end;
+        finally
+          Inner.Free;
+        end;
+      finally
+        LJSON.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetLocalsNoLocalsInProcedure;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  ContentArr  : TJSONArray;
+  Text        : String;
+  Line        : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // TargetProcedure (line 17) is covered by TD32 but declares no
+  // local variables. The handler must report this distinctly so an
+  // AI agent can tell it apart from "no debug info".
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp line 17
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+
+      WaitForOutput(OutputWriter, 6);
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_locals", "arguments": {}}}');
+      Server.RunOnce;
+
+      Line := OutputWriter.GetLine(6);
+      LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+      try
+        ResultObj := LJSON.GetValue('result') as TJSONObject;
+        ContentArr := ResultObj.GetValue('content') as TJSONArray;
+        Text := (ContentArr.Items[0] as TJSONObject).GetValue('text').Value;
+        Assert.IsTrue(Text.Contains('no recorded local variables'),
+          'Response should explain that the procedure has no locals; got: ' + Text);
+        Assert.IsTrue(Text.Contains('TargetProcedure'),
+          'Response should name the procedure; got: ' + Text);
+        // Must NOT be marked isError (this is informational, not a failure).
+        var IsErr := ResultObj.GetValue('isError');
+        Assert.IsTrue((IsErr = nil) or not (IsErr is TJSONBool) or
+          not (IsErr as TJSONBool).AsBoolean,
+          'Empty-locals response should be a regular text result, not isError');
+      finally
+        LJSON.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetLocalsListedInTools;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  Tools       : TJSONArray;
+  Found       : Boolean;
+  I           : Integer;
+begin
+  // The tool must show up in tools/list with a non-empty description so
+  // an AI agent discovers it via the standard MCP introspection flow.
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/list"}');
+
+  Debugger := nil;
+  OutputWriter := TStringTextWriter.Create;
+  Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+  try
+    Server.RunOnce; // init
+    Server.RunOnce; // tools/list
+
+    Assert.IsTrue(OutputWriter.GetCount >= 2, 'tools/list response missing');
+    LJSON := TJSONObject.ParseJSONValue(OutputWriter.GetLine(1)) as TJSONObject;
+    try
+      ResultObj := LJSON.GetValue('result') as TJSONObject;
+      Tools := ResultObj.GetValue('tools') as TJSONArray;
+      Assert.IsNotNull(Tools);
+      Found := False;
+      for I := 0 to Tools.Count - 1 do
+      begin
+        var T := Tools.Items[I] as TJSONObject;
+        if T.GetValue('name').Value = 'get_locals' then
+        begin
+          Found := True;
+          Assert.IsTrue(T.GetValue('description').Value.Length > 50,
+            'get_locals must have a non-trivial description');
+          Break;
+        end;
+      end;
+      Assert.IsTrue(Found, 'get_locals tool not registered in tools/list');
+    finally
+      LJSON.Free;
+    end;
+  finally
+    Server.Free;
+    InputReader.Free;
+    OutputWriter.Free;
   end;
 end;
 

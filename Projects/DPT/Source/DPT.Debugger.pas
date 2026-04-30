@@ -162,6 +162,7 @@ type
     function  GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function  GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function  GetRegisters(AThreadHandle: THandle): TRegisters;
+    function  GetCurrentProcedureName(AThreadHandle: THandle): String;
     function  GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
@@ -197,6 +198,7 @@ type
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;
     property  LastThreadId: Cardinal read FLastThreadId;
+    property  LocalsReader: TTd32LocalsReader read FLocalsReader;
     property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
@@ -879,6 +881,34 @@ begin
     FreeAndNil(FLocalsReader);
     raise;
   end;
+end;
+
+function TDebugger.GetCurrentProcedureName(AThreadHandle: THandle): String;
+const
+  CodeSectionRVA = $1000;
+var
+  EipRva    : UInt64;
+  ProcIdx   : Integer;
+  Regs      : TRegisters;
+  SegmentOff: UInt32;
+begin
+  Result := '';
+  if not Assigned(FLocalsReader) then
+    Exit;
+
+  Regs := GetRegisters(AThreadHandle);
+  if Regs.Eip = 0 then
+    Exit;
+  if Regs.Eip < FBaseAddress + CodeSectionRVA then
+    Exit;
+  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
+  if EipRva > High(UInt32) then
+    Exit;
+  SegmentOff := UInt32(EipRva);
+
+  ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  if ProcIdx >= 0 then
+    Result := FLocalsReader.Procs[ProcIdx].Name;
 end;
 
 function TDebugger.GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;

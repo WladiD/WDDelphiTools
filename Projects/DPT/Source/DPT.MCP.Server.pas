@@ -53,6 +53,7 @@ type
     procedure WriteOutput(const AJSON: String);
   private // Tool handlers
     function HandleContinue(AParams: TJSONObject): TJSONObject;
+    function HandleGetLocals(AParams: TJSONObject): TJSONObject;
     function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
     function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
     function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
@@ -422,7 +423,7 @@ begin
           '  1. set_breakpoint(unit, line) - max 4 hardware breakpoints; can be queued before a session.' + sLineBreak +
           '  2. start_debug_session(executable_path) - process launches paused; pending breakpoints apply.' + sLineBreak +
           '  3. continue / step_into / step_over - non-blocking; always follow with wait_until_paused.' + sLineBreak +
-          '  4. Inspect at a pause: get_stack_trace, get_registers, get_stack_slots (structured locals), read_memory, read_global_variable.' + sLineBreak +
+          '  4. Inspect at a pause: get_stack_trace, get_registers, get_locals (named locals from TD32, preferred), get_stack_slots (heuristic fallback), read_memory, read_global_variable.' + sLineBreak +
           '  5. stop_debug_session (detach) or terminate_debug_session (kill).' + sLineBreak +
           sLineBreak +
           'Addresses: hex without "0x" prefix; addresses from get_stack_trace / get_registers can be pasted directly into read_memory.' + sLineBreak +
@@ -484,6 +485,8 @@ begin
           SendResponse(ID, HandleGetRegisters(ToolParams))
         else if ToolName = 'get_stack_slots' then
           SendResponse(ID, HandleGetStackSlots(ToolParams))
+        else if ToolName = 'get_locals' then
+          SendResponse(ID, HandleGetLocals(ToolParams))
         else if ToolName = 'get_proc_asm' then
           SendResponse(ID, HandleGetProcAsm(ToolParams))
         else if ToolName = 'start_debug_session' then
@@ -683,6 +686,12 @@ begin
   ToolSlots.AddPair('description', 'Returns a structured list of stack slots from the current stack frame, with heuristic type interpretation (pointer, string, integer, etc.). Useful for quickly understanding local variables and parameters without manual hex interpretation. Only callable when state is "paused".');
   ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolSlots);
+
+  var ToolLocals := TJSONObject.Create;
+  ToolLocals.AddPair('name', 'get_locals');
+  ToolLocals.AddPair('description', 'Returns the named local variables of the procedure that contains the current PC, as a JSON object with "procedure" and a "locals" array. Each local has "name", "bp_offset" (signed, EBP/RBP-relative) and "hex" (8 raw little-endian bytes read from the live process). Interpret the hex per the variable''s Delphi type: first 4 bytes for Integer/Cardinal, all 8 bytes for Int64/Pointer/Double. Requires TD32 debug info embedded in the EXE - this is the default for Debug builds (-V -$D+) but absent from -release- binaries. The tool returns a clear error message when no debug info is available, when the current PC is not inside a covered procedure (e.g. inside an RTL routine), or when the procedure has no recorded locals. Prefer this over get_stack_slots whenever possible: it gives source-level names and skips heuristic guessing. Only callable when state is "paused".');
+  ToolLocals.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
+  ToolsArr.Add(ToolLocals);
 
   var ToolAsm := TJSONObject.Create;
   ToolAsm.AddPair('name', 'get_proc_asm');
@@ -965,6 +974,10 @@ begin
   MapFile := ChangeFileExt(ExePath, '.map');
   if FileExists(MapFile) then
     FDebugger.LoadMapFile(MapFile);
+
+  // Best-effort load of TD32 debug info from the EXE itself; required by
+  // get_locals. Silently no-ops when the EXE was stripped of debug info.
+  FDebugger.LoadDebugInfoFromExe(ExePath);
 
   for I := 0 to FPendingBreakpoints.Count - 1 do
     FDebugger.SetBreakpoint(FPendingBreakpoints[I].UnitName, FPendingBreakpoints[I].LineNumber);
@@ -1333,6 +1346,81 @@ begin
   var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', SlotsArr.ToJSON));
   Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.HandleGetLocals(AParams: TJSONObject): TJSONObject;
+var
+  ContentArr: TJSONArray;
+  Hex       : String;
+  Loc       : TLocalVar;
+  Locals    : TArray<TLocalVar>;
+  LocalsArr : TJSONArray;
+  LocObj    : TJSONObject;
+  ProcName  : String;
+  ResultObj : TJSONObject;
+  I         : Integer;
+begin
+  if not RequireState([dsPaused], Result) then
+    Exit;
+
+  // Distinct error messages so an AI agent can branch on the cause:
+  //   - no debug info loaded at all
+  //   - PC outside any procedure with TD32 coverage (e.g. RTL or thunk)
+  //   - procedure found but emitted no BPREL32 records
+  if not Assigned(FDebugger.LocalsReader) or
+     (FDebugger.LocalsReader.Procs.Count = 0) then
+    Exit(MakeErrorResult(
+      'No TD32 debug information available for the current executable. ' +
+      'Rebuild the target as a Debug build (linker option -V together with ' +
+      '-$D+) so the EXE carries an embedded FB09 stream. get_locals cannot ' +
+      'work without it.'));
+
+  ProcName := FDebugger.GetCurrentProcedureName(FDebugger.LastThreadHit);
+  if ProcName = '' then
+    Exit(MakeErrorResult(
+      'Current PC is not inside any procedure that has TD32 debug info ' +
+      '(typical inside RTL or import thunks). Step or continue until a ' +
+      'breakpoint inside debugged user code, then call get_locals again.'));
+
+  Locals := FDebugger.GetLocals(FDebugger.LastThreadHit);
+  if Length(Locals) = 0 then
+    Exit(MakeTextResult(Format(
+      'Procedure "%s" has no recorded local variables (BPREL32 records). ' +
+      'This is normal for parameterless leaf procedures or RTL stubs.',
+      [ProcName])));
+
+  ResultObj := TJSONObject.Create;
+  try
+    ResultObj.AddPair('procedure', ProcName);
+    LocalsArr := TJSONArray.Create;
+    for I := 0 to High(Locals) do
+    begin
+      Loc := Locals[I];
+      Hex := '';
+      if Length(Loc.RawBytes) > 0 then
+      begin
+        for var B in Loc.RawBytes do
+          Hex := Hex + IntToHex(B, 2) + ' ';
+        Hex := Hex.Trim;
+      end;
+      LocObj := TJSONObject.Create;
+      LocObj.AddPair('name', Loc.Name);
+      LocObj.AddPair('bp_offset', TJSONNumber.Create(Loc.BpOffset));
+      LocObj.AddPair('hex', Hex);
+      LocalsArr.Add(LocObj);
+    end;
+    ResultObj.AddPair('locals', LocalsArr);
+
+    // Wrap in MCP tool-result content envelope; mirrors get_stack_slots.
+    Result := TJSONObject.Create;
+    ContentArr := TJSONArray.Create;
+    ContentArr.Add(TJSONObject.Create
+      .AddPair('type', 'text')
+      .AddPair('text', ResultObj.ToJSON));
+    Result.AddPair('content', ContentArr);
+  finally
+    ResultObj.Free;
+  end;
 end;
 
 function TMcpServer.HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
