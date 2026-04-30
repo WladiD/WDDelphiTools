@@ -9,7 +9,8 @@ uses
   DUnitX.TestFramework,
 
   Test.DPT.Debugger,
-  Test.DPT.MCP.Server;
+  Test.DPT.MCP.Server,
+  Test.DPT.Td32.LocalsReader;
 
 var
   runner: ITestRunner;

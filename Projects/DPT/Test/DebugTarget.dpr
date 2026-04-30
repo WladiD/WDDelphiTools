@@ -26,7 +26,19 @@ begin
   end;
   DeepProcedure; // Line 27
 end;
+procedure LocalsProcedure;
+var
+  LocalA: Integer;
+  LocalB: Int64;
+  LocalC: Cardinal;
+begin
+  LocalA := $12345678;
+  LocalB := Int64($1122334455667788);
+  LocalC := $DEADBEEF;
+  Writeln('Locals ', LocalA, ' ', LocalB, ' ', LocalC); // Line 38 - locals breakpoint here
+end;
 begin
   GGlobalInt := $11223344;
-  TargetProcedure; // Line 31
+  TargetProcedure;
+  LocalsProcedure;
 end.

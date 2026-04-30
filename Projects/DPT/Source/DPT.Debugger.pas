@@ -18,7 +18,8 @@ uses
 
   mormot.core.collections,
 
-  DPT.MapFileParser;
+  DPT.MapFileParser,
+  DPT.Td32.LocalsReader;
 
 function OpenThread(dwDesiredAccess: Cardinal; bInheritHandle: BOOL; dwThreadId: Cardinal): THandle; stdcall; external kernel32;
 
@@ -86,6 +87,19 @@ type
     StartAddress : Pointer;
   end;
 
+  TLocalVar = record
+    BpOffset: Int32;
+    Name    : String;
+    /// <summary>
+    ///   Eight raw bytes read from the target's stack frame at
+    ///   <c>BpOffset</c> from EBP/RBP. Callers interpret the bytes as
+    ///   little-endian according to the variable's source-level type
+    ///   (Integer/Cardinal use the first 4 bytes, Int64/Pointer use all 8).
+    ///   Empty when the read failed.
+    /// </summary>
+    RawBytes: TBytes;
+  end;
+
   TStepType = (stNone, stInto, stOver);
 
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
@@ -109,6 +123,7 @@ type
     FLastExceptionFirstChance: Boolean;
     FLastThreadHit           : THandle;
     FLastThreadId            : Cardinal;
+    FLocalsReader            : TTd32LocalsReader;
     FMapScanner              : TMapFileParser;
     FOnBreakpoint            : TOnBreakpointEvent;
     FOnException             : TOnExceptionEvent;
@@ -147,11 +162,19 @@ type
     function  GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function  GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function  GetRegisters(AThreadHandle: THandle): TRegisters;
+    function  GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function  GetThreadIds: TArray<Cardinal>;
     procedure IgnoreException(const AClassName: String);
+    /// <summary>
+    ///   Loads TD32 debug info embedded in the given Delphi PE executable
+    ///   (built with linker option -VR / "Include remote debug symbols").
+    ///   Required for <see cref="GetLocals"/>; safe to skip when only map
+    ///   file based functionality is needed.
+    /// </summary>
+    procedure LoadDebugInfoFromExe(const AExePath: string);
     procedure LoadMapFile(const AMapFileName: string);
     function  ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
     function  ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
@@ -331,6 +354,7 @@ begin
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
   FBreakpointLock.Free;
+  FLocalsReader.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then
     CloseHandle(FProcessHandle);
@@ -841,6 +865,89 @@ begin
   FreeAndNil(FMapScanner);
   if FileExists(AMapFileName) then
     FMapScanner := TMapFileParser.Create(AMapFileName);
+end;
+
+procedure TDebugger.LoadDebugInfoFromExe(const AExePath: string);
+begin
+  FreeAndNil(FLocalsReader);
+  if not FileExists(AExePath) then
+    Exit;
+  FLocalsReader := TTd32LocalsReader.Create;
+  try
+    FLocalsReader.LoadFromFile(AExePath);
+  except
+    FreeAndNil(FLocalsReader);
+    raise;
+  end;
+end;
+
+function TDebugger.GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
+const
+  // PE code section is conventionally placed at RVA $1000. TD32 stores
+  // procedure offsets segment-relative, so to map current EIP/RIP into
+  // a TD32 lookup we subtract image base + $1000.
+  CodeSectionRVA = $1000;
+  ReadSize       = 8;
+var
+  BaseAddr  : NativeInt;
+  EipRva    : UInt64;
+  FrameInfo : TStackFrameInfo;
+  Loc       : TLocalVar;
+  ProcIdx   : Integer;
+  Proc      : TTd32Proc;
+  Regs      : TRegisters;
+  ResultList: IList<TLocalVar>;
+  SegmentOff: UInt32;
+  SlotAddr  : UIntPtr;
+  I         : Integer;
+begin
+  Result := nil;
+  if not Assigned(FLocalsReader) then
+    Exit;
+
+  Regs := GetRegisters(AThreadHandle);
+  if Regs.Eip = 0 then
+    Exit;
+  if Regs.Eip < FBaseAddress + CodeSectionRVA then
+    Exit;
+  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
+  if EipRva > High(UInt32) then
+    Exit;
+  SegmentOff := UInt32(EipRva);
+
+  ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  if ProcIdx < 0 then
+    Exit;
+
+  // Compute the base for BPREL resolution. On x86 Delphi the prologue is
+  //   push ebp; mov ebp, esp; sub esp, N
+  // so EBP points one slot above the locals and TD32 BPREL offsets are
+  // negative offsets directly applicable to EBP.
+  // On x64 Delphi the prologue is
+  //   push rbp; sub rsp, N; mov rbp, rsp
+  // so RBP points to the BOTTOM of the local area while TD32 still
+  // emits BPREL offsets relative to the LOGICAL frame top (the slot
+  // above saved RBP). To recover that anchor on x64 we add the prologue's
+  // LocalSize to RBP, mirroring what the IDE debugger does.
+  BaseAddr := NativeInt(Regs.Ebp);
+  if not FTargetIs32Bit then
+  begin
+    FrameInfo := GetStackFrameInfo(AThreadHandle);
+    if FrameInfo.LocalSize > 0 then
+      BaseAddr := BaseAddr + FrameInfo.LocalSize;
+  end;
+
+  Proc := FLocalsReader.Procs[ProcIdx];
+  ResultList := Collections.NewPlainList<TLocalVar>;
+  for I := 0 to Proc.Locals.Count - 1 do
+  begin
+    Loc.BpOffset := Proc.Locals[I].BpOffset;
+    Loc.Name := Proc.Locals[I].Name;
+    SlotAddr := UIntPtr(BaseAddr + Loc.BpOffset);
+    Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
+    ResultList.Add(Loc);
+  end;
+  Result := ResultList.AsArray;
 end;
 
 function TDebugger.GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;

@@ -48,8 +48,10 @@ type
     [Test] procedure ResolveAgainstIndexPrefersMatchingPlatform;
     [Test] procedure ResolveAgainstEmptyIndexLeavesPathsEmpty;
 
-    // No-map fallback
-    [Test] procedure NoMapFileResultsInEmptyUnitsAndDiagnostic;
+    // Fallback chain: map -> TD32 -> RTTI
+    [Test] procedure NoMapFallsThroughToTD32WithEmbeddedDebugInfo;
+    [Test] procedure Td32FallbackContainsExpectedKnownUnits;
+    [Test] procedure StrippedBinaryFallsThroughToRttiScan;
 
     // Default order is by ascending VA (linker layout)
     [Test] procedure DefaultUnitOrderIsAscendingVA;
@@ -301,32 +303,111 @@ begin
       'Empty index must leave every ResolvedDcu empty');
 end;
 
-procedure TTestExeAnalyzer.NoMapFileResultsInEmptyUnitsAndDiagnostic;
+function CopyExeWithoutMap(const ASourceExe, ATempDir: string): string;
 var
-  ExePath  : string;
-  MapPath  : string;
-  Res      : TExeAnalysisResult;
-  TempDir  : string;
+  MapPath: string;
 begin
-  // Copy DebugTarget.exe to a temp dir WITHOUT its .map file. The
-  // analyzer must still produce a valid PE result with an empty
-  // unit list and an explanatory diagnostic.
+  ForceDirectories(ATempDir);
+  Result := TPath.Combine(ATempDir, ChangeFileExt(ExtractFileName(ASourceExe), '') + '.exe');
+  TFile.Copy(ASourceExe, Result);
+  MapPath := ChangeFileExt(Result, '.map');
+  if FileExists(MapPath) then TFile.Delete(MapPath);
+end;
+
+procedure TTestExeAnalyzer.NoMapFallsThroughToTD32WithEmbeddedDebugInfo;
+var
+  ExePath: string;
+  Res    : TExeAnalysisResult;
+  TempDir: string;
+begin
+  // Copy DebugTarget.exe to a temp dir without its .map file. The
+  // EXE was built with DCC_DebugInformation=true so the FB09 stream
+  // is embedded - the analyzer must fall back to TD32 and recover
+  // the unit list rather than coming up empty.
   TempDir := TPath.Combine(TPath.GetTempPath,
     'DPT.ExeAnalyze.' + GUIDToString(TGUID.NewGuid));
-  ForceDirectories(TempDir);
   try
-    ExePath := TPath.Combine(TempDir, 'NoMap.exe');
-    TFile.Copy(FixtureExe('Win32'), ExePath);
-    MapPath := ChangeFileExt(ExePath, '.map');
-    if FileExists(MapPath) then TFile.Delete(MapPath);
-
+    ExePath := CopyExeWithoutMap(FixtureExe('Win32'), TempDir);
     Res := TExeAnalyzer.Analyze(ExePath);
     Assert.IsTrue(Res.IsPE);
-    Assert.AreEqual(Ord(edmNone), Ord(Res.Detection),
-      'Without a sibling .map file Detection must be edmNone');
-    Assert.AreEqual(0, Res.Units.Count);
-    Assert.IsTrue(Res.Diagnostics.Count > 0,
-      'No-map case must emit a diagnostic explaining the empty list');
+    Assert.AreEqual(Ord(edmTd32), Ord(Res.Detection),
+      'Without .map but with TD32 the detection method must be td32');
+    Assert.IsTrue(Res.Units.Count > 0,
+      'TD32 stream must have produced a non-empty unit list');
+  finally
+    if DirectoryExists(TempDir) then TDirectory.Delete(TempDir, True);
+  end;
+end;
+
+procedure TTestExeAnalyzer.Td32FallbackContainsExpectedKnownUnits;
+var
+  ExePath: string;
+  Res    : TExeAnalysisResult;
+  TempDir: string;
+begin
+  // Same setup as above, but verify specific known units land in the
+  // result. DebugTarget.dpr uses System / System.SysUtils transitively
+  // and contains the unit DebugTarget itself - all three must show up
+  // via the TD32 fallback.
+  TempDir := TPath.Combine(TPath.GetTempPath,
+    'DPT.ExeAnalyze.' + GUIDToString(TGUID.NewGuid));
+  try
+    ExePath := CopyExeWithoutMap(FixtureExe('Win32'), TempDir);
+    Res := TExeAnalyzer.Analyze(ExePath);
+    Assert.IsTrue(ContainsUnit(Res, 'System'),
+      'System must be in the TD32-extracted unit list');
+    Assert.IsTrue(ContainsUnit(Res, 'System.SysUtils'),
+      'System.SysUtils must be in the TD32-extracted unit list');
+    Assert.IsTrue(ContainsUnit(Res, 'DebugTarget'),
+      'DebugTarget must be in the TD32-extracted unit list');
+  finally
+    if DirectoryExists(TempDir) then TDirectory.Delete(TempDir, True);
+  end;
+end;
+
+procedure TTestExeAnalyzer.StrippedBinaryFallsThroughToRttiScan;
+var
+  Bytes  : TBytes;
+  ExePath: string;
+  I      : Integer;
+  Res    : TExeAnalysisResult;
+  TempDir: string;
+begin
+  // Synthesise a "stripped" binary: copy DebugTarget.exe and corrupt
+  // the FB09 signatures so the TD32 fallback rejects the data. The
+  // RTTI/identifier scan is the last resort and must still extract
+  // at least a handful of dotted Pascal identifiers from the binary.
+  TempDir := TPath.Combine(TPath.GetTempPath,
+    'DPT.ExeAnalyze.' + GUIDToString(TGUID.NewGuid));
+  try
+    ExePath := CopyExeWithoutMap(FixtureExe('Win32'), TempDir);
+    Bytes := TFile.ReadAllBytes(ExePath);
+    // Walk and zero-out every 'F','B','0','9' / 'F','B','0','A'
+    // byte sequence on a 4-byte boundary so the TD32 finder cannot
+    // anchor anywhere.
+    I := 0;
+    while I + 4 <= Length(Bytes) do
+    begin
+      if (Bytes[I] = $46) and (Bytes[I + 1] = $42) and (Bytes[I + 2] = $30)
+        and ((Bytes[I + 3] = $39) or (Bytes[I + 3] = $41)) then
+      begin
+        Bytes[I] := 0;
+        Bytes[I + 1] := 0;
+        Bytes[I + 2] := 0;
+        Bytes[I + 3] := 0;
+      end;
+      Inc(I, 4);
+    end;
+    TFile.WriteAllBytes(ExePath, Bytes);
+
+    Res := TExeAnalyzer.Analyze(ExePath);
+    Assert.IsTrue(Res.IsPE,
+      'PE header is untouched and must still parse');
+    Assert.AreEqual(Ord(edmRtti), Ord(Res.Detection),
+      'After scrubbing the TD32 signatures the analyzer must fall '
+      + 'through to the RTTI/identifier scan');
+    Assert.IsTrue(Res.Units.Count > 0,
+      'Identifier scan must surface at least one dotted candidate');
   finally
     if DirectoryExists(TempDir) then TDirectory.Delete(TempDir, True);
   end;

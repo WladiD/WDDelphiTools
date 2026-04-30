@@ -20,8 +20,10 @@ type
     FStackTrace: TArray<TStackFrame>;
     FExceptionHitCount: Integer;
     FWasTestExceptionCaught: Boolean;
+    FCapturedLocals: TArray<TLocalVar>;
     procedure OnBreakpoint(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnBreakpointForStack(Sender: TObject; Breakpoint: TBreakpoint);
+    procedure OnBreakpointForLocals(Sender: TObject; Breakpoint: TBreakpoint);
     procedure OnException(Sender: TObject; const AExceptionRecord: TExceptionRecord; const AFirstChance: Boolean; var AHandled: Boolean);
     function ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
     function ResolveMapPath(AUse64Bit: Boolean): string;
@@ -31,6 +33,7 @@ type
     procedure DoTestIgnoredException(AUse64Bit: Boolean);
     procedure DoTestTargetBitness(AUse64Bit: Boolean);
     procedure DoTestResolveDottedUnitLine(AUse64Bit: Boolean);
+    procedure DoTestLocalVariables(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestBreakpointInTarget32;
@@ -45,6 +48,10 @@ type
     // dot-segment, turning 'My.Dotted.Unit' into 'My.Dotted' and breaking lookup.
     [Test]
     procedure TestResolveDottedUnitLine32;
+    [Test]
+    procedure TestLocalVariables32;
+    [Test]
+    procedure TestGetLocalsWithoutDebugInfoReturnsEmpty;
     {$IFDEF CPUX64}
     [Test]
     procedure TestBreakpointInTarget64;
@@ -56,6 +63,8 @@ type
     procedure TestTargetBitness64;
     [Test]
     procedure TestResolveDottedUnitLine64;
+    [Test]
+    procedure TestLocalVariables64;
     {$ENDIF}
   end;
 
@@ -77,6 +86,20 @@ begin
     FStackTrace := Debugger.GetStackTrace(Debugger.LastThreadHit);
   except
     // GetStackTrace may fail, but we still need to resume
+  end;
+  Debugger.ResumeExecution;
+end;
+
+procedure TDebuggerTests.OnBreakpointForLocals(Sender: TObject; Breakpoint: TBreakpoint);
+var
+  Debugger: TDebugger;
+begin
+  Debugger := Sender as TDebugger;
+  FBreakpointHit := True;
+  try
+    FCapturedLocals := Debugger.GetLocals(Debugger.LastThreadHit);
+  except
+    // Even if extraction fails we must resume so the test can finish.
   end;
   Debugger.ResumeExecution;
 end;
@@ -347,10 +370,127 @@ begin
   DoTestResolveDottedUnitLine(False);
 end;
 
+procedure TDebuggerTests.DoTestLocalVariables(AUse64Bit: Boolean);
+const
+  ExpectedLocalA: UInt32 = $12345678;
+  ExpectedLocalB: Int64  = Int64($1122334455667788);
+  ExpectedLocalC: UInt32 = $DEADBEEF;
+  // Line 38 of DebugTarget.dpr is `Writeln('Locals ...);` inside
+  // LocalsProcedure, after all three locals have been assigned.
+  LocalsBreakpointLine = 38;
+var
+  Debugger : TDebugger;
+  ExePath  : String;
+  HasA     : Boolean;
+  HasB     : Boolean;
+  HasC     : Boolean;
+  I        : Integer;
+  Loc      : TLocalVar;
+  StartTime: Cardinal;
+  ValueA   : UInt32;
+  ValueB   : Int64;
+  ValueC   : UInt32;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', AUse64Bit);
+  FBreakpointHit := False;
+  SetLength(FCapturedLocals, 0);
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.OnBreakpoint := OnBreakpointForLocals;
+    Debugger.LoadMapFile(ChangeFileExt(ExePath, '.map'));
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    Debugger.SetBreakpoint('DebugTarget.dpr', LocalsBreakpointLine);
+
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
+
+    StartTime := GetTickCount;
+    while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do
+      Sleep(50);
+
+    Assert.IsTrue(FBreakpointHit,
+      Format('Breakpoint at line %d (LocalsProcedure) not hit', [LocalsBreakpointLine]));
+    Assert.IsTrue(Length(FCapturedLocals) >= 3,
+      Format('Expected at least 3 locals at the breakpoint, got %d', [Length(FCapturedLocals)]));
+
+    HasA := False;
+    HasB := False;
+    HasC := False;
+    ValueA := 0;
+    ValueB := 0;
+    ValueC := 0;
+
+    for I := 0 to High(FCapturedLocals) do
+    begin
+      Loc := FCapturedLocals[I];
+      Assert.IsTrue(Length(Loc.RawBytes) = 8,
+        Format('Local "%s" must yield 8 bytes from process memory (got %d)',
+          [Loc.Name, Length(Loc.RawBytes)]));
+      if SameText(Loc.Name, 'LocalA') then
+      begin
+        HasA := True;
+        ValueA := PUInt32(@Loc.RawBytes[0])^;
+      end
+      else if SameText(Loc.Name, 'LocalB') then
+      begin
+        HasB := True;
+        ValueB := PInt64(@Loc.RawBytes[0])^;
+      end
+      else if SameText(Loc.Name, 'LocalC') then
+      begin
+        HasC := True;
+        ValueC := PUInt32(@Loc.RawBytes[0])^;
+      end;
+    end;
+
+    Assert.IsTrue(HasA, 'LocalA not present in captured locals');
+    Assert.IsTrue(HasB, 'LocalB not present in captured locals');
+    Assert.IsTrue(HasC, 'LocalC not present in captured locals');
+
+    Assert.IsTrue(ValueA = ExpectedLocalA,
+      Format('LocalA expected $%x, got $%x', [ExpectedLocalA, ValueA]));
+    Assert.IsTrue(ValueB = ExpectedLocalB,
+      Format('LocalB expected $%x, got $%x', [ExpectedLocalB, ValueB]));
+    Assert.IsTrue(ValueC = ExpectedLocalC,
+      Format('LocalC expected $%x, got $%x', [ExpectedLocalC, ValueC]));
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TDebuggerTests.TestLocalVariables32;
+begin
+  DoTestLocalVariables(False);
+end;
+
+procedure TDebuggerTests.TestGetLocalsWithoutDebugInfoReturnsEmpty;
+var
+  Debugger: TDebugger;
+  Locals  : TArray<TLocalVar>;
+begin
+  // No LoadDebugInfoFromExe call: GetLocals must early-out instead of
+  // crashing on a nil reader. The thread handle is unused in that case.
+  Debugger := TDebugger.Create;
+  try
+    Locals := Debugger.GetLocals(0);
+    Assert.IsTrue(Length(Locals) = 0,
+      'GetLocals must return empty when no TD32 info is loaded');
+  finally
+    Debugger.Free;
+  end;
+end;
+
 {$IFDEF CPUX64}
 procedure TDebuggerTests.TestResolveDottedUnitLine64;
 begin
   DoTestResolveDottedUnitLine(True);
+end;
+
+procedure TDebuggerTests.TestLocalVariables64;
+begin
+  DoTestLocalVariables(True);
 end;
 {$ENDIF}
 
