@@ -69,7 +69,7 @@ type
     function HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
     function HandleListThreads(AParams: TJSONObject): TJSONObject;
     function HandleListTools(AParams: TJSONObject): TJSONObject;
-    function HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
+    function HandleEvaluate(AParams: TJSONObject): TJSONObject;
     function HandleReadMemory(AParams: TJSONObject): TJSONObject;
     function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
@@ -484,8 +484,8 @@ begin
           SendResponse(ID, HandleReadMemory(ToolParams))
         else if ToolName = 'get_stack_memory' then
           SendResponse(ID, HandleGetStackMemory(ToolParams))
-        else if ToolName = 'read_global_variable' then
-          SendResponse(ID, HandleReadGlobalVariable(ToolParams))
+        else if ToolName = 'evaluate' then
+          SendResponse(ID, HandleEvaluate(ToolParams))
         else if ToolName = 'get_registers' then
           SendResponse(ID, HandleGetRegisters(ToolParams))
         else if ToolName = 'get_stack_slots' then
@@ -666,21 +666,21 @@ begin
   ToolStackMem.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolStackMem);
 
-  var ToolReadGlobal := TJSONObject.Create;
-  ToolReadGlobal.AddPair('name', 'read_global_variable');
-  ToolReadGlobal.AddPair('description', 'Reads raw bytes of a global variable by its qualified name (e.g. "UnitName.VarName"). Returns a hex dump. You must specify the expected size in bytes (e.g. 4 for Integer/Pointer, 8 for Int64/Double, 256 for ShortString). Interpret the hex result according to the variable''s Delphi type and little-endian byte order. Only callable when state is "paused".');
-  var SchemaReadGlobal := TJSONObject.Create;
-  SchemaReadGlobal.AddPair('type', 'object');
-  var PropReadGlobal := TJSONObject.Create;
-  PropReadGlobal.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
-  PropReadGlobal.AddPair('size', TJSONObject.Create.AddPair('type', 'integer'));
-  SchemaReadGlobal.AddPair('properties', PropReadGlobal);
-  var ReqReadGlobal := TJSONArray.Create;
-  ReqReadGlobal.Add('name');
-  ReqReadGlobal.Add('size');
-  SchemaReadGlobal.AddPair('required', ReqReadGlobal);
-  ToolReadGlobal.AddPair('inputSchema', SchemaReadGlobal);
-  ToolsArr.Add(ToolReadGlobal);
+  var ToolEvaluate := TJSONObject.Create;
+  ToolEvaluate.AddPair('name', 'evaluate');
+  ToolEvaluate.AddPair('description', 'Evaluates a named variable (local or global) and returns its typed value. Searches locals first, then globals. Requires active paused debug session. Allowed types: "int", "int64", "string", "object".');
+  var SchemaEvaluate := TJSONObject.Create;
+  SchemaEvaluate.AddPair('type', 'object');
+  var PropEvaluate := TJSONObject.Create;
+  PropEvaluate.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
+  PropEvaluate.AddPair('type', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Data type: "int", "int64", "string", or "object"'));
+  SchemaEvaluate.AddPair('properties', PropEvaluate);
+  var ReqEvaluate := TJSONArray.Create;
+  ReqEvaluate.Add('name');
+  ReqEvaluate.Add('type');
+  SchemaEvaluate.AddPair('required', ReqEvaluate);
+  ToolEvaluate.AddPair('inputSchema', SchemaEvaluate);
+  ToolsArr.Add(ToolEvaluate);
 
   var ToolRegs := TJSONObject.Create;
   ToolRegs.AddPair('name', 'get_registers');
@@ -1303,36 +1303,22 @@ begin
     Result := MakeErrorResult('Invalid stack registers or process not paused');
 end;
 
-function TMcpServer.HandleReadGlobalVariable(AParams: TJSONObject): TJSONObject;
+function TMcpServer.HandleEvaluate(AParams: TJSONObject): TJSONObject;
 var
-  Addr: Pointer;
-  Data: TBytes;
-  Hex : String;
-  Name: String;
-  Size: Integer;
+  Name : String;
+  VType: String;
+  Value: String;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
   Name := AParams.GetValue('name').Value;
-  Size := (AParams.GetValue('size') as TJSONNumber).AsInt;
+  VType := AParams.GetValue('type').Value;
 
-  Addr := FDebugger.GetAddressFromSymbol(Name);
-
-  if Addr <> nil then
-  begin
-    Data := FDebugger.ReadProcessMemory(Addr, Size);
-    if Length(Data) > 0 then
-    begin
-      Hex := '';
-      for var B in Data do Hex := Hex + IntToHex(B, 2) + ' ';
-      Result := MakeTextResult(Format('Address: %p, Value: %s', [Addr, Hex.Trim]));
-    end
-    else
-      Result := MakeErrorResult('Failed to read memory at ' + Format('%p', [Addr]));
-  end
+  if FDebugger.EvaluateVariable(Name, VType, Value) then
+    Result := MakeTextResult(Format('Variable %s (%s): %s', [Name, VType, Value]))
   else
-    Result := MakeErrorResult('Symbol not found: ' + Name);
+    Result := MakeErrorResult('Failed to evaluate variable: ' + Name);
 end;
 
 function TMcpServer.HandleGetRegisters(AParams: TJSONObject): TJSONObject;

@@ -173,7 +173,7 @@ begin
     Debugger.LoadMapFile(MapFile);
 
     // Line 17 is Writeln('Target') in TargetProcedure
-    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
+    Debugger.SetBreakpoint('DebugTarget.dpr', 19);
 
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
@@ -182,7 +182,7 @@ begin
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
 
-    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 17 not hit');
+    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 19 not hit');
   finally
     Debugger.Free;
   end;
@@ -206,7 +206,7 @@ begin
     Debugger.LoadMapFile(MapFile);
 
     // Line 13 is Writeln('Deep') in DeepProcedure
-    Debugger.SetBreakpoint('DebugTarget.dpr', 13);
+    Debugger.SetBreakpoint('DebugTarget.dpr', 15);
 
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
@@ -215,7 +215,7 @@ begin
     var StartTime := GetTickCount;
     while (GetTickCount - StartTime < 5000) and (not FBreakpointHit) do Sleep(100);
 
-    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 13 not hit');
+    Assert.IsTrue(FBreakpointHit, 'Breakpoint at line 15 not hit');
     Assert.IsTrue(Length(FStackTrace) > 0, 'Stack trace empty');
 
     FoundDeep := False;
@@ -295,7 +295,7 @@ begin
   try
     Debugger.OnBreakpoint := OnBreakpoint;
     Debugger.LoadMapFile(MapFile);
-    Debugger.SetBreakpoint('DebugTarget.dpr', 17);
+    Debugger.SetBreakpoint('DebugTarget.dpr', 19);
 
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
@@ -338,29 +338,29 @@ begin
       Debugger.LoadMapFile(FixturePath);
 
       // Dotted unit name must resolve verbatim.
-      AddrDotted := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget', 13);
+      AddrDotted := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget', 15);
       Assert.IsTrue(AddrDotted <> nil,
         'Dotted unit name must resolve (regression: ChangeFileExt stripped ".DebugTarget")');
 
       // Appending .pas must yield the same address (extension is stripped explicitly,
       // not via ChangeFileExt on the whole name).
-      AddrWithPas := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget.pas', 13);
+      AddrWithPas := Debugger.GetAddressFromUnitLine('My.Dotted.DebugTarget.pas', 15);
       Assert.AreEqual(NativeUInt(AddrDotted), NativeUInt(AddrWithPas),
         'Appending .pas must not change the resolved address');
 
       // Full path with .pas must also resolve to the same address.
       AddrPath := Debugger.GetAddressFromUnitLine(
-        'C:\SomeDir\My.Dotted.DebugTarget.pas', 13);
+        'C:\SomeDir\My.Dotted.DebugTarget.pas', 15);
       Assert.AreEqual(NativeUInt(AddrDotted), NativeUInt(AddrPath),
         'Path-qualified .pas must resolve identically');
 
       // Truncated dotted name must NOT resolve (this was the buggy lookup result).
-      AddrStem := Debugger.GetAddressFromUnitLine('My.Dotted', 13);
+      AddrStem := Debugger.GetAddressFromUnitLine('My.Dotted', 15);
       Assert.IsTrue(AddrStem = nil,
         'Partial dotted name must not resolve');
 
       // Completely unknown unit must return nil.
-      AddrUnknown := Debugger.GetAddressFromUnitLine('Does.Not.Exist', 13);
+      AddrUnknown := Debugger.GetAddressFromUnitLine('Does.Not.Exist', 15);
       Assert.IsTrue(AddrUnknown = nil,
         'Unknown unit must return nil');
     finally
@@ -381,9 +381,9 @@ const
   ExpectedLocalA: UInt32 = $12345678;
   ExpectedLocalB: Int64  = Int64($1122334455667788);
   ExpectedLocalC: UInt32 = $DEADBEEF;
-  // Line 38 of DebugTarget.dpr is `Writeln('Locals ...);` inside
+  // Line 45 of DebugTarget.dpr is `Writeln('Locals ...);` inside
   // LocalsProcedure, after all three locals have been assigned.
-  LocalsBreakpointLine = 38;
+  LocalsBreakpointLine = 45;
 var
   Debugger : TDebugger;
   ExePath  : String;

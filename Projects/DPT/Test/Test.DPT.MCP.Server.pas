@@ -287,13 +287,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -320,8 +321,11 @@ begin
       // Now state is paused, we can inspect
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_stack_trace", "arguments": {}}}');
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_stack_memory", "arguments": {}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "read_global_variable", "arguments": {"name": "DebugTarget.GGlobalInt", "size": 4}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalInt", "type": "int"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalString", "type": "string"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalObject", "type": "object"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "LocalInt", "type": "int"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 11, "method": "tools/call", "params": {"name": "get_stack_slots", "arguments": {}}}');
 
       Server.RunOnce; // get_stack_trace
       Assert.AreEqual(7, OutputWriter.GetCount, 'StackTrace failed');
@@ -336,14 +340,26 @@ begin
         // On x64, LocalInt may be in a register rather than on the stack
         Assert.IsTrue(StackMemoryLine.Contains('SP'), 'Stack memory should contain SP/RSP indicator');
 
-      Server.RunOnce; // read_global_variable
-      Assert.AreEqual(9, OutputWriter.GetCount, 'ReadGlobalVariable failed');
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('44 33 22 11'), 'GGlobalInt value $11223344 missing');
+      Server.RunOnce; // evaluate GGlobalInt
+      Assert.AreEqual(9, OutputWriter.GetCount, 'Evaluate GGlobalInt failed');
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('287454020'), 'GGlobalInt value 287454020 missing');
+
+      Server.RunOnce; // evaluate GGlobalString
+      Assert.AreEqual(10, OutputWriter.GetCount, 'Evaluate GGlobalString failed');
+      Assert.IsTrue(OutputWriter.GetLine(9).Contains('Hello Global'), 'GGlobalString value "Hello Global" missing: ' + OutputWriter.GetLine(9));
+
+      Server.RunOnce; // evaluate GGlobalObject
+      Assert.AreEqual(11, OutputWriter.GetCount, 'Evaluate GGlobalObject failed');
+      Assert.IsTrue(OutputWriter.GetLine(10).Contains('TStringList'), 'GGlobalObject class name TStringList missing: ' + OutputWriter.GetLine(10));
+
+      Server.RunOnce; // evaluate LocalInt
+      Assert.AreEqual(12, OutputWriter.GetCount, 'Evaluate LocalInt failed');
+      Assert.IsTrue(OutputWriter.GetLine(11).Contains('305419896'), 'LocalInt value 305419896 ($12345678) missing: ' + OutputWriter.GetLine(11));
 
       Server.RunOnce; // get_stack_slots
-      Assert.AreEqual(10, OutputWriter.GetCount, 'GetStackSlots failed');
+      Assert.AreEqual(13, OutputWriter.GetCount, 'GetStackSlots failed');
       if not AUse64Bit then
-        Assert.IsTrue(OutputWriter.GetLine(9).Contains('12345678'), 'LocalInt missing in stack slots');
+        Assert.IsTrue(OutputWriter.GetLine(12).Contains('12345678'), 'LocalInt missing in stack slots');
 
     finally
       Server.Free;
@@ -374,6 +390,7 @@ begin
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -451,12 +468,13 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 19}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -483,9 +501,18 @@ begin
       Server.RunOnce;
 
       // Wait for step notification
-      WaitForOutput(OutputWriter, 11);
-      StepNotif := OutputWriter.GetLine(9);
-      Assert.IsTrue(StepNotif.Contains('notifications/stopped'), 'Expected stopped notification after step: ' + StepNotif);
+      WaitForOutput(OutputWriter, 10);
+      
+      StepNotif := '';
+      for var I := OutputWriter.GetCount - 1 downto 0 do
+      begin
+        if OutputWriter.GetLine(I).Contains('notifications/stopped') then
+        begin
+          StepNotif := OutputWriter.GetLine(I);
+          Break;
+        end;
+      end;
+      Assert.IsTrue(StepNotif <> '', 'Expected stopped notification after second step');
       Assert.IsTrue(StepNotif.Contains('DebugTarget'), 'Step should be in DebugTarget: ' + StepNotif);
 
     finally
@@ -513,13 +540,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -584,7 +612,7 @@ begin
   // (LocalA / LocalB / LocalC) have been assigned.
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
@@ -693,7 +721,7 @@ begin
   // AI agent can tell it apart from "no debug info".
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 19}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
@@ -811,14 +839,15 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "remove_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "remove_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -828,7 +857,7 @@ begin
       Server.RunOnce; // set_bp
 
       Server.RunOnce; // list_breakpoints (should have 1)
-      Assert.IsTrue(OutputWriter.GetLine(2).Contains('DebugTarget.dpr') and OutputWriter.GetLine(2).Contains('13'), 'Breakpoint missing in list');
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('DebugTarget.dpr') and OutputWriter.GetLine(2).Contains('15'), 'Breakpoint missing in list');
 
       Server.RunOnce; // remove_breakpoint
       Assert.IsTrue(OutputWriter.GetLine(3).Contains('removed'), 'Remove failed');
@@ -857,7 +886,7 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     Format('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
@@ -972,13 +1001,14 @@ begin
   // Test get_state in paused state
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1027,6 +1057,7 @@ begin
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
 
@@ -1049,11 +1080,12 @@ begin
   // Test 2: set_breakpoint without extension should auto-append .pas
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget", "line": 13}}}');
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget", "line": 15}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);
 
@@ -1112,13 +1144,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1165,13 +1198,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1289,13 +1323,14 @@ begin
   // have been emitted by then, so the buffer is well-populated.
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1373,13 +1408,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1451,13 +1487,14 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1568,14 +1605,15 @@ begin
   // Writeln('Deep') calls.
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 19}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1659,7 +1697,7 @@ begin
   try
     InputReader := TStringTextReader.Create(
       '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
       '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
         StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
       '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
@@ -1674,7 +1712,7 @@ begin
       StartLine := OutputWriter.GetLine(2);
       Assert.IsTrue(StartLine.Contains('No .map file found'),
         'Missing-map warning must appear even when breakpoints are pending: ' + StartLine);
-      Assert.IsTrue(StartLine.Contains('DebugTarget.dpr:13'),
+      Assert.IsTrue(StartLine.Contains('DebugTarget.dpr:15'),
         'Pending unresolvable breakpoint must be listed: ' + StartLine);
       Assert.IsTrue(StartLine.Contains('will not trigger'),
         'Consequence must be stated explicitly: ' + StartLine);
@@ -1715,7 +1753,7 @@ begin
       '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
       '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
         StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 13}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
       '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
 
     OutputWriter := TStringTextWriter.Create;
@@ -1761,12 +1799,13 @@ begin
 
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 22}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 19}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -1776,21 +1815,32 @@ begin
       Server.RunOnce; // set_bp
       Server.RunOnce; // continue (async)
 
-      // Wait for breakpoint notification at line 22
-      WaitForOutput(OutputWriter, 5);
+      // Wait for breakpoint notification
+      WaitForOutput(OutputWriter, 4);
       Assert.IsTrue(OutputWriter.GetLine(3).Contains('notifications/stopped'), 'Expected stopped notification after continue');
 
       // step_into (async)
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "step_into", "arguments": {}}}');
       Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(5).Contains('Stepping into'), 'Step into should return immediately');
+      
+      var StepRespFound := False;
+      for var I := OutputWriter.GetCount - 1 downto 0 do
+      begin
+        if OutputWriter.GetLine(I).Contains('"id": 4') or OutputWriter.GetLine(I).Contains('"id":"4"') or OutputWriter.GetLine(I).Contains('"id":4') then
+        begin
+          Assert.IsTrue(OutputWriter.GetLine(I).Contains('Stepping into'), 'Step into should return immediately');
+          StepRespFound := True;
+          Break;
+        end;
+      end;
+      Assert.IsTrue(StepRespFound, 'step_into response not found');
 
       // Call wait_until_paused. It should block until the step finishes.
       InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 5000}}}');
       Server.RunOnce;
       
       // We expect the debugger notification(s) and the wait_until_paused response.
-      WaitForOutput(OutputWriter, 8);
+      WaitForOutput(OutputWriter, 7);
       
       // Verify wait_until_paused returns paused state.
       // Since notifications and sampling requests can vary in count, scan the output
@@ -1920,6 +1970,7 @@ begin
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;
@@ -2049,6 +2100,7 @@ begin
   Debugger := TDebugger.Create;
   try
     Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;

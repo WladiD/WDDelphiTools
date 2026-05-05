@@ -195,6 +195,7 @@ type
     function  GetCapturedOutputCount: Integer;
     function  GetCurrentProcedureName(AThreadHandle: THandle): String;
     function  GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
+    function  EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
@@ -1845,6 +1846,150 @@ begin
   end;
   FBreakpointHitEvent.SetEvent;
   FFinishedEvent.SetEvent;
+end;
+
+function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
+var
+  Locals: TArray<TLocalVar>;
+  Addr: Pointer;
+  I: Integer;
+  IsLocal: Boolean;
+  PtrVal: UIntPtr;
+  IntVal: Integer;
+  Int64Val: Int64;
+  StrBuffer: TBytes;
+  StrLen: Integer;
+  VMTPtr: UIntPtr;
+  ClassNamePtr: UIntPtr;
+  VMTClassNameOfs: Integer;
+  LenByte: Byte;
+  RawBytes: TBytes;
+begin
+  Result := False;
+  AValue := '';
+  
+  if FLastThreadHit = 0 then Exit;
+  
+  Addr := nil;
+  IsLocal := False;
+  RawBytes := nil;
+  
+  Locals := GetLocals(FLastThreadHit);
+  for I := 0 to High(Locals) do
+  begin
+    if SameText(Locals[I].Name, AName) then
+    begin
+      IsLocal := True;
+      RawBytes := Locals[I].RawBytes;
+      Break;
+    end;
+  end;
+  
+  if not IsLocal then
+  begin
+    Addr := GetAddressFromSymbol(AName);
+    if Assigned(Addr) then
+      RawBytes := ReadProcessMemory(Addr, 8);
+  end;
+
+  if Length(RawBytes) = 0 then Exit;
+
+  if SameText(AType, 'int') then
+  begin
+    if Length(RawBytes) >= 4 then
+    begin
+      Move(RawBytes[0], IntVal, 4);
+      AValue := IntToStr(IntVal);
+      Result := True;
+    end;
+  end
+  else if SameText(AType, 'int64') then
+  begin
+    if Length(RawBytes) >= 8 then
+    begin
+      Move(RawBytes[0], Int64Val, 8);
+      AValue := IntToStr(Int64Val);
+      Result := True;
+    end;
+  end
+  else if SameText(AType, 'string') then
+  begin
+    if Length(RawBytes) >= FTargetPointerSize then
+    begin
+      PtrVal := 0;
+      Move(RawBytes[0], PtrVal, FTargetPointerSize);
+      if PtrVal = 0 then
+      begin
+        AValue := '';
+        Result := True;
+      end
+      else
+      begin
+        var LenBytes := ReadProcessMemory(Pointer(PtrVal - 4), 4);
+        if Length(LenBytes) = 4 then
+        begin
+          Move(LenBytes[0], StrLen, 4);
+          if (StrLen >= 0) and (StrLen < 1024 * 1024) then
+          begin
+            if StrLen = 0 then
+            begin
+              AValue := '';
+              Result := True;
+            end
+            else
+            begin
+              StrBuffer := ReadProcessMemory(Pointer(PtrVal), StrLen * 2);
+              if Length(StrBuffer) = StrLen * 2 then
+              begin
+                AValue := TEncoding.Unicode.GetString(StrBuffer);
+                Result := True;
+              end;
+            end;
+          end;
+        end;
+      end;
+    end;
+  end
+  else if SameText(AType, 'object') then
+  begin
+    if Length(RawBytes) >= FTargetPointerSize then
+    begin
+      PtrVal := 0;
+      Move(RawBytes[0], PtrVal, FTargetPointerSize);
+      if PtrVal = 0 then
+      begin
+        AValue := 'nil';
+        Result := True;
+      end
+      else
+      begin
+        VMTPtr := ReadTargetPointer(Pointer(PtrVal));
+        if VMTPtr <> 0 then
+        begin
+          if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
+          ClassNamePtr := ReadTargetPointer(Pointer(VMTPtr - UIntPtr(VMTClassNameOfs)));
+          if ClassNamePtr <> 0 then
+          begin
+            var Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
+            if Length(Buf) > 1 then
+            begin
+              LenByte := Buf[0];
+              if (LenByte > 0) and (1 + Integer(LenByte) <= Length(Buf)) then
+              begin
+                AValue := TEncoding.ANSI.GetString(Buf, 1, LenByte) + ' @ ' + Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
+                Result := True;
+              end;
+            end;
+          end;
+        end;
+        if not Result then
+        begin
+          AValue := 'Object @ ' + Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
+          Result := True;
+        end;
+      end;
+    end;
+  end;
 end;
 
 end.
