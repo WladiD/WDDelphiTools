@@ -102,6 +102,20 @@ type
 
   TStepType = (stNone, stInto, stOver);
 
+  TCapturedOutputSource = (cosStdout, cosStderr, cosOds);
+
+  /// <summary>
+  ///   A single line emitted by the debugged process. <c>Index</c> is a
+  ///   monotonically increasing 1-based identifier; callers can pass it
+  ///   to <see cref="TDebugger.GetCapturedOutput"/> as a cursor to retrieve
+  ///   only lines newer than the previous read.
+  /// </summary>
+  TCapturedOutputLine = record
+    Index : Integer;
+    Source: TCapturedOutputSource;
+    Text  : String;
+  end;
+
   TOnBreakpointEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
   TOnSteppedEvent = procedure(Sender: TObject; Breakpoint: TBreakpoint) of object;
   TOnExceptionEvent = procedure(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean) of object;
@@ -125,6 +139,15 @@ type
     FLastThreadId            : Cardinal;
     FLocalsReader            : TTd32LocalsReader;
     FMapScanner              : TMapFileParser;
+    FOutputBuffer            : IList<TCapturedOutputLine>;
+    FOutputLock              : TCriticalSection;
+    FOutputNextIndex         : Integer;
+    FOutputStdoutRead        : THandle;
+    FOutputStdoutWrite       : THandle;
+    FOutputStdoutThread      : TThread;
+    FOutputStderrRead        : THandle;
+    FOutputStderrWrite       : THandle;
+    FOutputStderrThread      : TThread;
     FOnBreakpoint            : TOnBreakpointEvent;
     FOnException             : TOnExceptionEvent;
     FOnProcessExit           : TOnProcessExitEvent;
@@ -151,6 +174,12 @@ type
     procedure HandleCreateThread(const ADebugEvent: TDebugEvent);
     procedure HandleException(const ADebugEvent: TDebugEvent; var AContinueStatus: Cardinal);
     procedure HandleExitThread(const ADebugEvent: TDebugEvent);
+    procedure HandleOutputDebugString(const ADebugEvent: TDebugEvent);
+    procedure AppendOutputLine(ASource: TCapturedOutputSource; const AText: String);
+    procedure ConsumePipeBytes(ASource: TCapturedOutputSource; var APartial: TBytes;
+      const ABytes: TBytes; ALength: Integer);
+    procedure StartOutputReaders;
+    procedure StopOutputReaders;
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
@@ -162,6 +191,8 @@ type
     function  GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function  GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
     function  GetRegisters(AThreadHandle: THandle): TRegisters;
+    function  GetCapturedOutput(ASinceIndex: Integer = 0): TArray<TCapturedOutputLine>;
+    function  GetCapturedOutputCount: Integer;
     function  GetCurrentProcedureName(AThreadHandle: THandle): String;
     function  GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
@@ -271,6 +302,9 @@ begin
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
   FFinishedEvent := TEvent.Create(nil, True, False, '');
+  FOutputBuffer := Collections.NewPlainList<TCapturedOutputLine>;
+  FOutputLock := TCriticalSection.Create;
+  FOutputNextIndex := 1;
   FStepType := stNone;
   FFirstBreak := True;
   FTerminated := False;
@@ -351,11 +385,13 @@ end;
 destructor TDebugger.Destroy;
 begin
   Terminate;
+  StopOutputReaders;
   FFinishedEvent.Free;
   FReadyEvent.Free;
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
   FBreakpointLock.Free;
+  FOutputLock.Free;
   FLocalsReader.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then
@@ -1503,11 +1539,226 @@ begin
   end;
 end;
 
+procedure TDebugger.AppendOutputLine(ASource: TCapturedOutputSource; const AText: String);
+var
+  Line: TCapturedOutputLine;
+begin
+  if AText = '' then
+    Exit;
+  FOutputLock.Enter;
+  try
+    Line.Index := FOutputNextIndex;
+    Line.Source := ASource;
+    Line.Text := AText;
+    FOutputBuffer.Add(Line);
+    Inc(FOutputNextIndex);
+  finally
+    FOutputLock.Leave;
+  end;
+end;
+
+procedure TDebugger.ConsumePipeBytes(ASource: TCapturedOutputSource;
+  var APartial: TBytes; const ABytes: TBytes; ALength: Integer);
+// Splits incoming bytes on LF, decodes each completed line as OEM (Windows
+// console default for Delphi WriteLn) into a UTF-16 string, and appends
+// to the output buffer. Bytes past the last LF are stashed in <APartial>
+// (which is the per-stream accumulator passed in by the caller) so a
+// write that straddles a buffer boundary still produces one line.
+var
+  Combined : TBytes;
+  Total    : Integer;
+  StartIdx : Integer;
+  I        : Integer;
+  EndIdx   : Integer;
+  LineBytes: TBytes;
+  Decoded  : String;
+begin
+  if ALength <= 0 then
+    Exit;
+  Total := Length(APartial) + ALength;
+  SetLength(Combined, Total);
+  if Length(APartial) > 0 then
+    Move(APartial[0], Combined[0], Length(APartial));
+  Move(ABytes[0], Combined[Length(APartial)], ALength);
+
+  StartIdx := 0;
+  I := 0;
+  while I < Total do
+  begin
+    if Combined[I] = 10 then // LF
+    begin
+      EndIdx := I;
+      // strip trailing CR if present
+      if (EndIdx > StartIdx) and (Combined[EndIdx - 1] = 13) then
+        Dec(EndIdx);
+      SetLength(LineBytes, EndIdx - StartIdx);
+      if Length(LineBytes) > 0 then
+        Move(Combined[StartIdx], LineBytes[0], Length(LineBytes));
+      Decoded := TEncoding.GetEncoding(CP_OEMCP).GetString(LineBytes);
+      AppendOutputLine(ASource, Decoded);
+      StartIdx := I + 1;
+    end;
+    Inc(I);
+  end;
+
+  if StartIdx < Total then
+  begin
+    SetLength(APartial, Total - StartIdx);
+    Move(Combined[StartIdx], APartial[0], Length(APartial));
+  end
+  else
+    SetLength(APartial, 0);
+end;
+
+procedure TDebugger.StartOutputReaders;
+
+  function MakeReaderThread(AHandle: THandle; ASource: TCapturedOutputSource;
+    APartialPtr: PByte): TThread;
+  // Trick: pass the per-stream Partial buffer reference as raw pointer
+  // captured in the closure, then alias it back inside the thread body.
+  var
+    LHandle: THandle;
+    LSource: TCapturedOutputSource;
+  begin
+    LHandle := AHandle;
+    LSource := ASource;
+    Result := TThread.CreateAnonymousThread(
+      procedure
+      var
+        Buf      : TBytes;
+        BytesRead: DWORD;
+        Partial  : TBytes;
+      begin
+        SetLength(Buf, 4096);
+        SetLength(Partial, 0);
+        while not FTerminated do
+        begin
+          BytesRead := 0;
+          if not Winapi.Windows.ReadFile(LHandle, Buf[0], Length(Buf), BytesRead, nil) then
+            Break;
+          if BytesRead = 0 then
+            Break;
+          ConsumePipeBytes(LSource, Partial, Buf, BytesRead);
+        end;
+        // Flush trailing bytes (no LF) so a final partial line survives.
+        if Length(Partial) > 0 then
+        begin
+          var Trailing := TEncoding.GetEncoding(CP_OEMCP).GetString(Partial);
+          SetLength(Partial, 0);
+          if Trailing <> '' then
+            AppendOutputLine(LSource, Trailing);
+        end;
+      end);
+    Result.FreeOnTerminate := False;
+  end;
+
+begin
+  if not Assigned(FOutputStdoutThread) then
+  begin
+    FOutputStdoutThread := MakeReaderThread(FOutputStdoutRead, cosStdout, nil);
+    FOutputStdoutThread.Start;
+  end;
+  if not Assigned(FOutputStderrThread) then
+  begin
+    FOutputStderrThread := MakeReaderThread(FOutputStderrRead, cosStderr, nil);
+    FOutputStderrThread.Start;
+  end;
+end;
+
+procedure TDebugger.StopOutputReaders;
+
+  procedure CloseAndJoin(var AWriteH, AReadH: THandle; var AThread: TThread);
+  begin
+    // Closing the write end signals EOF to the blocked ReadFile call.
+    if AWriteH <> 0 then
+    begin
+      CloseHandle(AWriteH);
+      AWriteH := 0;
+    end;
+    if Assigned(AThread) then
+    begin
+      AThread.WaitFor;
+      FreeAndNil(AThread);
+    end;
+    if AReadH <> 0 then
+    begin
+      CloseHandle(AReadH);
+      AReadH := 0;
+    end;
+  end;
+
+begin
+  CloseAndJoin(FOutputStdoutWrite, FOutputStdoutRead, FOutputStdoutThread);
+  CloseAndJoin(FOutputStderrWrite, FOutputStderrRead, FOutputStderrThread);
+end;
+
+procedure TDebugger.HandleOutputDebugString(const ADebugEvent: TDebugEvent);
+var
+  Address  : Pointer;
+  Bytes    : TBytes;
+  Decoded  : String;
+  Len      : Integer;
+  Trim     : Integer;
+begin
+  Address := ADebugEvent.DebugString.lpDebugStringData;
+  Len := ADebugEvent.DebugString.nDebugStringLength;
+  if (Address = nil) or (Len <= 0) then
+    Exit;
+
+  if ADebugEvent.DebugString.fUnicode <> 0 then
+    Bytes := ReadProcessMemory(Address, NativeUInt(Len) * SizeOf(WideChar))
+  else
+    Bytes := ReadProcessMemory(Address, NativeUInt(Len));
+
+  if Length(Bytes) = 0 then
+    Exit;
+
+  if ADebugEvent.DebugString.fUnicode <> 0 then
+    Decoded := TEncoding.Unicode.GetString(Bytes)
+  else
+    Decoded := TEncoding.GetEncoding(CP_ACP).GetString(Bytes);
+
+  // Strip trailing nulls and CR/LF that OutputDebugString often includes.
+  Trim := Length(Decoded);
+  while (Trim > 0) and CharInSet(Decoded[Trim], [#0, #10, #13]) do
+    Dec(Trim);
+  if Trim < Length(Decoded) then
+    SetLength(Decoded, Trim);
+
+  AppendOutputLine(cosOds, Decoded);
+end;
+
+function TDebugger.GetCapturedOutput(ASinceIndex: Integer): TArray<TCapturedOutputLine>;
+var
+  ResultList: IList<TCapturedOutputLine>;
+  I         : Integer;
+begin
+  FOutputLock.Enter;
+  try
+    ResultList := Collections.NewPlainList<TCapturedOutputLine>;
+    for I := 0 to FOutputBuffer.Count - 1 do
+      if FOutputBuffer[I].Index > ASinceIndex then
+        ResultList.Add(FOutputBuffer[I]);
+    Result := ResultList.AsArray;
+  finally
+    FOutputLock.Leave;
+  end;
+end;
+
+function TDebugger.GetCapturedOutputCount: Integer;
+begin
+  FOutputLock.Enter;
+  try
+    Result := FOutputBuffer.Count;
+  finally
+    FOutputLock.Leave;
+  end;
+end;
+
 procedure TDebugger.StartDebugging(const AExecutablePath: string);
 var
   ContinueStatus: Cardinal;
   DebugEvent    : TDebugEvent;
-  hDevNull      : THandle;
   ProcessInfo   : TProcessInformation;
   Running       : Boolean;
   SA            : TSecurityAttributes;
@@ -1517,27 +1768,37 @@ begin
   SA.lpSecurityDescriptor := nil;
   SA.bInheritHandle := True;
 
-  // Open the NUL device to discard output
-  hDevNull := CreateFile('NUL', GENERIC_WRITE, FILE_SHARE_WRITE, @SA, OPEN_EXISTING, 0, 0);
+  // Two anonymous pipes: target's stdout writes into FOutputStdoutWrite,
+  // stderr writes into FOutputStderrWrite. Two dedicated reader threads
+  // drain the read ends and tag each line with the matching source so
+  // the agent can later distinguish program output from error output.
+  if not CreatePipe(FOutputStdoutRead, FOutputStdoutWrite, @SA, 64 * 1024) then
+    raise Exception.Create('Failed to create stdout pipe: ' + IntToStr(GetLastError));
+  if not CreatePipe(FOutputStderrRead, FOutputStderrWrite, @SA, 64 * 1024) then
+  begin
+    CloseHandle(FOutputStdoutRead);
+    CloseHandle(FOutputStdoutWrite);
+    FOutputStdoutRead := 0;
+    FOutputStdoutWrite := 0;
+    raise Exception.Create('Failed to create stderr pipe: ' + IntToStr(GetLastError));
+  end;
+  // Read ends stay on this side, must NOT be inherited by the child.
+  SetHandleInformation(FOutputStdoutRead, HANDLE_FLAG_INHERIT, 0);
+  SetHandleInformation(FOutputStderrRead, HANDLE_FLAG_INHERIT, 0);
 
   FillChar(StartupInfo, SizeOf(StartupInfo), 0);
   StartupInfo.cb := SizeOf(StartupInfo);
-
-  if hDevNull <> INVALID_HANDLE_VALUE then
-  begin
-    StartupInfo.dwFlags := STARTF_USESTDHANDLES;
-    StartupInfo.hStdInput := GetStdHandle(STD_INPUT_HANDLE);
-    StartupInfo.hStdOutput := hDevNull;
-    StartupInfo.hStdError := hDevNull;
-  end;
+  StartupInfo.dwFlags := STARTF_USESTDHANDLES;
+  StartupInfo.hStdInput := GetStdHandle(STD_INPUT_HANDLE);
+  StartupInfo.hStdOutput := FOutputStdoutWrite;
+  StartupInfo.hStdError := FOutputStderrWrite;
 
   FillChar(ProcessInfo, SizeOf(ProcessInfo), 0);
 
   if not CreateProcess(nil, PChar(AExecutablePath), nil, nil, True, // True to inherit handles
     DEBUG_ONLY_THIS_PROCESS or NORMAL_PRIORITY_CLASS, nil, nil, StartupInfo, ProcessInfo) then
   begin
-    if hDevNull <> INVALID_HANDLE_VALUE then
-      CloseHandle(hDevNull);
+    StopOutputReaders;
     raise Exception.Create('Failed to create process: ' + IntToStr(GetLastError));
   end;
 
@@ -1546,8 +1807,7 @@ begin
   FProcessHandle := ProcessInfo.hProcess;
   FThreadHandle := ProcessInfo.hThread;
 
-  if hDevNull <> INVALID_HANDLE_VALUE then
-    CloseHandle(hDevNull); // Process has its own copy now
+  StartOutputReaders;
 
   Running := True;
   while Running do
@@ -1560,10 +1820,11 @@ begin
       CREATE_THREAD_DEBUG_EVENT: HandleCreateThread(DebugEvent);
       EXIT_THREAD_DEBUG_EVENT: HandleExitThread(DebugEvent);
       EXCEPTION_DEBUG_EVENT: HandleException(DebugEvent, ContinueStatus);
+      OUTPUT_DEBUG_STRING_EVENT: HandleOutputDebugString(DebugEvent);
       LOAD_DLL_DEBUG_EVENT:
         if DebugEvent.LoadDll.hFile <> 0 then
           CloseHandle(DebugEvent.LoadDll.hFile);
-      EXIT_PROCESS_DEBUG_EVENT: 
+      EXIT_PROCESS_DEBUG_EVENT:
       begin
         Running := False;
         FLastBreakpointHit := nil;

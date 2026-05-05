@@ -42,6 +42,14 @@ type
     [Test]
     procedure TestMcpGetLocalsListedInTools;
     [Test]
+    procedure TestMcpGetOutputReturnsCapturedLines;
+    [Test]
+    procedure TestMcpGetOutputSourceFilter;
+    [Test]
+    procedure TestMcpGetOutputSourceFilterAndTail;
+    [Test]
+    procedure TestMcpRecentOutputIsDeltaSinceLastResume;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -1250,6 +1258,384 @@ begin
         // ignore errors
       end;
     end;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetOutputReturnsCapturedLines;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  Line        : String;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  ContentArr  : TJSONArray;
+  Inner       : TJSONObject;
+  LinesArr    : TJSONArray;
+  HasLocals   : Boolean;
+  HasOds      : Boolean;
+  I           : Integer;
+  Src         : String;
+  Txt         : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // Break at the LocalsProcedure Writeln (line 38). Both the prior
+  // stderr-tag-line / ods-tag-line and the Target/Deep stdout lines
+  // have been emitted by then, so the buffer is well-populated.
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp 38
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+
+      WaitForOutput(OutputWriter, 6);
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_output", "arguments": {}}}');
+      Server.RunOnce;
+
+      Line := OutputWriter.GetLine(6);
+      LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+      try
+        ResultObj := LJSON.GetValue('result') as TJSONObject;
+        ContentArr := ResultObj.GetValue('content') as TJSONArray;
+        Inner := TJSONObject.ParseJSONValue(
+          (ContentArr.Items[0] as TJSONObject).GetValue('text').Value) as TJSONObject;
+        try
+          LinesArr := Inner.GetValue('lines') as TJSONArray;
+          Assert.IsNotNull(LinesArr);
+          Assert.IsTrue(LinesArr.Count > 0,
+            'get_output must return at least one line at this point');
+
+          HasLocals := False;
+          HasOds := False;
+          for I := 0 to LinesArr.Count - 1 do
+          begin
+            Src := (LinesArr.Items[I] as TJSONObject).GetValue('source').Value;
+            Txt := (LinesArr.Items[I] as TJSONObject).GetValue('text').Value;
+            if (Src = 'stdout') and (Txt.Contains('Target') or Txt.Contains('Deep')) then HasLocals := True;
+            if (Src = 'ods') and (Txt.Contains('ods-tag-line')) then HasOds := True;
+          end;
+          Assert.IsTrue(HasLocals, 'Expected a stdout line from Target/Deep');
+          Assert.IsTrue(HasOds, 'Expected the ods-tag-line ODS entry');
+        finally
+          Inner.Free;
+        end;
+      finally
+        LJSON.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetOutputSourceFilter;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  Line        : String;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  ContentArr  : TJSONArray;
+  Inner       : TJSONObject;
+  LinesArr    : TJSONArray;
+  I           : Integer;
+  Src         : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp 38
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+
+      WaitForOutput(OutputWriter, 6);
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_output", "arguments": {"source_filter": ["ods"]}}}');
+      Server.RunOnce;
+
+      Line := OutputWriter.GetLine(6);
+      LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+      try
+        ResultObj := LJSON.GetValue('result') as TJSONObject;
+        ContentArr := ResultObj.GetValue('content') as TJSONArray;
+        Inner := TJSONObject.ParseJSONValue(
+          (ContentArr.Items[0] as TJSONObject).GetValue('text').Value) as TJSONObject;
+        try
+          LinesArr := Inner.GetValue('lines') as TJSONArray;
+          Assert.IsNotNull(LinesArr);
+          Assert.IsTrue(LinesArr.Count > 0,
+            'get_output must return at least one line at this point');
+
+          for I := 0 to LinesArr.Count - 1 do
+          begin
+            Src := (LinesArr.Items[I] as TJSONObject).GetValue('source').Value;
+            Assert.AreEqual('ods', Src, 'Expected only ods lines due to source_filter');
+          end;
+        finally
+          Inner.Free;
+        end;
+      finally
+        LJSON.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpGetOutputSourceFilterAndTail;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  Line        : String;
+  LJSON       : TJSONObject;
+  ResultObj   : TJSONObject;
+  ContentArr  : TJSONArray;
+  Inner       : TJSONObject;
+  LinesArr    : TJSONArray;
+  I           : Integer;
+  Src         : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp 38
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+
+      WaitForOutput(OutputWriter, 6);
+
+      // Filter by stdout and take only the last 1 item.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "get_output", "arguments": {"source_filter": ["stdout"], "tail": 1}}}');
+      Server.RunOnce;
+
+      Line := OutputWriter.GetLine(6);
+      LJSON := TJSONObject.ParseJSONValue(Line) as TJSONObject;
+      try
+        ResultObj := LJSON.GetValue('result') as TJSONObject;
+        ContentArr := ResultObj.GetValue('content') as TJSONArray;
+        Inner := TJSONObject.ParseJSONValue(
+          (ContentArr.Items[0] as TJSONObject).GetValue('text').Value) as TJSONObject;
+        try
+          LinesArr := Inner.GetValue('lines') as TJSONArray;
+          Assert.IsNotNull(LinesArr);
+          Assert.AreEqual(1, LinesArr.Count, 'get_output must return exactly 1 line due to tail=1');
+
+          Src := (LinesArr.Items[0] as TJSONObject).GetValue('source').Value;
+          Assert.AreEqual('stdout', Src, 'Expected only stdout line due to source_filter');
+        finally
+          Inner.Free;
+        end;
+      finally
+        LJSON.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpRecentOutputIsDeltaSinceLastResume;
+// Two consecutive breakpoints with output produced between them. The
+// first pause's recent_output must contain the lines emitted before
+// reaching the first BP. After continue, the second pause's
+// recent_output must contain ONLY the lines produced between the two
+// pauses, NOT a re-delivery of the earlier lines.
+var
+  Debugger     : TDebugger;
+  Server       : TMcpServer;
+  InputReader  : TStringTextReader;
+  OutputWriter : TStringTextWriter;
+  ExePath      : String;
+  MapFile      : String;
+
+  function ParseStateRecentOutput(const ALine: String): TJSONArray;
+  var
+    LJSON, ResultObj, Inner: TJSONObject;
+    ContentArr: TJSONArray;
+  begin
+    LJSON := TJSONObject.ParseJSONValue(ALine) as TJSONObject;
+    try
+      ResultObj := LJSON.GetValue('result') as TJSONObject;
+      ContentArr := ResultObj.GetValue('content') as TJSONArray;
+      Inner := TJSONObject.ParseJSONValue(
+        (ContentArr.Items[0] as TJSONObject).GetValue('text').Value) as TJSONObject;
+      try
+        // Clone the array out so the caller can use it after we free Inner.
+        var Found := Inner.GetValue('recent_output');
+        if Found = nil then
+          Result := nil
+        else
+          Result := TJSONObject.ParseJSONValue(Found.ToJSON) as TJSONArray;
+      finally
+        Inner.Free;
+      end;
+    finally
+      LJSON.Free;
+    end;
+  end;
+
+  function HasTextInArray(AArr: TJSONArray; const ASubstr: String): Boolean;
+  var
+    I: Integer;
+  begin
+    Result := False;
+    if AArr = nil then Exit;
+    for I := 0 to AArr.Count - 1 do
+      if (AArr.Items[I] as TJSONObject).GetValue('text').Value.Contains(ASubstr) then
+        Exit(True);
+  end;
+
+var
+  Recent1: TJSONArray;
+  Recent2: TJSONArray;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  // Two breakpoints: line 17 (Writeln('Target') in TargetProcedure)
+  // and line 38 (Writeln('Locals ...') in LocalsProcedure). Between
+  // them the program executes the inner Writeln('Target') and
+  // Writeln('Deep') calls.
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 17}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 38}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp 17
+      Server.RunOnce; // set_bp 38
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue (resume from initial pause)
+
+      // Wait for first BP (line 17). 7 entries: 5 responses + stopped notification + sampling.
+      WaitForOutput(OutputWriter, 7);
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+
+      Recent1 := ParseStateRecentOutput(OutputWriter.GetLine(7));
+      try
+        Assert.IsNotNull(Recent1, 'First pause must include recent_output');
+        Assert.IsTrue(HasTextInArray(Recent1, 'stderr-tag-line'),
+          'First pause must contain the stderr-tag-line emitted before BP1');
+        Assert.IsTrue(HasTextInArray(Recent1, 'ods-tag-line'),
+          'First pause must contain the ods-tag-line emitted before BP1');
+      finally
+        if Recent1 <> nil then Recent1.Free;
+      end;
+
+      // Continue to second BP. State after: stopped at line 38.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+      Server.RunOnce;
+      WaitForOutput(OutputWriter, 11); // +continue-resp +stopped +sampling +get_state-resp later
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "get_state", "arguments": {}}}');
+      Server.RunOnce;
+
+      // Find the latest get_state response line (last line of output).
+      Recent2 := ParseStateRecentOutput(OutputWriter.GetLine(OutputWriter.GetCount - 1));
+      try
+        Assert.IsNotNull(Recent2,
+          'Second pause must include recent_output (Target/Deep stdout lines)');
+        Assert.IsTrue(HasTextInArray(Recent2, 'Target'),
+          'Second pause should include the Writeln("Target") line');
+        Assert.IsTrue(HasTextInArray(Recent2, 'Deep'),
+          'Second pause should include the Writeln("Deep") line');
+        // Critical delta property: the earlier lines must NOT reappear.
+        Assert.IsFalse(HasTextInArray(Recent2, 'stderr-tag-line'),
+          'stderr-tag-line was already delivered at the first pause and must not re-appear');
+        Assert.IsFalse(HasTextInArray(Recent2, 'ods-tag-line'),
+          'ods-tag-line was already delivered at the first pause and must not re-appear');
+      finally
+        if Recent2 <> nil then Recent2.Free;
+      end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
   end;
 end;
 

@@ -3,18 +3,18 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils;
+uses System.SysUtils, Winapi.Windows;
 var
   GGlobalInt: Integer = Integer($87654321);
 procedure DeepProcedure;
 var LocalInt: Integer;
 begin
   LocalInt := $12345678;
-  Writeln('Deep'); // Line 13
+  Writeln('Deep'); Flush(Output); // Line 13
 end;
 procedure TargetProcedure;
 begin
-  Writeln('Target'); // Line 17
+  Writeln('Target'); Flush(Output); // Line 17
   try
     Abort; // Raises EAbort
   except
@@ -35,10 +35,12 @@ begin
   LocalA := $12345678;
   LocalB := Int64($1122334455667788);
   LocalC := $DEADBEEF;
-  Writeln('Locals ', LocalA, ' ', LocalB, ' ', LocalC); // Line 38 - locals breakpoint here
+  Writeln('Locals ', LocalA, ' ', LocalB, ' ', LocalC); Flush(Output); // Line 38 - locals breakpoint here
 end;
 begin
   GGlobalInt := $11223344;
+  Writeln(ErrOutput, 'stderr-tag-line'); Flush(ErrOutput);
+  OutputDebugString('ods-tag-line');
   TargetProcedure;
   LocalsProcedure;
 end.

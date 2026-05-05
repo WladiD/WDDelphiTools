@@ -33,6 +33,7 @@ type
     FDebugger          : TDebugger;
     FExitRequest       : Boolean;
     FInputReader       : TTextReader;
+    FOutputCursorAtLastResume: Integer;
     FOwnsDebugger      : Boolean;
     FOutputLock        : TCriticalSection;
     FOutputWriter      : TTextWriter;
@@ -47,6 +48,7 @@ type
     function  MakeTextResult(const AText: String): TJSONObject;
     procedure ProcessMessage(const AMessage: String);
     function  RequireState(const AAllowed: Array of TDebugState; out AResult: TJSONObject): Boolean;
+    function  CapturedOutputToJSONArray(const ALines: TArray<TCapturedOutputLine>): TJSONArray;
     procedure SendError(const AID: TJSONValue; ACode: Integer; const AMessage: String);
     procedure SendNotification(const AMethod: String; AParams: TJSONObject);
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
@@ -55,6 +57,7 @@ type
   private // Tool handlers
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetLocals(AParams: TJSONObject): TJSONObject;
+    function HandleGetOutput(AParams: TJSONObject): TJSONObject;
     function HandleGetProcAsm(AParams: TJSONObject): TJSONObject;
     function HandleGetRegisters(AParams: TJSONObject): TJSONObject;
     function HandleGetStackMemory(AParams: TJSONObject): TJSONObject;
@@ -425,6 +428,7 @@ begin
           '  2. start_debug_session(executable_path) - process launches paused; pending breakpoints apply.' + sLineBreak +
           '  3. continue / step_into / step_over - non-blocking; always follow with wait_until_paused.' + sLineBreak +
           '  4. Inspect at a pause: get_stack_trace, get_registers, get_locals (named locals from TD32, preferred), get_stack_slots (heuristic fallback), read_memory, read_global_variable.' + sLineBreak +
+          '     Output (Writeln/stderr/OutputDebugString) of the target is auto-attached to wait_until_paused/get_state as "recent_output" (only what was emitted since the last continue/step). Use get_output when you need older context than that delta.' + sLineBreak +
           '  5. stop_debug_session (detach) or terminate_debug_session (kill).' + sLineBreak +
           sLineBreak +
           'Addresses: hex without "0x" prefix; addresses from get_stack_trace / get_registers can be pasted directly into read_memory.' + sLineBreak +
@@ -488,6 +492,8 @@ begin
           SendResponse(ID, HandleGetStackSlots(ToolParams))
         else if ToolName = 'get_locals' then
           SendResponse(ID, HandleGetLocals(ToolParams))
+        else if ToolName = 'get_output' then
+          SendResponse(ID, HandleGetOutput(ToolParams))
         else if ToolName = 'get_proc_asm' then
           SendResponse(ID, HandleGetProcAsm(ToolParams))
         else if ToolName = 'start_debug_session' then
@@ -687,6 +693,23 @@ begin
   ToolSlots.AddPair('description', 'Returns a structured list of stack slots from the current stack frame, with heuristic type interpretation (pointer, string, integer, etc.). Useful for quickly understanding local variables and parameters without manual hex interpretation. Only callable when state is "paused".');
   ToolSlots.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolSlots);
+
+  var ToolOutput := TJSONObject.Create;
+  ToolOutput.AddPair('name', 'get_output');
+  ToolOutput.AddPair('description', 'Returns the most recent output the debugged process has produced (stdout, stderr, OutputDebugString) since the session started, as a JSON object with "total_buffered", "returned" and a "lines" array of {index, source, text}. The "source" field is one of "stdout"/"stderr"/"ods". Optional argument "tail" caps the number of returned lines (default 50; pass -1 for everything currently buffered). Optional argument "source_filter" is an array of strings (e.g. ["ods"]) to restrict the returned lines to specific sources. Lines are NOT removed from the buffer - the same output is also surfaced as "recent_output" inside wait_until_paused / get_state when the debugger pauses, scoped to the lines emitted since the last continue/step. Use get_output when you need a wider window (e.g. older context) than recent_output gives. Requires an active debug session.');
+  var SchemaOutput := TJSONObject.Create;
+  SchemaOutput.AddPair('type', 'object');
+  var PropOutput := TJSONObject.Create;
+  PropOutput.AddPair('tail', TJSONObject.Create
+    .AddPair('type', 'integer')
+    .AddPair('description', 'Maximum number of most-recent lines to return. Defaults to 50; pass -1 to return all currently buffered lines.'));
+  PropOutput.AddPair('source_filter', TJSONObject.Create
+    .AddPair('type', 'array')
+    .AddPair('items', TJSONObject.Create.AddPair('type', 'string'))
+    .AddPair('description', 'Optional array of source names ("stdout", "stderr", "ods") to filter the output.'));
+  SchemaOutput.AddPair('properties', PropOutput);
+  ToolOutput.AddPair('inputSchema', SchemaOutput);
+  ToolsArr.Add(ToolOutput);
 
   var ToolLocals := TJSONObject.Create;
   ToolLocals.AddPair('name', 'get_locals');
@@ -993,6 +1016,7 @@ begin
   FOwnsDebugger := True;
   ConnectDebuggerEvents;
   FCurrentExePath := ExePath;
+  FOutputCursorAtLastResume := 0;
 
   MapFile := ChangeFileExt(ExePath, '.map');
   HasMap := FileExists(MapFile);
@@ -1062,6 +1086,11 @@ begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
+  // Snapshot the current output count: anything emitted from now until
+  // the next pause becomes "recent_output" attached to that pause's
+  // state response. Without this, every pause would re-deliver all
+  // historical output.
+  FOutputCursorAtLastResume := FDebugger.GetCapturedOutputCount;
   FDebugger.ResumeExecution;
   FState := dsRunning;
   Result := MakeTextResult('Execution resumed. Waiting for breakpoint or process exit.');
@@ -1072,6 +1101,7 @@ begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
+  FOutputCursorAtLastResume := FDebugger.GetCapturedOutputCount;
   FDebugger.StepInto;
   FState := dsRunning;
   Result := MakeTextResult('Stepping into. Waiting for step to complete.');
@@ -1082,6 +1112,7 @@ begin
   if not RequireState([dsPaused], Result) then
     Exit;
 
+  FOutputCursorAtLastResume := FDebugger.GetCapturedOutputCount;
   FDebugger.StepOver;
   FState := dsRunning;
   Result := MakeTextResult('Stepping over. Waiting for step to complete.');
@@ -1089,8 +1120,9 @@ end;
 
 function TMcpServer.HandleGetState(AParams: TJSONObject): TJSONObject;
 var
-  Stack   : TArray<TStackFrame>;
-  StateObj: TJSONObject;
+  Stack    : TArray<TStackFrame>;
+  StateObj : TJSONObject;
+  RecentOut: TArray<TCapturedOutputLine>;
 begin
   StateObj := TJSONObject.Create;
   try
@@ -1106,6 +1138,17 @@ begin
         StateObj.AddPair('line', TJSONNumber.Create(Stack[0].LineNumber));
         StateObj.AddPair('procedure', Stack[0].ProcedureName);
       end;
+
+    end;
+
+    // Delta-only output (paused or exited): include lines emitted since
+    // the last continue/step. When nothing new arrived, the field is
+    // omitted so the agent does not waste tokens on a redundant array.
+    if (FState in [dsPaused, dsExited]) and Assigned(FDebugger) then
+    begin
+      RecentOut := FDebugger.GetCapturedOutput(FOutputCursorAtLastResume);
+      if Length(RecentOut) > 0 then
+        StateObj.AddPair('recent_output', CapturedOutputToJSONArray(RecentOut));
     end;
 
     Result := MakeTextResult(StateObj.ToJSON);
@@ -1149,6 +1192,7 @@ begin
     FDebugger := nil;
   FOwnsDebugger := False;
   FCurrentExePath := '';
+  FOutputCursorAtLastResume := 0;
   Result := MakeTextResult('Debug session stopped. The process continues running.');
 end;
 
@@ -1167,6 +1211,7 @@ begin
     FDebugger := nil;
   FOwnsDebugger := False;
   FCurrentExePath := '';
+  FOutputCursorAtLastResume := 0;
   Result := MakeTextResult('Debug session terminated. The process has been killed.');
 end;
 
@@ -1382,6 +1427,112 @@ begin
   var ContentArr := TJSONArray.Create;
   ContentArr.Add(TJSONObject.Create.AddPair('type', 'text').AddPair('text', SlotsArr.ToJSON));
   Result.AddPair('content', ContentArr);
+end;
+
+function TMcpServer.CapturedOutputToJSONArray(
+  const ALines: TArray<TCapturedOutputLine>): TJSONArray;
+const
+  SourceName: array[TCapturedOutputSource] of String = ('stdout', 'stderr', 'ods');
+var
+  I  : Integer;
+  Obj: TJSONObject;
+begin
+  Result := TJSONArray.Create;
+  for I := 0 to High(ALines) do
+  begin
+    Obj := TJSONObject.Create;
+    Obj.AddPair('index', TJSONNumber.Create(ALines[I].Index));
+    Obj.AddPair('source', SourceName[ALines[I].Source]);
+    Obj.AddPair('text', ALines[I].Text);
+    Result.Add(Obj);
+  end;
+end;
+
+function TMcpServer.HandleGetOutput(AParams: TJSONObject): TJSONObject;
+const
+  DefaultTail = 50;
+  SourceName: array[TCapturedOutputSource] of String = ('stdout', 'stderr', 'ods');
+var
+  Tail         : Integer;
+  TailVal      : TJSONValue;
+  FilterNode   : TJSONValue;
+  FilterVal    : TJSONArray;
+  FilterSources: set of TCapturedOutputSource;
+  Lines        : TArray<TCapturedOutputLine>;
+  StartIdx     : Integer;
+  Sub          : TArray<TCapturedOutputLine>;
+  ResultObj    : TJSONObject;
+  ContentArr   : TJSONArray;
+  I            : Integer;
+  S            : String;
+  Src          : TCapturedOutputSource;
+begin
+  if not Assigned(FDebugger) then
+    Exit(MakeErrorResult(
+      'No active debug session. Call start_debug_session before get_output.'));
+
+  Tail := DefaultTail;
+  FilterSources := [cosStdout, cosStderr, cosOds];
+
+  if Assigned(AParams) then
+  begin
+    TailVal := AParams.GetValue('tail');
+    if (TailVal <> nil) and (TailVal is TJSONNumber) then
+      Tail := (TailVal as TJSONNumber).AsInt;
+
+    FilterNode := AParams.GetValue('source_filter');
+    if (FilterNode <> nil) and (FilterNode is TJSONArray) then
+    begin
+      FilterVal := FilterNode as TJSONArray;
+      FilterSources := [];
+      for I := 0 to FilterVal.Count - 1 do
+      begin
+        S := FilterVal.Items[I].Value;
+        for Src := Low(TCapturedOutputSource) to High(TCapturedOutputSource) do
+          if SameText(S, SourceName[Src]) then
+            Include(FilterSources, Src);
+      end;
+    end;
+  end;
+
+  Lines := FDebugger.GetCapturedOutput(0);
+
+  if FilterSources <> [cosStdout, cosStderr, cosOds] then
+  begin
+    SetLength(Sub, 0);
+    for I := 0 to High(Lines) do
+      if Lines[I].Source in FilterSources then
+      begin
+        SetLength(Sub, Length(Sub) + 1);
+        Sub[High(Sub)] := Lines[I];
+      end;
+    Lines := Sub;
+  end;
+
+  if (Tail >= 0) and (Length(Lines) > Tail) then
+  begin
+    StartIdx := Length(Lines) - Tail;
+    SetLength(Sub, Tail);
+    for I := 0 to Tail - 1 do
+      Sub[I] := Lines[StartIdx + I];
+    Lines := Sub;
+  end;
+
+  ResultObj := TJSONObject.Create;
+  try
+    ResultObj.AddPair('total_buffered', TJSONNumber.Create(FDebugger.GetCapturedOutputCount));
+    ResultObj.AddPair('returned', TJSONNumber.Create(Length(Lines)));
+    ResultObj.AddPair('lines', CapturedOutputToJSONArray(Lines));
+
+    Result := TJSONObject.Create;
+    ContentArr := TJSONArray.Create;
+    ContentArr.Add(TJSONObject.Create
+      .AddPair('type', 'text')
+      .AddPair('text', ResultObj.ToJSON));
+    Result.AddPair('content', ContentArr);
+  finally
+    ResultObj.Free;
+  end;
 end;
 
 function TMcpServer.HandleGetLocals(AParams: TJSONObject): TJSONObject;

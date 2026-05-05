@@ -52,6 +52,12 @@ type
     procedure TestLocalVariables32;
     [Test]
     procedure TestGetLocalsWithoutDebugInfoReturnsEmpty;
+    [Test]
+    procedure TestCapturesStdoutAndOdsAndStderr;
+    [Test]
+    procedure TestCapturedOutputCursor;
+    [Test]
+    procedure TestCapturedOutputEmptyBeforeProcessRuns;
     {$IFDEF CPUX64}
     [Test]
     procedure TestBreakpointInTarget64;
@@ -463,6 +469,124 @@ end;
 procedure TDebuggerTests.TestLocalVariables32;
 begin
   DoTestLocalVariables(False);
+end;
+
+procedure TDebuggerTests.TestCapturesStdoutAndOdsAndStderr;
+// Runs DebugTarget to completion and asserts that the captured-output
+// buffer contains exemplars from each of the three sources we hook:
+//   - stdout: the LocalsProcedure Writeln line
+//   - stderr: the explicit Writeln(ErrOutput, 'stderr-tag-line')
+//   - ods   : OutputDebugString('ods-tag-line')
+var
+  Debugger : TDebugger;
+  ExePath  : String;
+  StartTime: Cardinal;
+  Lines    : TArray<TCapturedOutputLine>;
+  HasStdout: Boolean;
+  HasStderr: Boolean;
+  HasOds   : Boolean;
+  I        : Integer;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+
+  Debugger := TDebugger.Create;
+  try
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
+
+    // Wait for the process to finish so all output has been captured.
+    StartTime := GetTickCount;
+    while (GetTickCount - StartTime < 5000) do
+    begin
+      if Debugger.GetCapturedOutputCount >= 3 then
+        Break;
+      Sleep(50);
+    end;
+    // Give the reader thread a moment to drain any trailing bytes.
+    Sleep(200);
+
+    Lines := Debugger.GetCapturedOutput(0);
+    HasStdout := False;
+    HasStderr := False;
+    HasOds    := False;
+    for I := 0 to High(Lines) do
+    begin
+      case Lines[I].Source of
+        cosStdout: if Lines[I].Text.Contains('Locals')        then HasStdout := True;
+        cosStderr: if Lines[I].Text.Contains('stderr-tag-line') then HasStderr := True;
+        cosOds   : if Lines[I].Text.Contains('ods-tag-line')   then HasOds := True;
+      end;
+    end;
+
+    Assert.IsTrue(HasStdout, 'stdout line "Locals ..." not captured');
+    Assert.IsTrue(HasStderr, 'stderr line "stderr-tag-line" not captured');
+    Assert.IsTrue(HasOds,    'OutputDebugString "ods-tag-line" not captured');
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TDebuggerTests.TestCapturedOutputCursor;
+// GetCapturedOutput(SinceIndex) must skip any lines whose Index is <=
+// SinceIndex. After capturing all output, asking for "everything after
+// the first line" yields strictly fewer lines than asking for everything.
+var
+  Debugger    : TDebugger;
+  ExePath     : String;
+  StartTime   : Cardinal;
+  All         : TArray<TCapturedOutputLine>;
+  AfterFirst  : TArray<TCapturedOutputLine>;
+  AfterLast   : TArray<TCapturedOutputLine>;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+
+  Debugger := TDebugger.Create;
+  try
+    TDebuggerThread.Create(Debugger, ExePath);
+    Debugger.WaitForReady(5000);
+    Debugger.ResumeExecution;
+
+    StartTime := GetTickCount;
+    while (GetTickCount - StartTime < 5000) do
+    begin
+      if Debugger.GetCapturedOutputCount >= 3 then
+        Break;
+      Sleep(50);
+    end;
+    Sleep(200);
+
+    All := Debugger.GetCapturedOutput(0);
+    Assert.IsTrue(Length(All) >= 3,
+      Format('Expected at least 3 captured lines, got %d', [Length(All)]));
+
+    AfterFirst := Debugger.GetCapturedOutput(All[0].Index);
+    Assert.IsTrue(Length(AfterFirst) = Length(All) - 1,
+      'Cursor at first line index should drop exactly one line');
+
+    AfterLast := Debugger.GetCapturedOutput(All[High(All)].Index);
+    Assert.IsTrue(Length(AfterLast) = 0,
+      'Cursor at last line index should drop everything');
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TDebuggerTests.TestCapturedOutputEmptyBeforeProcessRuns;
+// A freshly constructed debugger has nothing in its buffer; the
+// API must not crash and must return zero counts/lines.
+var
+  Debugger: TDebugger;
+begin
+  Debugger := TDebugger.Create;
+  try
+    Assert.IsTrue(Debugger.GetCapturedOutputCount = 0,
+      'Newly created debugger must have empty output buffer');
+    Assert.IsTrue(Length(Debugger.GetCapturedOutput(0)) = 0,
+      'GetCapturedOutput on a fresh debugger must return empty array');
+  finally
+    Debugger.Free;
+  end;
 end;
 
 procedure TDebuggerTests.TestGetLocalsWithoutDebugInfoReturnsEmpty;
