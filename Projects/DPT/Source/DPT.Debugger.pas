@@ -195,6 +195,17 @@ type
     function  GetCapturedOutputCount: Integer;
     function  GetCurrentProcedureName(AThreadHandle: THandle): String;
     function  GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
+    /// <summary>
+    ///   Resolves a named local of the procedure that contains the
+    ///   current PC to its runtime address (EBP/RBP + signed offset,
+    ///   with the Win64 frame-base correction applied). Returns
+    ///   <c>False</c> when the PC is outside any TD32-covered procedure
+    ///   or no local with the given name exists. Use this to read more
+    ///   bytes than <see cref="GetLocals"/>'s fixed 8-byte slice would
+    ///   provide (e.g. for inline value types like ShortString).
+    /// </summary>
+    function  GetLocalAddress(AThreadHandle: THandle; const AName: String;
+      out AAddress: Pointer): Boolean;
     function  EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
@@ -750,15 +761,26 @@ begin
   P := 0;
   if not FTargetIs32Bit then
   begin
-    // Delphi x64 prologue: push rbp; sub rsp, N; mov rbp, rsp
-    // (note: sub rsp comes BEFORE mov rbp, rsp on x64)
-    // push rbp = 55
-    if (Buf[P] = $55) then Inc(P);
+    // Delphi x64 prologue: callee-saved register pushes, then
+    // sub rsp, N, then mov rbp, rsp. The register-push set is variable
+    // (push rbp is always there; push rdi / push rsi / push rbx / etc.
+    // appear when the function uses those registers). Each non-extended
+    // register push is one byte ($50..$57); each R8..R15 push is two
+    // bytes ($41 $50..$57). Skip all of them before looking for sub rsp.
+    while P < Length(Buf) do
+    begin
+      if Buf[P] in [$50..$57] then
+        Inc(P)
+      else if (Buf[P] = $41) and (P + 1 < Length(Buf)) and (Buf[P + 1] in [$50..$57]) then
+        Inc(P, 2)
+      else
+        Break;
+    end;
     // sub rsp, imm8 (48 83 EC XX)
-    if (P < Length(Buf) - 3) and (Buf[P] = $48) and (Buf[P+1] = $83) and (Buf[P+2] = $EC) then
+    if (P + 3 < Length(Buf)) and (Buf[P] = $48) and (Buf[P+1] = $83) and (Buf[P+2] = $EC) then
       Result.LocalSize := Buf[P+3]
     // sub rsp, imm32 (48 81 EC XX XX XX XX)
-    else if (P < Length(Buf) - 6) and (Buf[P] = $48) and (Buf[P+1] = $81) and (Buf[P+2] = $EC) then
+    else if (P + 6 < Length(Buf)) and (Buf[P] = $48) and (Buf[P+1] = $81) and (Buf[P+2] = $EC) then
       Result.LocalSize := PLongWord(@Buf[P+3])^;
     // After sub rsp, the compiler emits mov rbp, rsp (48 8B EC or 48 89 E5)
     // We don't need to advance P further since LocalSize is already determined.
@@ -946,6 +968,60 @@ begin
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
   if ProcIdx >= 0 then
     Result := FLocalsReader.Procs[ProcIdx].Name;
+end;
+
+function TDebugger.GetLocalAddress(AThreadHandle: THandle; const AName: String;
+  out AAddress: Pointer): Boolean;
+const
+  CodeSectionRVA = $1000;
+var
+  BaseAddr  : NativeInt;
+  EipRva    : UInt64;
+  FrameInfo : TStackFrameInfo;
+  ProcIdx   : Integer;
+  Proc      : TTd32Proc;
+  Regs      : TRegisters;
+  SegmentOff: UInt32;
+  I         : Integer;
+begin
+  Result := False;
+  AAddress := nil;
+  if not Assigned(FLocalsReader) then
+    Exit;
+
+  Regs := GetRegisters(AThreadHandle);
+  if Regs.Eip = 0 then
+    Exit;
+  if Regs.Eip < FBaseAddress + CodeSectionRVA then
+    Exit;
+  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
+  if EipRva > High(UInt32) then
+    Exit;
+  SegmentOff := UInt32(EipRva);
+
+  ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  if ProcIdx < 0 then
+    Exit;
+
+  // Same Win64 frame-base correction as GetLocals: Delphi-x64's
+  //   push rbp; sub rsp, N; mov rbp, rsp
+  // leaves RBP at the bottom of the locals area, while TD32 emits
+  // BPREL offsets relative to the logical top, requiring +LocalSize.
+  BaseAddr := NativeInt(Regs.Ebp);
+  if not FTargetIs32Bit then
+  begin
+    FrameInfo := GetStackFrameInfo(AThreadHandle);
+    if FrameInfo.LocalSize > 0 then
+      BaseAddr := BaseAddr + FrameInfo.LocalSize;
+  end;
+
+  Proc := FLocalsReader.Procs[ProcIdx];
+  for I := 0 to Proc.Locals.Count - 1 do
+    if SameText(Proc.Locals[I].Name, AName) then
+    begin
+      AAddress := Pointer(BaseAddr + Proc.Locals[I].BpOffset);
+      Exit(True);
+    end;
 end;
 
 function TDebugger.GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
@@ -1849,31 +1925,73 @@ begin
 end;
 
 function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
+
+  // Reads a Delphi long string (UnicodeString/AnsiString/WideString) given
+  // its dynamic-pointer payload. <APtrVal> is the value stored AT the
+  // variable: 0 means empty/nil, otherwise it points at the character
+  // data, with a 4-byte length field (in characters for UnicodeString /
+  // AnsiString, in bytes for WideString) at offset -4.
+  function ReadLongString(APtrVal: UIntPtr; ACharSize: Integer;
+    AEncoding: TEncoding; ALengthIsBytes: Boolean; out AOut: String): Boolean;
+  var
+    LenBytes : TBytes;
+    StrLen   : Integer;
+    Content  : TBytes;
+    ByteCount: Integer;
+  begin
+    Result := False;
+    AOut := '';
+    if APtrVal = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+    LenBytes := ReadProcessMemory(Pointer(APtrVal - 4), 4);
+    if Length(LenBytes) <> 4 then
+      Exit;
+    Move(LenBytes[0], StrLen, 4);
+    if (StrLen < 0) or (StrLen > 1024 * 1024) then
+      Exit;
+    if StrLen = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+    if ALengthIsBytes then
+      ByteCount := StrLen
+    else
+      ByteCount := StrLen * ACharSize;
+    Content := ReadProcessMemory(Pointer(APtrVal), ByteCount);
+    if Length(Content) <> ByteCount then
+      Exit;
+    AOut := AEncoding.GetString(Content);
+    Result := True;
+  end;
+
 var
-  Locals: TArray<TLocalVar>;
-  Addr: Pointer;
-  I: Integer;
-  IsLocal: Boolean;
-  PtrVal: UIntPtr;
-  IntVal: Integer;
-  Int64Val: Int64;
-  StrBuffer: TBytes;
-  StrLen: Integer;
-  VMTPtr: UIntPtr;
-  ClassNamePtr: UIntPtr;
+  Locals         : TArray<TLocalVar>;
+  Addr           : Pointer;
+  I              : Integer;
+  IsLocal        : Boolean;
+  PtrVal         : UIntPtr;
+  IntVal         : Integer;
+  Int64Val       : Int64;
+  VMTPtr         : UIntPtr;
+  ClassNamePtr   : UIntPtr;
   VMTClassNameOfs: Integer;
-  LenByte: Byte;
-  RawBytes: TBytes;
+  LenByte        : Byte;
+  RawBytes       : TBytes;
+  ShortBuf       : TBytes;
 begin
   Result := False;
   AValue := '';
-  
+
   if FLastThreadHit = 0 then Exit;
-  
+
   Addr := nil;
   IsLocal := False;
   RawBytes := nil;
-  
+
   Locals := GetLocals(FLastThreadHit);
   for I := 0 to High(Locals) do
   begin
@@ -1884,7 +2002,7 @@ begin
       Break;
     end;
   end;
-  
+
   if not IsLocal then
   begin
     Addr := GetAddressFromSymbol(AName);
@@ -1918,34 +2036,60 @@ begin
     begin
       PtrVal := 0;
       Move(RawBytes[0], PtrVal, FTargetPointerSize);
-      if PtrVal = 0 then
+      Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, False, AValue);
+    end;
+  end
+  else if SameText(AType, 'ansistring') then
+  begin
+    // AnsiString: pointer-to-byte data, 4-byte length at -4 in CHARACTERS,
+    // codepage at -12 (since D2009). Decoding uses the system ANSI
+    // codepage; for non-ASCII content the codepage at -12 would give a
+    // more accurate decode but ASCII content is identical either way.
+    if Length(RawBytes) >= FTargetPointerSize then
+    begin
+      PtrVal := 0;
+      Move(RawBytes[0], PtrVal, FTargetPointerSize);
+      Result := ReadLongString(PtrVal, 1, TEncoding.ANSI, False, AValue);
+    end;
+  end
+  else if SameText(AType, 'widestring') then
+  begin
+    // WideString is BSTR-compatible: 4-byte length at -4 in BYTES (not
+    // chars), data is UTF-16. Pointer of size FTargetPointerSize.
+    if Length(RawBytes) >= FTargetPointerSize then
+    begin
+      PtrVal := 0;
+      Move(RawBytes[0], PtrVal, FTargetPointerSize);
+      Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, True, AValue);
+    end;
+  end
+  else if SameText(AType, 'shortstring') then
+  begin
+    // ShortString is INLINE: the variable IS a length-prefixed buffer
+    // (max 256 bytes), not a pointer. GetLocals only returns the first
+    // 8 bytes per slot which truncates strings longer than 7 chars,
+    // so for locals we resolve the runtime address explicitly via
+    // GetLocalAddress and read up to 256 bytes from there. For globals
+    // the same approach applies against Addr.
+    var ShortAddr: Pointer := nil;
+    if IsLocal then
+      GetLocalAddress(FLastThreadHit, AName, ShortAddr)
+    else
+      ShortAddr := Addr;
+
+    if Assigned(ShortAddr) then
+    begin
+      ShortBuf := ReadProcessMemory(ShortAddr, 256);
+      if Length(ShortBuf) >= 1 then
       begin
-        AValue := '';
-        Result := True;
-      end
-      else
-      begin
-        var LenBytes := ReadProcessMemory(Pointer(PtrVal - 4), 4);
-        if Length(LenBytes) = 4 then
+        LenByte := ShortBuf[0];
+        if Integer(LenByte) + 1 <= Length(ShortBuf) then
         begin
-          Move(LenBytes[0], StrLen, 4);
-          if (StrLen >= 0) and (StrLen < 1024 * 1024) then
-          begin
-            if StrLen = 0 then
-            begin
-              AValue := '';
-              Result := True;
-            end
-            else
-            begin
-              StrBuffer := ReadProcessMemory(Pointer(PtrVal), StrLen * 2);
-              if Length(StrBuffer) = StrLen * 2 then
-              begin
-                AValue := TEncoding.Unicode.GetString(StrBuffer);
-                Result := True;
-              end;
-            end;
-          end;
+          if LenByte = 0 then
+            AValue := ''
+          else
+            AValue := TEncoding.ANSI.GetString(ShortBuf, 1, LenByte);
+          Result := True;
         end;
       end;
     end;

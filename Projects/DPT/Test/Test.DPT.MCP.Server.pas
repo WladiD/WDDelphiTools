@@ -50,6 +50,12 @@ type
     [Test]
     procedure TestMcpRecentOutputIsDeltaSinceLastResume;
     [Test]
+    procedure TestMcpEvaluateExtendedTypes;
+    [Test]
+    procedure TestMcpEvaluateLocalShortString;
+    [Test]
+    procedure TestMcpEvaluateRejectsInvalidNameAndType;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -1667,6 +1673,217 @@ begin
       finally
         if Recent2 <> nil then Recent2.Free;
       end;
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateExtendedTypes;
+// Covers the type matrix beyond the int/string/object trio that the
+// original evaluate tool already exercised: int64, ansistring,
+// widestring, shortstring (globals only), plus the empty-string and
+// nil-object edge cases. All seven evaluations happen in one paused
+// session at line 15 (DeepProcedure Writeln) so that the per-test
+// CreateProcess overhead is paid once.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+
+  procedure ExpectContains(ALineIdx: Integer; const ASubstr, ACtx: String);
+  begin
+    Assert.IsTrue(OutputWriter.GetLine(ALineIdx).Contains(ASubstr),
+      Format('%s: expected "%s", got: %s', [ACtx, ASubstr, OutputWriter.GetLine(ALineIdx)]));
+  end;
+
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue (async)
+
+      WaitForOutput(OutputWriter, 6); // 4 responses + stopped notif + sampling
+
+      // Now paused. Queue one evaluate per type variation and process
+      // them sequentially. After each RunOnce, OutputWriter advances by
+      // exactly one entry (the response).
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalInt64", "type": "int64"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalAnsi", "type": "ansistring"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalWide", "type": "widestring"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalShort", "type": "shortstring"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalEmptyString", "type": "string"}}}');
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalNilObject", "type": "object"}}}');
+
+      Server.RunOnce; // evaluate int64
+      // $1122334455667788 = 1234605616436508552 in decimal.
+      ExpectContains(6, '1234605616436508552', 'int64');
+
+      Server.RunOnce; // evaluate ansistring
+      ExpectContains(7, 'Hello Ansi', 'ansistring');
+
+      Server.RunOnce; // evaluate widestring
+      ExpectContains(8, 'Hello Wide', 'widestring');
+
+      Server.RunOnce; // evaluate shortstring
+      ExpectContains(9, 'Hello Short', 'shortstring');
+
+      // Empty UnicodeString: the value part of the response is empty,
+      // but the variable-name and type prefix must still be present.
+      Server.RunOnce; // evaluate empty string
+      ExpectContains(10, 'GGlobalEmptyString', 'empty string variable name');
+      ExpectContains(10, '(string)', 'empty string type tag');
+
+      Server.RunOnce; // evaluate nil object
+      ExpectContains(11, 'nil', 'nil object');
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateLocalShortString;
+// Local-variable ShortString case: GetLocals only delivers 8 raw bytes
+// per slot, which would truncate any ShortString longer than 7 chars.
+// EvaluateVariable resolves the runtime address via GetLocalAddress
+// (with the Win64 frame-base correction) and reads the full 256-byte
+// inline buffer. Breakpoint at line 45 (Writeln in LocalsProcedure)
+// guarantees LocalShort has been assigned before we inspect it.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+  RespLine    : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp 45
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue (async)
+
+      WaitForOutput(OutputWriter, 6); // 4 responses + stopped notif + sampling
+
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "LocalShort", "type": "shortstring"}}}');
+      Server.RunOnce;
+
+      RespLine := OutputWriter.GetLine(6);
+      Assert.IsTrue(RespLine.Contains('Hello Local Short'),
+        'LocalShort must evaluate to its full inline value "Hello Local Short" (>7 chars, exercises the 256-byte read path), got: ' + RespLine);
+      Assert.IsTrue(RespLine.Contains('LocalShort'),
+        'Response should include the variable name: ' + RespLine);
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateRejectsInvalidNameAndType;
+// The MCP handler must surface a clear failure when (a) the variable
+// name resolves to neither a local nor a global, and (b) the type
+// argument is not in the supported list. Both are the realistic
+// "AI agent typed something wrong" cases that should yield an error
+// the agent can act on, not a silent default.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // Unknown variable name (neither local nor global).
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "ThisVariableDoesNotExist__xyz", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Failed to evaluate variable'),
+        'Unknown name must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
+        'Unknown-name response must be flagged as an error: ' + OutputWriter.GetLine(6));
+
+      // Known variable, but unsupported type literal. The handler must
+      // also fail rather than fall through to a default decoding.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalInt", "type": "no_such_type_xyz"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Failed to evaluate variable'),
+        'Unsupported type must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(7));
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('isError'),
+        'Unsupported-type response must be flagged as an error: ' + OutputWriter.GetLine(7));
     finally
       Server.Free;
       InputReader.Free;
