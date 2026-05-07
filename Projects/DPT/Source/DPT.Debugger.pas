@@ -1141,6 +1141,15 @@ begin
     VA := FMapScanner.VAFromUnitAndProcName(UnitName, SymbolName);
     if VA <> 0 then
       Result := Pointer(FBaseAddress + $1000 + VA);
+  end
+  else
+  begin
+    // Unqualified name: search every entry whose qualified name ends in
+    // '.ASymbolName'. First hit wins, which is enough for unique global
+    // variable names; ambiguous names should be passed in qualified form.
+    VA := FMapScanner.VAFromSimpleName(ASymbolName);
+    if VA <> 0 then
+      Result := Pointer(FBaseAddress + $1000 + VA);
   end;
 end;
 
@@ -1968,9 +1977,37 @@ function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: Stri
     Result := True;
   end;
 
+  // VMT walk: given a pointer that's expected to point at a class
+  // instance, follow the VMT to read the runtime class name. Returns
+  // False on nil pointer or any unreadable indirection.
+  function ReadRuntimeClassName(APtrVal: UIntPtr; out AClassName: String): Boolean;
+  var
+    VMTPtr, ClassNamePtr: UIntPtr;
+    VMTClassNameOfs     : Integer;
+    Buf                 : TBytes;
+    Len                 : Byte;
+  begin
+    Result := False;
+    AClassName := '';
+    if APtrVal = 0 then Exit;
+    VMTPtr := ReadTargetPointer(Pointer(APtrVal));
+    if VMTPtr = 0 then Exit;
+    if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
+    ClassNamePtr := ReadTargetPointer(Pointer(VMTPtr - UIntPtr(VMTClassNameOfs)));
+    if ClassNamePtr = 0 then Exit;
+    Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
+    if Length(Buf) <= 1 then Exit;
+    Len := Buf[0];
+    if (Len = 0) or (1 + Integer(Len) > Length(Buf)) then Exit;
+    AClassName := TEncoding.ANSI.GetString(Buf, 1, Len);
+    Result := True;
+  end;
+
 var
+  Segments       : TArray<String>;
   Locals         : TArray<TLocalVar>;
   Addr           : Pointer;
+  FieldAddr      : Pointer;
   I              : Integer;
   IsLocal        : Boolean;
   PtrVal         : UIntPtr;
@@ -1982,6 +2019,9 @@ var
   LenByte        : Byte;
   RawBytes       : TBytes;
   ShortBuf       : TBytes;
+  ObjPtr         : UIntPtr;
+  ClsName        : String;
+  Member         : TTd32ClassMember;
 begin
   Result := False;
   AValue := '';
@@ -1992,6 +2032,13 @@ begin
   IsLocal := False;
   RawBytes := nil;
 
+  // Resolve the variable. Two paths apply, tried in order:
+  // 1. Treat the WHOLE name as a single identifier (matches a local, or
+  //    a global with optional Unit.VarName qualification). This keeps
+  //    the existing read_global_variable / single-local behavior intact.
+  // 2. If that fails AND the name contains a dot, treat it as a dotted
+  //    field chain: first segment is a local or global object reference,
+  //    subsequent segments are field names looked up via TD32 class info.
   Locals := GetLocals(FLastThreadHit);
   for I := 0 to High(Locals) do
   begin
@@ -2008,6 +2055,54 @@ begin
     Addr := GetAddressFromSymbol(AName);
     if Assigned(Addr) then
       RawBytes := ReadProcessMemory(Addr, 8);
+  end;
+
+  if (Length(RawBytes) = 0) and AName.Contains('.') then
+  begin
+    // Path 2: dotted field-chain walk. The first segment must resolve
+    // to an instance pointer (a local or global object reference); each
+    // subsequent segment dereferences the current object, looks up the
+    // named field via TD32 class info, and advances to that field's
+    // address. The final segment's address is then read with the
+    // user-specified type. Requires TD32 class layout (LoadDebugInfoFromExe).
+    Segments := AName.Split(['.']);
+    if (Length(Segments) >= 2) and Assigned(FLocalsReader) then
+    begin
+      // Step 1: locate first segment. We need its runtime address (where
+      // the object pointer is stored), not the object pointer itself.
+      if not GetLocalAddress(FLastThreadHit, Segments[0], Addr) then
+        Addr := GetAddressFromSymbol(Segments[0]);
+      if not Assigned(Addr) then Exit;
+
+      // Step 2: walk intermediate + final segments.
+      FieldAddr := Addr;
+      for I := 1 to High(Segments) do
+      begin
+        ObjPtr := ReadTargetPointer(FieldAddr);
+        if ObjPtr = 0 then
+        begin
+          // nil object mid-chain; surface a clean "nil" instead of
+          // following a null pointer further.
+          if I = High(Segments) then
+          begin
+            AValue := 'nil';
+            Result := True;
+          end;
+          Exit;
+        end;
+        if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
+        if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+          Exit;
+        FieldAddr := Pointer(ObjPtr + Member.Offset);
+      end;
+
+      // FieldAddr now points at the user-specified-type slot in the live
+      // process. The downstream type-interpretation reads 8 bytes from
+      // here for fixed-width types; ShortString re-reads 256 bytes via
+      // its own dedicated path which uses Addr.
+      Addr := FieldAddr;
+      RawBytes := ReadProcessMemory(FieldAddr, 8);
+    end;
   end;
 
   if Length(RawBytes) = 0 then Exit;

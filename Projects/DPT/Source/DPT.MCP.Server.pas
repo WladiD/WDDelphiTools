@@ -668,7 +668,7 @@ begin
 
   var ToolEvaluate := TJSONObject.Create;
   ToolEvaluate.AddPair('name', 'evaluate');
-  ToolEvaluate.AddPair('description', 'Evaluates a named variable (local or global) and returns its typed value. Searches locals first, then globals. Requires active paused debug session. Allowed types: "int" (4-byte signed), "int64" (8-byte signed), "string" (UnicodeString, the default Delphi string type), "ansistring", "widestring" (BSTR), "shortstring" (length-prefixed inline buffer; works for both locals and globals), "object" (returns "ClassName @ HexAddr" or "nil"). Returns an error when the variable name is unknown or the type is not in the supported list.');
+  ToolEvaluate.AddPair('description', 'Evaluates a named variable (local or global) and returns its typed value. Searches locals first, then globals. Requires active paused debug session. Allowed types: "int" (4-byte signed), "int64" (8-byte signed), "string" (UnicodeString, the default Delphi string type), "ansistring", "widestring" (BSTR), "shortstring" (length-prefixed inline buffer; works for both locals and globals), "object" (returns "ClassName @ HexAddr" or "nil"). FIELD NAVIGATION: dotted names like "MyObj.FField" or "MyObj.FInner.FNested" are followed by dereferencing each intermediate object pointer, looking up the field offset via TD32 class info, and reading the final field with the requested type; intermediate nil objects yield "nil" as the result. Returns an error when the variable name is unknown, a navigated field does not exist on the resolved class, or the type is not in the supported list.');
   var SchemaEvaluate := TJSONObject.Create;
   SchemaEvaluate.AddPair('type', 'object');
   var PropEvaluate := TJSONObject.Create;

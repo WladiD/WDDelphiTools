@@ -25,6 +25,7 @@ type
     function ResolveRsmPath(AUse64Bit: Boolean): String;
     procedure DoTestParsesProcedures(AUse64Bit: Boolean);
     procedure DoTestParsesLocalsForLocalsProcedure(AUse64Bit: Boolean);
+    procedure DoTestParsesClassMembers(AUse64Bit: Boolean);
     procedure DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
     procedure DoTestFindProcByName(AUse64Bit: Boolean);
   public
@@ -46,6 +47,12 @@ type
     procedure TestLoadFromTooSmallBufferLeavesEmpty;
     [Test]
     procedure TestFindProcContaining32;
+    [Test]
+    procedure TestParsesClassMembers32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestParsesClassMembers64;
+    {$ENDIF}
     {$IFDEF CPUX64}
     [Test]
     procedure TestParsesProcedures64;
@@ -187,6 +194,74 @@ begin
     Reader.Free;
   end;
 end;
+
+procedure TTd32LocalsReaderTests.DoTestParsesClassMembers(AUse64Bit: Boolean);
+var
+  Reader     : TTd32LocalsReader;
+  Member     : TTd32ClassMember;
+  ExpectedPtr: UInt32;
+begin
+  Reader := TTd32LocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveRsmPath(AUse64Bit));
+
+    // Both fixture classes must be discoverable. Note that the x64 build
+    // emits Itanium-mangled class names ("_ZTRN<unit><class>E"); the
+    // reader demangles them to the short form before storing.
+    Assert.IsTrue(Reader.FindClassByName('TInner') >= 0,
+      'TInner class must be parsed from GLOBAL_TYPES');
+    Assert.IsTrue(Reader.FindClassByName('TOuter') >= 0,
+      'TOuter class must be parsed from GLOBAL_TYPES');
+
+    // Pointer-sized VMT slot occupies offset 0..(SizeOf(Pointer)-1), so
+    // the first declared field lives at offset = SizeOf(Pointer).
+    if AUse64Bit then ExpectedPtr := 8 else ExpectedPtr := 4;
+
+    Assert.IsTrue(Reader.FindClassMember('TInner', 'FInnerInt', Member),
+      'TInner.FInnerInt must be parsed');
+    Assert.AreEqual(ExpectedPtr, Member.Offset,
+      'FInnerInt must come right after the VMT slot');
+
+    Assert.IsTrue(Reader.FindClassMember('TInner', 'FInnerStr', Member),
+      'TInner.FInnerStr must be parsed');
+    Assert.AreEqual(ExpectedPtr * 2, Member.Offset,
+      'FInnerStr must come right after FInnerInt (pointer-aligned)');
+
+    Assert.IsTrue(Reader.FindClassMember('TOuter', 'FOuterInt', Member),
+      'TOuter.FOuterInt must be parsed');
+    Assert.AreEqual(ExpectedPtr, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TOuter', 'FOuterInner', Member),
+      'TOuter.FOuterInner must be parsed');
+    Assert.AreEqual(ExpectedPtr * 2, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TOuter', 'FOuterStr', Member),
+      'TOuter.FOuterStr must be parsed');
+    Assert.AreEqual(ExpectedPtr * 3, Member.Offset);
+
+    // Lookup must be case-insensitive on both class and field names.
+    Assert.IsTrue(Reader.FindClassMember('touter', 'fouterint', Member),
+      'FindClassMember must be case-insensitive');
+    // Non-existent class -> False.
+    Assert.IsFalse(Reader.FindClassMember('TNoSuchClass', 'X', Member));
+    // Existing class, non-existent field -> False.
+    Assert.IsFalse(Reader.FindClassMember('TInner', 'NoSuchField', Member));
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TTd32LocalsReaderTests.TestParsesClassMembers32;
+begin
+  DoTestParsesClassMembers(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TTd32LocalsReaderTests.TestParsesClassMembers64;
+begin
+  DoTestParsesClassMembers(True);
+end;
+{$ENDIF}
 
 procedure TTd32LocalsReaderTests.TestParsesProcedures32;                begin DoTestParsesProcedures(False);                end;
 procedure TTd32LocalsReaderTests.TestParsesLocalsForLocalsProcedure32;  begin DoTestParsesLocalsForLocalsProcedure(False);  end;

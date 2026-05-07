@@ -78,6 +78,13 @@ type
     function ProcNameFromAddr(Addr: UInt64): string; overload;
     function ProcNameFromAddr(Addr: UInt64; out Offset: Integer): string; overload;
     function VAFromUnitAndProcName(const AUnitName, AProcName: string): UInt64;
+    /// <summary>
+    ///   Returns the VA of the first procedure/global whose qualified
+    ///   map-file name ends in '.<AProcName>' (case-insensitive). Used
+    ///   when callers have just the simple identifier and no unit
+    ///   prefix; returns 0 when no such name is in the map.
+    /// </summary>
+    function VAFromSimpleName(const AProcName: string): UInt64;
     property LineNumberByIndex[Index: Integer]: TMapLineNumber read GetLineNumberByIndex;
     property LineNumbersCnt: Integer read GetLineNumbersCnt;
     property SegmentByIndex[Index: Integer]: TMapSegment read GetSegmentByIndex;
@@ -735,6 +742,23 @@ begin
   for var I := 0 to FProcNames.Count - 1 do
     if SameText(FProcNames[I].Name, QualifiedName) then
       Exit(FProcNames[I].VA);
+end;
+
+function TMapFileParser.VAFromSimpleName(const AProcName: string): UInt64;
+var
+  Suffix: String;
+  Name  : String;
+begin
+  Result := 0;
+  if AProcName = '' then Exit;
+  Suffix := '.' + AProcName;
+  for var I := 0 to FProcNames.Count - 1 do
+  begin
+    Name := FProcNames[I].Name;
+    if (Length(Name) > Length(Suffix)) and
+       SameText(Copy(Name, Length(Name) - Length(Suffix) + 1, Length(Suffix)), Suffix) then
+      Exit(FProcNames[I].VA);
+  end;
 end;
 
 end.

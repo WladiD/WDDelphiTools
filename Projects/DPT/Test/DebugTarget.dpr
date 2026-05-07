@@ -47,6 +47,9 @@ begin
     LocalObject.Free;
   end;
 end;
+type
+  TInner = class FInnerInt: Integer; FInnerStr: string; end;
+  TOuter = class FOuterInt: Integer; FOuterInner: TInner; FOuterStr: string; end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -54,9 +57,16 @@ var
   GGlobalShort       : ShortString = 'Hello Short';
   GGlobalEmptyString : string      = '';
   GGlobalNilObject   : TObject     = nil;
+  GGlobalOuter       : TOuter;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
+  GGlobalOuter := TOuter.Create;
+  GGlobalOuter.FOuterInt := $11111111;
+  GGlobalOuter.FOuterStr := 'Hello Outer';
+  GGlobalOuter.FOuterInner := TInner.Create;
+  GGlobalOuter.FOuterInner.FInnerInt := $22222222;
+  GGlobalOuter.FOuterInner.FInnerStr := 'Hello Inner';
   // Touch the value-type globals so the linker keeps them in .bss/.data
   // instead of dead-code-eliminating them. The values themselves are
   // already set by the typed-constant initializers above.
@@ -67,6 +77,8 @@ begin
     TargetProcedure;
     LocalsProcedure;
   finally
+    GGlobalOuter.FOuterInner.Free;
+    GGlobalOuter.Free;
     GGlobalObject.Free;
   end;
 end.

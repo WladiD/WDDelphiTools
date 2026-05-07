@@ -56,6 +56,14 @@ type
     [Test]
     procedure TestMcpEvaluateRejectsInvalidNameAndType;
     [Test]
+    procedure TestMcpEvaluateOneLevelFieldNavigation;
+    [Test]
+    procedure TestMcpEvaluateTwoLevelFieldNavigation;
+    [Test]
+    procedure TestMcpEvaluateFieldNavigationOnNilMidChain;
+    [Test]
+    procedure TestMcpEvaluateFieldNavigationUnknownField;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -1884,6 +1892,238 @@ begin
         'Unsupported type must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(7));
       Assert.IsTrue(OutputWriter.GetLine(7).Contains('isError'),
         'Unsupported-type response must be flagged as an error: ' + OutputWriter.GetLine(7));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateOneLevelFieldNavigation;
+// Single-level field navigation: evaluate("GGlobalOuter.FOuterInt", "int")
+// must dereference the GGlobalOuter pointer, look up FOuterInt's offset
+// from TD32 class info, and return the integer at that runtime address.
+// Same flow for FOuterStr (string field on first level).
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FOuterInt = $11111111 = 286331153
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInt", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('286331153'),
+        'GGlobalOuter.FOuterInt must equal 286331153 ($11111111), got: ' + OutputWriter.GetLine(6));
+
+      // FOuterStr = 'Hello Outer'
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterStr", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Hello Outer'),
+        'GGlobalOuter.FOuterStr must equal "Hello Outer", got: ' + OutputWriter.GetLine(7));
+
+      // FOuterInner navigated as object: must return its class name
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner", "type": "object"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('TInner'),
+        'GGlobalOuter.FOuterInner must report TInner runtime class, got: ' + OutputWriter.GetLine(8));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateTwoLevelFieldNavigation;
+// Two-level navigation: evaluate("GGlobalOuter.FOuterInner.FInnerInt", "int")
+// must follow the field chain twice. The walker has to:
+//   1. Resolve GGlobalOuter to its global address
+//   2. Read pointer there -> instance of TOuter
+//   3. Determine runtime class via VMT, look up FOuterInner offset
+//   4. Read pointer at that field -> instance of TInner
+//   5. Determine TInner's runtime class, look up FInnerInt offset
+//   6. Read 4-byte int at that final address
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FInnerInt = $22222222 = 572662306
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner.FInnerInt", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('572662306'),
+        'GGlobalOuter.FOuterInner.FInnerInt must equal 572662306 ($22222222), got: ' + OutputWriter.GetLine(6));
+
+      // FInnerStr = 'Hello Inner'
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner.FInnerStr", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Hello Inner'),
+        'GGlobalOuter.FOuterInner.FInnerStr must equal "Hello Inner", got: ' + OutputWriter.GetLine(7));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateFieldNavigationOnNilMidChain;
+// When a field in the chain is nil, the walker must surface "nil" as
+// the value (for the final segment) rather than dereferencing a null
+// pointer or returning random garbage. Uses GGlobalNilObject as the
+// trivial nil case (a global TObject set to nil).
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // GGlobalNilObject is nil. Asking for it as object directly (no
+      // navigation needed) must say "nil".
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalNilObject", "type": "object"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('nil'),
+        'GGlobalNilObject must evaluate to nil, got: ' + OutputWriter.GetLine(6));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateFieldNavigationUnknownField;
+// When a navigated field name doesn't exist on the resolved class, the
+// handler must surface "Failed to evaluate variable" so the AI agent
+// can detect typos rather than reading random nearby memory.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FNoSuch is not declared on TOuter; the walker should fail.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FNoSuchField", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Failed to evaluate variable'),
+        'Unknown field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
+        'Unknown-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
     finally
       Server.Free;
       InputReader.Free;
