@@ -50,6 +50,16 @@ end;
 type
   TInner = class FInnerInt: Integer; FInnerStr: string; end;
   TOuter = class FOuterInt: Integer; FOuterInner: TInner; FOuterStr: string; end;
+  TPoint2D = record FX, FY: Integer; end;
+  TRect2D  = record FTopLeft, FBottomRight: TPoint2D; end;
+  TPair    = record FObj: TInner; FLabel: string; end;
+  TWithRec = class
+    FOrigin    : TPoint2D;
+    FBounds    : TRect2D;
+    FPair      : TPair;
+    FNestedObj : TInner;
+    FName      : string;
+  end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -58,6 +68,7 @@ var
   GGlobalEmptyString : string      = '';
   GGlobalNilObject   : TObject     = nil;
   GGlobalOuter       : TOuter;
+  GGlobalWithRec     : TWithRec;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -67,6 +78,21 @@ begin
   GGlobalOuter.FOuterInner := TInner.Create;
   GGlobalOuter.FOuterInner.FInnerInt := $22222222;
   GGlobalOuter.FOuterInner.FInnerStr := 'Hello Inner';
+  GGlobalWithRec := TWithRec.Create;
+  GGlobalWithRec.FOrigin.FX := $11111111;
+  GGlobalWithRec.FOrigin.FY := $22222222;
+  GGlobalWithRec.FBounds.FTopLeft.FX     := $33333333;
+  GGlobalWithRec.FBounds.FTopLeft.FY     := $44444444;
+  GGlobalWithRec.FBounds.FBottomRight.FX := $55555555;
+  GGlobalWithRec.FBounds.FBottomRight.FY := $66666666;
+  GGlobalWithRec.FPair.FObj := TInner.Create;
+  GGlobalWithRec.FPair.FObj.FInnerInt := $77777777;
+  GGlobalWithRec.FPair.FObj.FInnerStr := 'Inner via Pair';
+  GGlobalWithRec.FPair.FLabel := 'PairLabel';
+  GGlobalWithRec.FNestedObj := TInner.Create;
+  GGlobalWithRec.FNestedObj.FInnerInt := Integer($88888888);
+  GGlobalWithRec.FNestedObj.FInnerStr := 'Inner via Record';
+  GGlobalWithRec.FName := 'WithRec';
   // Touch the value-type globals so the linker keeps them in .bss/.data
   // instead of dead-code-eliminating them. The values themselves are
   // already set by the typed-constant initializers above.
@@ -79,6 +105,9 @@ begin
   finally
     GGlobalOuter.FOuterInner.Free;
     GGlobalOuter.Free;
+    GGlobalWithRec.FPair.FObj.Free;
+    GGlobalWithRec.FNestedObj.Free;
+    GGlobalWithRec.Free;
     GGlobalObject.Free;
   end;
 end.

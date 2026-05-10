@@ -64,6 +64,14 @@ type
     [Test]
     procedure TestMcpEvaluateFieldNavigationUnknownField;
     [Test]
+    procedure TestMcpEvaluateRecordFieldNavigation;
+    [Test]
+    procedure TestMcpEvaluateNestedRecordFieldNavigation;
+    [Test]
+    procedure TestMcpEvaluateRecordToClassTransition;
+    [Test]
+    procedure TestMcpEvaluateRecordUnknownFieldFails;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2124,6 +2132,262 @@ begin
         'Unknown field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
       Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
         'Unknown-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateRecordFieldNavigation;
+// Record-typed fields embedded in a class are walked WITHOUT
+// dereferencing the record's slot (the record sits inline within the
+// holding class). This test covers the basic class -> record hop:
+// GGlobalWithRec.FOrigin.FX / .FY where FOrigin is a TPoint2D record.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FOrigin.FX = $11111111 = 286331153
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FX", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('286331153'),
+        'GGlobalWithRec.FOrigin.FX must equal 286331153 ($11111111), got: ' + OutputWriter.GetLine(6));
+
+      // FOrigin.FY = $22222222 = 572662306. The +4 offset within the
+      // record proves the navigator advanced inline rather than
+      // dereferencing the record slot as a pointer.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FY", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('572662306'),
+        'GGlobalWithRec.FOrigin.FY must equal 572662306 ($22222222), got: ' + OutputWriter.GetLine(7));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateNestedRecordFieldNavigation;
+// Records nested within records: TRect2D contains two TPoint2D fields,
+// each holding two integers. Walking
+// GGlobalWithRec.FBounds.FTopLeft.FX must take three hops total: one
+// class->record (FBounds), one record->record (FTopLeft inside FBounds),
+// and one record->primitive (FX inside FTopLeft). Two of the four sub-
+// fields are checked to verify offsets at both top-left and bottom-
+// right of the rect.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FBounds.FTopLeft.FX = $33333333 = 858993459
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FTopLeft.FX", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('858993459'),
+        'GGlobalWithRec.FBounds.FTopLeft.FX must equal 858993459 ($33333333), got: ' + OutputWriter.GetLine(6));
+
+      // FBounds.FTopLeft.FY = $44444444 = 1145324612
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FTopLeft.FY", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('1145324612'),
+        'GGlobalWithRec.FBounds.FTopLeft.FY must equal 1145324612 ($44444444), got: ' + OutputWriter.GetLine(7));
+
+      // FBounds.FBottomRight.FX = $55555555 = 1431655765. Validates the
+      // record-to-record offset: FBottomRight starts 8 bytes into FBounds.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FBottomRight.FX", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('1431655765'),
+        'GGlobalWithRec.FBounds.FBottomRight.FX must equal 1431655765 ($55555555), got: ' + OutputWriter.GetLine(8));
+
+      // FBounds.FBottomRight.FY = $66666666 = 1717986918
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FBottomRight.FY", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(9).Contains('1717986918'),
+        'GGlobalWithRec.FBounds.FBottomRight.FY must equal 1717986918 ($66666666), got: ' + OutputWriter.GetLine(9));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateRecordToClassTransition;
+// A record may itself hold a class-typed field: TPair contains FObj of
+// type TInner. Navigation through GGlobalWithRec.FPair.FObj.FInnerInt
+// must transition from the record hop (no deref) BACK to the class hop
+// (deref + VMT walk) at FObj. Also verifies a string field of the
+// record (FLabel) for an inline-string read.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FPair.FObj.FInnerInt = $77777777 = 2004318071. This proves
+      // record -> class transition works: the navigator must deref FObj
+      // (a class slot inside a record) before looking up FInnerInt.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FObj.FInnerInt", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('2004318071'),
+        'GGlobalWithRec.FPair.FObj.FInnerInt must equal 2004318071 ($77777777), got: ' + OutputWriter.GetLine(6));
+
+      // FPair.FObj.FInnerStr = 'Inner via Pair'
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FObj.FInnerStr", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Inner via Pair'),
+        'GGlobalWithRec.FPair.FObj.FInnerStr must equal "Inner via Pair", got: ' + OutputWriter.GetLine(7));
+
+      // FPair.FLabel = 'PairLabel'. Pure record path (no class transition);
+      // verifies that string fields work under the record-hop branch too.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FLabel", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('PairLabel'),
+        'GGlobalWithRec.FPair.FLabel must equal "PairLabel", got: ' + OutputWriter.GetLine(8));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+procedure TMcpServerTests.TestMcpEvaluateRecordUnknownFieldFails;
+// Asking for a non-existent field on a record (as opposed to a class)
+// must produce the same Failed-to-evaluate error path. Without this
+// guard, a bad field name on a record could silently advance by 0 and
+// read the start of the record as the requested type.
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // FNoSuch is not declared on TPoint2D; the record-hop must fail.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FNoSuchField", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Failed to evaluate variable'),
+        'Unknown record field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
+        'Unknown-record-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
     finally
       Server.Free;
       InputReader.Free;

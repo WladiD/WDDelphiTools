@@ -2022,6 +2022,8 @@ var
   ObjPtr         : UIntPtr;
   ClsName        : String;
   Member         : TTd32ClassMember;
+  CurTypeIdx     : UInt32;
+  InRecord       : Boolean;
 begin
   Result := False;
   AValue := '';
@@ -2074,26 +2076,62 @@ begin
         Addr := GetAddressFromSymbol(Segments[0]);
       if not Assigned(Addr) then Exit;
 
-      // Step 2: walk intermediate + final segments.
+      // Step 2: walk intermediate + final segments. Two hop kinds:
+      //
+      //   * Class hop  (default; "InRecord" is False):
+      //       FieldAddr points at the slot that holds an INSTANCE POINTER
+      //       to the class. We dereference that pointer, read the runtime
+      //       class name from the instance's VMT (so polymorphism is
+      //       respected), look up the named field on that class, and
+      //       advance FieldAddr to ObjPtr + Member.Offset.
+      //
+      //   * Record hop (taken when CurTypeIdx names a known record):
+      //       FieldAddr already points INSIDE the record's storage (the
+      //       record is inline within its parent class or its parent
+      //       record). No deref. We look up the named field by the
+      //       record's TypeIdx + name, and advance FieldAddr by the
+      //       record-internal offset.
+      //
+      // The transition class -> record happens after a class hop whose
+      // resolved member is record-typed; the transition record -> class
+      // happens after a record hop whose resolved member's TypeIdx is
+      // not a known record (covers class-typed fields inside a record).
+      // CurTypeIdx = 0 ("unknown") is treated as class so behavior is
+      // unchanged for classes whose layout we haven't parsed.
       FieldAddr := Addr;
+      CurTypeIdx := 0;
+      InRecord := False;
       for I := 1 to High(Segments) do
       begin
-        ObjPtr := ReadTargetPointer(FieldAddr);
-        if ObjPtr = 0 then
+        if InRecord then
         begin
-          // nil object mid-chain; surface a clean "nil" instead of
-          // following a null pointer further.
-          if I = High(Segments) then
+          if not FLocalsReader.FindStructMemberByTypeIdx(CurTypeIdx,
+                   Segments[I], Member) then
+            Exit;
+          FieldAddr := Pointer(NativeUInt(FieldAddr) + Member.Offset);
+        end
+        else
+        begin
+          ObjPtr := ReadTargetPointer(FieldAddr);
+          if ObjPtr = 0 then
           begin
-            AValue := 'nil';
-            Result := True;
+            // nil object mid-chain; surface a clean "nil" instead of
+            // following a null pointer further.
+            if I = High(Segments) then
+            begin
+              AValue := 'nil';
+              Result := True;
+            end;
+            Exit;
           end;
-          Exit;
+          if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
+          if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+            Exit;
+          FieldAddr := Pointer(ObjPtr + Member.Offset);
         end;
-        if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
-        if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
-          Exit;
-        FieldAddr := Pointer(ObjPtr + Member.Offset);
+
+        CurTypeIdx := Member.TypeIdx;
+        InRecord := FLocalsReader.IsRecordTypeIdx(CurTypeIdx);
       end;
 
       // FieldAddr now points at the user-specified-type slot in the live

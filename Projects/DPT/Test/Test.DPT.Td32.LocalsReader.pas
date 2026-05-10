@@ -26,6 +26,8 @@ type
     procedure DoTestParsesProcedures(AUse64Bit: Boolean);
     procedure DoTestParsesLocalsForLocalsProcedure(AUse64Bit: Boolean);
     procedure DoTestParsesClassMembers(AUse64Bit: Boolean);
+    procedure DoTestParsesRecordMembers(AUse64Bit: Boolean);
+    procedure DoTestRecordTypeIdxRoundTrip(AUse64Bit: Boolean);
     procedure DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
     procedure DoTestFindProcByName(AUse64Bit: Boolean);
   public
@@ -49,9 +51,17 @@ type
     procedure TestFindProcContaining32;
     [Test]
     procedure TestParsesClassMembers32;
+    [Test]
+    procedure TestParsesRecordMembers32;
+    [Test]
+    procedure TestRecordTypeIdxRoundTrip32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestParsesClassMembers64;
+    [Test]
+    procedure TestParsesRecordMembers64;
+    [Test]
+    procedure TestRecordTypeIdxRoundTrip64;
     {$ENDIF}
     {$IFDEF CPUX64}
     [Test]
@@ -251,15 +261,176 @@ begin
   end;
 end;
 
+procedure TTd32LocalsReaderTests.DoTestParsesRecordMembers(AUse64Bit: Boolean);
+var
+  Reader     : TTd32LocalsReader;
+  Member     : TTd32ClassMember;
+  PointIdx   : Integer;
+  RectIdx    : Integer;
+  WithRecIdx : Integer;
+  RecKind    : TTd32StructKind;
+begin
+  Reader := TTd32LocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveRsmPath(AUse64Bit));
+
+    // Records (LF_STRUCTURE) must be picked up by the same walker that
+    // handles classes (LF_CLASS). Their Kind must be skRecord so the
+    // navigator knows not to dereference.
+    PointIdx := Reader.FindClassByName('TPoint2D');
+    RectIdx  := Reader.FindClassByName('TRect2D');
+    Assert.IsTrue(PointIdx >= 0, 'TPoint2D record must be parsed from GLOBAL_TYPES');
+    Assert.IsTrue(RectIdx  >= 0, 'TRect2D record must be parsed from GLOBAL_TYPES');
+
+    RecKind := Reader.Classes[PointIdx].Kind;
+    Assert.IsTrue(RecKind = skRecord, 'TPoint2D must have Kind = skRecord');
+    RecKind := Reader.Classes[RectIdx].Kind;
+    Assert.IsTrue(RecKind = skRecord, 'TRect2D must have Kind = skRecord');
+
+    // Records have no VMT, so member offsets start at 0 (unlike classes,
+    // where the VMT pointer occupies the first SizeOf(Pointer) bytes).
+    Assert.IsTrue(Reader.FindClassMember('TPoint2D', 'FX', Member),
+      'TPoint2D.FX must be parsed');
+    Assert.AreEqual(UInt32(0), Member.Offset, 'TPoint2D.FX must live at offset 0');
+
+    Assert.IsTrue(Reader.FindClassMember('TPoint2D', 'FY', Member),
+      'TPoint2D.FY must be parsed');
+    Assert.AreEqual(UInt32(4), Member.Offset, 'TPoint2D.FY must live at offset 4');
+
+    // TRect2D nests two TPoint2D inline (each is 8 bytes on every target).
+    Assert.IsTrue(Reader.FindClassMember('TRect2D', 'FTopLeft', Member),
+      'TRect2D.FTopLeft must be parsed');
+    Assert.AreEqual(UInt32(0), Member.Offset);
+    Assert.IsTrue(Reader.FindClassMember('TRect2D', 'FBottomRight', Member),
+      'TRect2D.FBottomRight must be parsed');
+    Assert.AreEqual(UInt32(8), Member.Offset);
+
+    // The class that holds the records: TWithRec. Its first record-typed
+    // field FOrigin lives right after the VMT (offset SizeOf(Pointer)).
+    // Subsequent fields follow inline: TPoint2D = 8 bytes, TRect2D = 16
+    // bytes. Then a class field (pointer-sized) and a string (pointer).
+    WithRecIdx := Reader.FindClassByName('TWithRec');
+    Assert.IsTrue(WithRecIdx >= 0, 'TWithRec class must be parsed');
+    Assert.IsTrue(Reader.Classes[WithRecIdx].Kind = skClass,
+      'TWithRec must have Kind = skClass');
+
+    Assert.IsTrue(Reader.FindClassMember('TWithRec', 'FOrigin', Member),
+      'TWithRec.FOrigin must be parsed');
+    if AUse64Bit then
+      Assert.AreEqual(UInt32(8), Member.Offset, 'FOrigin must come after the x64 VMT slot')
+    else
+      Assert.AreEqual(UInt32(4), Member.Offset, 'FOrigin must come after the x86 VMT slot');
+
+    Assert.IsTrue(Reader.FindClassMember('TWithRec', 'FBounds', Member),
+      'TWithRec.FBounds must be parsed');
+    if AUse64Bit then
+      Assert.AreEqual(UInt32(16), Member.Offset, 'FBounds = VMT(8) + sizeof(TPoint2D)(8)')
+    else
+      Assert.AreEqual(UInt32(12), Member.Offset, 'FBounds = VMT(4) + sizeof(TPoint2D)(8)');
+
+    // TPair is the next field: it holds an instance pointer (TInner) and
+    // a string (UnicodeString = pointer-sized), so its size is 2 * pointer.
+    Assert.IsTrue(Reader.FindClassMember('TWithRec', 'FPair', Member),
+      'TWithRec.FPair must be parsed');
+    if AUse64Bit then
+      Assert.AreEqual(UInt32(32), Member.Offset, 'FPair = VMT(8) + 8 + sizeof(TRect2D)(16)')
+    else
+      Assert.AreEqual(UInt32(28), Member.Offset, 'FPair = VMT(4) + 8 + sizeof(TRect2D)(16)');
+
+    Assert.IsTrue(Reader.FindClassMember('TWithRec', 'FNestedObj', Member),
+      'TWithRec.FNestedObj must be parsed');
+    if AUse64Bit then
+      Assert.AreEqual(UInt32(48), Member.Offset, 'FNestedObj = FPair(32) + sizeof(TPair)(16) on x64')
+    else
+      Assert.AreEqual(UInt32(36), Member.Offset, 'FNestedObj = FPair(28) + sizeof(TPair)(8) on x86');
+
+    // TPair record itself: FObj (pointer) at 0, FLabel (pointer) at sizeof(Pointer).
+    Assert.IsTrue(Reader.FindClassByName('TPair') >= 0, 'TPair record must be parsed');
+    Assert.IsTrue(Reader.Classes[Reader.FindClassByName('TPair')].Kind = skRecord,
+      'TPair must have Kind = skRecord');
+    Assert.IsTrue(Reader.FindClassMember('TPair', 'FObj', Member));
+    Assert.AreEqual(UInt32(0), Member.Offset);
+    Assert.IsTrue(Reader.FindClassMember('TPair', 'FLabel', Member));
+    if AUse64Bit then
+      Assert.AreEqual(UInt32(8), Member.Offset)
+    else
+      Assert.AreEqual(UInt32(4), Member.Offset);
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TTd32LocalsReaderTests.DoTestRecordTypeIdxRoundTrip(AUse64Bit: Boolean);
+var
+  Reader  : TTd32LocalsReader;
+  PointIdx: Integer;
+  TypeIdx : UInt32;
+  Member  : TTd32ClassMember;
+begin
+  // The record-navigation path in EvaluateVariable looks up records by
+  // their TD32 type-index (not by name), because record-typed fields
+  // reference their declared type via TypeIdx in LF_MEMBER. Verify the
+  // round-trip: TPoint2D's stored TypeIdx must resolve back to itself,
+  // and member lookup by TypeIdx must yield the same offsets as by name.
+  Reader := TTd32LocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveRsmPath(AUse64Bit));
+
+    PointIdx := Reader.FindClassByName('TPoint2D');
+    Assert.IsTrue(PointIdx >= 0);
+    TypeIdx := Reader.Classes[PointIdx].TypeIdx;
+    Assert.IsTrue(TypeIdx >= $1000, 'TypeIdx must be in the user range (>= $1000)');
+
+    Assert.AreEqual(PointIdx, Reader.FindStructByTypeIdx(TypeIdx),
+      'FindStructByTypeIdx must round-trip to the same record');
+
+    Assert.IsTrue(Reader.FindStructMemberByTypeIdx(TypeIdx, 'FX', Member),
+      'FindStructMemberByTypeIdx must locate TPoint2D.FX');
+    Assert.AreEqual(UInt32(0), Member.Offset);
+    Assert.IsTrue(Reader.FindStructMemberByTypeIdx(TypeIdx, 'FY', Member),
+      'FindStructMemberByTypeIdx must locate TPoint2D.FY');
+    Assert.AreEqual(UInt32(4), Member.Offset);
+
+    // Unknown type-index must fail cleanly.
+    Assert.IsFalse(Reader.FindStructMemberByTypeIdx($00FF, 'FX', Member),
+      'Unknown TypeIdx must yield False');
+    // Known type, unknown field, must also fail cleanly.
+    Assert.IsFalse(Reader.FindStructMemberByTypeIdx(TypeIdx, 'FNoSuchField', Member),
+      'Unknown field name on known TypeIdx must yield False');
+  finally
+    Reader.Free;
+  end;
+end;
+
 procedure TTd32LocalsReaderTests.TestParsesClassMembers32;
 begin
   DoTestParsesClassMembers(False);
+end;
+
+procedure TTd32LocalsReaderTests.TestParsesRecordMembers32;
+begin
+  DoTestParsesRecordMembers(False);
+end;
+
+procedure TTd32LocalsReaderTests.TestRecordTypeIdxRoundTrip32;
+begin
+  DoTestRecordTypeIdxRoundTrip(False);
 end;
 
 {$IFDEF CPUX64}
 procedure TTd32LocalsReaderTests.TestParsesClassMembers64;
 begin
   DoTestParsesClassMembers(True);
+end;
+
+procedure TTd32LocalsReaderTests.TestParsesRecordMembers64;
+begin
+  DoTestParsesRecordMembers(True);
+end;
+
+procedure TTd32LocalsReaderTests.TestRecordTypeIdxRoundTrip64;
+begin
+  DoTestRecordTypeIdxRoundTrip(True);
 end;
 {$ENDIF}
 

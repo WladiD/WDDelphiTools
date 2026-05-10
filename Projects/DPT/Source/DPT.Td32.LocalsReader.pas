@@ -55,12 +55,25 @@ type
   end;
 
   /// <summary>
-  ///   A class declared in the debugged binary: its short name (without
-  ///   unit prefix, as Delphi emits it into the Borland TD32 type stream)
-  ///   and the ordered list of its member fields.
+  ///   Whether a structured type from the TD32 GLOBAL_TYPES stream is a
+  ///   Delphi class (LF_CLASS, with a VMT pointer at instance offset 0)
+  ///   or a Delphi record (LF_STRUCTURE, no VMT, fields start at offset 0).
+  ///   The kind decides whether navigation through this type dereferences
+  ///   the holding slot (class) or treats it as inline data (record).
+  /// </summary>
+  TTd32StructKind = (skClass, skRecord);
+
+  /// <summary>
+  ///   A class or record declared in the debugged binary: its short name
+  ///   (without unit prefix, as Delphi emits it into the Borland TD32 type
+  ///   stream), its TD32 type-index (so callers can resolve a member's
+  ///   field-type back to its info), the kind (class vs. record), and the
+  ///   ordered list of its member fields.
   /// </summary>
   TTd32ClassInfo = record
     Name   : String;
+    TypeIdx: UInt32;
+    Kind   : TTd32StructKind;
     Members: IList<TTd32ClassMember>;
   end;
 
@@ -107,13 +120,36 @@ type
     /// </summary>
     function  FindClassByName(const AName: String): Integer;
     /// <summary>
+    ///   Returns the index in <see cref="Classes"/> of the structured type
+    ///   (class or record) with the given TD32 type-index, or -1 if not
+    ///   found. Used by record-typed field navigation, where the holding
+    ///   field's static TypeIdx is the only key to identify the record's
+    ///   layout (records have no runtime type tag).
+    /// </summary>
+    function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
+    /// <summary>
     ///   Looks up a member field on the class by name (case-insensitive).
     ///   Returns False if either the class or the field is unknown.
     /// </summary>
     function  FindClassMember(const AClassName, AFieldName: String;
       out AMember: TTd32ClassMember): Boolean;
-    property Procs: IList<TTd32Proc> read FProcs;
-    property Classes: IList<TTd32ClassInfo> read FClasses;
+    /// <summary>
+    ///   Looks up a member field on the structured type (class or record)
+    ///   identified by its TD32 type-index. Returns False if the type is
+    ///   unknown or the field name is not present.
+    /// </summary>
+    function  FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String;
+      out AMember: TTd32ClassMember): Boolean;
+    /// <summary>
+    ///   Returns True iff the given TD32 type-index resolves to a known
+    ///   record type. Class type-indices and unknown indices both return
+    ///   False; this is the discriminator used by dotted-field navigation
+    ///   to decide whether the next hop dereferences (class) or stays
+    ///   inline (record).
+    /// </summary>
+    function  IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
+    property  Procs: IList<TTd32Proc> read FProcs;
+    property  Classes: IList<TTd32ClassInfo> read FClasses;
   end;
 
 implementation
@@ -648,10 +684,52 @@ begin
     if Members.Count > 0 then
     begin
       Info.Name := DemangleClassName(NameAt(ClassNameIdx));
+      Info.TypeIdx := UInt32(I) + TYPE_INDEX_BASE;
+      if RecTyp = LF_CLASS then
+        Info.Kind := skClass
+      else
+        Info.Kind := skRecord;
       Info.Members := Members;
       FClasses.Add(Info);
     end;
   end;
+end;
+
+function TTd32LocalsReader.FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
+var
+  I: Integer;
+begin
+  for I := 0 to FClasses.Count - 1 do
+    if FClasses[I].TypeIdx = ATypeIdx then
+      Exit(I);
+  Result := -1;
+end;
+
+function TTd32LocalsReader.IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
+var
+  Idx: Integer;
+begin
+  Idx := FindStructByTypeIdx(ATypeIdx);
+  Result := (Idx >= 0) and (FClasses[Idx].Kind = skRecord);
+end;
+
+function TTd32LocalsReader.FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String; out AMember: TTd32ClassMember): Boolean;
+var
+  Idx, I: Integer;
+  Info  : TTd32ClassInfo;
+begin
+  Result := False;
+  AMember := Default(TTd32ClassMember);
+  Idx := FindStructByTypeIdx(ATypeIdx);
+  if Idx < 0 then
+    Exit;
+  Info := FClasses[Idx];
+  for I := 0 to Info.Members.Count - 1 do
+    if SameText(Info.Members[I].Name, AFieldName) then
+    begin
+      AMember := Info.Members[I];
+      Exit(True);
+    end;
 end;
 
 function TTd32LocalsReader.FindClassByName(const AName: String): Integer;
