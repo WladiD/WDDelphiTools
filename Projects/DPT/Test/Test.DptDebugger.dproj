@@ -85,11 +85,11 @@
     </PropertyGroup>
     <PropertyGroup>
         <PreBuildEvent><![CDATA[if not exist "$(MSBuildProjectDirectory)\Win32" mkdir "$(MSBuildProjectDirectory)\Win32"
-"$(BDS)\bin\dcc32.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win32" -E"$(MSBuildProjectDirectory)\Win32" "$(MSBuildProjectDirectory)\DebugTarget.dpr"
+"$(BDS)\bin\dcc32.exe" -GD -O- -V -VR -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win32" -E"$(MSBuildProjectDirectory)\Win32" "$(MSBuildProjectDirectory)\DebugTarget.dpr"
 "$(BDS)\bin\dcc32.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win32" -E"$(MSBuildProjectDirectory)\Win32" "$(MSBuildProjectDirectory)\ExceptionTarget.dpr"
 "$(BDS)\bin\dcc32.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win32" -E"$(MSBuildProjectDirectory)\Win32" "$(MSBuildProjectDirectory)\MultiThreadTarget.dpr"
 if not exist "$(MSBuildProjectDirectory)\Win64" mkdir "$(MSBuildProjectDirectory)\Win64"
-"$(BDS)\bin\dcc64.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win64" -E"$(MSBuildProjectDirectory)\Win64" "$(MSBuildProjectDirectory)\DebugTarget.dpr"
+"$(BDS)\bin\dcc64.exe" -GD -O- -V -VR -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win64" -E"$(MSBuildProjectDirectory)\Win64" "$(MSBuildProjectDirectory)\DebugTarget.dpr"
 "$(BDS)\bin\dcc64.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win64" -E"$(MSBuildProjectDirectory)\Win64" "$(MSBuildProjectDirectory)\ExceptionTarget.dpr"
 "$(BDS)\bin\dcc64.exe" -GD -O- -V -$D+ -$W+ -N"$(MSBuildProjectDirectory)\Win64" -E"$(MSBuildProjectDirectory)\Win64" "$(MSBuildProjectDirectory)\MultiThreadTarget.dpr"]]></PreBuildEvent>
     </PropertyGroup>

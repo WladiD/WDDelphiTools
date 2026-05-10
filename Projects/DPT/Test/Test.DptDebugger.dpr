@@ -10,7 +10,8 @@ uses
 
   Test.DPT.Debugger,
   Test.DPT.MCP.Server,
-  Test.DPT.Td32.LocalsReader;
+  Test.DPT.Td32.LocalsReader,
+  Test.DPT.Rsm.LocalsReader;
 
 var
   runner: ITestRunner;
