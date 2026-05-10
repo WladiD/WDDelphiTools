@@ -6,16 +6,11 @@
 
 unit Test.DPT.Rsm.LocalsReader;
 
-// Mirror suite for the RSM (CSH7) reader. Same expected values and
-// shape of assertions as Test.DPT.Td32.LocalsReader, but the source
-// of truth is the .rsm sidecar file rather than the embedded TD32
-// blob in the EXE. As long as both readers populate equivalent data,
-// the higher layers are free to migrate to RSM transparently.
-//
-// Tests fail until the RSM parser is implemented; the [Test] entries
-// drive the reverse-engineering work, and the (un-ignored) probe
-// tests at the bottom can be used to dump byte regions when chasing
-// a particular encoding question.
+// Tests for the RSM (CSH7) symbol container produced by the Delphi
+// linker option -VR. The reader is the only debug-info parser the
+// project ships -- TD32 has been removed -- so these tests carry the
+// full coverage of procedures, locals, classes and records that the
+// higher layers (debugger, evaluator) rely on.
 
 interface
 
@@ -26,8 +21,7 @@ uses
 
   DUnitX.TestFramework,
 
-  DPT.Rsm.LocalsReader,
-  DPT.Td32.LocalsReader;
+  DPT.Rsm.LocalsReader;
 
 type
 
@@ -68,12 +62,6 @@ type
     procedure TestParsesRecordMembers32;
     [Test]
     procedure TestRecordTypeIdxRoundTrip32;
-    [Test]
-    procedure TestRsmBpOffsetsAgreeWithTd32_32;
-    {$IFDEF CPUX64}
-    [Test]
-    procedure TestRsmBpOffsetsAgreeWithTd32_64;
-    {$ENDIF}
     {$IFDEF CPUX64}
     [Test]
     procedure TestParsesProcedures64;
@@ -352,9 +340,9 @@ begin
     Assert.IsTrue(PointIdx >= 0, 'TPoint2D record must be parsed');
     Assert.IsTrue(RectIdx  >= 0, 'TRect2D record must be parsed');
 
-    Assert.IsTrue(Reader.Classes[PointIdx].Kind = DPT.Rsm.LocalsReader.skRecord,
+    Assert.IsTrue(Reader.Classes[PointIdx].Kind = skRecord,
       'TPoint2D must have Kind = skRecord');
-    Assert.IsTrue(Reader.Classes[RectIdx].Kind = DPT.Rsm.LocalsReader.skRecord,
+    Assert.IsTrue(Reader.Classes[RectIdx].Kind = skRecord,
       'TRect2D must have Kind = skRecord');
 
     Assert.IsTrue(Reader.FindClassMember('TPoint2D', 'FX', Member));
@@ -433,123 +421,6 @@ begin
     Reader.Free;
   end;
 end;
-
-procedure TRsmLocalsReaderTests.TestRsmBpOffsetsAgreeWithTd32_32;
-var
-  Rsm     : TRsmLocalsReader;
-  Td32    : TTd32LocalsReader;
-  RIdx    : Integer;
-  TIdx    : Integer;
-  RProc   : TRsmProc;
-  TProc   : TTd32Proc;
-  I, J    : Integer;
-  Match   : Integer;
-  Compared: Integer;
-  Mismatch: String;
-begin
-  Mismatch := '';
-  // Cross-check: for every LocalsProcedure local that RSM decoded
-  // (BpOffset > -1000, ruling out the synth fallback), the offset
-  // must match the value the TD32 reader produces from the EXE's
-  // BPREL32 record. Proves the "encoded = 2 * BpOffset signed Int8"
-  // hypothesis instead of just "values are distinct".
-  Rsm  := TRsmLocalsReader.Create;
-  Td32 := TTd32LocalsReader.Create;
-  try
-    Rsm.LoadFromFile(ResolveExePath(False));
-    Td32.LoadFromFile(ResolveExePath(False));
-
-    RIdx := Rsm.FindProcByName('LocalsProcedure');
-    TIdx := Td32.FindProcByName('LocalsProcedure');
-    Assert.IsTrue(RIdx >= 0, 'RSM must find LocalsProcedure');
-    Assert.IsTrue(TIdx >= 0, 'TD32 must find LocalsProcedure');
-
-    RProc := Rsm.Procs[RIdx];
-    TProc := Td32.Procs[TIdx];
-
-    Compared := 0;
-    Match    := 0;
-    for I := 0 to RProc.Locals.Count - 1 do
-    begin
-      if RProc.Locals[I].BpOffset < -1000 then Continue;
-      for J := 0 to TProc.Locals.Count - 1 do
-        if SameText(RProc.Locals[I].Name, TProc.Locals[J].Name) then
-        begin
-          Inc(Compared);
-          if RProc.Locals[I].BpOffset = TProc.Locals[J].BpOffset then
-            Inc(Match)
-          else
-            Mismatch := Mismatch + Format(' %s(rsm=%d,td32=%d)',
-              [RProc.Locals[I].Name, RProc.Locals[I].BpOffset, TProc.Locals[J].BpOffset]);
-          Break;
-        end;
-    end;
-    Assert.IsTrue(Compared >= 4,
-      Format('Expected at least 4 RSM-decoded LocalsProcedure locals to compare, got %d', [Compared]));
-    Assert.AreEqual(Compared, Match,
-      'BpOffset mismatches:' + Mismatch);
-  finally
-    Rsm.Free;
-    Td32.Free;
-  end;
-end;
-
-{$IFDEF CPUX64}
-procedure TRsmLocalsReaderTests.TestRsmBpOffsetsAgreeWithTd32_64;
-var
-  Rsm     : TRsmLocalsReader;
-  Td32    : TTd32LocalsReader;
-  RIdx    : Integer;
-  TIdx    : Integer;
-  RProc   : TRsmProc;
-  TProc   : TTd32Proc;
-  I, J    : Integer;
-  Match   : Integer;
-  Compared: Integer;
-  Mismatch: String;
-begin
-  Mismatch := '';
-  Rsm  := TRsmLocalsReader.Create;
-  Td32 := TTd32LocalsReader.Create;
-  try
-    Rsm.LoadFromFile(ResolveExePath(True));
-    Td32.LoadFromFile(ResolveExePath(True));
-
-    RIdx := Rsm.FindProcByName('LocalsProcedure');
-    TIdx := Td32.FindProcByName('LocalsProcedure');
-    Assert.IsTrue(RIdx >= 0);
-    Assert.IsTrue(TIdx >= 0);
-
-    RProc := Rsm.Procs[RIdx];
-    TProc := Td32.Procs[TIdx];
-
-    Compared := 0;
-    Match    := 0;
-    for I := 0 to RProc.Locals.Count - 1 do
-    begin
-      if RProc.Locals[I].BpOffset < -1000 then Continue;
-      for J := 0 to TProc.Locals.Count - 1 do
-        if SameText(RProc.Locals[I].Name, TProc.Locals[J].Name) then
-        begin
-          Inc(Compared);
-          if RProc.Locals[I].BpOffset = TProc.Locals[J].BpOffset then
-            Inc(Match)
-          else
-            Mismatch := Mismatch + Format(' %s(rsm=%d,td32=%d)',
-              [RProc.Locals[I].Name, RProc.Locals[I].BpOffset, TProc.Locals[J].BpOffset]);
-          Break;
-        end;
-    end;
-    Assert.IsTrue(Compared >= 4,
-      Format('Expected at least 4 RSM-decoded LocalsProcedure locals to compare, got %d', [Compared]));
-    Assert.AreEqual(Compared, Match,
-      'BpOffset mismatches:' + Mismatch);
-  finally
-    Rsm.Free;
-    Td32.Free;
-  end;
-end;
-{$ENDIF}
 
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;

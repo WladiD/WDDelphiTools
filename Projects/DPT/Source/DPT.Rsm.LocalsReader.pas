@@ -6,18 +6,16 @@
 
 unit DPT.Rsm.LocalsReader;
 
-// Reader for Borland's RSM (remote symbol map) files. RSM is the newer,
-// richer companion format to TD32 and is produced by the Delphi linker
-// option -VR ("Include remote debug symbols"). The on-disk container
-// uses the magic 'CSH7' rather than TD32's 'FB09'; the internal layout
-// of the symbol/type streams differs as well, so this reader is a
-// completely separate implementation from DPT.Td32.LocalsReader.
+// Reader for Borland's RSM (remote symbol map) files produced by the
+// Delphi linker option -VR ("Include remote debug symbols"). The
+// on-disk container uses the magic 'CSH7' and stores procedures,
+// locals (with BPREL-style frame offsets), classes, records, and
+// types in a tagged variable-length symbol stream.
 //
-// First milestone: produce the same data the TD32 reader currently
-// exposes (procedures with their BPREL-style locals, classes with
-// member offsets, records with member offsets, type-index lookups for
-// dotted field navigation). Long-term the project will move off TD32
-// entirely and this unit becomes the single source of truth.
+// This is the project's only debug-info reader; TD32 (FB09) used to
+// be parsed by a parallel DPT.Td32.LocalsReader unit but has been
+// retired. Builds for the test fixture must therefore include -VR
+// so a .rsm sidecar exists next to the EXE.
 
 interface
 
@@ -95,10 +93,8 @@ type
 
   /// <summary>
   ///   Reader for the RSM (CSH7) symbol container produced by the
-  ///   Delphi linker option -VR. Surfaces the same shape of data as
-  ///   <see cref="DPT.Td32.LocalsReader.TTd32LocalsReader"/> so the
-  ///   higher layers (debugger, evaluator) can be migrated to RSM
-  ///   transparently.
+  ///   Delphi linker option -VR. The single source of debug
+  ///   information used by the debugger.
   /// </summary>
   TRsmLocalsReader = class
   private
@@ -124,6 +120,14 @@ type
     function  FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
     function  IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
+    /// <summary>
+    ///   Recompute the Size field of every proc as the gap to the
+    ///   next proc by SegmentOffset. The address-decoder couldn't
+    ///   reverse Win64 proc addresses, so callers may patch each
+    ///   proc's SegmentOffset from a side channel (e.g. the .map
+    ///   file) and then invoke this method to refresh sizes.
+    /// </summary>
+    procedure RecomputeProcSizes;
     property  Procs: IList<TRsmProc> read FProcs;
     property  Classes: IList<TRsmClassInfo> read FClasses;
   end;
@@ -515,10 +519,10 @@ var
 
   procedure ProbeKnownClasses;
   const
-    KNOWN_CLASSES: array[0..3] of String =
-      ('TInner', 'TOuter', 'TPair', 'TWithRec');
-    KNOWN_RECORDS: array[0..1] of String =
-      ('TPoint2D', 'TRect2D');
+    KNOWN_CLASSES: array[0..2] of String =
+      ('TInner', 'TOuter', 'TWithRec');
+    KNOWN_RECORDS: array[0..2] of String =
+      ('TPoint2D', 'TRect2D', 'TPair');
   var
     I: Integer;
   begin
@@ -714,82 +718,6 @@ var
     end;
   end;
 
-  procedure FixupProcSizesByGap;
-  // Each proc record stores only its starting RVA; the size is not
-  // emitted, so estimate it from the gap to the next proc whose
-  // SegmentOffset is greater. Build a sorted index over the procs
-  // and assign Size := nextStart - thisStart (capped to a sane
-  // upper bound; the last proc gets the $1000 placeholder).
-  const
-    MaxProcSize = $4000;
-    LastFallback = $1000;
-  var
-    Idx       : array of Integer;
-    I, J      : Integer;
-    Tmp       : Integer;
-    NextStart : UInt32;
-    P         : TRsmProc;
-    Gap       : Int64;
-  begin
-    if FProcs.Count < 2 then Exit;
-    SetLength(Idx, FProcs.Count);
-    for I := 0 to FProcs.Count - 1 do Idx[I] := I;
-
-    // Insertion sort by SegmentOffset; FProcs.Count is large
-    // (thousands), but this only runs once per RSM load and the
-    // simpler algorithm avoids dragging in another sort utility.
-    for I := 1 to High(Idx) do
-    begin
-      Tmp := Idx[I];
-      J := I - 1;
-      while (J >= 0) and (FProcs[Idx[J]].SegmentOffset > FProcs[Tmp].SegmentOffset) do
-      begin
-        Idx[J + 1] := Idx[J];
-        Dec(J);
-      end;
-      Idx[J + 1] := Tmp;
-    end;
-
-    for I := 0 to High(Idx) - 1 do
-    begin
-      P := FProcs[Idx[I]];
-      if P.SegmentOffset = 0 then
-      begin
-        // Address decoding failed for this proc; leave Size at 0
-        // so it's treated as a name-only entry.
-        Continue;
-      end;
-      // Find the next proc with a strictly greater SegmentOffset;
-      // skip duplicates at the same address (they would yield a
-      // 0-byte size).
-      NextStart := 0;
-      for J := I + 1 to High(Idx) do
-        if FProcs[Idx[J]].SegmentOffset > P.SegmentOffset then
-        begin
-          NextStart := FProcs[Idx[J]].SegmentOffset;
-          Break;
-        end;
-      if NextStart = 0 then
-        P.Size := LastFallback
-      else
-      begin
-        Gap := Int64(NextStart) - Int64(P.SegmentOffset);
-        if Gap > MaxProcSize then Gap := MaxProcSize;
-        P.Size := UInt32(Gap);
-      end;
-      FProcs[Idx[I]] := P;
-    end;
-    if Length(Idx) > 0 then
-    begin
-      P := FProcs[Idx[High(Idx)]];
-      if P.SegmentOffset <> 0 then
-      begin
-        P.Size := LastFallback;
-        FProcs[Idx[High(Idx)]] := P;
-      end;
-    end;
-  end;
-
 begin
   FProcs.Clear;
   FClasses.Clear;
@@ -801,8 +729,81 @@ begin
   Buf := PByte(@ABytes[0]);
   Sz  := Length(ABytes);
   ScanSymbolStream;
-  FixupProcSizesByGap;
+  RecomputeProcSizes;
   ProbeKnownClasses;
+end;
+
+procedure TRsmLocalsReader.RecomputeProcSizes;
+// Each proc record stores only its starting RVA; the size is not
+// emitted, so estimate it from the gap to the next proc whose
+// SegmentOffset is greater. Build a sorted index over the procs and
+// assign Size := nextStart - thisStart (capped to a sane upper
+// bound; the last proc gets the $1000 placeholder). Procs whose
+// SegmentOffset is 0 (address decoding failed; the symbol-stream
+// encoding for the proc's address wasn't recognized) get Size = 0
+// and are treated as name-only entries.
+const
+  MaxProcSize  = $4000;
+  LastFallback = $1000;
+var
+  Idx       : array of Integer;
+  I, J      : Integer;
+  Tmp       : Integer;
+  NextStart : UInt32;
+  P         : TRsmProc;
+  Gap       : Int64;
+begin
+  if FProcs.Count < 2 then Exit;
+  SetLength(Idx, FProcs.Count);
+  for I := 0 to FProcs.Count - 1 do Idx[I] := I;
+
+  for I := 1 to High(Idx) do
+  begin
+    Tmp := Idx[I];
+    J := I - 1;
+    while (J >= 0) and (FProcs[Idx[J]].SegmentOffset > FProcs[Tmp].SegmentOffset) do
+    begin
+      Idx[J + 1] := Idx[J];
+      Dec(J);
+    end;
+    Idx[J + 1] := Tmp;
+  end;
+
+  for I := 0 to High(Idx) - 1 do
+  begin
+    P := FProcs[Idx[I]];
+    if P.SegmentOffset = 0 then
+    begin
+      P.Size := 0;
+      FProcs[Idx[I]] := P;
+      Continue;
+    end;
+    NextStart := 0;
+    for J := I + 1 to High(Idx) do
+      if FProcs[Idx[J]].SegmentOffset > P.SegmentOffset then
+      begin
+        NextStart := FProcs[Idx[J]].SegmentOffset;
+        Break;
+      end;
+    if NextStart = 0 then
+      P.Size := LastFallback
+    else
+    begin
+      Gap := Int64(NextStart) - Int64(P.SegmentOffset);
+      if Gap > MaxProcSize then Gap := MaxProcSize;
+      P.Size := UInt32(Gap);
+    end;
+    FProcs[Idx[I]] := P;
+  end;
+  if Length(Idx) > 0 then
+  begin
+    P := FProcs[Idx[High(Idx)]];
+    if P.SegmentOffset <> 0 then
+    begin
+      P.Size := LastFallback;
+      FProcs[Idx[High(Idx)]] := P;
+    end;
+  end;
 end;
 
 function TRsmLocalsReader.FindProcContaining(ASegmentOffset: UInt32): Integer;

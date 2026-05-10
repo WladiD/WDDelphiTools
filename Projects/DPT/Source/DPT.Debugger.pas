@@ -19,7 +19,7 @@ uses
   mormot.core.collections,
 
   DPT.MapFileParser,
-  DPT.Td32.LocalsReader;
+  DPT.Rsm.LocalsReader;
 
 function OpenThread(dwDesiredAccess: Cardinal; bInheritHandle: BOOL; dwThreadId: Cardinal): THandle; stdcall; external kernel32;
 
@@ -137,7 +137,7 @@ type
     FLastExceptionFirstChance: Boolean;
     FLastThreadHit           : THandle;
     FLastThreadId            : Cardinal;
-    FLocalsReader            : TTd32LocalsReader;
+    FLocalsReader            : TRsmLocalsReader;
     FMapScanner              : TMapFileParser;
     FOutputBuffer            : IList<TCapturedOutputLine>;
     FOutputLock              : TCriticalSection;
@@ -180,6 +180,7 @@ type
       const ABytes: TBytes; ALength: Integer);
     procedure StartOutputReaders;
     procedure StopOutputReaders;
+    procedure PatchRsmProcAddressesFromMap;
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
@@ -241,7 +242,7 @@ type
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;
     property  LastThreadId: Cardinal read FLastThreadId;
-    property  LocalsReader: TTd32LocalsReader read FLocalsReader;
+    property  LocalsReader: TRsmLocalsReader read FLocalsReader;
     property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
@@ -926,6 +927,7 @@ begin
   FreeAndNil(FMapScanner);
   if FileExists(AMapFileName) then
     FMapScanner := TMapFileParser.Create(AMapFileName);
+  PatchRsmProcAddressesFromMap;
 end;
 
 procedure TDebugger.LoadDebugInfoFromExe(const AExePath: string);
@@ -933,13 +935,51 @@ begin
   FreeAndNil(FLocalsReader);
   if not FileExists(AExePath) then
     Exit;
-  FLocalsReader := TTd32LocalsReader.Create;
+  FLocalsReader := TRsmLocalsReader.Create;
   try
     FLocalsReader.LoadFromFile(AExePath);
   except
     FreeAndNil(FLocalsReader);
     raise;
   end;
+  PatchRsmProcAddressesFromMap;
+end;
+
+procedure TDebugger.PatchRsmProcAddressesFromMap;
+// The RSM symbol stream encodes proc start addresses with a packed
+// shift-and-tag format whose Win32 form has been reverse-engineered
+// (see TRsmLocalsReader.LoadFromBytes); the Win64 form uses a
+// different (variable-length) encoding that hasn't been decoded.
+// Procs whose decode failed land with SegmentOffset = 0 and would
+// be invisible to FindProcContaining. The .map file lists every
+// proc by name in segment-relative coordinates -- the same
+// convention TRsmProc.SegmentOffset already uses -- so once both
+// the reader and the map are loaded we cross-reference them: for
+// each RSM proc with a missing offset, copy the .map's value into
+// it directly. After patching, ask the reader to recompute proc
+// Sizes by gap so FindProcContaining ranges become correct again.
+var
+  I       : Integer;
+  P       : TRsmProc;
+  VA      : UInt64;
+  Patched : Boolean;
+begin
+  if (FLocalsReader = nil) or (FMapScanner = nil) then Exit;
+  Patched := False;
+  for I := 0 to FLocalsReader.Procs.Count - 1 do
+  begin
+    P := FLocalsReader.Procs[I];
+    if P.SegmentOffset <> 0 then Continue;
+    if P.Name = '' then Continue;
+    VA := FMapScanner.VAFromSimpleName(P.Name);
+    if VA = 0 then Continue;
+    if VA > High(UInt32) then Continue;
+    P.SegmentOffset := UInt32(VA);
+    FLocalsReader.Procs[I] := P;
+    Patched := True;
+  end;
+  if Patched then
+    FLocalsReader.RecomputeProcSizes;
 end;
 
 function TDebugger.GetCurrentProcedureName(AThreadHandle: THandle): String;
@@ -979,7 +1019,7 @@ var
   EipRva    : UInt64;
   FrameInfo : TStackFrameInfo;
   ProcIdx   : Integer;
-  Proc      : TTd32Proc;
+  Proc      : TRsmProc;
   Regs      : TRegisters;
   SegmentOff: UInt32;
   I         : Integer;
@@ -1037,7 +1077,7 @@ var
   FrameInfo : TStackFrameInfo;
   Loc       : TLocalVar;
   ProcIdx   : Integer;
-  Proc      : TTd32Proc;
+  Proc      : TRsmProc;
   Regs      : TRegisters;
   ResultList: IList<TLocalVar>;
   SegmentOff: UInt32;
@@ -2021,7 +2061,7 @@ var
   ShortBuf       : TBytes;
   ObjPtr         : UIntPtr;
   ClsName        : String;
-  Member         : TTd32ClassMember;
+  Member         : TRsmClassMember;
   CurTypeIdx     : UInt32;
   InRecord       : Boolean;
 begin
@@ -2124,10 +2164,54 @@ begin
             end;
             Exit;
           end;
-          if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
-          if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
-            Exit;
-          FieldAddr := Pointer(ObjPtr + Member.Offset);
+          // Class-hop attempt: read the VMT class name from the
+          // dereferenced pointer and look up the named field on the
+          // resolved class. This is the polymorphism-respecting path.
+          var ClassResolved: Boolean := False;
+          if ReadRuntimeClassName(ObjPtr, ClsName) and
+             FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+          begin
+            FieldAddr := Pointer(ObjPtr + Member.Offset);
+            ClassResolved := True;
+          end;
+          if not ClassResolved then
+          begin
+            // Inline-record fallback: the RSM reader does not yet
+            // emit per-field TypeIdx values for class fields, so a
+            // record-typed field of a class arrives here with
+            // CurTypeIdx = 0 and IsRecordTypeIdx(0) = False -- which
+            // means we tried to dereference inline record bytes as
+            // an object pointer and ReadRuntimeClassName failed.
+            // Recover by scanning known records for one whose member
+            // list includes the current segment name. If exactly one
+            // such record exists, treat the previous slot as inline
+            // record storage and add the record-internal offset.
+            var RecIdx: Integer := -1;
+            var Hits  : Integer := 0;
+            var K, M  : Integer;
+            for K := 0 to FLocalsReader.Classes.Count - 1 do
+              if FLocalsReader.Classes[K].Kind = skRecord then
+                for M := 0 to FLocalsReader.Classes[K].Members.Count - 1 do
+                  if SameText(FLocalsReader.Classes[K].Members[M].Name, Segments[I]) then
+                  begin
+                    Inc(Hits);
+                    RecIdx := K;
+                    Member := FLocalsReader.Classes[K].Members[M];
+                  end;
+            // Accept only an unambiguous match. Multiple records
+            // could share a member name (e.g. two records both with
+            // an "FX" field) and guessing would be silently wrong.
+            if (Hits <> 1) or (RecIdx < 0) then Exit;
+            FieldAddr := Pointer(NativeUInt(FieldAddr) + Member.Offset);
+            // We don't know the resolved member's own type (record's
+            // member TypeIdx is 0 by construction in the RSM reader),
+            // so the next iteration repeats the class-hop+fallback
+            // pattern. For the terminal segment the loop just exits
+            // with FieldAddr already pointing at the right slot.
+            CurTypeIdx := 0;
+            InRecord := False;
+            Continue;
+          end;
         end;
 
         CurTypeIdx := Member.TypeIdx;
