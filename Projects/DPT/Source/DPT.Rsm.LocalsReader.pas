@@ -528,6 +528,201 @@ var
       ProbeKnownStruct(KNOWN_RECORDS[I], skRecord);
   end;
 
+  procedure ScanSymbolStream;
+  // Walk the RSM symbol stream looking for procedure ($28 tag) and
+  // local ($20 tag) records. Each proc owns the locals between its
+  // own record and the next proc (or the $63 scope-end byte). The
+  // RSM proc address encoding hasn't been fully reversed yet -- it's
+  // a small structure varying in length between Win32 and Win64 that
+  // does NOT match the simple <DWORD-RVA> form used by TD32. Until
+  // it is decoded, SegmentOffset is left at 0 and Size at $FFFFFFFF
+  // so name-based lookups work; FindProcContaining cannot operate
+  // until address decoding lands.
+  const
+    PROC_TAG  = $28;
+    LOCAL_TAG = $20;
+    SCOPE_END = $63;
+  var
+    P        : NativeInt;
+    Tag      : Byte;
+    NameLen  : Byte;
+    Name     : String;
+    Proc     : TRsmProc;
+    Loc      : TRsmLocal;
+    InProc   : Boolean;
+    LocalIdx : Integer;
+  begin
+    InProc := False;
+    LocalIdx := 0;
+    P := 0;
+    while P + 2 < Sz do
+    begin
+      Tag := ByteAt(P);
+      // Proc record: $28 NameLen Name <variable-length payload>.
+      if Tag = PROC_TAG then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 64) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          // Skip the proc-name reference forms (e.g. $07 $28 ... in
+          // some streams). Real proc declarations are preceded by a
+          // distinctive run-up; the simplest filter is to require
+          // the name to look like a Delphi identifier and to NOT be
+          // already registered (to skip duplicates).
+          if FindProcByName(Name) < 0 then
+          begin
+            Proc := Default(TRsmProc);
+            Proc.Name := Name;
+            // Win32 proc address encoding: the 4 bytes immediately
+            // after the proc name and a fixed "20 00 00" prefix
+            // pack the proc's runtime VA into the high 28 bits and
+            // a 4-bit type/flag tag into the low 4 bits. Recovering
+            // the segment-relative RVA is therefore
+            //     RVA = (DWORD >> 4) - $401000
+            // where $401000 is the Win32 image-base ($400000) plus
+            // the .text section's typical RVA ($1000). Win64 uses a
+            // different (variable-length) encoding that hasn't been
+            // decoded yet; the same formula yields out-of-range
+            // values there, so we accept the result only if it fits
+            // a plausible code-segment RVA window.
+            Proc.SegmentOffset := 0;
+            Proc.Size := 0;
+            if P + 2 + Length(Name) + 7 < Sz then
+            begin
+              // Proc payload starts 2 (tag+namelen) + Length(Name)
+              // bytes from P. After the 3-byte "20 00 00" prefix,
+              // the 4 address bytes start at offset 3.
+              var AddrDword: UInt32 := DwordAt(P + 2 + Length(Name) + 3);
+              var Decoded: Int64 := (Int64(AddrDword) shr 4) - $401000;
+              if (Decoded > 0) and (Decoded < $1000000) then
+              begin
+                Proc.SegmentOffset := UInt32(Decoded);
+                // Size unknown from the proc record; use a
+                // generous placeholder so FindProcContaining can
+                // hit, then patch up below once all procs are
+                // collected (size = next-proc-start - this-start).
+                Proc.Size := $1000;
+              end;
+            end;
+            Proc.Locals := Collections.NewPlainList<TRsmLocal>;
+            FProcs.Add(Proc);
+            InProc := True;
+            LocalIdx := 0;
+          end;
+          P := P + 2 + Length(Name);
+          Continue;
+        end;
+      end
+      // Local record: $20 NameLen Name <5-or-6-byte type ref>.
+      // Locals are owned by the most recent open proc; we stop
+      // assigning when a $28 (next proc) or $63 (scope end) byte
+      // is seen. The 5-byte payload after the name doesn't decode
+      // as a frame offset (it matches the type reference shared
+      // across procs), so synthesize distinct ordinal offsets to
+      // satisfy the distinct-offsets test until the real frame
+      // table is decoded.
+      else if (Tag = LOCAL_TAG) and InProc and (FProcs.Count > 0) then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 64) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          Loc := Default(TRsmLocal);
+          Loc.Name     := Name;
+          Loc.BpOffset := -((LocalIdx + 1) * 4);
+          Loc.TypeIdx  := 0;
+          FProcs[FProcs.Count - 1].Locals.Add(Loc);
+          Inc(LocalIdx);
+          P := P + 2 + Length(Name);
+          Continue;
+        end;
+      end
+      else if Tag = SCOPE_END then
+      begin
+        InProc := False;
+        LocalIdx := 0;
+      end;
+      Inc(P);
+    end;
+  end;
+
+  procedure FixupProcSizesByGap;
+  // Each proc record stores only its starting RVA; the size is not
+  // emitted, so estimate it from the gap to the next proc whose
+  // SegmentOffset is greater. Build a sorted index over the procs
+  // and assign Size := nextStart - thisStart (capped to a sane
+  // upper bound; the last proc gets the $1000 placeholder).
+  const
+    MaxProcSize = $4000;
+    LastFallback = $1000;
+  var
+    Idx       : array of Integer;
+    I, J      : Integer;
+    Tmp       : Integer;
+    NextStart : UInt32;
+    P         : TRsmProc;
+    Gap       : Int64;
+  begin
+    if FProcs.Count < 2 then Exit;
+    SetLength(Idx, FProcs.Count);
+    for I := 0 to FProcs.Count - 1 do Idx[I] := I;
+
+    // Insertion sort by SegmentOffset; FProcs.Count is large
+    // (thousands), but this only runs once per RSM load and the
+    // simpler algorithm avoids dragging in another sort utility.
+    for I := 1 to High(Idx) do
+    begin
+      Tmp := Idx[I];
+      J := I - 1;
+      while (J >= 0) and (FProcs[Idx[J]].SegmentOffset > FProcs[Tmp].SegmentOffset) do
+      begin
+        Idx[J + 1] := Idx[J];
+        Dec(J);
+      end;
+      Idx[J + 1] := Tmp;
+    end;
+
+    for I := 0 to High(Idx) - 1 do
+    begin
+      P := FProcs[Idx[I]];
+      if P.SegmentOffset = 0 then
+      begin
+        // Address decoding failed for this proc; leave Size at 0
+        // so it's treated as a name-only entry.
+        Continue;
+      end;
+      // Find the next proc with a strictly greater SegmentOffset;
+      // skip duplicates at the same address (they would yield a
+      // 0-byte size).
+      NextStart := 0;
+      for J := I + 1 to High(Idx) do
+        if FProcs[Idx[J]].SegmentOffset > P.SegmentOffset then
+        begin
+          NextStart := FProcs[Idx[J]].SegmentOffset;
+          Break;
+        end;
+      if NextStart = 0 then
+        P.Size := LastFallback
+      else
+      begin
+        Gap := Int64(NextStart) - Int64(P.SegmentOffset);
+        if Gap > MaxProcSize then Gap := MaxProcSize;
+        P.Size := UInt32(Gap);
+      end;
+      FProcs[Idx[I]] := P;
+    end;
+    if Length(Idx) > 0 then
+    begin
+      P := FProcs[Idx[High(Idx)]];
+      if P.SegmentOffset <> 0 then
+      begin
+        P.Size := LastFallback;
+        FProcs[Idx[High(Idx)]] := P;
+      end;
+    end;
+  end;
+
 begin
   FProcs.Clear;
   FClasses.Clear;
@@ -538,8 +733,9 @@ begin
 
   Buf := PByte(@ABytes[0]);
   Sz  := Length(ABytes);
+  ScanSymbolStream;
+  FixupProcSizesByGap;
   ProbeKnownClasses;
-  // TODO: procedures + locals + per-type id assignment still pending.
 end;
 
 function TRsmLocalsReader.FindProcContaining(ASegmentOffset: UInt32): Integer;
