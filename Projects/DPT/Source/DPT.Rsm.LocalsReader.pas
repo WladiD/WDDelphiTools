@@ -614,14 +614,15 @@ var
           Continue;
         end;
       end
-      // Local record: $20 NameLen Name <5-or-6-byte type ref>.
-      // Locals are owned by the most recent open proc; we stop
-      // assigning when a $28 (next proc) or $63 (scope end) byte
-      // is seen. The 5-byte payload after the name doesn't decode
-      // as a frame offset (it matches the type reference shared
-      // across procs), so synthesize distinct ordinal offsets to
-      // satisfy the distinct-offsets test until the real frame
-      // table is decoded.
+      // Local record: $20 NameLen Name <5-or-6-byte type+frame ref>.
+      // The two bytes after the constant "66 00 00" type-ref prefix
+      // pack the type-id (first byte) and the frame offset (second
+      // byte, encoded as 2 * BpOffset signed int8 -- so $f8 means
+      // BpOffset = -4). For larger offsets (e.g. ShortString locals
+      // whose offsets exceed +/-64) the encoding switches to a
+      // multi-byte form that hasn't been fully decoded yet; in that
+      // case we fall back to a synthesized ordinal offset so the
+      // distinct-offsets invariant still holds.
       else if (Tag = LOCAL_TAG) and InProc and (FProcs.Count > 0) then
       begin
         NameLen := ByteAt(P + 1);
@@ -630,8 +631,74 @@ var
         begin
           Loc := Default(TRsmLocal);
           Loc.Name     := Name;
-          Loc.BpOffset := -((LocalIdx + 1) * 4);
+          // Synthesized fallback is far outside the real-frame range
+          // (real BpOffsets sit in the [-4, -frameSize] window), so a
+          // synthesized value cannot collide with a decoded one.
+          Loc.BpOffset := -10000 - (LocalIdx * 4);
           Loc.TypeIdx  := 0;
+          // The frame offset is encoded as a tagged variable-length
+          // integer placed after the type-ref prefix "$66 $00 $00".
+          // Three forms have been observed empirically against the
+          // TD32 ground truth from the same EXE:
+          //
+          //   5-byte payload "$66 $00 $00 <type> <off8>":
+          //     1-byte signed offset, decoded as SignedInt8 / 2.
+          //     Used for built-in scalar types whose offsets fit in
+          //     +/-64 bytes from the frame pointer.
+          //
+          //   6-byte payload "$66 $00 $00 <type> <enc-lo> <enc-hi>"
+          //   where (enc-lo and 1) = 1:
+          //     2-byte little-endian signed offset, encoded as
+          //     (BpOffset * 4) + 1; decoded as (SmallInt - 1) div 4.
+          //     Used for built-in types with offsets exceeding the
+          //     1-byte range (e.g. ShortString locals).
+          //
+          //   6-byte payload "$66 $00 $00 <type> <classId> <off8>"
+          //   where (classId and 1) = 0:
+          //     class-typed local (e.g. TStringList). One additional
+          //     byte of class-id sits between the type and the
+          //     offset; the offset itself is again 1-byte signed / 2.
+          //
+          // Length discrimination: the byte at payload offset 5 is
+          // the next record's tag byte ($20/$28/$63) for the 5-byte
+          // form; otherwise the 6-byte form applies and the offset
+          // form is selected by the LSB of the 4th payload byte.
+          var PayloadStart: NativeInt := P + 2 + Length(Name);
+          if PayloadStart + 5 < Sz then
+          begin
+            var Next5: Byte := ByteAt(PayloadStart + 5);
+            if (Next5 = LOCAL_TAG) or (Next5 = PROC_TAG) or (Next5 = SCOPE_END) then
+            begin
+              // 5-byte form, 1-byte offset.
+              var Ofs8: ShortInt := ShortInt(ByteAt(PayloadStart + 4));
+              Loc.BpOffset := Int32(Ofs8) div 2;
+              Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+            end
+            else if PayloadStart + 6 < Sz then
+            begin
+              var Next6: Byte := ByteAt(PayloadStart + 6);
+              if (Next6 = LOCAL_TAG) or (Next6 = PROC_TAG) or (Next6 = SCOPE_END) then
+              begin
+                var Ofs0: Byte := ByteAt(PayloadStart + 4);
+                if (Ofs0 and 1) = 1 then
+                begin
+                  // 6-byte built-in form: 2-byte LE offset.
+                  var Hi : Byte := ByteAt(PayloadStart + 5);
+                  var W  : Word := Word(Ofs0) or (Word(Hi) shl 8);
+                  var SW : SmallInt := SmallInt(W);
+                  Loc.BpOffset := (Int32(SW) - 1) div 4;
+                  Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+                end
+                else
+                begin
+                  // 6-byte class form: <classId> <off8>.
+                  var Ofs8: ShortInt := ShortInt(ByteAt(PayloadStart + 5));
+                  Loc.BpOffset := Int32(Ofs8) div 2;
+                  Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+                end;
+              end;
+            end;
+          end;
           FProcs[FProcs.Count - 1].Locals.Add(Loc);
           Inc(LocalIdx);
           P := P + 2 + Length(Name);
