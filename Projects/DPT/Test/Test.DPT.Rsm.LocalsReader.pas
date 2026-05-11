@@ -354,6 +354,28 @@ begin
     Assert.AreEqual(UInt32(0), Member.Offset);
     Assert.IsTrue(Reader.FindClassMember('TRect2D', 'FBottomRight', Member));
     Assert.AreEqual(UInt32(8), Member.Offset);
+
+    // TMixedRec stresses the offset decoder by mixing field widths in
+    // a single record: Int (4) + Int64 (8) + string (pointer-sized).
+    // Offsets must come from the byte stream, NOT from "total size /
+    // field count" which would only happen to fit homogeneous records.
+    Assert.IsTrue(Reader.FindClassByName('TMixedRec') >= 0,
+      'TMixedRec record must be parsed');
+    Assert.IsTrue(Reader.Classes[Reader.FindClassByName('TMixedRec')].Kind = skRecord,
+      'TMixedRec must have Kind = skRecord');
+    Assert.IsTrue(Reader.FindClassMember('TMixedRec', 'FMixedInt', Member),
+      'TMixedRec.FMixedInt must be parsed');
+    Assert.AreEqual(UInt32(0), Member.Offset, 'FMixedInt at offset 0');
+    Assert.IsTrue(Reader.FindClassMember('TMixedRec', 'FMixedInt64', Member),
+      'TMixedRec.FMixedInt64 must be parsed');
+    // Empirically Delphi aligns Int64 to 8 bytes regardless of platform
+    // when it follows a smaller field, so the offset is 8 on both archs.
+    Assert.AreEqual(UInt32(8), Member.Offset,
+      'FMixedInt64 must be 8-byte-aligned after the leading Integer');
+    Assert.IsTrue(Reader.FindClassMember('TMixedRec', 'FMixedStr', Member),
+      'TMixedRec.FMixedStr must be parsed');
+    Assert.AreEqual(UInt32(16), Member.Offset,
+      'FMixedStr lands at 16 (after Int + 4 padding + Int64)');
   finally
     Reader.Free;
   end;

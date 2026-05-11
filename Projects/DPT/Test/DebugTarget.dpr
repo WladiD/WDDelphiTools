@@ -60,6 +60,14 @@ type
     FNestedObj : TInner;
     FName      : string;
   end;
+  TMixedRec = record
+    FMixedInt   : Integer;
+    FMixedInt64 : Int64;
+    FMixedStr   : string;
+  end;
+  TPoint3D = record
+    FX, FY, FZ : Integer;
+  end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -69,6 +77,8 @@ var
   GGlobalNilObject   : TObject     = nil;
   GGlobalOuter       : TOuter;
   GGlobalWithRec     : TWithRec;
+  GGlobalMixed       : TMixedRec;
+  GGlobalP3D         : TPoint3D;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -93,6 +103,12 @@ begin
   GGlobalWithRec.FNestedObj.FInnerInt := Integer($88888888);
   GGlobalWithRec.FNestedObj.FInnerStr := 'Inner via Record';
   GGlobalWithRec.FName := 'WithRec';
+  GGlobalMixed.FMixedInt   := Integer($A1A1A1A1);
+  GGlobalMixed.FMixedInt64 := Int64($A2A2A2A2A2A2A2A2);
+  GGlobalMixed.FMixedStr   := 'Mixed-A3';
+  GGlobalP3D.FX := Integer($B1B1B1B1);
+  GGlobalP3D.FY := Integer($B2B2B2B2);
+  GGlobalP3D.FZ := Integer($B3B3B3B3);
   // Touch the value-type globals so the linker keeps them in .bss/.data
   // instead of dead-code-eliminating them. The values themselves are
   // already set by the typed-constant initializers above.

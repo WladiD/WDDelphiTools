@@ -213,37 +213,6 @@ var
     Result := True;
   end;
 
-  function FindAllClassNameOffsets(const AClassName: String): TArray<NativeInt>;
-  // Locate every length-prefixed occurrence of the given class/record
-  // name within the buffer. RSM emits the same name across multiple
-  // streams (the symbol-scope cluster, the type-definition cluster,
-  // RTTI strings, ...), so callers iterate the candidates and pick
-  // the one whose surrounding bytes look like a field list.
-  var
-    I, NL, K: Integer;
-    Match   : Boolean;
-  begin
-    Result := nil;
-    NL := Length(AClassName);
-    if (NL < 1) or (NL > 64) then Exit;
-    for I := 0 to Sz - 1 - NL - 1 do
-    begin
-      if ByteAt(I) <> Byte(NL) then Continue;
-      Match := True;
-      for K := 0 to NL - 1 do
-        if ByteAt(I + 1 + K) <> Byte(Ord(AClassName[K + 1])) then
-        begin
-          Match := False;
-          Break;
-        end;
-      if Match then
-      begin
-        SetLength(Result, Length(Result) + 1);
-        Result[High(Result)] := I;
-      end;
-    end;
-  end;
-
   procedure ScanFieldsBackwardFromClassName(AClassNameOff: NativeInt;
     AKind: TRsmStructKind; const AClassName: String);
   // Scan a fixed window of bytes BEFORE the class-trailer position
@@ -310,7 +279,7 @@ var
       end;
       // Heuristic guard: a real Delphi field name starts with 'F'
       // by convention. This rules out non-field length-prefixed
-      // strings (e.g. unit names "DebugTarget", class-trailer text)
+      // strings (e.g. unit names, class-trailer text fragments)
       // that happen to sit within the scan window.
       if (Length(Name) < 1) or (Name[1] <> 'F') then
       begin
@@ -369,94 +338,131 @@ var
 
   procedure ScanFieldsForwardFromRecordName(ARecordNameOff: NativeInt;
     const ARecordName: String);
-  // Records emit their fields AFTER the name (in declaration order),
-  // unlike classes which emit fields before the trailer name. Each
-  // field record is "02 <namelen> <name> <10 bytes type info>"; the
-  // trailing 10 bytes don't directly encode the field's offset, so
-  // we compute offsets cumulatively from the record's total size and
-  // field count -- which fits the test fixture (homogeneous field
-  // sizes per record). The record's total size is the DWORD that
-  // immediately follows the record-name's namelen+name.
+  // Records emit their fields after the name in declaration order.
+  // Each field record consists of:
+  //
+  //   <$02> <namelen> <name>                  (tag + length-prefixed name)
+  //   <$02 $00 <last-flag> $00 $00 $00>       (6-byte type-info; last-flag
+  //                                            is $00 for non-terminal
+  //                                            fields, $02 for the last)
+  //
+  // Non-terminal fields are followed by a next-field-offset DWORD
+  // that gives the byte offset of the following field within the
+  // record. The offset's exact position varies by platform:
+  //
+  //   * Win32: <DWORD next-offset> immediately after the typeinfo
+  //     (4 bytes after typeinfo end).
+  //   * Win64: <4 zero bytes> <DWORD next-offset> <4 zero bytes>
+  //     (12 bytes after typeinfo end). The leading zero pad means
+  //     a quick check on byte+4 lets us pick the right layout: $02
+  //     there is the next field's tag (Win32 layout); zero is
+  //     padding (Win64 layout, real offset four bytes further on).
+  //
+  // Field 0 starts at offset 0; subsequent fields start at the
+  // next-offset emitted by the prior field. The last field has the
+  // $02 last-flag and is followed by either nothing (managed
+  // record) or a small trailer (unmanaged); the walker stops as
+  // soon as the last-flag fires.
   const
-    MaxFields  = 32;
-    ScanWindow = 512;
+    MaxFields = 32;
   var
-    Cands  : array[0..MaxFields - 1] of TRsmClassMember;
-    Count  : Integer;
-    Skip   : Boolean;
-    NL     : Integer;
-    PStart : NativeInt;
-    PEnd   : NativeInt;
-    P      : NativeInt;
-    Tag    : Byte;
-    NameLen: Byte;
-    Name   : String;
-    TotSz  : UInt32;
-    Each   : UInt32;
-    I      : Integer;
-    Info   : TRsmClassInfo;
-    List   : IList<TRsmClassMember>;
-    Member : TRsmClassMember;
+    Cands       : array[0..MaxFields - 1] of TRsmClassMember;
+    Offsets     : array[0..MaxFields] of UInt32;
+    Count       : Integer;
+    NL          : Integer;
+    PStart      : NativeInt;
+    PScan       : NativeInt;
+    P           : NativeInt;
+    NameLen     : Byte;
+    Name        : String;
+    LastFlag    : Byte;
+    NextOff     : UInt32;
+    IsLast      : Boolean;
+    I           : Integer;
+    Info        : TRsmClassInfo;
+    List        : IList<TRsmClassMember>;
+    Member      : TRsmClassMember;
+    FoundFirst  : Boolean;
   begin
     NL := Length(ARecordName);
-    // Skip past <namelen><name> to read the total-size DWORD that
-    // follows the record name in the type stream.
     if ARecordNameOff + 1 + NL + 4 > Sz then Exit;
-    TotSz := DwordAt(ARecordNameOff + 1 + NL);
-
-    Count  := 0;
     PStart := ARecordNameOff + 1 + NL + 4;
-    PEnd   := PStart + ScanWindow;
-    if PEnd > Sz - 4 then PEnd := Sz - 4;
 
+    // The header between the size DWORD and the first field tag has
+    // a variable layout (count, flags, padding) we don't fully
+    // understand, so locate the first field tag heuristically: scan
+    // forward up to a bounded window for the first $02 byte that is
+    // followed by a plausible namelen and identifier-only name.
+    FoundFirst := False;
     P := PStart;
-    while (P + 5 < PEnd) and (Count < MaxFields) do
+    PScan := PStart + 64;
+    if PScan > Sz - 8 then PScan := Sz - 8;
+    while P < PScan do
     begin
-      Tag := ByteAt(P);
-      NameLen := ByteAt(P + 1);
-      // Field record header: tag byte $02, namelen 1..40, then name.
-      // Stop early when we hit a tag byte that is the record terminator
-      // ($0E = next type-record marker, $07 = duplicated-name reference).
-      if (Tag = $0E) or (Tag = $07) then Break;
-      if (Tag <> $02) or (NameLen < 1) or (NameLen > 40) or
-         not ReadIdentifier(P + 1, Name) then
+      if (ByteAt(P) = $02) then
       begin
-        Inc(P);
-        Continue;
-      end;
-      if (Length(Name) < 1) or (Name[1] <> 'F') then
-      begin
-        Inc(P);
-        Continue;
-      end;
-      Skip := False;
-      for I := 0 to Count - 1 do
-        if SameText(Cands[I].Name, Name) then
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 40) and
+           ReadIdentifier(P + 1, Name) and
+           (Length(Name) >= 1) and (Name[1] = 'F') then
         begin
-          Skip := True;
+          FoundFirst := True;
           Break;
         end;
-      if Skip then begin Inc(P); Continue; end;
+      end;
+      Inc(P);
+    end;
+    if not FoundFirst then Exit;
+
+    // Walk the field list. Each iteration advances P past the
+    // current field's complete encoding (tag + name + 6-byte
+    // typeinfo + optional 4-byte next-offset).
+    Count := 0;
+    Offsets[0] := 0;
+    while (P + 8 < Sz) and (Count < MaxFields) do
+    begin
+      if ByteAt(P) <> $02 then Break;
+      NameLen := ByteAt(P + 1);
+      if (NameLen < 1) or (NameLen > 40) then Break;
+      if not ReadIdentifier(P + 1, Name) then Break;
+      if (Length(Name) < 1) or (Name[1] <> 'F') then Break;
+
+      // 6-byte typeinfo follows the name; byte 2 is the last-flag.
+      if P + 2 + Length(Name) + 6 > Sz then Break;
+      LastFlag := ByteAt(P + 2 + Length(Name) + 2);
+      IsLast := (LastFlag = $02);
+
       Cands[Count].Name    := Name;
-      Cands[Count].Offset  := 0; // assigned below
+      Cands[Count].Offset  := Offsets[Count];
       Cands[Count].TypeIdx := 0;
       Inc(Count);
-      // Skip past the field record (tag + namelen + name + 10-byte
-      // payload empirically observed for Win32/Win64 record fields).
-      P := P + 2 + Length(Name) + 10;
+
+      if IsLast then Break;
+
+      // Pick the next-offset DWORD location based on the layout
+      // hint: Win32 has it directly after the typeinfo, Win64 puts
+      // 4 zero pad bytes first. byte_at(typeinfo_end + 4) = $02
+      // means the next field tag follows immediately, so we're
+      // looking at the Win32 layout; anything else means Win64.
+      var TypeinfoEnd: NativeInt := P + 2 + Length(Name) + 6;
+      if TypeinfoEnd + 8 > Sz then Break;
+      var Tag4: Byte := ByteAt(TypeinfoEnd + 4);
+      if Tag4 = $02 then
+      begin
+        NextOff := DwordAt(TypeinfoEnd);
+        Offsets[Count] := NextOff;
+        P := TypeinfoEnd + 4;
+      end
+      else
+      begin
+        if TypeinfoEnd + 12 > Sz then Break;
+        NextOff := DwordAt(TypeinfoEnd + 4);
+        Offsets[Count] := NextOff;
+        P := TypeinfoEnd + 12;
+      end;
     end;
 
     if Count = 0 then Exit;
-
-    // Distribute the record's total bytes evenly across the fields:
-    // works for fixtures where every field has the same width
-    // (TPoint2D = 2 ints, TRect2D = 2 TPoint2D, TPair = 2 pointers).
-    if TotSz > 0 then
-      Each := TotSz div UInt32(Count)
-    else
-      Each := 0;
-    for I := 0 to Count - 1 do
-      Cands[I].Offset := UInt32(I) * Each;
 
     List := Collections.NewPlainList<TRsmClassMember>;
     for I := 0 to Count - 1 do
@@ -475,61 +481,81 @@ var
     FClasses.Add(Info);
   end;
 
-  procedure ProbeKnownStruct(const AName: String; AKind: TRsmStructKind);
-  // Try every length-prefixed occurrence of AName. Classes have their
-  // fields BEFORE the name (so we scan a window that ends at the name);
-  // records have their fields AFTER the name and are marked by the
-  // sentinel byte $0E right before the namelen byte. Stop on the first
-  // occurrence that yields a non-empty member list.
+  procedure DiscoverAndParseAllStructs;
+  // Walk the entire RSM byte-by-byte and parse every class or record
+  // whose presence is signalled by one of two distinctive markers:
+  //
+  //   * Class trailer pattern (Win32):
+  //       <NL> <name> 04 00 00 00 07 <NL> <name> 58 00 00 00
+  //   * Class trailer pattern (Win64):
+  //       <NL> <name> 08 00 00 00 00 00 00 00 07 <NL> <name>
+  //                                            C8 00 00 00 00 00 00 00
+  //     The constant DWORDs are upgraded to QWORDs on x64. The
+  //     duplicated length-prefixed name with a $07 tag between is
+  //     the stable part across both platforms.
+  //
+  //   * Record sentinel: $0E <NL> <name>
+  //     The $0E byte precedes every record name in the type stream;
+  //     classes don't have a sentinel.
+  //
+  // Each detected struct is parsed by the existing field walker
+  // (backward window for classes, forward walk with explicit
+  // next-offset DWORDs for records). Duplicate names that happen
+  // to match more than once (e.g. the same class name copied into
+  // multiple sub-streams) are filtered by checking FindClassByName
+  // before re-adding.
   var
-    Offsets: TArray<NativeInt>;
-    I      : Integer;
-    Before : Integer;
-    NameOff: NativeInt;
-  begin
-    Offsets := FindAllClassNameOffsets(AName);
-    for I := 0 to High(Offsets) do
+    P    : NativeInt;
+    L    : Byte;
+    Name : String;
+
+    function SecondNameMatches(ASecondStart: NativeInt; ANL: Byte;
+      const AName: String): Boolean;
+    var
+      K: Integer;
     begin
-      NameOff := Offsets[I];
-      Before := FClasses.Count;
-
-      if AKind = skRecord then
-      begin
-        // The type-stream occurrence of a record name is preceded by
-        // a $0E sentinel byte. Skip occurrences (e.g. RTTI strings,
-        // scope refs) without that marker so we don't try to read a
-        // bogus size DWORD.
-        if (NameOff = 0) or (ByteAt(NameOff - 1) <> $0E) then
-          Continue;
-        ScanFieldsForwardFromRecordName(NameOff, AName);
-      end
-      else
-        ScanFieldsBackwardFromClassName(NameOff, AKind, AName);
-
-      if FClasses.Count > Before then
-      begin
-        if (FClasses.Count = Before + 1) and
-           (FClasses[Before].Members.Count = 0) then
-          FClasses.Delete(Before)
-        else
-          Exit;
-      end;
+      Result := False;
+      if ByteAt(ASecondStart) <> ANL then Exit;
+      for K := 0 to Integer(ANL) - 1 do
+        if ByteAt(ASecondStart + 1 + K) <> Byte(Ord(AName[K + 1])) then Exit;
+      Result := True;
     end;
-  end;
 
-  procedure ProbeKnownClasses;
-  const
-    KNOWN_CLASSES: array[0..2] of String =
-      ('TInner', 'TOuter', 'TWithRec');
-    KNOWN_RECORDS: array[0..2] of String =
-      ('TPoint2D', 'TRect2D', 'TPair');
-  var
-    I: Integer;
   begin
-    for I := 0 to High(KNOWN_CLASSES) do
-      ProbeKnownStruct(KNOWN_CLASSES[I], skClass);
-    for I := 0 to High(KNOWN_RECORDS) do
-      ProbeKnownStruct(KNOWN_RECORDS[I], skRecord);
+    P := 1;
+    while P + 24 < Sz do
+    begin
+      L := ByteAt(P);
+      if (L >= 1) and (L <= 40) and
+         ReadIdentifier(P, Name) and
+         (Length(Name) >= 2) and (Name[1] = 'T') then
+      begin
+        // Probe both class-trailer layouts.
+        var NameEnd: NativeInt := P + 1 + L;
+        var IsClass: Boolean := False;
+        // Win32: $07 at NameEnd + 4, duplicate name at +5.
+        if (NameEnd + 5 + L < Sz) and (ByteAt(NameEnd + 4) = $07) and
+           SecondNameMatches(NameEnd + 5, L, Name) then
+          IsClass := True
+        // Win64: $07 at NameEnd + 8, duplicate name at +9.
+        else if (NameEnd + 9 + L < Sz) and (ByteAt(NameEnd + 8) = $07) and
+                SecondNameMatches(NameEnd + 9, L, Name) then
+          IsClass := True;
+
+        if IsClass then
+        begin
+          if FindClassByName(Name) < 0 then
+            ScanFieldsBackwardFromClassName(P, skClass, Name);
+        end
+        else if (P > 0) and (ByteAt(P - 1) = $0E) then
+        begin
+          // Record probe: $0E sentinel right before the name.
+          if FindClassByName(Name) < 0 then
+            ScanFieldsForwardFromRecordName(P, Name);
+        end;
+      end;
+      Inc(P);
+    end;
   end;
 
   procedure ScanSymbolStream;
@@ -730,7 +756,7 @@ begin
   Sz  := Length(ABytes);
   ScanSymbolStream;
   RecomputeProcSizes;
-  ProbeKnownClasses;
+  DiscoverAndParseAllStructs;
 end;
 
 procedure TRsmLocalsReader.RecomputeProcSizes;
