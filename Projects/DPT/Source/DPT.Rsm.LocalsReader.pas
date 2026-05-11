@@ -561,12 +561,35 @@ var
   procedure ScanSymbolStream;
   // Walk the RSM symbol stream looking for procedure ($28 tag) and
   // local ($20 tag) records. Each proc owns the locals between its
-  // own record and the next proc (or the $63 scope-end byte). The
-  // Win32 proc-address form is decoded inline below; the Win64 form
-  // is a variable-length encoding that hasn't been reversed, so
-  // Win64 procs land with SegmentOffset = 0 and a side channel
-  // (typically the .map file) must patch them before
-  // FindProcContaining can resolve PC -> proc on Win64.
+  // own record and the next proc (or the $63 scope-end byte). Both
+  // Win32 and Win64 proc-address forms are decoded inline below.
+  //
+  // === Win32 proc-address encoding ===
+  // After the name and the fixed "20 00 00" prefix, a 4-byte little-
+  // endian DWORD packs the proc's runtime VA into the high 28 bits
+  // and a 4-bit type tag (always $7 for code) into the low 4 bits.
+  // Recovering the segment-relative RVA is therefore
+  //     RVA = (DWORD >> 4) - ($400000 + $1000)
+  // where $400000 is the Win32 image base and $1000 is the .text
+  // section's typical RVA.
+  //
+  // === Win64 proc-address encoding ===
+  // The address block is variable-length: 4 bytes when the proc
+  // is small (size <= $80), 5 bytes for larger procs, followed by
+  // the fixed terminator "04 10 21 2e 00". Only bytes 0..2 are
+  // needed to recover the RVA; bytes 3/4 encode proc size + local-
+  // layout info and aren't needed for address resolution.
+  //
+  // Decoded layout (LSB-first; bits are of VA = RVA + $1000, i.e.
+  // RVA measured from the image base instead of from the .text
+  // section start):
+  //    byte 0 bits 0-6 : constant $03 (encoding-kind tag for code)
+  //    byte 0 bit  7   : VA bit 4
+  //    byte 1          : VA bits 5-12  (full 8 bits)
+  //    byte 2          : VA bits 13-20 (full 8 bits)
+  // Procs are 16-byte aligned, so VA bits 0-3 are implicitly zero.
+  // This covers code sections up to 2MB; for larger binaries the
+  // higher VA bits would have to come from bytes 3/4 (not yet RE'd).
   const
     PROC_TAG  = $28;
     LOCAL_TAG = $20;
@@ -603,35 +626,52 @@ var
           begin
             Proc := Default(TRsmProc);
             Proc.Name := Name;
-            // Win32 proc address encoding: the 4 bytes immediately
-            // after the proc name and a fixed "20 00 00" prefix
-            // pack the proc's runtime VA into the high 28 bits and
-            // a 4-bit type/flag tag into the low 4 bits. Recovering
-            // the segment-relative RVA is therefore
-            //     RVA = (DWORD >> 4) - $401000
-            // where $401000 is the Win32 image-base ($400000) plus
-            // the .text section's typical RVA ($1000). Win64 uses a
-            // different (variable-length) encoding that hasn't been
-            // decoded yet; the same formula yields out-of-range
-            // values there, so we accept the result only if it fits
-            // a plausible code-segment RVA window.
             Proc.SegmentOffset := 0;
             Proc.Size := 0;
             if P + 2 + Length(Name) + 7 < Sz then
             begin
               // Proc payload starts 2 (tag+namelen) + Length(Name)
               // bytes from P. After the 3-byte "20 00 00" prefix,
-              // the 4 address bytes start at offset 3.
-              var AddrDword: UInt32 := DwordAt(P + 2 + Length(Name) + 3);
-              var Decoded: Int64 := (Int64(AddrDword) shr 4) - $401000;
-              if (Decoded > 0) and (Decoded < $1000000) then
+              // the address bytes begin at offset 3. Try Win32 first
+              // (4-byte DWORD form), then fall back to the Win64
+              // 3-byte form. Both are detected by the low-nibble tag
+              // in byte 0: $7 = Win32 code, $3 = Win64 code.
+              var PayloadOff: NativeInt := P + 2 + Length(Name) + 3;
+              var Byte0: Byte := ByteAt(PayloadOff);
+              if (Byte0 and $0F) = $07 then
               begin
-                Proc.SegmentOffset := NativeUInt(Decoded);
-                // Size unknown from the proc record; use a
-                // generous placeholder so FindProcContaining can
-                // hit, then patch up below once all procs are
-                // collected (size = next-proc-start - this-start).
-                Proc.Size := $1000;
+                // Win32: 4-byte LE DWORD with low nibble = $7.
+                //   RVA = (DWORD >> 4) - ($400000 + $1000)
+                var AddrDword: UInt32 := DwordAt(PayloadOff);
+                var Decoded: Int64 := (Int64(AddrDword) shr 4) - $401000;
+                if (Decoded > 0) and (Decoded < $1000000) then
+                begin
+                  Proc.SegmentOffset := NativeUInt(Decoded);
+                  // Size unknown from the proc record; use a
+                  // generous placeholder so FindProcContaining can
+                  // hit, then patch up below once all procs are
+                  // collected (size = next-proc-start - this-start).
+                  Proc.Size := $1000;
+                end;
+              end
+              else if (Byte0 and $7F) = $03 then
+              begin
+                // Win64: byte 0 bit 7 = VA bit 4, byte 1 = VA bits
+                // 5-12, byte 2 = VA bits 13-20. VA is measured from
+                // the Win64 image base, so RVA (from .text start at
+                // $1000) is VA - $1000.
+                var Byte1: Byte := ByteAt(PayloadOff + 1);
+                var Byte2: Byte := ByteAt(PayloadOff + 2);
+                var Va: UInt32 :=
+                  ((UInt32(Byte0) shr 7) and 1) shl 4 or
+                  (UInt32(Byte1) shl 5) or
+                  (UInt32(Byte2) shl 13);
+                Va := Va and $1FFFFF;  // 21-bit mask
+                if Va >= $1000 then
+                begin
+                  Proc.SegmentOffset := NativeUInt(Va - $1000);
+                  Proc.Size := $1000;
+                end;
               end;
             end;
             Proc.Locals := Collections.NewPlainList<TRsmLocal>;

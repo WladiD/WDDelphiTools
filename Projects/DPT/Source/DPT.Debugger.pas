@@ -946,17 +946,17 @@ begin
 end;
 
 procedure TDebugger.PatchRsmProcAddressesFromMap;
-// The RSM symbol stream encodes proc start addresses with a packed
-// shift-and-tag format whose Win32 form has been reverse-engineered
-// (see TRsmLocalsReader.LoadFromBytes); the Win64 form uses a
-// different (variable-length) encoding that hasn't been decoded.
-// Procs whose decode failed land with SegmentOffset = 0 and would
-// be invisible to FindProcContaining. The .map file lists every
-// proc by name in segment-relative coordinates -- the same
-// convention TRsmProc.SegmentOffset already uses -- so once both
-// the reader and the map are loaded we cross-reference them: for
-// each RSM proc with a missing offset, copy the .map's value into
-// it directly. After patching, ask the reader to recompute proc
+// Both Win32 and Win64 proc-address forms are now decoded in
+// TRsmLocalsReader.LoadFromBytes, so under normal conditions every
+// proc lands with a non-zero SegmentOffset. This routine remains as
+// a defensive backstop: if the reader fails to recognize a proc's
+// address bytes (e.g. when an unknown encoding variant is encountered
+// or the code section exceeds the 2MB range the Win64 decoder
+// currently covers), the proc would land at SegmentOffset = 0 and be
+// invisible to FindProcContaining. The .map file lists every proc by
+// name in the same segment-relative coordinates SegmentOffset uses,
+// so we cross-reference: for each RSM proc with a missing offset,
+// copy the .map's value into it. After patching, recompute proc
 // Sizes by gap so FindProcContaining ranges become correct again.
 var
   I       : Integer;
