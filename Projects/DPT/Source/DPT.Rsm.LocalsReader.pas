@@ -48,8 +48,8 @@ type
   /// </summary>
   TRsmProc = record
     Name         : String;
-    SegmentOffset: UInt32;
-    Size         : UInt32;
+    SegmentOffset: NativeUInt;
+    Size         : NativeUInt;
     Locals       : IList<TRsmLocal>;
   end;
 
@@ -111,7 +111,7 @@ type
     /// </summary>
     procedure LoadFromFile(const AExePath: String);
     procedure LoadFromBytes(const ABytes: TBytes);
-    function  FindProcContaining(ASegmentOffset: UInt32): Integer;
+    function  FindProcContaining(ASegmentOffset: NativeUInt): Integer;
     function  FindProcByName(const AName: String): Integer;
     function  FindClassByName(const AName: String): Integer;
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
@@ -562,12 +562,11 @@ var
   // Walk the RSM symbol stream looking for procedure ($28 tag) and
   // local ($20 tag) records. Each proc owns the locals between its
   // own record and the next proc (or the $63 scope-end byte). The
-  // RSM proc address encoding hasn't been fully reversed yet -- it's
-  // a small structure varying in length between Win32 and Win64 that
-  // does NOT match the simple <DWORD-RVA> form used by TD32. Until
-  // it is decoded, SegmentOffset is left at 0 and Size at $FFFFFFFF
-  // so name-based lookups work; FindProcContaining cannot operate
-  // until address decoding lands.
+  // Win32 proc-address form is decoded inline below; the Win64 form
+  // is a variable-length encoding that hasn't been reversed, so
+  // Win64 procs land with SegmentOffset = 0 and a side channel
+  // (typically the .map file) must patch them before
+  // FindProcContaining can resolve PC -> proc on Win64.
   const
     PROC_TAG  = $28;
     LOCAL_TAG = $20;
@@ -627,7 +626,7 @@ var
               var Decoded: Int64 := (Int64(AddrDword) shr 4) - $401000;
               if (Decoded > 0) and (Decoded < $1000000) then
               begin
-                Proc.SegmentOffset := UInt32(Decoded);
+                Proc.SegmentOffset := NativeUInt(Decoded);
                 // Size unknown from the proc record; use a
                 // generous placeholder so FindProcContaining can
                 // hit, then patch up below once all procs are
@@ -981,7 +980,7 @@ var
   Idx       : array of Integer;
   I, J      : Integer;
   Tmp       : Integer;
-  NextStart : UInt32;
+  NextStart : NativeUInt;
   P         : TRsmProc;
   Gap       : Int64;
 begin
@@ -1023,7 +1022,7 @@ begin
     begin
       Gap := Int64(NextStart) - Int64(P.SegmentOffset);
       if Gap > MaxProcSize then Gap := MaxProcSize;
-      P.Size := UInt32(Gap);
+      P.Size := NativeUInt(Gap);
     end;
     FProcs[Idx[I]] := P;
   end;
@@ -1038,7 +1037,7 @@ begin
   end;
 end;
 
-function TRsmLocalsReader.FindProcContaining(ASegmentOffset: UInt32): Integer;
+function TRsmLocalsReader.FindProcContaining(ASegmentOffset: NativeUInt): Integer;
 var
   I: Integer;
 begin

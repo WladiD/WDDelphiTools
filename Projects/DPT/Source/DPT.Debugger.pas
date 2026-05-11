@@ -973,8 +973,7 @@ begin
     if P.Name = '' then Continue;
     VA := FMapScanner.VAFromSimpleName(P.Name);
     if VA = 0 then Continue;
-    if VA > High(UInt32) then Continue;
-    P.SegmentOffset := UInt32(VA);
+    P.SegmentOffset := NativeUInt(VA);
     FLocalsReader.Procs[I] := P;
     Patched := True;
   end;
@@ -986,10 +985,9 @@ function TDebugger.GetCurrentProcedureName(AThreadHandle: THandle): String;
 const
   CodeSectionRVA = $1000;
 var
-  EipRva    : UInt64;
   ProcIdx   : Integer;
   Regs      : TRegisters;
-  SegmentOff: UInt32;
+  SegmentOff: NativeUInt;
 begin
   Result := '';
   if not Assigned(FLocalsReader) then
@@ -1000,10 +998,7 @@ begin
     Exit;
   if Regs.Eip < FBaseAddress + CodeSectionRVA then
     Exit;
-  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
-  if EipRva > High(UInt32) then
-    Exit;
-  SegmentOff := UInt32(EipRva);
+  SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
   if ProcIdx >= 0 then
@@ -1016,12 +1011,11 @@ const
   CodeSectionRVA = $1000;
 var
   BaseAddr  : NativeInt;
-  EipRva    : UInt64;
   FrameInfo : TStackFrameInfo;
   ProcIdx   : Integer;
   Proc      : TRsmProc;
   Regs      : TRegisters;
-  SegmentOff: UInt32;
+  SegmentOff: NativeUInt;
   I         : Integer;
 begin
   Result := False;
@@ -1034,10 +1028,7 @@ begin
     Exit;
   if Regs.Eip < FBaseAddress + CodeSectionRVA then
     Exit;
-  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
-  if EipRva > High(UInt32) then
-    Exit;
-  SegmentOff := UInt32(EipRva);
+  SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
   if ProcIdx < 0 then
@@ -1073,14 +1064,13 @@ const
   ReadSize       = 8;
 var
   BaseAddr  : NativeInt;
-  EipRva    : UInt64;
   FrameInfo : TStackFrameInfo;
   Loc       : TLocalVar;
   ProcIdx   : Integer;
   Proc      : TRsmProc;
   Regs      : TRegisters;
   ResultList: IList<TLocalVar>;
-  SegmentOff: UInt32;
+  SegmentOff: NativeUInt;
   SlotAddr  : UIntPtr;
   I         : Integer;
 begin
@@ -1093,10 +1083,7 @@ begin
     Exit;
   if Regs.Eip < FBaseAddress + CodeSectionRVA then
     Exit;
-  EipRva := Regs.Eip - FBaseAddress - CodeSectionRVA;
-  if EipRva > High(UInt32) then
-    Exit;
-  SegmentOff := UInt32(EipRva);
+  SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
   if ProcIdx < 0 then
