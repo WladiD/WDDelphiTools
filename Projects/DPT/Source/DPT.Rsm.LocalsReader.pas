@@ -744,6 +744,211 @@ var
     end;
   end;
 
+  procedure LinkMemberTypeIdsFromFormatA;
+  // RSM emits class fields in TWO parallel encodings within the
+  // symbol cluster:
+  //
+  //   Format B (offset-only, what ScanFieldsBackwardFromClassName
+  //   reads): <DWORD-offset> <namelen> <name>. No field-type info.
+  //
+  //   Format A (rich, also present): contains a real 2-byte type-id
+  //   for every field, plus a "parent class" 2-byte type-id at the
+  //   end of each record. A separate "type registry" maps each
+  //   class/record name to its 2-byte type-id.
+  //
+  //     Registry entry:  2A <NL> <name> 20 00 00 <type-id 2 bytes>
+  //     Field record:    (2C | FF 2C) <NL> <name> 00 02 00
+  //                      <field-type-id 2 bytes> ...
+  //                      07 00 00 08 <parent-type-id 2 bytes>
+  //
+  // After ScanFieldsBackwardFromClassName / ScanFieldsForwardFromRecordName
+  // have collected the classes/records and their members (with
+  // names + offsets but TypeIdx = 0), we walk the byte stream again
+  // and use Format A to populate each Member.TypeIdx.
+  type
+    TRawId = record Lo, Hi: Byte; end;
+  var
+    NameToRawId : array of record Name: String; Id: TRawId; end;
+    NameRawIdCnt: Integer;
+
+    function RawIdEqual(const A, B: TRawId): Boolean;
+    begin
+      Result := (A.Lo = B.Lo) and (A.Hi = B.Hi);
+    end;
+
+    function FindClassIdxForRawId(const ARaw: TRawId): Integer;
+    var
+      I, K: Integer;
+    begin
+      // Find the name registered with this raw-id and look it up in
+      // our parsed Classes list. Returns -1 if either the raw-id or
+      // the name isn't known to us (built-in types fall here).
+      Result := -1;
+      for I := 0 to NameRawIdCnt - 1 do
+        if RawIdEqual(NameToRawId[I].Id, ARaw) then
+        begin
+          for K := 0 to FClasses.Count - 1 do
+            if SameText(FClasses[K].Name, NameToRawId[I].Name) then
+              Exit(K);
+          Exit;
+        end;
+    end;
+
+    procedure ScanTypeRegistry;
+    var
+      P, NL, K  : Integer;
+      Name      : String;
+      Valid     : Boolean;
+      Id        : TRawId;
+    begin
+      P := 0;
+      while P + 12 < Sz do
+      begin
+        if ByteAt(P) = $2A then
+        begin
+          NL := ByteAt(P + 1);
+          if (NL >= 2) and (NL <= 40) and
+             ReadIdentifier(P + 1, Name) and
+             (Length(Name) >= 2) and (Name[1] = 'T') and
+             (P + 2 + NL + 5 < Sz) and
+             (ByteAt(P + 2 + NL) = $20) and
+             (ByteAt(P + 2 + NL + 1) = $00) and
+             (ByteAt(P + 2 + NL + 2) = $00) then
+          begin
+            Id.Lo := ByteAt(P + 2 + NL + 3);
+            Id.Hi := ByteAt(P + 2 + NL + 4);
+            Valid := True;
+            // Deduplicate: registry can list the same name twice
+            // (one record before, one after). Last entry wins.
+            for K := 0 to NameRawIdCnt - 1 do
+              if SameText(NameToRawId[K].Name, Name) then
+              begin
+                NameToRawId[K].Id := Id;
+                Valid := False;
+                Break;
+              end;
+            if Valid then
+            begin
+              if NameRawIdCnt >= Length(NameToRawId) then
+                SetLength(NameToRawId, (NameRawIdCnt + 1) * 2);
+              NameToRawId[NameRawIdCnt].Name := Name;
+              NameToRawId[NameRawIdCnt].Id   := Id;
+              Inc(NameRawIdCnt);
+            end;
+            P := P + 2 + NL + 5;
+            Continue;
+          end;
+        end;
+        Inc(P);
+      end;
+    end;
+
+    procedure LinkFieldsFromFormatA;
+    var
+      P, NL    : Integer;
+      Name     : String;
+      FieldId  : TRawId;
+      ParentId : TRawId;
+      ParentIdx: Integer;
+      FieldIdx : Integer;
+      I, M     : Integer;
+      Member   : TRsmClassMember;
+      EndOff   : Integer;
+    begin
+      P := 0;
+      while P + 24 < Sz do
+      begin
+        // A field record starts with either $2C (first field of a
+        // class in Format A) or $FF $2C (subsequent fields). Peek
+        // both forms.
+        var TagOff: Integer := -1;
+        if ByteAt(P) = $2C then
+          TagOff := P
+        else if (P + 1 < Sz) and (ByteAt(P) = $FF) and (ByteAt(P + 1) = $2C) then
+          TagOff := P + 1;
+        if TagOff < 0 then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        NL := ByteAt(TagOff + 1);
+        if (NL < 1) or (NL > 40) or (not ReadIdentifier(TagOff + 1, Name)) or
+           (Length(Name) = 0) or (Name[1] <> 'F') then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        // After the name expect the constant "00 02 00" + 2-byte
+        // field-type-id.
+        var After: Integer := TagOff + 2 + Length(Name);
+        if After + 5 + 6 + 2 > Sz then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
+           (ByteAt(After + 2) <> $00) then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        FieldId.Lo := ByteAt(After + 3);
+        FieldId.Hi := ByteAt(After + 4);
+        // Record varies in length: scan a bounded window for the
+        // terminator "07 00 00 08 <parent-id-lo> <parent-id-hi>".
+        // The window is small (under 32 bytes) for both known forms.
+        EndOff := -1;
+        for I := After + 5 to After + 30 do
+        begin
+          if I + 5 > Sz then Break;
+          if (ByteAt(I) = $07) and (ByteAt(I + 1) = $00) and
+             (ByteAt(I + 2) = $00) and (ByteAt(I + 3) = $08) then
+          begin
+            EndOff := I;
+            Break;
+          end;
+        end;
+        if EndOff < 0 then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        ParentId.Lo := ByteAt(EndOff + 4);
+        ParentId.Hi := ByteAt(EndOff + 5);
+        // Look up parent class in our list via the registry.
+        ParentIdx := FindClassIdxForRawId(ParentId);
+        if ParentIdx < 0 then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        // Find the member by name in the parent class and resolve
+        // its TypeIdx via the field-type-id.
+        for M := 0 to FClasses[ParentIdx].Members.Count - 1 do
+        begin
+          Member := FClasses[ParentIdx].Members[M];
+          if SameText(Member.Name, Name) and (Member.TypeIdx = 0) then
+          begin
+            FieldIdx := FindClassIdxForRawId(FieldId);
+            if FieldIdx >= 0 then
+            begin
+              Member.TypeIdx := FClasses[FieldIdx].TypeIdx;
+              FClasses[ParentIdx].Members[M] := Member;
+            end;
+            Break;
+          end;
+        end;
+        P := EndOff + 6;
+      end;
+    end;
+
+  begin
+    SetLength(NameToRawId, 64);
+    NameRawIdCnt := 0;
+    ScanTypeRegistry;
+    LinkFieldsFromFormatA;
+  end;
+
 begin
   FProcs.Clear;
   FClasses.Clear;
@@ -757,6 +962,7 @@ begin
   ScanSymbolStream;
   RecomputeProcSizes;
   DiscoverAndParseAllStructs;
+  LinkMemberTypeIdsFromFormatA;
 end;
 
 procedure TRsmLocalsReader.RecomputeProcSizes;

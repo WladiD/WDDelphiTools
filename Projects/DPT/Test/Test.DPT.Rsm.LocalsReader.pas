@@ -20,6 +20,7 @@ uses
   System.SysUtils,
 
   DUnitX.TestFramework,
+  mormot.core.collections,
 
   DPT.Rsm.LocalsReader;
 
@@ -35,6 +36,7 @@ type
     procedure DoTestParsesClassMembers(AUse64Bit: Boolean);
     procedure DoTestParsesRecordMembers(AUse64Bit: Boolean);
     procedure DoTestRecordTypeIdxRoundTrip(AUse64Bit: Boolean);
+    procedure DoTestClassFieldTypeIdxLinking(AUse64Bit: Boolean);
     procedure DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
     procedure DoTestFindProcByName(AUse64Bit: Boolean);
   public
@@ -62,6 +64,12 @@ type
     procedure TestParsesRecordMembers32;
     [Test]
     procedure TestRecordTypeIdxRoundTrip32;
+    [Test]
+    procedure TestClassFieldTypeIdxLinking32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestClassFieldTypeIdxLinking64;
+    {$ENDIF}
     {$IFDEF CPUX64}
     [Test]
     procedure TestParsesProcedures64;
@@ -411,6 +419,73 @@ begin
     Reader.Free;
   end;
 end;
+
+procedure TRsmLocalsReaderTests.DoTestClassFieldTypeIdxLinking(AUse64Bit: Boolean);
+var
+  Reader        : TRsmLocalsReader;
+  WithRecIdx    : Integer;
+  Members       : IList<TRsmClassMember>;
+  I             : Integer;
+  FOriginTypeIdx: UInt32;
+  FBoundsTypeIdx: UInt32;
+  FPairTypeIdx  : UInt32;
+  FNestedTypeIdx: UInt32;
+  PointIdx      : Integer;
+  RectIdx       : Integer;
+  PairIdx       : Integer;
+  InnerIdx      : Integer;
+begin
+  // After LinkMemberTypeIdsFromFormatA, every class field whose type
+  // is itself a known class or record must have Member.TypeIdx set
+  // to that type's surrogate. This is what removes the
+  // size+name-heuristic dependency in EvaluateVariable's dotted walk.
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    WithRecIdx := Reader.FindClassByName('TWithRec');
+    PointIdx   := Reader.FindClassByName('TPoint2D');
+    RectIdx    := Reader.FindClassByName('TRect2D');
+    PairIdx    := Reader.FindClassByName('TPair');
+    InnerIdx   := Reader.FindClassByName('TInner');
+    Assert.IsTrue(WithRecIdx >= 0);
+    Assert.IsTrue(PointIdx   >= 0);
+    Assert.IsTrue(RectIdx    >= 0);
+    Assert.IsTrue(PairIdx    >= 0);
+    Assert.IsTrue(InnerIdx   >= 0);
+
+    FOriginTypeIdx := 0;
+    FBoundsTypeIdx := 0;
+    FPairTypeIdx   := 0;
+    FNestedTypeIdx := 0;
+    Members := Reader.Classes[WithRecIdx].Members;
+    for I := 0 to Members.Count - 1 do
+    begin
+      if SameText(Members[I].Name, 'FOrigin')    then FOriginTypeIdx := Members[I].TypeIdx;
+      if SameText(Members[I].Name, 'FBounds')    then FBoundsTypeIdx := Members[I].TypeIdx;
+      if SameText(Members[I].Name, 'FPair')      then FPairTypeIdx   := Members[I].TypeIdx;
+      if SameText(Members[I].Name, 'FNestedObj') then FNestedTypeIdx := Members[I].TypeIdx;
+    end;
+
+    // Each record-/class-typed field must now resolve back to the
+    // declaring type via FindStructByTypeIdx.
+    Assert.AreEqual(PointIdx, Reader.FindStructByTypeIdx(FOriginTypeIdx),
+      'TWithRec.FOrigin must link to TPoint2D');
+    Assert.AreEqual(RectIdx, Reader.FindStructByTypeIdx(FBoundsTypeIdx),
+      'TWithRec.FBounds must link to TRect2D');
+    Assert.AreEqual(PairIdx, Reader.FindStructByTypeIdx(FPairTypeIdx),
+      'TWithRec.FPair must link to TPair');
+    Assert.AreEqual(InnerIdx, Reader.FindStructByTypeIdx(FNestedTypeIdx),
+      'TWithRec.FNestedObj must link to TInner');
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmLocalsReaderTests.TestClassFieldTypeIdxLinking32;          begin DoTestClassFieldTypeIdxLinking(False);         end;
+{$IFDEF CPUX64}
+procedure TRsmLocalsReaderTests.TestClassFieldTypeIdxLinking64;          begin DoTestClassFieldTypeIdxLinking(True);          end;
+{$ENDIF}
 
 procedure TRsmLocalsReaderTests.TestParsesProcedures32;                 begin DoTestParsesProcedures(False);                 end;
 procedure TRsmLocalsReaderTests.TestParsesLocalsForLocalsProcedure32;   begin DoTestParsesLocalsForLocalsProcedure(False);   end;

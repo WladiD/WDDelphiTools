@@ -2017,97 +2017,6 @@ function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: Stri
     Result := True;
   end;
 
-  // Total record/class size derived from its members: the highest
-  // member offset plus the gap to the would-be next member, falling
-  // back to the highest offset alone for last-field-as-tail.
-  function RecordTotalSize(const AInfo: TRsmClassInfo): UInt32;
-  var
-    MaxOff: UInt32;
-    I     : Integer;
-  begin
-    Result := 0;
-    if AInfo.Members.Count = 0 then Exit;
-    // Members are emitted in declaration order with monotonically
-    // non-decreasing offsets, so the last entry's offset equals the
-    // start of the last field. We can't get its size without a
-    // type-id resolution, so approximate: the difference between
-    // the last two offsets is the previous field's size, applied
-    // to the last field as well. For homogeneous records this is
-    // sound; for records with mixed field widths the heuristic
-    // over-estimates and the record simply doesn't get picked as a
-    // unique size match.
-    MaxOff := 0;
-    for I := 0 to AInfo.Members.Count - 1 do
-      if AInfo.Members[I].Offset > MaxOff then
-        MaxOff := AInfo.Members[I].Offset;
-    if AInfo.Members.Count >= 2 then
-    begin
-      var Sorted: TArray<UInt32>;
-      SetLength(Sorted, AInfo.Members.Count);
-      for I := 0 to AInfo.Members.Count - 1 do
-        Sorted[I] := AInfo.Members[I].Offset;
-      // simple insertion sort
-      for var P: Integer := 1 to High(Sorted) do
-      begin
-        var Tmp: UInt32 := Sorted[P];
-        var Q: Integer := P - 1;
-        while (Q >= 0) and (Sorted[Q] > Tmp) do
-        begin
-          Sorted[Q + 1] := Sorted[Q];
-          Dec(Q);
-        end;
-        Sorted[Q + 1] := Tmp;
-      end;
-      Result := Sorted[High(Sorted)] + (Sorted[High(Sorted)] - Sorted[High(Sorted) - 1]);
-    end
-    else
-      Result := MaxOff;
-  end;
-
-  function RecordHasMember(const AInfo: TRsmClassInfo; const AName: String): Boolean;
-  var
-    I: Integer;
-  begin
-    for I := 0 to AInfo.Members.Count - 1 do
-      if SameText(AInfo.Members[I].Name, AName) then Exit(True);
-    Result := False;
-  end;
-
-  // The byte size occupied by AMember in its parent (Classes[AIdx]).
-  // For non-last members it's the gap to the next member by offset;
-  // for the last member it's the parent's total size minus the
-  // member's offset (using RecordTotalSize's approximation).
-  function MemberSizeInContext(AIdx: Integer; const AMember: TRsmClassMember): UInt32;
-  var
-    NextOff: UInt32;
-    Found  : Boolean;
-    I      : Integer;
-    Total  : UInt32;
-  begin
-    Result := 0;
-    if (AIdx < 0) or (AIdx >= FLocalsReader.Classes.Count) then Exit;
-    Found := False;
-    NextOff := 0;
-    for I := 0 to FLocalsReader.Classes[AIdx].Members.Count - 1 do
-    begin
-      var MOff: UInt32 := FLocalsReader.Classes[AIdx].Members[I].Offset;
-      if MOff > AMember.Offset then
-        if (not Found) or (MOff < NextOff) then
-        begin
-          NextOff := MOff;
-          Found := True;
-        end;
-    end;
-    if Found then
-      Result := NextOff - AMember.Offset
-    else
-    begin
-      Total := RecordTotalSize(FLocalsReader.Classes[AIdx]);
-      if Total > AMember.Offset then
-        Result := Total - AMember.Offset;
-    end;
-  end;
-
   // VMT walk: given a pointer that's expected to point at a class
   // instance, follow the VMT to read the runtime class name. Returns
   // False on nil pointer or any unreadable indirection.
@@ -2209,32 +2118,29 @@ begin
       // iterations is FieldAddr (where the next field's bytes will
       // be read) and PrevContextIdx (the index in FLocalsReader's
       // class/record list of the type we just resolved a member on,
-      // or -1 if we don't know -- in which case the next iteration
-      // does the class-hop's deref-and-VMT-walk).
+      // or -1 if we don't know).
       //
-      // The RSM reader doesn't yet emit per-field TypeIdx values, so
-      // when a class member's resolved type is unknown, we narrow by
-      // SIZE: compute how many bytes the just-resolved member
-      // occupies (= next-member offset minus this-member offset
-      // within the parent), and pick the unique record whose total
-      // size matches AND that has the NEXT path segment as one of
-      // its members. Two records with the same size but different
-      // members disambiguate by member name; two records with the
-      // same size AND the same member name leave us ambiguous and
-      // we fail fast rather than guess.
+      // Two hop kinds:
+      //   * Class hop (default): FieldAddr holds an instance pointer.
+      //     We deref, read the VMT class name, find the named member,
+      //     and advance FieldAddr by Member.Offset.
+      //   * Record hop (when the previous member resolved to a record
+      //     type): FieldAddr already points inline within the parent
+      //     record, no deref. We look up the named member in the
+      //     record's member list and advance FieldAddr by its offset.
+      //
+      // The RSM reader populates Member.TypeIdx from the rich Format-A
+      // field records (linked via the type registry), so transitions
+      // between class-hop and record-hop happen via direct type-id
+      // lookup rather than the older size+name heuristic.
       FieldAddr := Addr;
       var PrevContextIdx: Integer := -1;
-      var PrevMemberOffset: UInt32 := 0;
-      var PrevMemberSize  : UInt32 := 0;
       var ContextIsRecord : Boolean := False;
       for I := 1 to High(Segments) do
       begin
-        var Resolved: Boolean := False;
         if ContextIsRecord and (PrevContextIdx >= 0) then
         begin
-          // Record hop: look up Segments[I] in the current context
-          // record's member list. No deref -- the record sits
-          // inline at FieldAddr.
+          var Resolved: Boolean := False;
           for var Mi: Integer := 0 to FLocalsReader.Classes[PrevContextIdx].Members.Count - 1 do
             if SameText(FLocalsReader.Classes[PrevContextIdx].Members[Mi].Name, Segments[I]) then
             begin
@@ -2247,9 +2153,6 @@ begin
         end
         else
         begin
-          // Class hop: dereference the holding slot (FieldAddr) to
-          // get an instance pointer, read the runtime class name
-          // from the VMT, and look up the named member.
           ObjPtr := ReadTargetPointer(FieldAddr);
           if ObjPtr = 0 then
           begin
@@ -2260,126 +2163,31 @@ begin
             end;
             Exit;
           end;
-          if ReadRuntimeClassName(ObjPtr, ClsName) and
-             FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
-          begin
-            FieldAddr := Pointer(ObjPtr + Member.Offset);
-            Resolved := True;
-            // Pretend the resolved class is the "context" so the
-            // size narrowing below has a member list to consult.
-            PrevContextIdx := FLocalsReader.FindClassByName(ClsName);
-          end;
-          if not Resolved then
-          begin
-            // Inline-record fallback: the deref above produced bogus
-            // bytes (no valid VMT) because FieldAddr actually points
-            // at inline record storage rather than a class pointer.
-            // Pass 1: find all records that have Segments[I] as a
-            // member AND fit the slot size we just came from. If
-            // exactly one matches, use it.
-            var Cands: array[0..15] of Integer;
-            var CandMembs: array[0..15] of TRsmClassMember;
-            var NumCands: Integer := 0;
-            var K: Integer;
-            var M: Integer;
-            for K := 0 to FLocalsReader.Classes.Count - 1 do
-              if FLocalsReader.Classes[K].Kind = skRecord then
-                for M := 0 to FLocalsReader.Classes[K].Members.Count - 1 do
-                  if SameText(FLocalsReader.Classes[K].Members[M].Name, Segments[I]) then
-                  begin
-                    if (PrevMemberSize > 0) and
-                       (RecordTotalSize(FLocalsReader.Classes[K]) <> PrevMemberSize) then
-                      Continue;
-                    if NumCands < Length(Cands) then
-                    begin
-                      Cands[NumCands] := K;
-                      CandMembs[NumCands] := FLocalsReader.Classes[K].Members[M];
-                      Inc(NumCands);
-                    end;
-                  end;
-            // Pass 2: if multiple candidates remain, narrow by
-            // demanding that Segments[I+1] also appears as a member
-            // of the candidate -- handles the direct-collision case
-            // where two records share the same field name but only
-            // one continues with the deeper path segment.
-            if (NumCands > 1) and (I < High(Segments)) then
-            begin
-              var Filtered: Integer := 0;
-              var FIdx: Integer;
-              var FMemb: TRsmClassMember;
-              for K := 0 to NumCands - 1 do
-                if RecordHasMember(FLocalsReader.Classes[Cands[K]], Segments[I + 1]) then
-                begin
-                  Inc(Filtered);
-                  FIdx := Cands[K];
-                  FMemb := CandMembs[K];
-                end;
-              if Filtered = 1 then
-              begin
-                NumCands := 1;
-                Cands[0] := FIdx;
-                CandMembs[0] := FMemb;
-              end;
-            end;
-            if NumCands <> 1 then Exit;
-            Member := CandMembs[0];
-            FieldAddr := Pointer(NativeUInt(FieldAddr) + Member.Offset);
-            PrevContextIdx := Cands[0];
-            PrevMemberOffset := Member.Offset;
-            PrevMemberSize := MemberSizeInContext(Cands[0], Member);
-            ContextIsRecord := True;
-            Continue;
-          end;
+          if not (ReadRuntimeClassName(ObjPtr, ClsName) and
+                  FLocalsReader.FindClassMember(ClsName, Segments[I], Member)) then
+            Exit;
+          FieldAddr := Pointer(ObjPtr + Member.Offset);
         end;
 
-        // After resolving a member, decide what context the NEXT
-        // iteration walks in. If the member's TypeIdx is known and
-        // resolves to a record, that's our next inline context. If
-        // not (the common case while the RSM type-id encoding
-        // remains unsolved), fall back to size+name narrowing: the
-        // member's containment size + the existence of the next
-        // segment as a member in a candidate record uniquely
-        // identifies the record-type for fixtures with reasonable
-        // ambiguity.
-        PrevMemberOffset := Member.Offset;
-        if PrevContextIdx >= 0 then
-          PrevMemberSize := MemberSizeInContext(PrevContextIdx, Member)
-        else
-          PrevMemberSize := 0;
-
-        var NextCtxIdx: Integer := -1;
+        // Determine the next iteration's context purely from the
+        // resolved member's TypeIdx. With the RSM reader's
+        // Format-A type-id linking, structured-typed fields carry
+        // a real TypeIdx that resolves to a record (record-hop next)
+        // or a class (class-hop next); built-in-typed terminal
+        // fields have TypeIdx = 0 and the loop just exits with
+        // FieldAddr pointing at their bytes.
         if (Member.TypeIdx <> 0) and
            (FLocalsReader.FindStructByTypeIdx(Member.TypeIdx) >= 0) then
-          NextCtxIdx := FLocalsReader.FindStructByTypeIdx(Member.TypeIdx)
-        else if (PrevMemberSize > 0) and (I < High(Segments)) then
         begin
-          var Cands2: array[0..15] of Integer;
-          var Num2: Integer := 0;
-          var K2: Integer;
-          for K2 := 0 to FLocalsReader.Classes.Count - 1 do
-            if (FLocalsReader.Classes[K2].Kind = skRecord) and
-               (RecordTotalSize(FLocalsReader.Classes[K2]) = PrevMemberSize) and
-               RecordHasMember(FLocalsReader.Classes[K2], Segments[I + 1]) then
-              if Num2 < Length(Cands2) then
-              begin
-                Cands2[Num2] := K2;
-                Inc(Num2);
-              end;
-          if Num2 = 1 then NextCtxIdx := Cands2[0];
-        end;
-
-        if NextCtxIdx >= 0 then
-        begin
-          PrevContextIdx := NextCtxIdx;
+          PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.TypeIdx);
           ContextIsRecord :=
-            FLocalsReader.Classes[NextCtxIdx].Kind = skRecord;
+            FLocalsReader.Classes[PrevContextIdx].Kind = skRecord;
         end
         else
-          // No reliable next-context yet; the next iteration tries
-          // class-hop, falling back to size+name narrowing if the
-          // deref proves wrong. PrevContextIdx stays put so size
-          // narrowing has a frame of reference.
+        begin
+          PrevContextIdx := -1;
           ContextIsRecord := False;
+        end;
       end;
 
       // FieldAddr now points at the user-specified-type slot in the live
