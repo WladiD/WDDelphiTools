@@ -131,8 +131,15 @@ type
   /// </summary>
   TRsmLocalsReader = class
   private
-    FProcs  : IList<TRsmProc>;
-    FClasses: IList<TRsmClassInfo>;
+    FProcs       : IList<TRsmProc>;
+    FClasses     : IList<TRsmClassInfo>;
+    /// Case-insensitive name -> FProcs/FClasses index. These exist
+    /// purely to speed up FindProcByName / FindClassByName from
+    /// O(N) per lookup to O(1), which collapses the inner loops of
+    /// ScanSymbolStream and DiscoverAndParseAllStructs from O(N^2)
+    /// to O(N) on large binaries.
+    FProcByName  : IKeyValue<String, Integer>;
+    FClassByName : IKeyValue<String, Integer>;
     procedure DeriveClassParents;
   public
     constructor Create;
@@ -171,8 +178,10 @@ implementation
 constructor TRsmLocalsReader.Create;
 begin
   inherited Create;
-  FProcs := Collections.NewPlainList<TRsmProc>;
-  FClasses := Collections.NewPlainList<TRsmClassInfo>;
+  FProcs       := Collections.NewPlainList<TRsmProc>;
+  FClasses     := Collections.NewPlainList<TRsmClassInfo>;
+  FProcByName  := Collections.NewPlainKeyValue<String, Integer>;
+  FClassByName := Collections.NewPlainKeyValue<String, Integer>;
 end;
 
 procedure TRsmLocalsReader.LoadFromFile(const AExePath: String);
@@ -367,6 +376,7 @@ var
     Info.TypeIdx := UInt32(AClassNameOff);
     Info.Kind    := AKind;
     Info.Members := List;
+    FClassByName[LowerCase(AClassName)] := FClasses.Count;
     FClasses.Add(Info);
   end;
 
@@ -512,6 +522,7 @@ var
     Info.TypeIdx := UInt32(ARecordNameOff);
     Info.Kind    := skRecord;
     Info.Members := List;
+    FClassByName[LowerCase(ARecordName)] := FClasses.Count;
     FClasses.Add(Info);
   end;
 
@@ -772,6 +783,12 @@ var
             else
               Proc.Size := 0;
             Proc.Locals := Collections.NewPlainList<TRsmLocal>;
+            FProcByName[LowerCase(Name)] := FProcs.Count;
+            // Linker-emitted "@Name" aliases should be findable by
+            // both the prefixed and the bare form, so register the
+            // alias too when the stored name starts with "@".
+            if (Length(Name) > 0) and (Name[1] = '@') then
+              FProcByName[LowerCase(Copy(Name, 2, MaxInt))] := FProcs.Count;
             FProcs.Add(Proc);
             InProc := True;
             LocalIdx := 0;
@@ -1000,26 +1017,25 @@ var
     // class declarations because its window is fixed, so we keep an
     // authoritative ownership map here and use it to prune Members
     // before downstream code (parent derivation, evaluator) sees them.
-    Confirmed   : array of record ClsIdx: Integer; FieldName: String; end;
-    ConfirmedCnt: Integer;
+    // Stored as a key/value set keyed on "<classIdx>:<lower-field-name>"
+    // so lookups are O(1) instead of O(N): on large binaries the
+    // earlier linear scan turned PruneSpuriousMembers into the single
+    // biggest hot spot, blowing past 30 seconds for 800MB+ files.
+    Confirmed: IKeyValue<String, Boolean>;
+
+    function ConfirmedKey(AClsIdx: Integer; const AFieldName: String): String;
+    begin
+      Result := IntToStr(AClsIdx) + ':' + LowerCase(AFieldName);
+    end;
 
     procedure ConfirmedAdd(AClsIdx: Integer; const AFieldName: String);
     begin
-      if ConfirmedCnt >= Length(Confirmed) then
-        SetLength(Confirmed, (ConfirmedCnt + 16) * 2);
-      Confirmed[ConfirmedCnt].ClsIdx    := AClsIdx;
-      Confirmed[ConfirmedCnt].FieldName := AFieldName;
-      Inc(ConfirmedCnt);
+      Confirmed[ConfirmedKey(AClsIdx, AFieldName)] := True;
     end;
 
     function IsConfirmed(AClsIdx: Integer; const AFieldName: String): Boolean;
-    var K: Integer;
     begin
-      Result := False;
-      for K := 0 to ConfirmedCnt - 1 do
-        if (Confirmed[K].ClsIdx = AClsIdx) and
-           SameText(Confirmed[K].FieldName, AFieldName) then
-          Exit(True);
+      Result := Confirmed.ContainsKey(ConfirmedKey(AClsIdx, AFieldName));
     end;
 
     procedure PruneSpuriousMembers;
@@ -1236,8 +1252,7 @@ var
   begin
     SetLength(NameToRawId, 64);
     NameRawIdCnt := 0;
-    SetLength(Confirmed, 64);
-    ConfirmedCnt := 0;
+    Confirmed := Collections.NewPlainKeyValue<String, Boolean>;
     ScanTypeRegistry;
     LinkFieldsFromFormatA;
     PruneSpuriousMembers;
@@ -1246,6 +1261,8 @@ var
 begin
   FProcs.Clear;
   FClasses.Clear;
+  FProcByName.Clear;
+  FClassByName.Clear;
   if Length(ABytes) < 8 then
     Exit;
   if PUInt32(@ABytes[0])^ <> SigCSH7 then
@@ -1474,33 +1491,21 @@ begin
 end;
 
 function TRsmLocalsReader.FindProcByName(const AName: String): Integer;
-var
-  I       : Integer;
-  Stored  : String;
-  StripAt : String;
 begin
-  for I := 0 to FProcs.Count - 1 do
-  begin
-    Stored := FProcs[I].Name;
-    if SameText(Stored, AName) then
-      Exit(I);
-    if (Length(Stored) > 0) and (Stored[1] = '@') then
-    begin
-      StripAt := Copy(Stored, 2, MaxInt);
-      if SameText(StripAt, AName) then
-        Exit(I);
-    end;
-  end;
+  // Hot path: case-insensitive direct hit via the name index, which
+  // is populated whenever a proc is added to FProcs. The
+  // "@"-prefixed alias is a Delphi linker convention -- some procs
+  // are stored as "@MyName" but should be findable by the bare
+  // "MyName" too -- so the index carries both keys at insert time.
+  if FProcByName.TryGetValue(LowerCase(AName), Result) then
+    Exit;
   Result := -1;
 end;
 
 function TRsmLocalsReader.FindClassByName(const AName: String): Integer;
-var
-  I: Integer;
 begin
-  for I := 0 to FClasses.Count - 1 do
-    if SameText(FClasses[I].Name, AName) then
-      Exit(I);
+  if FClassByName.TryGetValue(LowerCase(AName), Result) then
+    Exit;
   Result := -1;
 end;
 
