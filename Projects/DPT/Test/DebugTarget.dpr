@@ -77,6 +77,35 @@ type
   TPoint3D = record
     FX, FY, FZ : Integer;
   end;
+procedure EdgeCaseLocalsProcedure;
+type
+  TFlags = set of (Flag1, Flag2, Flag3);
+var
+  LocalVariant : Variant;
+  LocalIntf    : IInterface;
+  LocalBytes   : TBytes;
+  LocalPoint   : TPoint2D;
+  LocalDouble  : Double;
+  LocalBoolean : Boolean;
+  LocalChar    : Char;
+  LocalFlags   : TFlags;
+  LocalPointer : Pointer;
+  LocalInner   : TInner;
+begin
+  LocalVariant := 42;
+  LocalIntf    := nil;
+  SetLength(LocalBytes, 16);
+  LocalPoint.FX := $11; LocalPoint.FY := $22;
+  LocalDouble  := 3.14;
+  LocalBoolean := True;
+  LocalChar    := 'X';
+  LocalFlags   := [Flag1, Flag3];
+  LocalPointer := nil;
+  LocalInner   := nil;
+  if LocalBoolean then
+    Writeln('Edge ', Length(LocalBytes), ' ', LocalPoint.FX, ' ',
+            LocalDouble:0:2, ' ', LocalChar);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -140,6 +169,7 @@ begin
     OutputDebugString('ods-tag-line');
     TargetProcedure;
     LocalsProcedure;
+    if GGlobalInt = -1 then EdgeCaseLocalsProcedure;
   finally
     GGlobalOuter.FOuterInner.Free;
     GGlobalOuter.Free;

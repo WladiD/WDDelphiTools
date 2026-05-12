@@ -655,11 +655,15 @@ var
         Result := 0;
         if AOff + 4 >= Sz then Exit;
         if (ByteAt(AOff) and $7F) <> $03 then Exit;
+        // Marker layout "04 10 ?? 2E 00": bytes 0/1/3/4 are
+        // constant across the corpus; the byte at position 2 is a
+        // per-binary counter that the linker varies build-to-build
+        // (it isn't tied to the proc, but to the overall RSM
+        // module layout), so we accept any value there.
         for MOff := AOff + 4 to AOff + 5 do
           if (MOff + 4 < Sz) and
              (ByteAt(MOff)     = $04) and (ByteAt(MOff + 1) = $10) and
-             (ByteAt(MOff + 2) = $21) and (ByteAt(MOff + 3) = $2E) and
-             (ByteAt(MOff + 4) = $00) then
+             (ByteAt(MOff + 3) = $2E) and (ByteAt(MOff + 4) = $00) then
           begin
             B0 := ByteAt(AOff);
             B1 := ByteAt(AOff + 1);
@@ -783,62 +787,87 @@ var
           Loc.TypeIdx  := 0;
           // The frame offset is encoded as a tagged variable-length
           // integer placed after the type-ref prefix "$66 $00 $00".
-          // Three forms have been observed empirically against the
-          // TD32 ground truth from the same EXE:
+          // The byte at payload offset 4 picks one of two type-id
+          // widths, and then the offset can take either a 1-byte
+          // signed or a 2-byte little-endian form:
           //
-          //   5-byte payload "$66 $00 $00 <type> <off8>":
-          //     1-byte signed offset, decoded as SignedInt8 / 2.
-          //     Used for built-in scalar types whose offsets fit in
-          //     +/-64 bytes from the frame pointer.
+          //   byte4 = $2E -- two-byte type-id "<lo> $2E" for class /
+          //                  record / set / dyn-array locals. The
+          //                  offset starts at byte 5 and continues
+          //                  for either 1 byte (LSB of byte5 = 0)
+          //                  or 2 bytes LE (LSB of byte5 = 1). The
+          //                  bytes that follow may include trailing
+          //                  type-name metadata which the outer
+          //                  loop skips over by advancing
+          //                  byte-by-byte until the next record
+          //                  tag, so we deliberately do NOT require
+          //                  byte 6 to be a record tag here.
           //
-          //   6-byte payload "$66 $00 $00 <type> <enc-lo> <enc-hi>"
-          //   where (enc-lo and 1) = 1:
-          //     2-byte little-endian signed offset, encoded as
-          //     (BpOffset * 4) + 1; decoded as (SmallInt - 1) div 4.
-          //     Used for built-in types with offsets exceeding the
-          //     1-byte range (e.g. ShortString locals).
+          //   byte4 = anything else -- one-byte type-id form. The
+          //                  offset starts at byte 4. If the next
+          //                  record tag sits at byte 5 it's the
+          //                  1-byte signed form (BpOffset = byte4
+          //                  signed div 2); if it sits at byte 6
+          //                  then bytes 4-5 hold the 2-byte LE form
+          //                  ((SmallInt-1) div 4).
           //
-          //   6-byte payload "$66 $00 $00 <type> <classId> <off8>"
-          //   where (classId and 1) = 0:
-          //     class-typed local (e.g. TStringList). One additional
-          //     byte of class-id sits between the type and the
-          //     offset; the offset itself is again 1-byte signed / 2.
-          //
-          // Length discrimination: the byte at payload offset 5 is
-          // the next record's tag byte ($20/$28/$63) for the 5-byte
-          // form; otherwise the 6-byte form applies and the offset
-          // form is selected by the LSB of the 4th payload byte.
+          // Both 1-byte signed forms use the SignedInt8 / 2 scaling
+          // because BpOffset is always a multiple of 2 in practice
+          // (the encoder doubles it to free the LSB as a form
+          // discriminator).
           var PayloadStart: NativeInt := P + 2 + Length(Name);
           if PayloadStart + 5 < Sz then
           begin
-            var Next5: Byte := ByteAt(PayloadStart + 5);
-            if (Next5 = LOCAL_TAG) or (Next5 = PROC_TAG) or (Next5 = SCOPE_END) then
+            var Byte4: Byte := ByteAt(PayloadStart + 4);
+            if Byte4 = $2E then
             begin
-              // 5-byte form, 1-byte offset.
-              var Ofs8: ShortInt := ShortInt(ByteAt(PayloadStart + 4));
-              Loc.BpOffset := Int32(Ofs8) div 2;
-              Loc.TypeIdx  := ByteAt(PayloadStart + 3);
-            end
-            else if PayloadStart + 6 < Sz then
-            begin
-              var Next6: Byte := ByteAt(PayloadStart + 6);
-              if (Next6 = LOCAL_TAG) or (Next6 = PROC_TAG) or (Next6 = SCOPE_END) then
+              // Two-byte type-id form. The offset bytes start at +5.
+              var Byte5: Byte := ByteAt(PayloadStart + 5);
+              if (Byte5 and 1) = 1 then
               begin
-                var Ofs0: Byte := ByteAt(PayloadStart + 4);
-                if (Ofs0 and 1) = 1 then
+                if PayloadStart + 6 < Sz then
                 begin
-                  // 6-byte built-in form: 2-byte LE offset.
-                  var Hi : Byte := ByteAt(PayloadStart + 5);
-                  var W  : Word := Word(Ofs0) or (Word(Hi) shl 8);
+                  // 2-byte LE offset.
+                  var Hi : Byte := ByteAt(PayloadStart + 6);
+                  var W  : Word := Word(Byte5) or (Word(Hi) shl 8);
                   var SW : SmallInt := SmallInt(W);
                   Loc.BpOffset := (Int32(SW) - 1) div 4;
-                  Loc.TypeIdx  := ByteAt(PayloadStart + 3);
-                end
-                else
+                end;
+              end
+              else
+              begin
+                // 1-byte signed offset.
+                var Ofs8: ShortInt := ShortInt(Byte5);
+                Loc.BpOffset := Int32(Ofs8) div 2;
+              end;
+              // Surface the type-id as the LE 16-bit value to allow
+              // the higher-level walker to match it against the
+              // class/record registry's 2-byte ids.
+              Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                             (UInt32($2E) shl 8);
+            end
+            else
+            begin
+              // One-byte type-id form. Disambiguate offset width by
+              // looking at the next record tag's position.
+              var Next5: Byte := ByteAt(PayloadStart + 5);
+              if (Next5 = LOCAL_TAG) or (Next5 = PROC_TAG) or (Next5 = SCOPE_END) then
+              begin
+                // 5-byte form, 1-byte signed offset at byte 4.
+                var Ofs8: ShortInt := ShortInt(Byte4);
+                Loc.BpOffset := Int32(Ofs8) div 2;
+                Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+              end
+              else if PayloadStart + 6 < Sz then
+              begin
+                var Next6: Byte := ByteAt(PayloadStart + 6);
+                if (Next6 = LOCAL_TAG) or (Next6 = PROC_TAG) or (Next6 = SCOPE_END) then
                 begin
-                  // 6-byte class form: <classId> <off8>.
-                  var Ofs8: ShortInt := ShortInt(ByteAt(PayloadStart + 5));
-                  Loc.BpOffset := Int32(Ofs8) div 2;
+                  // 6-byte form, 2-byte LE offset at bytes 4-5.
+                  var Hi : Byte := ByteAt(PayloadStart + 5);
+                  var W  : Word := Word(Byte4) or (Word(Hi) shl 8);
+                  var SW : SmallInt := SmallInt(W);
+                  Loc.BpOffset := (Int32(SW) - 1) div 4;
                   Loc.TypeIdx  := ByteAt(PayloadStart + 3);
                 end;
               end;

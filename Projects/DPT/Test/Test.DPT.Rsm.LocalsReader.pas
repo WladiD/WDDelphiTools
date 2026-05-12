@@ -42,6 +42,7 @@ type
     procedure DoTestFindProcContaining(AUse64Bit: Boolean);
     procedure DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
     procedure DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
+    procedure DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -73,6 +74,8 @@ type
     procedure TestDiscoversDerivedClass32;
     [Test]
     procedure TestDerivedInheritsBaseFields32;
+    [Test]
+    procedure TestEdgeCaseLocalsAllDecoded32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -98,6 +101,8 @@ type
     procedure TestDiscoversDerivedClass64;
     [Test]
     procedure TestDerivedInheritsBaseFields64;
+    [Test]
+    procedure TestEdgeCaseLocalsAllDecoded64;
     {$ENDIF}
   end;
 
@@ -261,6 +266,7 @@ var
   Proc   : TRsmProc;
   Seen   : TArray<Int32>;
   I, J   : Integer;
+  RealOffsets, SynthOffsets: Integer;
 begin
   Reader := TRsmLocalsReader.Create;
   try
@@ -270,6 +276,8 @@ begin
     Proc := Reader.Procs[ProcIdx];
 
     SetLength(Seen, 0);
+    RealOffsets := 0;
+    SynthOffsets := 0;
     for I := 0 to Proc.Locals.Count - 1 do
       if Pos('Local', Proc.Locals[I].Name) = 1 then
       begin
@@ -278,9 +286,20 @@ begin
             Format('Two locals share BP offset %d', [Proc.Locals[I].BpOffset]));
         SetLength(Seen, Length(Seen) + 1);
         Seen[High(Seen)] := Proc.Locals[I].BpOffset;
+        // Synthesized fallback values sit at -10000 and below; real
+        // BPRel offsets fit in a few-hundred-bytes window around 0.
+        if Proc.Locals[I].BpOffset <= -5000 then
+          Inc(SynthOffsets)
+        else
+          Inc(RealOffsets);
       end;
     Assert.IsTrue(Length(Seen) >= 3,
       Format('Expected at least 3 LocalA/B/C entries, got %d', [Length(Seen)]));
+    Assert.AreEqual(0, SynthOffsets,
+      Format('LocalsProcedure has %d locals that fell back to a ' +
+             'synthesized BpOffset; the decoder did not recognize ' +
+             'their encoding (real=%d)',
+        [SynthOffsets, RealOffsets]));
   finally
     Reader.Free;
   end;
@@ -595,8 +614,57 @@ begin
   end;
 end;
 
+procedure TRsmLocalsReaderTests.DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
+// Exercises BPRel decoding against a deliberately diverse set of
+// local types (Variant, IInterface, dynamic array, record, Double,
+// Boolean, Char, set, pointer, class). Every such local must
+// produce a decoded BpOffset within the plausible BP-relative
+// window for that proc; if the decoder doesn't recognize an
+// encoding form it falls back to a synthesized far-below-zero
+// value, which this test fails on so the gap surfaces.
+var
+  Reader : TRsmLocalsReader;
+  ProcIdx: Integer;
+  Proc   : TRsmProc;
+  I      : Integer;
+  Synth  : Integer;
+  Names  : String;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    ProcIdx := Reader.FindProcByName('EdgeCaseLocalsProcedure');
+    Assert.IsTrue(ProcIdx >= 0, 'EdgeCaseLocalsProcedure not found');
+    Proc := Reader.Procs[ProcIdx];
+
+    Assert.IsTrue(Proc.Locals.Count >= 5,
+      Format('EdgeCaseLocalsProcedure should expose multiple locals; got %d',
+        [Proc.Locals.Count]));
+
+    Synth := 0;
+    Names := '';
+    for I := 0 to Proc.Locals.Count - 1 do
+      if Pos('Local', Proc.Locals[I].Name) = 1 then
+      begin
+        if Proc.Locals[I].BpOffset <= -5000 then
+        begin
+          Inc(Synth);
+          if Names <> '' then Names := Names + ', ';
+          Names := Names + Proc.Locals[I].Name;
+        end;
+      end;
+    Assert.AreEqual(0, Synth,
+      Format('%d edge-case locals fell back to a synthesized BpOffset ' +
+             '(unrecognized encoding): %s',
+        [Synth, Names]));
+  finally
+    Reader.Free;
+  end;
+end;
+
 procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
+procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
 
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
@@ -609,6 +677,7 @@ procedure TRsmLocalsReaderTests.TestParsesRecordMembers64;              begin Do
 procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;
 procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass64;            begin DoTestDiscoversDerivedClass(True);             end;
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
+procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
 {$ENDIF}
 
 initialization
