@@ -49,6 +49,15 @@ begin
 end;
 type
   TInner = class FInnerInt: Integer; FInnerStr: string; end;
+  TDerived = class(TInner)
+  public
+    FDerivedExtra : Integer;
+    FDerivedLabel : string;
+  end;
+  TDeepDerived = class(TDerived)
+  private
+    FDeepFlag : Integer;
+  end;
   TOuter = class FOuterInt: Integer; FOuterInner: TInner; FOuterStr: string; end;
   TPoint2D = record FX, FY: Integer; end;
   TRect2D  = record FTopLeft, FBottomRight: TPoint2D; end;
@@ -76,6 +85,8 @@ var
   GGlobalEmptyString : string      = '';
   GGlobalNilObject   : TObject     = nil;
   GGlobalOuter       : TOuter;
+  GGlobalDerived     : TDerived;
+  GGlobalDeep        : TDeepDerived;
   GGlobalWithRec     : TWithRec;
   GGlobalMixed       : TMixedRec;
   GGlobalP3D         : TPoint3D;
@@ -88,6 +99,17 @@ begin
   GGlobalOuter.FOuterInner := TInner.Create;
   GGlobalOuter.FOuterInner.FInnerInt := $22222222;
   GGlobalOuter.FOuterInner.FInnerStr := 'Hello Inner';
+  GGlobalDerived := TDerived.Create;
+  GGlobalDerived.FInnerInt     := Integer($C1C1C1C1);
+  GGlobalDerived.FInnerStr     := 'Inherited Inner';
+  GGlobalDerived.FDerivedExtra := Integer($C2C2C2C2);
+  GGlobalDerived.FDerivedLabel := 'Derived-C3';
+  GGlobalDeep := TDeepDerived.Create;
+  GGlobalDeep.FInnerInt     := Integer($D1D1D1D1);
+  GGlobalDeep.FInnerStr     := 'Deep Inner';
+  GGlobalDeep.FDerivedExtra := Integer($D2D2D2D2);
+  GGlobalDeep.FDerivedLabel := 'Deep Derived';
+  GGlobalDeep.FDeepFlag     := Integer($D3D3D3D3);
   GGlobalWithRec := TWithRec.Create;
   GGlobalWithRec.FOrigin.FX := $11111111;
   GGlobalWithRec.FOrigin.FY := $22222222;
@@ -121,6 +143,8 @@ begin
   finally
     GGlobalOuter.FOuterInner.Free;
     GGlobalOuter.Free;
+    GGlobalDerived.Free;
+    GGlobalDeep.Free;
     GGlobalWithRec.FPair.FObj.Free;
     GGlobalWithRec.FNestedObj.Free;
     GGlobalWithRec.Free;

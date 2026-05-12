@@ -40,6 +40,8 @@ type
     procedure DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
     procedure DoTestFindProcByName(AUse64Bit: Boolean);
     procedure DoTestFindProcContaining(AUse64Bit: Boolean);
+    procedure DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
+    procedure DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -67,6 +69,10 @@ type
     procedure TestRecordTypeIdxRoundTrip32;
     [Test]
     procedure TestClassFieldTypeIdxLinking32;
+    [Test]
+    procedure TestDiscoversDerivedClass32;
+    [Test]
+    procedure TestDerivedInheritsBaseFields32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -88,6 +94,10 @@ type
     procedure TestParsesRecordMembers64;
     [Test]
     procedure TestRecordTypeIdxRoundTrip64;
+    [Test]
+    procedure TestDiscoversDerivedClass64;
+    [Test]
+    procedure TestDerivedInheritsBaseFields64;
     {$ENDIF}
   end;
 
@@ -527,6 +537,67 @@ end;
 
 procedure TRsmLocalsReaderTests.TestFindProcContaining32;                begin DoTestFindProcContaining(False);               end;
 
+procedure TRsmLocalsReaderTests.DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
+var
+  Reader     : TRsmLocalsReader;
+  Member     : TRsmClassMember;
+  ExpectedPtr: UInt32;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    Assert.IsTrue(Reader.FindClassByName('TDerived') >= 0,
+      'TDerived must be discovered as a class');
+
+    // Pointer width determines the slot the first own field sits in:
+    // class instance layout is <VMT-ptr> followed by parent fields,
+    // then own fields. TDerived inherits FInnerInt (offset Ptr) and
+    // FInnerStr (offset Ptr*2), so its own fields start at Ptr*3.
+    if AUse64Bit then ExpectedPtr := 8 else ExpectedPtr := 4;
+
+    Assert.IsTrue(Reader.FindClassMember('TDerived', 'FDerivedExtra', Member),
+      'TDerived.FDerivedExtra (own field) must be parsed');
+    Assert.AreEqual(ExpectedPtr * 3, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TDerived', 'FDerivedLabel', Member),
+      'TDerived.FDerivedLabel (own field) must be parsed');
+    Assert.AreEqual(ExpectedPtr * 4, Member.Offset);
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmLocalsReaderTests.DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
+var
+  Reader     : TRsmLocalsReader;
+  Member     : TRsmClassMember;
+  ExpectedPtr: UInt32;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    if AUse64Bit then ExpectedPtr := 8 else ExpectedPtr := 4;
+
+    // The inherited TInner fields must be reachable through the
+    // derived class -- otherwise expressions like
+    // GGlobalDerived.FInnerInt can't be evaluated.
+    Assert.IsTrue(Reader.FindClassMember('TDerived', 'FInnerInt', Member),
+      'TDerived must inherit FInnerInt from TInner');
+    Assert.AreEqual(ExpectedPtr, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TDerived', 'FInnerStr', Member),
+      'TDerived must inherit FInnerStr from TInner');
+    Assert.AreEqual(ExpectedPtr * 2, Member.Offset);
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
+procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
+
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
 procedure TRsmLocalsReaderTests.TestParsesLocalsForLocalsProcedure64;   begin DoTestParsesLocalsForLocalsProcedure(True);    end;
@@ -536,6 +607,8 @@ procedure TRsmLocalsReaderTests.TestFindProcContaining64;               begin Do
 procedure TRsmLocalsReaderTests.TestParsesClassMembers64;               begin DoTestParsesClassMembers(True);                end;
 procedure TRsmLocalsReaderTests.TestParsesRecordMembers64;              begin DoTestParsesRecordMembers(True);               end;
 procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;
+procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass64;            begin DoTestDiscoversDerivedClass(True);             end;
+procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
 {$ENDIF}
 
 initialization

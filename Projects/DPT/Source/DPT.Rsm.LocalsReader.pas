@@ -85,10 +85,21 @@ type
   ///   the kind, and the ordered list of its member fields.
   /// </summary>
   TRsmClassInfo = record
-    Name   : String;
-    TypeIdx: UInt32;
-    Kind   : TRsmStructKind;
-    Members: IList<TRsmClassMember>;
+    Name      : String;
+    TypeIdx   : UInt32;
+    Kind      : TRsmStructKind;
+    Members   : IList<TRsmClassMember>;
+    /// <summary>
+    ///   Name of the immediate parent class for class-kind entries.
+    ///   Empty when the class is at the top of the user-visible
+    ///   hierarchy (the implicit TObject parent or, for records,
+    ///   any inheritance at all). Populated by a post-parse pass
+    ///   that matches each class's first-own-field offset against
+    ///   other classes' last-own-field end, since the RSM symbol
+    ///   stream itself does not emit an explicit parent reference
+    ///   in any form the reader has identified.
+    /// </summary>
+    ParentName: String;
   end;
 
   /// <summary>
@@ -100,6 +111,7 @@ type
   private
     FProcs  : IList<TRsmProc>;
     FClasses: IList<TRsmClassInfo>;
+    procedure DeriveClassParents;
   public
     constructor Create;
     /// <summary>
@@ -809,6 +821,68 @@ var
   var
     NameToRawId : array of record Name: String; Id: TRawId; end;
     NameRawIdCnt: Integer;
+    // Format-A-confirmed (classIdx, field-name) pairs. The backward
+    // Format-B scan over-collects field candidates from neighbouring
+    // class declarations because its window is fixed, so we keep an
+    // authoritative ownership map here and use it to prune Members
+    // before downstream code (parent derivation, evaluator) sees them.
+    Confirmed   : array of record ClsIdx: Integer; FieldName: String; end;
+    ConfirmedCnt: Integer;
+
+    procedure ConfirmedAdd(AClsIdx: Integer; const AFieldName: String);
+    begin
+      if ConfirmedCnt >= Length(Confirmed) then
+        SetLength(Confirmed, (ConfirmedCnt + 16) * 2);
+      Confirmed[ConfirmedCnt].ClsIdx    := AClsIdx;
+      Confirmed[ConfirmedCnt].FieldName := AFieldName;
+      Inc(ConfirmedCnt);
+    end;
+
+    function IsConfirmed(AClsIdx: Integer; const AFieldName: String): Boolean;
+    var K: Integer;
+    begin
+      Result := False;
+      for K := 0 to ConfirmedCnt - 1 do
+        if (Confirmed[K].ClsIdx = AClsIdx) and
+           SameText(Confirmed[K].FieldName, AFieldName) then
+          Exit(True);
+    end;
+
+    procedure PruneSpuriousMembers;
+    var
+      I, M    : Integer;
+      Info    : TRsmClassInfo;
+      Pruned  : IList<TRsmClassMember>;
+      AnyHit  : Boolean;
+    begin
+      for I := 0 to FClasses.Count - 1 do
+      begin
+        Info := FClasses[I];
+        if Info.Kind <> skClass then Continue;
+        // Records emit their fields forward from the record name with
+        // explicit offsets, so the Format-B scan can't over-collect
+        // for them; skip records to avoid touching their layout.
+        AnyHit := False;
+        for M := 0 to Info.Members.Count - 1 do
+          if IsConfirmed(I, Info.Members[M].Name) then
+          begin
+            AnyHit := True;
+            Break;
+          end;
+        // If no Format A field record confirmed ANY member, the class
+        // has no Format A coverage at all (e.g. system classes without
+        // user fields). Leave its Members untouched in that case so
+        // we don't accidentally erase legitimate data we just haven't
+        // verified yet.
+        if not AnyHit then Continue;
+        Pruned := Collections.NewPlainList<TRsmClassMember>;
+        for M := 0 to Info.Members.Count - 1 do
+          if IsConfirmed(I, Info.Members[M].Name) then
+            Pruned.Add(Info.Members[M]);
+        Info.Members := Pruned;
+        FClasses[I]  := Info;
+      end;
+    end;
 
     function RawIdEqual(const A, B: TRawId): Boolean;
     begin
@@ -962,7 +1036,10 @@ var
           Continue;
         end;
         // Find the member by name in the parent class and resolve
-        // its TypeIdx via the field-type-id.
+        // its TypeIdx via the field-type-id. Also record that this
+        // (class, field-name) pair was authoritatively confirmed by
+        // Format A so PruneSpuriousMembers can drop members the
+        // backward field scan over-eagerly attributed to this class.
         for M := 0 to FClasses[ParentIdx].Members.Count - 1 do
         begin
           Member := FClasses[ParentIdx].Members[M];
@@ -974,6 +1051,7 @@ var
               Member.TypeIdx := FClasses[FieldIdx].TypeIdx;
               FClasses[ParentIdx].Members[M] := Member;
             end;
+            ConfirmedAdd(ParentIdx, Name);
             Break;
           end;
         end;
@@ -984,8 +1062,11 @@ var
   begin
     SetLength(NameToRawId, 64);
     NameRawIdCnt := 0;
+    SetLength(Confirmed, 64);
+    ConfirmedCnt := 0;
     ScanTypeRegistry;
     LinkFieldsFromFormatA;
+    PruneSpuriousMembers;
   end;
 
 begin
@@ -1002,6 +1083,136 @@ begin
   RecomputeProcSizes;
   DiscoverAndParseAllStructs;
   LinkMemberTypeIdsFromFormatA;
+  DeriveClassParents;
+end;
+
+procedure TRsmLocalsReader.DeriveClassParents;
+// The RSM symbol stream does not expose an explicit class -> parent
+// reference in any form we have identified. The compiler instead bakes
+// inheritance into the instance LAYOUT: a class C inheriting from P
+// starts its own fields at offset (P's instance size), with the VMT
+// pointer taking the very first slot. We exploit this layout to
+// reconstruct the hierarchy: for each class C, find the class P whose
+// own-fields end exactly at C's first own field offset, and call that
+// P the parent of C.
+//
+// The heuristic does the right thing for class layouts where each
+// candidate parent has a distinct instance size (the common case for
+// hand-written Delphi code, where sibling classes rarely happen to
+// reach the same byte-exact instance boundary). Where two candidates
+// collide -- e.g. two unrelated classes that both end at offset $18
+// for a child to "choose between" -- we conservatively leave
+// ParentName empty, since picking wrong would hide inherited fields
+// behind a foreign type. Records (skRecord) are skipped: Delphi
+// records cannot inherit, so the offset-matching test wouldn't carry
+// meaning for them.
+const
+  WIN64_PTR_SIZE = 8;
+  WIN32_PTR_SIZE = 4;
+var
+  I, J     : Integer;
+  Info     : TRsmClassInfo;
+  PtrSize  : UInt32;
+  FirstOffs: array of UInt32;
+  LastEnds : array of UInt32;
+  Cand, Match: Integer;
+  CandCount  : Integer;
+
+  function InstanceSize(AInfo: TRsmClassInfo; AFirstOff, ALastOff: UInt32): UInt32;
+  var
+    K       : Integer;
+    PrevOff : UInt32;
+    LastGap : UInt32;
+  begin
+    // Walk members in offset order to estimate the last field's
+    // byte width from the gap to the next, falling back to one
+    // pointer for the trailing field whose size we cannot infer
+    // from a successor.
+    if AInfo.Members.Count = 0 then Exit(AFirstOff);
+    PrevOff := AFirstOff;
+    LastGap := PtrSize;
+    for K := 0 to AInfo.Members.Count - 1 do
+    begin
+      if AInfo.Members[K].Offset > PrevOff then
+        LastGap := AInfo.Members[K].Offset - PrevOff;
+      PrevOff := AInfo.Members[K].Offset;
+    end;
+    Result := ALastOff + LastGap;
+  end;
+
+begin
+  if FClasses.Count = 0 then Exit;
+
+  // Detect pointer size from the smallest first-field offset across
+  // all class-kind entries. A 16-byte aligned proc-only binary still
+  // gives us a sane fallback to 8 (Win64) because that's the modern
+  // Delphi default.
+  PtrSize := WIN64_PTR_SIZE;
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if (Info.Kind <> skClass) or (Info.Members.Count = 0) then Continue;
+    if Info.Members[0].Offset = WIN32_PTR_SIZE then
+    begin
+      PtrSize := WIN32_PTR_SIZE;
+      Break;
+    end;
+  end;
+
+  SetLength(FirstOffs, FClasses.Count);
+  SetLength(LastEnds, FClasses.Count);
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    FirstOffs[I] := 0;
+    LastEnds[I]  := 0;
+    if Info.Kind <> skClass then Continue;
+    if Info.Members.Count = 0 then Continue;
+    FirstOffs[I] := Info.Members[0].Offset;
+    for J := 1 to Info.Members.Count - 1 do
+      if Info.Members[J].Offset < FirstOffs[I] then
+        FirstOffs[I] := Info.Members[J].Offset;
+    LastEnds[I] := 0;
+    for J := 0 to Info.Members.Count - 1 do
+      if Info.Members[J].Offset > LastEnds[I] then
+        LastEnds[I] := Info.Members[J].Offset;
+    LastEnds[I] := InstanceSize(Info, FirstOffs[I], LastEnds[I]);
+  end;
+
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if Info.Kind <> skClass then Continue;
+    if FirstOffs[I] <= PtrSize then Continue;
+    Match := -1;
+    CandCount := 0;
+    // Walk candidates from highest to lowest FClasses index so the
+    // first hit is the latest-declared class. Delphi RSM emits the
+    // type stream in source-declaration order with system classes
+    // up front, so the most-recently-declared candidate is the one
+    // most likely to be the actual parent (and not a same-sized
+    // system class that happens to share an instance boundary).
+    for Cand := FClasses.Count - 1 downto 0 do
+    begin
+      if Cand = I then Continue;
+      if FClasses[Cand].Kind <> skClass then Continue;
+      // A parent has to come BEFORE the child in the stream; skip
+      // anything declared later than us, which is a sibling/child
+      // at best and never the parent.
+      if Cand > I then Continue;
+      if LastEnds[Cand] = FirstOffs[I] then
+      begin
+        Inc(CandCount);
+        if Match < 0 then Match := Cand;
+      end;
+    end;
+    if Match >= 0 then
+    begin
+      Info.ParentName := FClasses[Match].Name;
+      FClasses[I] := Info;
+    end;
+  end;
+
 end;
 
 procedure TRsmLocalsReader.RecomputeProcSizes;
@@ -1139,22 +1350,37 @@ end;
 
 function TRsmLocalsReader.FindClassMember(const AClassName, AFieldName: String;
   out AMember: TRsmClassMember): Boolean;
+// Looks up a class field by name, walking the inheritance chain via
+// ParentName so callers can resolve inherited fields the same way they
+// resolve own ones. The walk terminates either at a class with no
+// ParentName or after a defensive depth cap that prevents an unsound
+// hierarchy (cycles, deep chains we never instantiated in test data)
+// from spinning the lookup forever.
+const
+  MaxChainDepth = 32;
 var
-  ClsIdx, I: Integer;
-  Info     : TRsmClassInfo;
+  ClsIdx, I, Steps: Integer;
+  Info            : TRsmClassInfo;
+  CurrentClass    : String;
 begin
   Result := False;
   AMember := Default(TRsmClassMember);
-  ClsIdx := FindClassByName(AClassName);
-  if ClsIdx < 0 then
-    Exit;
-  Info := FClasses[ClsIdx];
-  for I := 0 to Info.Members.Count - 1 do
-    if SameText(Info.Members[I].Name, AFieldName) then
-    begin
-      AMember := Info.Members[I];
-      Exit(True);
-    end;
+  CurrentClass := AClassName;
+  Steps := 0;
+  while (CurrentClass <> '') and (Steps < MaxChainDepth) do
+  begin
+    ClsIdx := FindClassByName(CurrentClass);
+    if ClsIdx < 0 then Exit;
+    Info := FClasses[ClsIdx];
+    for I := 0 to Info.Members.Count - 1 do
+      if SameText(Info.Members[I].Name, AFieldName) then
+      begin
+        AMember := Info.Members[I];
+        Exit(True);
+      end;
+    CurrentClass := Info.ParentName;
+    Inc(Steps);
+  end;
 end;
 
 function TRsmLocalsReader.FindStructMemberByTypeIdx(ATypeIdx: UInt32;
