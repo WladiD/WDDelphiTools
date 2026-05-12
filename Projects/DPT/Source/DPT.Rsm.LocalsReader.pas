@@ -606,6 +606,7 @@ var
     PROC_TAG  = $28;
     LOCAL_TAG = $20;
     SCOPE_END = $63;
+    AddrScanWindow = 32;
   var
     P        : NativeInt;
     Tag      : Byte;
@@ -615,6 +616,94 @@ var
     Loc      : TRsmLocal;
     InProc   : Boolean;
     LocalIdx : Integer;
+
+    function DecodeAddrPayload(AStartOff: NativeInt): NativeUInt;
+    // The proc record's post-name payload starts with a sub-tag byte
+    // that picks between two layouts:
+    //
+    //   $20 -- simple inline form. Address bytes follow the constant
+    //          "20 00 00" 3-byte prefix at offset 3, in the Win32
+    //          DWORD form ($xy yz zz 04 with low nibble $7) or the
+    //          Win64 3-byte form ($xy yy yy, anchored by the
+    //          "04 10 21 2e 00" marker just after it).
+    //
+    //   $A0 -- extended form used by large binaries. A type-ref /
+    //          timestamp lives between the prefix and the Win32
+    //          address DWORD, putting the address bytes at offset 7.
+    //
+    //   anything else -- forward declaration or pure cross-reference
+    //                    record with no usable address. Real address
+    //                    arrives in a later occurrence of the same
+    //                    proc, which the caller patches in.
+
+      function TryWin32(AOff: NativeInt): NativeUInt;
+      var DW: UInt32; Dec: Int64;
+      begin
+        Result := 0;
+        if AOff + 3 >= Sz then Exit;
+        if (ByteAt(AOff) and $0F) <> $07 then Exit;
+        if ByteAt(AOff + 3) <> $04 then Exit;
+        DW := DwordAt(AOff);
+        Dec := (Int64(DW) shr 4) - $401000;
+        if (Dec > 0) and (Dec < $10000000) then
+          Result := NativeUInt(Dec);
+      end;
+
+      function TryWin64(AOff: NativeInt): NativeUInt;
+      var MOff: NativeInt; B0, B1, B2: Byte; Va: UInt32;
+      begin
+        Result := 0;
+        if AOff + 4 >= Sz then Exit;
+        if (ByteAt(AOff) and $7F) <> $03 then Exit;
+        for MOff := AOff + 4 to AOff + 5 do
+          if (MOff + 4 < Sz) and
+             (ByteAt(MOff)     = $04) and (ByteAt(MOff + 1) = $10) and
+             (ByteAt(MOff + 2) = $21) and (ByteAt(MOff + 3) = $2E) and
+             (ByteAt(MOff + 4) = $00) then
+          begin
+            B0 := ByteAt(AOff);
+            B1 := ByteAt(AOff + 1);
+            B2 := ByteAt(AOff + 2);
+            Va := ((UInt32(B0) shr 7) and 1) shl 4 or
+                  (UInt32(B1) shl 5) or
+                  (UInt32(B2) shl 13);
+            Va := Va and $1FFFFF;
+            if Va >= $1000 then
+              Exit(NativeUInt(Va - $1000));
+          end;
+      end;
+
+    var
+      Tag: Byte;
+    begin
+      // Sub-tag dispatch:
+      //   $20 -- simple inline form, address at +3.
+      //   $A0 -- extended form with type-ref/timestamp metadata,
+      //          address DWORD at +7.
+      //   $41 -- another extended variant seen in large binaries
+      //          (e.g. method records), address DWORD at +4 after
+      //          a "41 02 10 00" header.
+      //   $80, $00, ... -- forward-declaration / cross-reference
+      //          records with no embedded address. The caller's
+      //          dedup-and-patch step picks up the address when a
+      //          later definition record arrives.
+      Result := 0;
+      if AStartOff + 3 >= Sz then Exit;
+      Tag := ByteAt(AStartOff);
+      case Tag of
+        $20:
+          begin
+            Result := TryWin32(AStartOff + 3);
+            if Result = 0 then
+              Result := TryWin64(AStartOff + 3);
+          end;
+        $A0:
+          Result := TryWin32(AStartOff + 7);
+        $41:
+          Result := TryWin32(AStartOff + 4);
+      end;
+    end;
+
   begin
     InProc := False;
     LocalIdx := 0;
@@ -629,67 +718,42 @@ var
         if (NameLen >= 1) and (NameLen <= 64) and
            ReadIdentifier(P + 1, Name) then
         begin
-          // Skip the proc-name reference forms (e.g. $07 $28 ... in
-          // some streams). Real proc declarations are preceded by a
-          // distinctive run-up; the simplest filter is to require
-          // the name to look like a Delphi identifier and to NOT be
-          // already registered (to skip duplicates).
-          if FindProcByName(Name) < 0 then
+          // Real proc declarations are preceded by a distinctive
+          // run-up (e.g. $FF $28 for the extended form, or just $28
+          // for the simple inline form). Detect the address payload
+          // by scanning the post-name window for a recognizable
+          // encoding pattern rather than assuming a fixed offset
+          // because large binaries emit a richer prefix (timestamp /
+          // type-ref / etc.) between name and address.
+          var Decoded: NativeUInt := 0;
+          if P + 2 + Length(Name) + 4 < Sz then
+            Decoded := DecodeAddrPayload(P + 2 + Length(Name));
+          // First time we see this name: add a fresh entry.
+          // Already there: a later occurrence often carries the real
+          // address while the first was a forward declaration, so
+          // patch the existing entry when the new decode yields a
+          // non-zero result.
+          var ExistingIdx: Integer := FindProcByName(Name);
+          if ExistingIdx < 0 then
           begin
             Proc := Default(TRsmProc);
             Proc.Name := Name;
-            Proc.SegmentOffset := 0;
-            Proc.Size := 0;
-            if P + 2 + Length(Name) + 7 < Sz then
-            begin
-              // Proc payload starts 2 (tag+namelen) + Length(Name)
-              // bytes from P. After the 3-byte "20 00 00" prefix,
-              // the address bytes begin at offset 3. Try Win32 first
-              // (4-byte DWORD form), then fall back to the Win64
-              // 3-byte form. Both are detected by the low-nibble tag
-              // in byte 0: $7 = Win32 code, $3 = Win64 code.
-              var PayloadOff: NativeInt := P + 2 + Length(Name) + 3;
-              var Byte0: Byte := ByteAt(PayloadOff);
-              if (Byte0 and $0F) = $07 then
-              begin
-                // Win32: 4-byte LE DWORD with low nibble = $7.
-                //   RVA = (DWORD >> 4) - ($400000 + $1000)
-                var AddrDword: UInt32 := DwordAt(PayloadOff);
-                var Decoded: Int64 := (Int64(AddrDword) shr 4) - $401000;
-                if (Decoded > 0) and (Decoded < $1000000) then
-                begin
-                  Proc.SegmentOffset := NativeUInt(Decoded);
-                  // Size unknown from the proc record; use a
-                  // generous placeholder so FindProcContaining can
-                  // hit, then patch up below once all procs are
-                  // collected (size = next-proc-start - this-start).
-                  Proc.Size := $1000;
-                end;
-              end
-              else if (Byte0 and $7F) = $03 then
-              begin
-                // Win64: byte 0 bit 7 = VA bit 4, byte 1 = VA bits
-                // 5-12, byte 2 = VA bits 13-20. VA is measured from
-                // the Win64 image base, so RVA (from .text start at
-                // $1000) is VA - $1000.
-                var Byte1: Byte := ByteAt(PayloadOff + 1);
-                var Byte2: Byte := ByteAt(PayloadOff + 2);
-                var Va: UInt32 :=
-                  ((UInt32(Byte0) shr 7) and 1) shl 4 or
-                  (UInt32(Byte1) shl 5) or
-                  (UInt32(Byte2) shl 13);
-                Va := Va and $1FFFFF;  // 21-bit mask
-                if Va >= $1000 then
-                begin
-                  Proc.SegmentOffset := NativeUInt(Va - $1000);
-                  Proc.Size := $1000;
-                end;
-              end;
-            end;
+            Proc.SegmentOffset := Decoded;
+            if Decoded > 0 then
+              Proc.Size := $1000
+            else
+              Proc.Size := 0;
             Proc.Locals := Collections.NewPlainList<TRsmLocal>;
             FProcs.Add(Proc);
             InProc := True;
             LocalIdx := 0;
+          end
+          else if (FProcs[ExistingIdx].SegmentOffset = 0) and (Decoded > 0) then
+          begin
+            Proc := FProcs[ExistingIdx];
+            Proc.SegmentOffset := Decoded;
+            Proc.Size := $1000;
+            FProcs[ExistingIdx] := Proc;
           end;
           P := P + 2 + Length(Name);
           Continue;
