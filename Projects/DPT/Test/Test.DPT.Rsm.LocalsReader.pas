@@ -43,6 +43,7 @@ type
     procedure DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
     procedure DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
     procedure DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
+    procedure DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -76,6 +77,8 @@ type
     procedure TestDerivedInheritsBaseFields32;
     [Test]
     procedure TestEdgeCaseLocalsAllDecoded32;
+    [Test]
+    procedure TestOpenArrayParamRecognized32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -103,6 +106,8 @@ type
     procedure TestDerivedInheritsBaseFields64;
     [Test]
     procedure TestEdgeCaseLocalsAllDecoded64;
+    [Test]
+    procedure TestOpenArrayParamRecognized64;
     {$ENDIF}
   end;
 
@@ -662,9 +667,47 @@ begin
   end;
 end;
 
+procedure TRsmLocalsReaderTests.DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
+// An open-array parameter ("const AItems: array of string") lives in
+// CPU registers under Delphi's default calling convention rather than
+// in a BP-relative stack slot, so the reader must surface it via the
+// PARAM_TAG path and mark it as register-passed. This test asserts
+// that the parameter shows up in Locals with the right Kind so the
+// debugger (rather than silently failing on a missing BpOffset) can
+// route the value-read through the register file instead.
+var
+  Reader     : TRsmLocalsReader;
+  ProcIdx, I : Integer;
+  Proc       : TRsmProc;
+  Found      : Boolean;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    ProcIdx := Reader.FindProcByName('OpenArrayStringProcedure');
+    Assert.IsTrue(ProcIdx >= 0, 'OpenArrayStringProcedure not found');
+    Proc := Reader.Procs[ProcIdx];
+
+    Found := False;
+    for I := 0 to Proc.Locals.Count - 1 do
+      if SameText(Proc.Locals[I].Name, 'AItems') then
+      begin
+        Found := True;
+        Assert.IsTrue(Proc.Locals[I].Kind = lkRegister,
+          'AItems must be flagged as a register parameter');
+        Assert.AreEqual(Byte(0), Proc.Locals[I].RegParamIdx,
+          'AItems is the first declared param, so RegParamIdx = 0');
+      end;
+    Assert.IsTrue(Found, 'AItems parameter missing from OpenArrayStringProcedure');
+  finally
+    Reader.Free;
+  end;
+end;
+
 procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
 procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
+procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
 
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
@@ -678,6 +721,7 @@ procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip64;           begin Do
 procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass64;            begin DoTestDiscoversDerivedClass(True);             end;
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
 procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
+procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized64;         begin DoTestOpenArrayParamRecognized(True);          end;
 {$ENDIF}
 
 initialization

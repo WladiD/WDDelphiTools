@@ -77,6 +77,28 @@ type
   TPoint3D = record
     FX, FY, FZ : Integer;
   end;
+procedure OpenArrayStringProcedure(const AItems: array of string);
+var
+  LocalCount : Integer;
+  LocalFirst : string;
+begin
+  LocalCount := Length(AItems);
+  if LocalCount > 0 then
+    LocalFirst := AItems[0]
+  else
+    LocalFirst := '';
+  Writeln('OAS ', LocalCount, ' ', LocalFirst);
+end;
+procedure OpenArrayIntProcedure(const ANumbers: array of Integer);
+var
+  LocalSum: Integer;
+  I       : Integer;
+begin
+  LocalSum := 0;
+  for I := Low(ANumbers) to High(ANumbers) do
+    LocalSum := LocalSum + ANumbers[I];
+  Writeln('OAI ', LocalSum);
+end;
 procedure EdgeCaseLocalsProcedure;
 type
   TFlags = set of (Flag1, Flag2, Flag3);
@@ -170,6 +192,8 @@ begin
     TargetProcedure;
     LocalsProcedure;
     if GGlobalInt = -1 then EdgeCaseLocalsProcedure;
+    if GGlobalInt = -1 then OpenArrayStringProcedure(['A', 'B', 'C']);
+    if GGlobalInt = -1 then OpenArrayIntProcedure([1, 2, 3, 4]);
   finally
     GGlobalOuter.FOuterInner.Free;
     GGlobalOuter.Free;

@@ -182,6 +182,21 @@ type
     procedure StopOutputReaders;
     procedure PatchRsmProcAddressesFromMap;
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
+    /// <summary>
+    ///   Resolve a parameter's register slot to the same 8-byte raw-bytes
+    ///   shape ReadProcessMemory produces for stack-slot locals, so that
+    ///   the rest of GetLocals / Evaluate doesn't need a special-case
+    ///   path. Delphi's register calling convention orders the first
+    ///   scalar parameters as follows:
+    ///   <list type="bullet">
+    ///     <item>Win64 ABI: RCX, RDX, R8, R9.</item>
+    ///     <item>Win32 default register: EAX, EDX, ECX.</item>
+    ///   </list>
+    ///   Registers beyond the four (Win64) or three (Win32) slots are
+    ///   passed on the stack; we have no encoding for those yet, so the
+    ///   caller will see an empty byte slice for them.
+    /// </summary>
+    function  RegisterParamBytes(const ARegs: TRegisters; ARegParamIdx: Byte): TBytes;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
   public
@@ -625,6 +640,43 @@ begin
   SetLength(Result, ASize);
   if (ASize > 0) and (not Winapi.Windows.ReadProcessMemory(FProcessHandle, AAddress, @Result[0], ASize, BytesRead)) then
     SetLength(Result, 0);
+end;
+
+function TDebugger.RegisterParamBytes(const ARegs: TRegisters; ARegParamIdx: Byte): TBytes;
+var
+  Val: UInt64;
+begin
+  Val := 0;
+  if FTargetIs32Bit then
+  begin
+    case ARegParamIdx of
+      0: Val := UInt64(UInt32(ARegs.Eax));
+      1: Val := UInt64(UInt32(ARegs.Edx));
+      2: Val := UInt64(UInt32(ARegs.Ecx));
+    else
+      SetLength(Result, 0);
+      Exit;
+    end;
+  end
+  else
+  begin
+    {$IFDEF CPUX64}
+    case ARegParamIdx of
+      0: Val := UInt64(ARegs.Ecx);  // RCX
+      1: Val := UInt64(ARegs.Edx);  // RDX
+      2: Val := UInt64(ARegs.R8);
+      3: Val := UInt64(ARegs.R9);
+    else
+      SetLength(Result, 0);
+      Exit;
+    end;
+    {$ELSE}
+    SetLength(Result, 0);
+    Exit;
+    {$ENDIF}
+  end;
+  SetLength(Result, 8);
+  Move(Val, Result[0], 8);
 end;
 
 function TDebugger.GetRegisters(AThreadHandle: THandle): TRegisters;
@@ -1113,8 +1165,13 @@ begin
   begin
     Loc.BpOffset := Proc.Locals[I].BpOffset;
     Loc.Name := Proc.Locals[I].Name;
-    SlotAddr := UIntPtr(BaseAddr + Loc.BpOffset);
-    Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
+    if Proc.Locals[I].Kind = lkRegister then
+      Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx)
+    else
+    begin
+      SlotAddr := UIntPtr(BaseAddr + Loc.BpOffset);
+      Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
+    end;
     ResultList.Add(Loc);
   end;
   Result := ResultList.AsArray;

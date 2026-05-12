@@ -34,10 +34,32 @@ type
   ///   base pointer (EBP/RBP), and the RSM type-id of its declared
   ///   type.
   /// </summary>
+  /// <summary>
+  ///   How a local/parameter is reached from the executing thread:
+  ///   either as a BP-relative stack slot (lkBpRel) where the address
+  ///   is FramePtr + BpOffset, or as a register parameter (lkRegister)
+  ///   where the value lives in a CPU register at the time of the
+  ///   call. Register parameters appear for the first few arguments of
+  ///   a Delphi proc under the default "register" / Win64 ABI -- they
+  ///   are NOT spilled to stack slots, so callers must read them out of
+  ///   the thread's register file instead of from FramePtr + offset.
+  /// </summary>
+  TRsmLocalKind = (lkBpRel, lkRegister);
+
   TRsmLocal = record
     Name    : String;
     BpOffset: Int32;
     TypeIdx : UInt32;
+    Kind    : TRsmLocalKind;
+    /// <summary>
+    ///   Zero-based index of the parameter within the calling-
+    ///   convention's register order: 0 = 1st reg param, 1 = 2nd, etc.
+    ///   Only meaningful when Kind = lkRegister. The concrete register
+    ///   is platform-specific (x86 Delphi default: EAX, EDX, ECX;
+    ///   Win64 ABI: RCX, RDX, R8, R9), so the higher layer resolves
+    ///   index -> register name when reading the value.
+    /// </summary>
+    RegParamIdx: Byte;
   end;
 
   /// <summary>
@@ -605,6 +627,7 @@ var
   const
     PROC_TAG  = $28;
     LOCAL_TAG = $20;
+    PARAM_TAG = $22;
     SCOPE_END = $63;
     AddrScanWindow = 32;
   var
@@ -616,6 +639,7 @@ var
     Loc      : TRsmLocal;
     InProc   : Boolean;
     LocalIdx : Integer;
+    RegParam : Integer;
 
     function DecodeAddrPayload(AStartOff: NativeInt): NativeUInt;
     // The proc record's post-name payload starts with a sub-tag byte
@@ -751,6 +775,7 @@ var
             FProcs.Add(Proc);
             InProc := True;
             LocalIdx := 0;
+            RegParam := 0;
           end
           else if (FProcs[ExistingIdx].SegmentOffset = 0) and (Decoded > 0) then
           begin
@@ -772,6 +797,61 @@ var
       // multi-byte form that hasn't been fully decoded yet; in that
       // case we fall back to a synthesized ordinal offset so the
       // distinct-offsets invariant still holds.
+      // Parameter record: $22 NameLen Name $62 $00 $00 <type-id 2 bytes>.
+      // Unlike LOCAL_TAG, this record does NOT carry a frame offset:
+      // open-array parameters (and other parameters in the calling
+      // convention's register slots) live in CPU registers, not on
+      // the stack. We capture the parameter so callers see it in the
+      // Locals list, tagged as register-passed with its zero-based
+      // register-param index; the higher layer resolves the index to
+      // the concrete register (RCX/RDX/... on Win64, EAX/EDX/ECX on
+      // Win32 default register convention).
+      else if (Tag = PARAM_TAG) and InProc and (FProcs.Count > 0) then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 64) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          Loc := Default(TRsmLocal);
+          Loc.Name        := Name;
+          Loc.BpOffset    := 0;
+          Loc.TypeIdx     := 0;
+          Loc.Kind        := lkRegister;
+          Loc.RegParamIdx := Byte(RegParam);
+          Inc(RegParam);
+          var PayloadStart: NativeInt := P + 2 + Length(Name);
+          if (PayloadStart + 4 < Sz) and
+             (ByteAt(PayloadStart)     = $62) and
+             (ByteAt(PayloadStart + 1) = $00) and
+             (ByteAt(PayloadStart + 2) = $00) then
+          begin
+            // Type-id is the LE 16-bit value "<lo> $2E" (or just
+            // "<lo>" if byte 4 is not $2E for built-in types).
+            var Hi: Byte := ByteAt(PayloadStart + 4);
+            if Hi = $2E then
+              Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                              (UInt32($2E) shl 8)
+            else
+              Loc.TypeIdx := ByteAt(PayloadStart + 3);
+          end;
+          FProcs[FProcs.Count - 1].Locals.Add(Loc);
+          Inc(LocalIdx);
+          // Advance past the parameter's payload (3-byte prefix
+          // "$62 $00 $00" + 2-byte type-id = 5 bytes), then look for
+          // the hidden high-index sub-record "$20 $21 ..." that
+          // follows an open-array parameter. Open-array params occupy
+          // TWO register slots (pointer + high-index), so when the
+          // compiler emitted that hidden record we consume an extra
+          // RegParam slot to keep subsequent params' indices correct.
+          P := P + 2 + Length(Name);
+          if (P + 4 < Sz) and (ByteAt(P) = $62) and
+             (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
+            P := P + 5;
+          if (P + 1 < Sz) and (ByteAt(P) = $20) and (ByteAt(P + 1) = $21) then
+            Inc(RegParam);
+          Continue;
+        end;
+      end
       else if (Tag = LOCAL_TAG) and InProc and (FProcs.Count > 0) then
       begin
         NameLen := ByteAt(P + 1);
@@ -785,6 +865,7 @@ var
           // synthesized value cannot collide with a decoded one.
           Loc.BpOffset := -10000 - (LocalIdx * 4);
           Loc.TypeIdx  := 0;
+          Loc.Kind     := lkBpRel;
           // The frame offset is encoded as a tagged variable-length
           // integer placed after the type-ref prefix "$66 $00 $00".
           // The byte at payload offset 4 picks one of two type-id
