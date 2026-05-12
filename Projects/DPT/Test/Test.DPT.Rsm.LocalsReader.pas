@@ -39,6 +39,7 @@ type
     procedure DoTestClassFieldTypeIdxLinking(AUse64Bit: Boolean);
     procedure DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
     procedure DoTestFindProcByName(AUse64Bit: Boolean);
+    procedure DoTestFindProcContaining(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -79,6 +80,8 @@ type
     procedure TestLocalsHaveDistinctOffsets64;
     [Test]
     procedure TestFindProcByName64;
+    [Test]
+    procedure TestFindProcContaining64;
     [Test]
     procedure TestParsesClassMembers64;
     [Test]
@@ -495,7 +498,7 @@ procedure TRsmLocalsReaderTests.TestParsesClassMembers32;               begin Do
 procedure TRsmLocalsReaderTests.TestParsesRecordMembers32;              begin DoTestParsesRecordMembers(False);              end;
 procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip32;           begin DoTestRecordTypeIdxRoundTrip(False);           end;
 
-procedure TRsmLocalsReaderTests.TestFindProcContaining32;
+procedure TRsmLocalsReaderTests.DoTestFindProcContaining(AUse64Bit: Boolean);
 var
   Reader : TRsmLocalsReader;
   ProcIdx: Integer;
@@ -503,10 +506,13 @@ var
 begin
   Reader := TRsmLocalsReader.Create;
   try
-    Reader.LoadFromFile(ResolveExePath(False));
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('LocalsProcedure');
     Assert.IsTrue(ProcIdx >= 0, 'LocalsProcedure not found');
     Proc := Reader.Procs[ProcIdx];
+
+    Assert.IsTrue(Proc.SegmentOffset > 0,
+      'LocalsProcedure must have a decoded SegmentOffset (RSM-only, no map patch)');
 
     Assert.AreEqual(ProcIdx,
       Reader.FindProcContaining(Proc.SegmentOffset + Proc.Size div 2));
@@ -519,11 +525,14 @@ begin
   end;
 end;
 
+procedure TRsmLocalsReaderTests.TestFindProcContaining32;                begin DoTestFindProcContaining(False);               end;
+
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
 procedure TRsmLocalsReaderTests.TestParsesLocalsForLocalsProcedure64;   begin DoTestParsesLocalsForLocalsProcedure(True);    end;
 procedure TRsmLocalsReaderTests.TestLocalsHaveDistinctOffsets64;        begin DoTestLocalsHaveDistinctOffsets(True);         end;
 procedure TRsmLocalsReaderTests.TestFindProcByName64;                   begin DoTestFindProcByName(True);                    end;
+procedure TRsmLocalsReaderTests.TestFindProcContaining64;               begin DoTestFindProcContaining(True);                end;
 procedure TRsmLocalsReaderTests.TestParsesClassMembers64;               begin DoTestParsesClassMembers(True);                end;
 procedure TRsmLocalsReaderTests.TestParsesRecordMembers64;              begin DoTestParsesRecordMembers(True);               end;
 procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;
