@@ -22,10 +22,9 @@ interface
 uses
 
   System.Classes,
-  System.Generics.Collections,
-  System.Generics.Defaults,
   System.SysUtils,
 
+  mormot.core.base,
   mormot.core.collections;
 
 type
@@ -186,6 +185,15 @@ type
   end;
 
 implementation
+
+function CompareProcBySegmentOffset(const A, B): Integer;
+var
+  Sa, Sb: NativeUInt;
+begin
+  Sa := TRsmProc(A).SegmentOffset;
+  Sb := TRsmProc(B).SegmentOffset;
+  Result := Ord(Sa > Sb) - Ord(Sa < Sb);
+end;
 
 constructor TRsmLocalsReader.Create;
 begin
@@ -1582,15 +1590,15 @@ procedure TRsmLocalsReader.RecomputeProcSizes;
 // call (procs are linker-emitted in code order) but degenerated to
 // hundreds of seconds on the second call from
 // PatchRsmProcAddressesFromMap, where the patched offsets land in
-// random positions. We now use TArray.Sort (introspective sort,
-// O(N log N)) and a single linear sweep that propagates
-// "next-greater-offset" backwards through any duplicate-offset run
-// in O(1) per entry.
+// random positions. We now use IList<T>.Sort with an external
+// index lookup (mORMot's quicksort, O(N log N)) and a single linear
+// sweep that propagates "next-greater-offset" through any
+// duplicate-offset run in O(1) per entry.
 const
   MaxProcSize  = $4000;
   LastFallback = $1000;
 var
-  Idx        : TArray<Integer>;
+  Idx        : TIntegerDynArray;
   I, J, RunEnd: Integer;
   NextStart  : NativeUInt;
   RunOffset  : NativeUInt;
@@ -1599,23 +1607,7 @@ var
   P          : TRsmProc;
 begin
   if FProcs.Count < 2 then Exit;
-  SetLength(Idx, FProcs.Count);
-  for I := 0 to FProcs.Count - 1 do Idx[I] := I;
-
-  // Sort indices by SegmentOffset ascending. TArray.Sort uses
-  // introspective sort (quicksort with heapsort fallback) which is
-  // O(N log N) worst case -- ~30x faster than insertion sort on
-  // post-patch random order at N=200k.
-  TArray.Sort<Integer>(Idx, TComparer<Integer>.Construct(
-    function(const A, B: Integer): Integer
-    var Sa, Sb: NativeUInt;
-    begin
-      Sa := FProcs[A].SegmentOffset;
-      Sb := FProcs[B].SegmentOffset;
-      if Sa < Sb then Exit(-1);
-      if Sa > Sb then Exit(1);
-      Result := 0;
-    end));
+  FProcs.Sort(Idx, @CompareProcBySegmentOffset);
 
   // Assign sizes by walking runs of equal offset. Each run shares
   // one Size value (gap to the first subsequent offset > theirs).
