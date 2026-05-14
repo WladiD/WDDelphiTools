@@ -30,6 +30,11 @@ type
   TMcpServer = class
   private
     FCurrentExePath    : String;
+    /// Tracks whether the lazy RSM load was attempted for the
+    /// current session. The load runs once, on first get_locals /
+    /// evaluate, and is skipped on the rest. Reset on each
+    /// start_debug_session.
+    FDebugInfoLoaded   : Boolean;
     FDebugger          : TDebugger;
     FExitRequest       : Boolean;
     FInputReader       : TTextReader;
@@ -74,6 +79,14 @@ type
     function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
+    /// Lazily load the .rsm sidecar tied to the current executable
+    /// the first time a tool actually needs it (get_locals, evaluate).
+    /// Subsequent calls are cheap no-ops once the data is in. The
+    /// load itself can take many seconds on large applications, so
+    /// we keep it out of start_debug_session to stay inside typical
+    /// MCP client request timeouts.
+    procedure EnsureDebugInfoLoaded;
+    procedure LogDiag(const AMessage: String);
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
@@ -98,6 +111,8 @@ implementation
 
 uses
 
+  System.Diagnostics,
+  System.IOUtils,
   System.SysUtils;
 
 const
@@ -986,6 +1001,73 @@ begin
   end;
 end;
 
+procedure TMcpServer.LogDiag(const AMessage: String);
+// Appends a timestamped diagnostic line to "dpt.log" next to the DPT
+// executable. Useful for spotting long-running operations (RSM load
+// on huge applications, in particular) when the MCP client can't be
+// asked to surface stderr -- the file is small, always present, and
+// at a known path the user can tail with PowerShell's
+// "Get-Content -Wait".
+var
+  Path: String;
+  F   : TextFile;
+begin
+  Path := ChangeFileExt(ParamStr(0), '') + '.log';
+  AssignFile(F, Path);
+  try
+    if TFile.Exists(Path) then
+      System.Append(F)
+    else
+      Rewrite(F);
+    Writeln(F, Format('%s %s',
+      [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), AMessage]));
+    CloseFile(F);
+  except
+    // diagnostics must never throw
+  end;
+end;
+
+procedure TMcpServer.EnsureDebugInfoLoaded;
+var
+  SW : TStopwatch;
+  PhaseSW: TStopwatch;
+  RsmFile: String;
+  Sz : Int64;
+begin
+  if FDebugInfoLoaded then Exit;
+  if FCurrentExePath = '' then Exit;
+  if not Assigned(FDebugger) then Exit;
+  RsmFile := ChangeFileExt(FCurrentExePath, '.rsm');
+  Sz := 0;
+  if TFile.Exists(RsmFile) then Sz := TFile.GetSize(RsmFile);
+  LogDiag(Format('loading RSM debug info: %s (%.1f MB)',
+    [RsmFile, Sz / (1024 * 1024)]));
+  SW := TStopwatch.StartNew;
+  PhaseSW := TStopwatch.StartNew;
+  try
+    FDebugger.LoadDebugInfoFromExe(FCurrentExePath,
+      procedure(APhase: String)
+      begin
+        // First call comes from the reader's first ReportPhase; we
+        // log the prior phase's duration when the next one starts,
+        // so dpt.log captures wall-time per phase.
+        PhaseSW.Stop;
+        LogDiag(Format('  phase %-30s  prev took %d ms',
+          [APhase, PhaseSW.ElapsedMilliseconds]));
+        PhaseSW := TStopwatch.StartNew;
+      end);
+  finally
+    // Always mark loaded so a parse error doesn't trap callers in
+    // an endless retry loop. LoadDebugInfoFromExe swallows its own
+    // exceptions and leaves FLocalsReader = nil on failure, which
+    // the get_locals / evaluate paths already detect.
+    FDebugInfoLoaded := True;
+    SW.Stop;
+    LogDiag(Format('RSM debug info loaded in %d ms',
+      [SW.ElapsedMilliseconds]));
+  end;
+end;
+
 function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
 var
   Args       : String;
@@ -1016,6 +1098,7 @@ begin
   FOwnsDebugger := True;
   ConnectDebuggerEvents;
   FCurrentExePath := ExePath;
+  FDebugInfoLoaded := False;
   FOutputCursorAtLastResume := 0;
 
   MapFile := ChangeFileExt(ExePath, '.map');
@@ -1023,9 +1106,13 @@ begin
   if HasMap then
     FDebugger.LoadMapFile(MapFile);
 
-  // Best-effort load of TD32 debug info from the EXE itself; required by
-  // get_locals. Silently no-ops when the EXE was stripped of debug info.
-  FDebugger.LoadDebugInfoFromExe(ExePath);
+  // RSM debug info (required by get_locals / evaluate dotted-walk) is
+  // loaded LAZILY in EnsureDebugInfoLoaded, called on the first tool
+  // that actually needs it. The .rsm sidecar can reach ~1GB on real
+  // applications and parsing it synchronously here would block
+  // start_debug_session beyond typical MCP client timeouts. Sessions
+  // that only set breakpoints and read stack frames (resolved via the
+  // map) never trigger the load.
 
   for I := 0 to FPendingBreakpoints.Count - 1 do
     FDebugger.SetBreakpoint(FPendingBreakpoints[I].UnitName, FPendingBreakpoints[I].LineNumber);
@@ -1305,17 +1392,126 @@ end;
 
 function TMcpServer.HandleEvaluate(AParams: TJSONObject): TJSONObject;
 var
-  Name : String;
-  VType: String;
-  Value: String;
+  Name     : String;
+  VType    : String;
+  Value    : String;
+  TotalSW  : TStopwatch;
+  PhaseSW  : TStopwatch;
+  OK       : Boolean;
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
+  EnsureDebugInfoLoaded;
 
   Name := AParams.GetValue('name').Value;
   VType := AParams.GetValue('type').Value;
 
-  if FDebugger.EvaluateVariable(Name, VType, Value) then
+  // Phase timing for the evaluate path. Total + per-phase deltas land
+  // in dpt.log next to DPT.exe. Useful for spotting slow steps on big
+  // applications (TFW: 36k procs / 1700+ classes) where the dotted
+  // walk, VMT reads, or a per-call GetLocals can each become the
+  // dominant cost. The callback closes over PhaseSW which is reset
+  // after each report, so each line shows the wall-time of the prior
+  // step rather than running totals.
+  LogDiag(Format('evaluate begin: name=%s type=%s', [Name, VType]));
+  // Diagnostic context: which proc is the reader pinning to the
+  // current PC, and which locals does it claim are in that proc's
+  // frame? When evaluate returns ok=False for a name that should be
+  // a parameter, this snapshot tells us whether (a) the proc was
+  // mis-identified by FindProcContaining (wrong/no name), (b) the
+  // proc's local list is empty (parser dropped them), or (c) the
+  // name is there but spelled differently (e.g. case, "@"-prefix,
+  // synthetic compiler name) so the SameText match still fails.
+  if Assigned(FDebugger) then
+  begin
+    LogDiag(Format('  ctx: proc=%s', [FDebugger.GetCurrentProcedureName(FDebugger.LastThreadHit)]));
+    var CtxLocals := FDebugger.GetLocals(FDebugger.LastThreadHit);
+    LogDiag(Format('  ctx: locals.count=%d', [Length(CtxLocals)]));
+    for var Ci := 0 to High(CtxLocals) do
+      LogDiag(Format('  ctx: local[%d] name=%s bp=%d raw=%d bytes',
+        [Ci, CtxLocals[Ci].Name, CtxLocals[Ci].BpOffset, Length(CtxLocals[Ci].RawBytes)]));
+    // Address-mapping diagnostics: when FindProcContaining returns -1
+    // the proc-coverage view above is empty, leaving us guessing
+    // whether the PC->SegmentOff arithmetic, the decoder, or the
+    // size table is at fault. Log the raw arithmetic plus the three
+    // RSM procs whose SegmentOffset bracket the computed offset --
+    // that triangulates the failure to either a missing/zero-offset
+    // proc or one whose Size doesn't span the PC.
+    var DiagRegs := FDebugger.GetRegisters(FDebugger.LastThreadHit);
+    var DiagPC := UIntPtr(DiagRegs.Eip);
+    var DiagBase := FDebugger.BaseAddress;
+    var DiagSegOff: Int64 := Int64(DiagPC) - Int64(DiagBase) - $1000;
+    LogDiag(Format('  ctx: pc=0x%x base=0x%x seg_off=0x%x',
+      [DiagPC, DiagBase, DiagSegOff]));
+    if Assigned(FDebugger.LocalsReader) and (DiagSegOff > 0) then
+    begin
+      var LR := FDebugger.LocalsReader;
+      // Linear scan -- LR.Procs is 36k entries but this only fires
+      // when evaluate is called, which is rare. Tracks the proc
+      // immediately at or below the target offset and the one
+      // immediately above, plus an exact-range match if any.
+      var BelowIdx: Integer := -1;
+      var AboveIdx: Integer := -1;
+      var BelowDelta: Int64 := MaxInt;
+      var AboveDelta: Int64 := MaxInt;
+      var CoveringIdx: Integer := -1;
+      var ZeroOffsetCount: Integer := 0;
+      for var Pi := 0 to LR.Procs.Count - 1 do
+      begin
+        var PSeg := Int64(LR.Procs[Pi].SegmentOffset);
+        var PSize := Int64(LR.Procs[Pi].Size);
+        if PSeg = 0 then
+        begin
+          Inc(ZeroOffsetCount);
+          Continue;
+        end;
+        if (PSeg <= DiagSegOff) and (DiagSegOff < PSeg + PSize) then
+          CoveringIdx := Pi;
+        var D := DiagSegOff - PSeg;
+        if (D >= 0) and (D < BelowDelta) then
+        begin
+          BelowDelta := D;
+          BelowIdx := Pi;
+        end;
+        if (D < 0) and (-D < AboveDelta) then
+        begin
+          AboveDelta := -D;
+          AboveIdx := Pi;
+        end;
+      end;
+      LogDiag(Format('  ctx: procs.count=%d  zero_offset_count=%d',
+        [LR.Procs.Count, ZeroOffsetCount]));
+      if CoveringIdx >= 0 then
+        LogDiag(Format('  ctx: covering[%d] name=%s seg=0x%x size=%d',
+          [CoveringIdx, LR.Procs[CoveringIdx].Name,
+           LR.Procs[CoveringIdx].SegmentOffset, LR.Procs[CoveringIdx].Size]))
+      else
+        LogDiag('  ctx: covering=<none>  (FindProcContaining miss)');
+      if BelowIdx >= 0 then
+        LogDiag(Format('  ctx: below[%d] name=%s seg=0x%x size=%d (delta=%d)',
+          [BelowIdx, LR.Procs[BelowIdx].Name, LR.Procs[BelowIdx].SegmentOffset,
+           LR.Procs[BelowIdx].Size, BelowDelta]));
+      if AboveIdx >= 0 then
+        LogDiag(Format('  ctx: above[%d] name=%s seg=0x%x size=%d (delta=%d)',
+          [AboveIdx, LR.Procs[AboveIdx].Name, LR.Procs[AboveIdx].SegmentOffset,
+           LR.Procs[AboveIdx].Size, AboveDelta]));
+    end;
+  end;
+  TotalSW := TStopwatch.StartNew;
+  PhaseSW := TStopwatch.StartNew;
+  OK := FDebugger.EvaluateVariable(Name, VType, Value,
+    procedure(APhase: String)
+    begin
+      PhaseSW.Stop;
+      LogDiag(Format('  evaluate phase %-28s  prev took %d ms',
+        [APhase, PhaseSW.ElapsedMilliseconds]));
+      PhaseSW := TStopwatch.StartNew;
+    end);
+  TotalSW.Stop;
+  LogDiag(Format('evaluate end: ok=%s total=%d ms',
+    [BoolToStr(OK, True), TotalSW.ElapsedMilliseconds]));
+
+  if OK then
     Result := MakeTextResult(Format('Variable %s (%s): %s', [Name, VType, Value]))
   else
     Result := MakeErrorResult('Failed to evaluate variable: ' + Name);
@@ -1535,6 +1731,7 @@ var
 begin
   if not RequireState([dsPaused], Result) then
     Exit;
+  EnsureDebugInfoLoaded;
 
   // Distinct error messages so an AI agent can branch on the cause:
   //   - no debug info loaded at all

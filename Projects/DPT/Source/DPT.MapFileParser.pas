@@ -55,8 +55,17 @@ type
     FLastSegmentIndex: Integer;
     FLineNumbers     : IList<TMapLineNumber>;
     FProcNames       : IList<TMapProcName>;
+    /// Lazy O(1) lookup table for VAFromSimpleName, keyed by the
+    /// lowercased portion of a qualified map name AFTER the last
+    /// dot. Nil until the first call asks for it. Populated by
+    /// walking FProcNames once; subsequent VAFromSimpleName calls
+    /// are pure hashtable hits. Without this, PatchRsmProcAddresses
+    /// from-Map turns into procs * map-entries linear scans, which
+    /// on TFW (36k procs, 36k map entries) costs ~8 minutes.
+    FSimpleNameIndex : IKeyValue<String, UInt64>;
     FSegmentClasses  : IList<TMapSegmentClass>;
     FSegments        : IList<TMapSegment>;
+    procedure BuildSimpleNameIndex;
     function GetLineNumberByIndex(Index: Integer): TMapLineNumber;
     function GetLineNumbersCnt: Integer;
     function GetSegmentByIndex(Index: Integer): TMapSegment;
@@ -744,21 +753,45 @@ begin
       Exit(FProcNames[I].VA);
 end;
 
-function TMapFileParser.VAFromSimpleName(const AProcName: string): UInt64;
+procedure TMapFileParser.BuildSimpleNameIndex;
+// Populates FSimpleNameIndex by walking FProcNames once. The key is
+// lowercased to match the case-insensitive semantics the previous
+// linear scan provided via SameText. When several qualified names
+// share the same trailing identifier (overloads, multiple units
+// declaring the same global), the FIRST one wins -- mirroring the
+// original "Exit on first match" behavior so callers that depended
+// on map ordering still get the same answer.
 var
-  Suffix: String;
-  Name  : String;
+  I       : Integer;
+  Name    : String;
+  DotPos  : Integer;
+  Suffix  : String;
+  Existing: UInt64;
+begin
+  FSimpleNameIndex := Collections.NewPlainKeyValue<String, UInt64>;
+  for I := 0 to FProcNames.Count - 1 do
+  begin
+    Name := FProcNames[I].Name;
+    // Mirror the original loop's guard: Length(Name) > Length('.' + suffix),
+    // i.e. the qualified name must contain a dot AND something after it.
+    DotPos := Name.LastDelimiter('.');
+    if DotPos < 0 then Continue;
+    if DotPos = Length(Name) - 1 then Continue;  // dot is last char (Pascal: 0-based pos from LastDelimiter)
+    Suffix := LowerCase(Copy(Name, DotPos + 2, MaxInt));
+    if Suffix = '' then Continue;
+    if not FSimpleNameIndex.TryGetValue(Suffix, Existing) then
+      FSimpleNameIndex.Add(Suffix, FProcNames[I].VA);
+  end;
+end;
+
+function TMapFileParser.VAFromSimpleName(const AProcName: string): UInt64;
 begin
   Result := 0;
   if AProcName = '' then Exit;
-  Suffix := '.' + AProcName;
-  for var I := 0 to FProcNames.Count - 1 do
-  begin
-    Name := FProcNames[I].Name;
-    if (Length(Name) > Length(Suffix)) and
-       SameText(Copy(Name, Length(Name) - Length(Suffix) + 1, Length(Suffix)), Suffix) then
-      Exit(FProcNames[I].VA);
-  end;
+  if FSimpleNameIndex = nil then
+    BuildSimpleNameIndex;
+  if not FSimpleNameIndex.TryGetValue(LowerCase(AProcName), Result) then
+    Result := 0;
 end;
 
 end.

@@ -222,7 +222,8 @@ type
     /// </summary>
     function  GetLocalAddress(AThreadHandle: THandle; const AName: String;
       out AAddress: Pointer): Boolean;
-    function  EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
+    function  EvaluateVariable(const AName, AType: String; out AValue: String;
+      AOnPhase: TProc<String> = nil): Boolean;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
@@ -234,7 +235,8 @@ type
     ///   Required for <see cref="GetLocals"/>; safe to skip when only map
     ///   file based functionality is needed.
     /// </summary>
-    procedure LoadDebugInfoFromExe(const AExePath: string);
+    procedure LoadDebugInfoFromExe(const AExePath: string;
+      AOnPhase: TProc<String> = nil);
     procedure LoadMapFile(const AMapFileName: string);
     function  ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
     function  ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
@@ -250,6 +252,7 @@ type
     procedure UnignoreException(const AClassName: String);
     function  WaitForBreakpoint(Timeout: Cardinal = INFINITE): TBreakpoint;
     procedure WaitForReady(Timeout: Cardinal = INFINITE);
+    property  BaseAddress: UIntPtr read FBaseAddress;
     property  BreakpointLock: TCriticalSection read FBreakpointLock;
     property  Breakpoints: IList<TBreakpoint> read FBreakpoints;
     property  IgnoredExceptions: IList<String> read FIgnoredExceptions;
@@ -982,12 +985,14 @@ begin
   PatchRsmProcAddressesFromMap;
 end;
 
-procedure TDebugger.LoadDebugInfoFromExe(const AExePath: string);
+procedure TDebugger.LoadDebugInfoFromExe(const AExePath: string;
+  AOnPhase: TProc<String>);
 begin
   FreeAndNil(FLocalsReader);
   if not FileExists(AExePath) then
     Exit;
   FLocalsReader := TRsmLocalsReader.Create;
+  FLocalsReader.OnPhase := AOnPhase;
   try
     FLocalsReader.LoadFromFile(AExePath);
   except
@@ -2017,7 +2022,14 @@ begin
   FFinishedEvent.SetEvent;
 end;
 
-function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: String): Boolean;
+function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: String;
+  AOnPhase: TProc<String>): Boolean;
+
+  procedure Phase(const APhase: String);
+  begin
+    if Assigned(AOnPhase) then
+      AOnPhase(APhase);
+  end;
 
   // Reads a Delphi long string (UnicodeString/AnsiString/WideString) given
   // its dynamic-pointer payload. <APtrVal> is the value stored AT the
@@ -2109,6 +2121,7 @@ var
 begin
   Result := False;
   AValue := '';
+  Phase('begin');
 
   if FLastThreadHit = 0 then Exit;
 
@@ -2124,6 +2137,7 @@ begin
   //    field chain: first segment is a local or global object reference,
   //    subsequent segments are field names looked up via TD32 class info.
   Locals := GetLocals(FLastThreadHit);
+  Phase('after GetLocals');
   for I := 0 to High(Locals) do
   begin
     if SameText(Locals[I].Name, AName) then
@@ -2133,16 +2147,20 @@ begin
       Break;
     end;
   end;
+  Phase('after match-local');
 
   if not IsLocal then
   begin
     Addr := GetAddressFromSymbol(AName);
+    Phase('after GetAddressFromSymbol');
     if Assigned(Addr) then
       RawBytes := ReadProcessMemory(Addr, 8);
+    Phase('after global read');
   end;
 
   if (Length(RawBytes) = 0) and AName.Contains('.') then
   begin
+    Phase('begin dotted-walk');
     // Path 2: dotted field-chain walk. The first segment must resolve
     // to an instance pointer (a local or global object reference); each
     // subsequent segment dereferences the current object, looks up the
@@ -2241,9 +2259,11 @@ begin
       Addr := FieldAddr;
       RawBytes := ReadProcessMemory(FieldAddr, 8);
     end;
+    Phase('end dotted-walk');
   end;
 
   if Length(RawBytes) = 0 then Exit;
+  Phase('format ' + AType);
 
   if SameText(AType, 'int') then
   begin

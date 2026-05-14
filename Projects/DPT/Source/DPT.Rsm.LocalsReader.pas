@@ -140,9 +140,19 @@ type
     /// to O(N) on large binaries.
     FProcByName  : IKeyValue<String, Integer>;
     FClassByName : IKeyValue<String, Integer>;
+    FOnPhase     : TProc<String>;
     procedure DeriveClassParents;
+    procedure ReportPhase(const APhase: String); inline;
   public
     constructor Create;
+    /// <summary>
+    ///   Optional progress callback fired by LoadFromBytes at each
+    ///   major parsing phase. Lets callers surface what the parser
+    ///   is doing on very large RSM files, where a single phase can
+    ///   run for many seconds and otherwise looks indistinguishable
+    ///   from a hang.
+    /// </summary>
+    property OnPhase: TProc<String> read FOnPhase write FOnPhase;
     /// <summary>
     ///   Loads RSM debug info from the sidecar file produced next to
     ///   a Delphi executable built with -VR. The sidecar's path is
@@ -184,6 +194,12 @@ begin
   FClassByName := Collections.NewPlainKeyValue<String, Integer>;
 end;
 
+procedure TRsmLocalsReader.ReportPhase(const APhase: String);
+begin
+  if Assigned(FOnPhase) then
+    FOnPhase(APhase);
+end;
+
 procedure TRsmLocalsReader.LoadFromFile(const AExePath: String);
 var
   RsmPath: String;
@@ -193,6 +209,7 @@ begin
   RsmPath := ChangeFileExt(AExePath, '.rsm');
   if not FileExists(RsmPath) then
     Exit;
+  ReportPhase('read file');
   Stream := TFileStream.Create(RsmPath, fmOpenRead or fmShareDenyWrite);
   try
     SetLength(Bytes, Stream.Size);
@@ -223,14 +240,32 @@ var
 
   function IsPrintableAscii(AB: Byte): Boolean;
   begin
-    // Identifier bytes: ASCII letters, digits, underscore. Field/class
-    // names are emitted verbatim from Delphi source identifiers, so
-    // restricting to identifier characters cuts down on false-positive
-    // matches in unrelated payload bytes.
+    // Identifier bytes accepted inside RSM length-prefixed names.
+    // The CSH7 emitter writes names verbatim from Delphi source, but
+    // a "name" can be qualified or compiler-decorated:
+    //   - 'TFormMain.Create'                  -- class-method PROC records
+    //                                            (TFW emits this form for
+    //                                            every method)
+    //   - 'TFormMain.Create$ActRec'           -- closure / nested-func record
+    //   - 'TList<TFoo>.Add'                   -- generic instantiation
+    //   - '@MyName'                           -- linker-emitted alias
+    //   - 'TMap<TKey,TValue>.Get'             -- multi-arg generics (comma)
+    // Keeping the check tight (no whitespace, no control bytes) limits
+    // false-positive PROC records when a random byte run happens to
+    // pass the length-prefix shape, while still letting real qualified
+    // names through. The earlier alnum-plus-underscore set rejected
+    // every dot- or generic-prefixed PROC name on TFW, dropping 36% of
+    // procs from the reader and breaking FindProcContaining.
     Result := ((AB >= Ord('A')) and (AB <= Ord('Z'))) or
               ((AB >= Ord('a')) and (AB <= Ord('z'))) or
               ((AB >= Ord('0')) and (AB <= Ord('9'))) or
-              (AB = Ord('_'));
+              (AB = Ord('_')) or
+              (AB = Ord('.')) or
+              (AB = Ord('$')) or
+              (AB = Ord('<')) or
+              (AB = Ord('>')) or
+              (AB = Ord(',')) or
+              (AB = Ord('@'));
   end;
 
   function ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean;
@@ -639,6 +674,15 @@ var
     PROC_TAG  = $28;
     LOCAL_TAG = $20;
     PARAM_TAG = $22;
+    // Register-passed variable record: $21 NameLen Name $66 $00 $00 <type-id-lo> <type-id-hi>.
+    // Used for the parameters that live in CPU registers under
+    // Delphi's default calling convention -- on x86 that's the first
+    // three slots (EAX/EDX/ECX), on x64 the first four (RCX/RDX/R8/R9).
+    // Constructors emit an extra slot for the hidden allocation flag.
+    // Without this tag, register-resident params (Self, AOwner, ...)
+    // never make it into Proc.Locals and get_locals / evaluate fail
+    // for every method whose params don't spill to the stack.
+    REGVAR_TAG = $21;
     SCOPE_END = $63;
     AddrScanWindow = 32;
   var
@@ -651,6 +695,18 @@ var
     InProc   : Boolean;
     LocalIdx : Integer;
     RegParam : Integer;
+    /// Guards SCOPE_END from closing the proc scope while we are
+    /// still inside the proc's address-payload bytes. The payload
+    /// for the $A0 sub-form runs ~18 bytes of essentially arbitrary
+    /// data (timestamp/type-ref/encoded VA/trailer), and on large
+    /// binaries it routinely contains a $63 byte. Without this
+    /// guard, that incidental $63 fires SCOPE_END BEFORE the first
+    /// real param/local record has been read -- so on TFW every
+    /// class-method's Self / params silently vanished. The flag
+    /// flips to True only once we've actually parsed a local-shaped
+    /// record ($20 / $21 / $22) since the last PROC_TAG, which
+    /// puts SCOPE_END detection back on solid ground.
+    SeenLocalSinceProc: Boolean;
 
     function DecodeAddrPayload(AStartOff: NativeInt): NativeUInt;
     // The proc record's post-name payload starts with a sub-tag byte
@@ -672,12 +728,23 @@ var
     //                    proc, which the caller patches in.
 
       function TryWin32(AOff: NativeInt): NativeUInt;
+      // Win32 PROC-address payload: 4 bytes encoding the full
+      // 28-bit virtual address as ((VA shl 4) or $07). The low
+      // nibble of byte 0 is the format marker ($07); the remaining
+      // 28 bits are the VA. There is NO constant tag byte at byte
+      // 3 -- earlier code required byte 3 = $04 because the test
+      // corpus only contained binaries with VAs in [$401000,
+      // $4FFFFF] (the high byte of (VA shl 4) is $04 in that
+      // window). TFW puts most of its code well beyond that range
+      // (e.g. 0x598BBD4), so byte 3 simply carries the VA's high
+      // bits and varies build to build. The decoded-range guard
+      // (0 < Dec < 256 MB, matching the 28-bit encoding capacity)
+      // remains the integrity check.
       var DW: UInt32; Dec: Int64;
       begin
         Result := 0;
         if AOff + 3 >= Sz then Exit;
         if (ByteAt(AOff) and $0F) <> $07 then Exit;
-        if ByteAt(AOff + 3) <> $04 then Exit;
         DW := DwordAt(AOff);
         Dec := (Int64(DW) shr 4) - $401000;
         if (Dec > 0) and (Dec < $10000000) then
@@ -745,6 +812,7 @@ var
 
   begin
     InProc := False;
+    SeenLocalSinceProc := False;
     LocalIdx := 0;
     P := 0;
     while P + 2 < Sz do
@@ -791,6 +859,7 @@ var
               FProcByName[LowerCase(Copy(Name, 2, MaxInt))] := FProcs.Count;
             FProcs.Add(Proc);
             InProc := True;
+            SeenLocalSinceProc := False;
             LocalIdx := 0;
             RegParam := 0;
           end
@@ -853,6 +922,7 @@ var
           end;
           FProcs[FProcs.Count - 1].Locals.Add(Loc);
           Inc(LocalIdx);
+          SeenLocalSinceProc := True;
           // Advance past the parameter's payload (3-byte prefix
           // "$62 $00 $00" + 2-byte type-id = 5 bytes), then look for
           // the hidden high-index sub-record "$20 $21 ..." that
@@ -866,6 +936,55 @@ var
             P := P + 5;
           if (P + 1 < Sz) and (ByteAt(P) = $20) and (ByteAt(P + 1) = $21) then
             Inc(RegParam);
+          Continue;
+        end;
+      end
+      // Register-passed variable: $21 NameLen Name $66 $00 $00 <typeidLo> <typeidHi>.
+      // These hold the Self pointer and the parameters that fit into
+      // the calling convention's register slots. Without this branch
+      // a method like "constructor Create(AOwner: TComponent)" has
+      // NO locals after the scan -- Self / AOwner ride EAX / ECX,
+      // never spill, and the previous code only looked at BPREL
+      // ($20) and open-array ($22) records. Sequential RegParamIdx
+      // matches what RegisterParamBytes already expects (0=EAX/RCX,
+      // 1=EDX/RDX, 2=ECX/R8, 3=R9 on x64).
+      else if (Tag = REGVAR_TAG) and InProc and (FProcs.Count > 0) then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 64) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          Loc := Default(TRsmLocal);
+          Loc.Name        := Name;
+          Loc.BpOffset    := 0;
+          Loc.TypeIdx     := 0;
+          Loc.Kind        := lkRegister;
+          Loc.RegParamIdx := Byte(RegParam);
+          Inc(RegParam);
+          var PayloadStart: NativeInt := P + 2 + Length(Name);
+          if (PayloadStart + 4 < Sz) and
+             (ByteAt(PayloadStart)     = $66) and
+             (ByteAt(PayloadStart + 1) = $00) and
+             (ByteAt(PayloadStart + 2) = $00) then
+          begin
+            // Same two-byte type-id form as PARAM_TAG; surface as the
+            // LE 16-bit value so the higher-level walker can match it
+            // against the class/record registry.
+            var Hi: Byte := ByteAt(PayloadStart + 4);
+            if Hi = $2E then
+              Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                              (UInt32($2E) shl 8)
+            else
+              Loc.TypeIdx := ByteAt(PayloadStart + 3);
+          end;
+          FProcs[FProcs.Count - 1].Locals.Add(Loc);
+          Inc(LocalIdx);
+          SeenLocalSinceProc := True;
+          // Advance past the name + 5-byte payload "$66 $00 $00 <lo> <hi>".
+          P := P + 2 + Length(Name);
+          if (P + 4 < Sz) and (ByteAt(P) = $66) and
+             (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
+            P := P + 5;
           Continue;
         end;
       end
@@ -973,13 +1092,15 @@ var
           end;
           FProcs[FProcs.Count - 1].Locals.Add(Loc);
           Inc(LocalIdx);
+          SeenLocalSinceProc := True;
           P := P + 2 + Length(Name);
           Continue;
         end;
       end
-      else if Tag = SCOPE_END then
+      else if (Tag = SCOPE_END) and SeenLocalSinceProc then
       begin
         InProc := False;
+        SeenLocalSinceProc := False;
         LocalIdx := 0;
       end;
       Inc(P);
@@ -1270,11 +1391,17 @@ begin
 
   Buf := PByte(@ABytes[0]);
   Sz  := Length(ABytes);
+  ReportPhase('ScanSymbolStream');
   ScanSymbolStream;
+  ReportPhase('RecomputeProcSizes');
   RecomputeProcSizes;
+  ReportPhase('DiscoverAndParseAllStructs');
   DiscoverAndParseAllStructs;
+  ReportPhase('LinkMemberTypeIdsFromFormatA');
   LinkMemberTypeIdsFromFormatA;
+  ReportPhase('DeriveClassParents');
   DeriveClassParents;
+  ReportPhase('done');
 end;
 
 procedure TRsmLocalsReader.DeriveClassParents;
