@@ -219,7 +219,6 @@ begin
   RsmPath := ChangeFileExt(AExePath, '.rsm');
   if not FileExists(RsmPath) then
     Exit;
-  ReportPhase('read file');
   Stream := TFileStream.Create(RsmPath, fmOpenRead or fmShareDenyWrite);
   try
     SetLength(Bytes, Stream.Size);
@@ -228,6 +227,7 @@ begin
   finally
     Stream.Free;
   end;
+  ReportPhase('read file');
   LoadFromBytes(Bytes);
 end;
 
@@ -1172,8 +1172,15 @@ var
   type
     TRawId = record Lo, Hi: Byte; end;
   var
-    NameToRawId : array of record Name: String; Id: TRawId; end;
-    NameRawIdCnt: Integer;
+    // Raw 16-bit RSM type id -> FClasses index. Populated by
+    // ScanTypeRegistry from the $2A name-to-id records, joining
+    // each registry name against FClassByName so we never need a
+    // separate (name -> id) table or a second linear scan into
+    // FClasses. Prior code stored (name, id) pairs in a flat
+    // array and looked them up with two nested O(N) scans inside
+    // every field record, turning Link... into the dominant
+    // load-time cost on TFW (~12 s out of 22 s).
+    RawIdToClassIdx: IKeyValue<UInt32, Integer>;
     // Format-A-confirmed (classIdx, field-name) pairs. The backward
     // Format-B scan over-collects field candidates from neighbouring
     // class declarations because its window is fixed, so we keep an
@@ -1184,6 +1191,11 @@ var
     // earlier linear scan turned PruneSpuriousMembers into the single
     // biggest hot spot, blowing past 30 seconds for 800MB+ files.
     Confirmed: IKeyValue<String, Boolean>;
+
+    function RawIdKey(const ARaw: TRawId): UInt32; inline;
+    begin
+      Result := UInt32(ARaw.Lo) or (UInt32(ARaw.Hi) shl 8);
+    end;
 
     function ConfirmedKey(AClsIdx: Integer; const AFieldName: String): String;
     begin
@@ -1236,81 +1248,64 @@ var
       end;
     end;
 
-    function RawIdEqual(const A, B: TRawId): Boolean;
-    begin
-      Result := (A.Lo = B.Lo) and (A.Hi = B.Hi);
-    end;
-
     function FindClassIdxForRawId(const ARaw: TRawId): Integer;
-    var
-      I, K: Integer;
     begin
-      // Find the name registered with this raw-id and look it up in
-      // our parsed Classes list. Returns -1 if either the raw-id or
-      // the name isn't known to us (built-in types fall here).
-      Result := -1;
-      for I := 0 to NameRawIdCnt - 1 do
-        if RawIdEqual(NameToRawId[I].Id, ARaw) then
-        begin
-          for K := 0 to FClasses.Count - 1 do
-            if SameText(FClasses[K].Name, NameToRawId[I].Name) then
-              Exit(K);
-          Exit;
-        end;
+      // Direct O(1) lookup via the registry-built hashmap. Returns
+      // -1 if the raw id is unknown (built-in types or types we
+      // didn't parse). Replaces the prior O(N^2) scan.
+      if not RawIdToClassIdx.TryGetValue(RawIdKey(ARaw), Result) then
+        Result := -1;
     end;
 
     procedure ScanTypeRegistry;
     var
-      P, NL, K  : Integer;
-      Name      : String;
-      Valid     : Boolean;
-      Id        : TRawId;
+      P, NL  : Integer;
+      Skip   : PtrInt;
+      Name   : String;
+      Id     : TRawId;
+      ClsIdx : Integer;
     begin
+      // Walk the byte stream looking for $2A name-id records and
+      // populate RawIdToClassIdx by joining each registered name
+      // against the already-built FClassByName index. The byte-walk
+      // is driven by mORMot's SSE2-accelerated ByteScanIndex so we
+      // jump directly to the next $2A tag instead of incrementing
+      // 858M times in Pascal (a half-second tag-hunt becomes
+      // microseconds). Records whose first name character isn't 'T'
+      // are rejected via a single byte peek before we ever build a
+      // String, since the registry only carries Delphi class /
+      // record names which all start with 'T'.
       P := 0;
       while P + 12 < Sz do
       begin
-        if ByteAt(P) = $2A then
+        Skip := ByteScanIndex(PByteArray(Buf + P), Sz - P - 12, $2A);
+        if Skip < 0 then Break;
+        Inc(P, Skip);
+        NL := ByteAt(P + 1);
+        if (NL >= 2) and (NL <= 40) and
+           (P + 2 + NL + 5 < Sz) and
+           (ByteAt(P + 2) = Byte(Ord('T'))) and
+           (ByteAt(P + 2 + NL) = $20) and
+           (ByteAt(P + 2 + NL + 1) = $00) and
+           (ByteAt(P + 2 + NL + 2) = $00) and
+           ReadIdentifier(P + 1, Name) then
         begin
-          NL := ByteAt(P + 1);
-          if (NL >= 2) and (NL <= 40) and
-             ReadIdentifier(P + 1, Name) and
-             (Length(Name) >= 2) and (Name[1] = 'T') and
-             (P + 2 + NL + 5 < Sz) and
-             (ByteAt(P + 2 + NL) = $20) and
-             (ByteAt(P + 2 + NL + 1) = $00) and
-             (ByteAt(P + 2 + NL + 2) = $00) then
-          begin
-            Id.Lo := ByteAt(P + 2 + NL + 3);
-            Id.Hi := ByteAt(P + 2 + NL + 4);
-            Valid := True;
-            // Deduplicate: registry can list the same name twice
-            // (one record before, one after). Last entry wins.
-            for K := 0 to NameRawIdCnt - 1 do
-              if SameText(NameToRawId[K].Name, Name) then
-              begin
-                NameToRawId[K].Id := Id;
-                Valid := False;
-                Break;
-              end;
-            if Valid then
-            begin
-              if NameRawIdCnt >= Length(NameToRawId) then
-                SetLength(NameToRawId, (NameRawIdCnt + 1) * 2);
-              NameToRawId[NameRawIdCnt].Name := Name;
-              NameToRawId[NameRawIdCnt].Id   := Id;
-              Inc(NameRawIdCnt);
-            end;
-            P := P + 2 + NL + 5;
-            Continue;
-          end;
-        end;
-        Inc(P);
+          Id.Lo := ByteAt(P + 2 + NL + 3);
+          Id.Hi := ByteAt(P + 2 + NL + 4);
+          ClsIdx := FindClassByName(Name);
+          if ClsIdx >= 0 then
+            RawIdToClassIdx[RawIdKey(Id)] := ClsIdx;
+          P := P + 2 + NL + 5;
+        end
+        else
+          Inc(P);
       end;
     end;
 
     procedure LinkFieldsFromFormatA;
     var
       P, NL    : Integer;
+      Skip     : PtrInt;
       Name     : String;
       FieldId  : TRawId;
       ParentId : TRawId;
@@ -1320,25 +1315,32 @@ var
       Member   : TRsmClassMember;
       EndOff   : Integer;
     begin
+      // Same SSE2-accelerated scanning as ScanTypeRegistry, but the
+      // tag we hunt for is $2C and the record may be prefixed with
+      // a $FF byte (continuation marker for non-first fields). We
+      // jump directly to the next $2C using ByteScanIndex, then
+      // resolve the actual TagOff from the byte one position before
+      // (if it's $FF). The first-character peek for 'F' rejects
+      // 99.6% of incidental $2C hits before allocating the name.
       P := 0;
       while P + 24 < Sz do
       begin
-        // A field record starts with either $2C (first field of a
-        // class in Format A) or $FF $2C (subsequent fields). Peek
-        // both forms.
-        var TagOff: Integer := -1;
-        if ByteAt(P) = $2C then
-          TagOff := P
-        else if (P + 1 < Sz) and (ByteAt(P) = $FF) and (ByteAt(P + 1) = $2C) then
-          TagOff := P + 1;
-        if TagOff < 0 then
+        Skip := ByteScanIndex(PByteArray(Buf + P), Sz - P - 24, $2C);
+        if Skip < 0 then Break;
+        Inc(P, Skip);
+        var TagOff: Integer := P;
+        // Tag form $FF $2C uses the position one before, but the
+        // field name still starts at TagOff+2 (i.e. one past the
+        // length byte). Either way the first-character byte that
+        // determines whether this is a field name lives at TagOff+2.
+        NL := ByteAt(TagOff + 1);
+        if (NL < 2) or (NL > 40) or (TagOff + 2 + NL > Sz) or
+           (ByteAt(TagOff + 2) <> Byte(Ord('F'))) then
         begin
           Inc(P);
           Continue;
         end;
-        NL := ByteAt(TagOff + 1);
-        if (NL < 1) or (NL > 40) or (not ReadIdentifier(TagOff + 1, Name)) or
-           (Length(Name) = 0) or (Name[1] <> 'F') then
+        if not ReadIdentifier(TagOff + 1, Name) then
         begin
           Inc(P);
           Continue;
@@ -1412,8 +1414,7 @@ var
     end;
 
   begin
-    SetLength(NameToRawId, 64);
-    NameRawIdCnt := 0;
+    RawIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
     Confirmed := Collections.NewPlainKeyValue<String, Boolean>;
     ScanTypeRegistry;
     LinkFieldsFromFormatA;
@@ -1432,16 +1433,23 @@ begin
 
   Buf := PByte(@ABytes[0]);
   Sz  := Length(ABytes);
-  ReportPhase('ScanSymbolStream');
+  // Each ReportPhase reports the wall-clock time elapsed since the
+  // PREVIOUS ReportPhase call -- so the label must name the phase
+  // that JUST finished, not the next one. The earlier ordering put
+  // the label before the procedure call, which made every reported
+  // duration belong to the previous phase. That cost me a full
+  // optimization cycle on DeriveClassParents while the real culprit
+  // (LinkMemberTypeIdsFromFormatA) hid behind a mislabelled timer.
   ScanSymbolStream;
-  ReportPhase('RecomputeProcSizes');
+  ReportPhase('ScanSymbolStream');
   RecomputeProcSizes;
-  ReportPhase('DiscoverAndParseAllStructs');
+  ReportPhase('RecomputeProcSizes');
   DiscoverAndParseAllStructs;
-  ReportPhase('LinkMemberTypeIdsFromFormatA');
+  ReportPhase('DiscoverAndParseAllStructs');
   LinkMemberTypeIdsFromFormatA;
-  ReportPhase('DeriveClassParents');
+  ReportPhase('LinkMemberTypeIdsFromFormatA');
   DeriveClassParents;
+  ReportPhase('DeriveClassParents');
   ReportPhase('done');
 end;
 
@@ -1469,13 +1477,13 @@ const
   WIN64_PTR_SIZE = 8;
   WIN32_PTR_SIZE = 4;
 var
-  I, J     : Integer;
-  Info     : TRsmClassInfo;
-  PtrSize  : UInt32;
-  FirstOffs: array of UInt32;
-  LastEnds : array of UInt32;
+  I, J       : Integer;
+  Info       : TRsmClassInfo;
+  PtrSize    : UInt32;
+  FirstOffs  : array of UInt32;
+  LastEnds   : array of UInt32;
+  Kinds      : array of TRsmStructKind;
   Cand, Match: Integer;
-  CandCount  : Integer;
 
   function InstanceSize(AInfo: TRsmClassInfo; AFirstOff, ALastOff: UInt32): UInt32;
   var
@@ -1518,11 +1526,19 @@ begin
     end;
   end;
 
+  // Cache the small per-class fields the inner parent-matching loop
+  // needs into plain arrays. The earlier code read FClasses[Cand].Kind
+  // inside the inner loop -- each access copies the full TRsmClassInfo
+  // record (Name + ParentName strings + Members IList, three refcount
+  // atomic ops per access), which dominated this phase at ~12 s on
+  // TFW. Indexing into an array of byte-wide enums is a single load.
   SetLength(FirstOffs, FClasses.Count);
   SetLength(LastEnds, FClasses.Count);
+  SetLength(Kinds, FClasses.Count);
   for I := 0 to FClasses.Count - 1 do
   begin
     Info := FClasses[I];
+    Kinds[I] := Info.Kind;
     FirstOffs[I] := 0;
     LastEnds[I]  := 0;
     if Info.Kind <> skClass then Continue;
@@ -1540,38 +1556,36 @@ begin
 
   for I := 0 to FClasses.Count - 1 do
   begin
-    Info := FClasses[I];
-    if Info.Kind <> skClass then Continue;
+    if Kinds[I] <> skClass then Continue;
     if FirstOffs[I] <= PtrSize then Continue;
     Match := -1;
-    CandCount := 0;
-    // Walk candidates from highest to lowest FClasses index so the
-    // first hit is the latest-declared class. Delphi RSM emits the
-    // type stream in source-declaration order with system classes
-    // up front, so the most-recently-declared candidate is the one
-    // most likely to be the actual parent (and not a same-sized
-    // system class that happens to share an instance boundary).
-    for Cand := FClasses.Count - 1 downto 0 do
+    // Walk candidates from I-1 downto 0 so the first hit is the
+    // latest-declared class whose instance ends exactly where I's
+    // own fields start -- Delphi RSM emits the type stream in
+    // source-declaration order with system classes up front, so the
+    // most-recently-declared candidate is the one most likely to be
+    // the actual parent (and not a same-sized system class that
+    // happens to share an instance boundary). The previous loop
+    // walked the full [0..N-1] range and filtered Cand > I per
+    // iteration; bounding the loop directly removes those checks.
+    // We also break on first hit -- CandCount was computed but
+    // never consulted.
+    for Cand := I - 1 downto 0 do
     begin
-      if Cand = I then Continue;
-      if FClasses[Cand].Kind <> skClass then Continue;
-      // A parent has to come BEFORE the child in the stream; skip
-      // anything declared later than us, which is a sibling/child
-      // at best and never the parent.
-      if Cand > I then Continue;
+      if Kinds[Cand] <> skClass then Continue;
       if LastEnds[Cand] = FirstOffs[I] then
       begin
-        Inc(CandCount);
-        if Match < 0 then Match := Cand;
+        Match := Cand;
+        Break;
       end;
     end;
     if Match >= 0 then
     begin
+      Info := FClasses[I];
       Info.ParentName := FClasses[Match].Name;
       FClasses[I] := Info;
     end;
   end;
-
 end;
 
 procedure TRsmLocalsReader.RecomputeProcSizes;
