@@ -13,10 +13,14 @@ Run `DPT.exe Help <Action>` for detailed information on any specific command. Be
 DPT provides special support for AI agents through rule-based workflows and the Model Context Protocol (MCP).
 
 *   **`McpDebugger`**: Starts a standalone MCP server for debugging Delphi applications. It runs continuously in the background and provides tools for AI agents (like Gemini, Claude) to:
-    *   Manage debug sessions (`start_debug_session`, `stop_debug_session`, `terminate_debug_session`)
-    *   Set/remove hardware breakpoints (`set_breakpoint`, `remove_breakpoint`, `list_breakpoints`)
-    *   Control asynchronous execution (`continue`, `step_into`, `step_over`, `wait_until_paused`)
-    *   Inspect state and memory (`get_state`, `get_stack_trace`, `get_registers`, `get_stack_slots`, `get_stack_memory`, `read_memory`, `read_global_variable`, `get_proc_asm`)
+    *   Manage debug sessions (`start_debug_session`, `stop_debug_session`, `terminate_debug_session`). The `.rsm` debug sidecar (Delphi linker option `-VR`) is parsed in a background task as soon as the session starts, so `start_debug_session` returns immediately even on ~1 GB sidecars.
+    *   Set/remove hardware breakpoints (`set_breakpoint`, `remove_breakpoint`, `list_breakpoints`).
+    *   Filter exceptions per class (`ignore_exception`, `unignore_exception`, `list_ignored_exceptions`).
+    *   List and switch threads (`list_threads`, `switch_thread`).
+    *   Control asynchronous execution (`continue`, `step_into`, `step_over`, `wait_until_paused`).
+    *   Inspect program state (`get_state`, `get_stack_trace`, `get_registers`, `get_stack_slots`, `get_stack_memory`, `get_locals`, `get_proc_asm`, `read_memory`).
+    *   Read captured target I/O (`get_output`) — every line the target writes to `stdout`, `stderr`, or `OutputDebugString` is tagged with its source and the corresponding session cursor, so the agent gets a clean delta since the last `continue` / `step`.
+    *   Evaluate named variables and fields with `evaluate`. Supports typed reads for `int`, `int64`, `string`, `ansistring`, `widestring`, `shortstring`, and `object` (returns `ClassName @ HexAddr` via the VMT), plus dotted field navigation for both class chains (`AOwner.FInner.FNested`) and record chains (`MyObj.FRec.FX`) with automatic transition between deref and inline hops.
 *   **`AiSession`**: Manages an AI session for the current process hierarchy. Uses an internal workflow engine to provide instructions and track state (e.g., Lint results). See [AiWorkflow.md](AiWorkflow.md) for details.
 
 ### 🏗️ Build-Management & CI/CD
