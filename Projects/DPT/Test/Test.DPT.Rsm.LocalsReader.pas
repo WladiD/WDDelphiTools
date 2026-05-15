@@ -79,6 +79,8 @@ type
     procedure TestEdgeCaseLocalsAllDecoded32;
     [Test]
     procedure TestOpenArrayParamRecognized32;
+    [Test]
+    procedure TestTfwLoadDiagnostic;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -114,7 +116,8 @@ type
 implementation
 
 uses
-  System.Classes;
+  System.Classes,
+  System.Diagnostics;
 
 function TRsmLocalsReaderTests.ResolveExePath(AUse64Bit: Boolean): String;
 var
@@ -667,14 +670,22 @@ begin
   end;
 end;
 
+/// <summary>
+///   Asserts that an open-array parameter (declared in source as
+///   <c>const AItems: array of string</c>) shows up in the proc's
+///   Locals list as a register-passed entry rather than a missing
+///   BP-relative slot.
+/// </summary>
+/// <remarks>
+///   Open-array parameters live in CPU registers under Delphi's
+///   default calling convention, not in the BP-relative stack
+///   frame. The reader must therefore surface them via the
+///   PARAM_TAG ($22) path and tag them as <c>lkRegister</c> with
+///   the right <c>RegParamIdx</c>; otherwise the debugger silently
+///   fails on a missing BpOffset when the agent asks for the
+///   parameter value.
+/// </remarks>
 procedure TRsmLocalsReaderTests.DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
-// An open-array parameter ("const AItems: array of string") lives in
-// CPU registers under Delphi's default calling convention rather than
-// in a BP-relative stack slot, so the reader must surface it via the
-// PARAM_TAG path and mark it as register-passed. This test asserts
-// that the parameter shows up in Locals with the right Kind so the
-// debugger (rather than silently failing on a missing BpOffset) can
-// route the value-read through the register file instead.
 var
   Reader     : TRsmLocalsReader;
   ProcIdx, I : Integer;
@@ -708,6 +719,258 @@ procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin D
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
 procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
 procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
+
+/// <summary>
+///   Developer-machine-only perf-regression test for the RSM
+///   load path against a real, multi-hundred-MB binary
+///   (currently <c>TFW.exe</c> ~117 MB / <c>TFW.rsm</c> ~800 MB).
+///   Records each parsing phase's wall-clock time both in the
+///   DUnitX runner output and in <c>dpt.log</c> next to the test
+///   exe, then asserts a total wall-time budget plus a per-phase
+///   ceiling so that any return of the O(N^2) loops we removed
+///   trips here with a specific message.
+/// </summary>
+/// <remarks>
+///   When the fixture is absent, the test prints a visible
+///   <c>WARNING</c> line to stdout and calls <c>Assert.Pass</c>
+///   so the build stays green but the missing perf-net is
+///   impossible to miss in the runner output. When a fixture
+///   IS present but is much smaller than the calibrated TFW
+///   baseline, the identity sanity-block (<c>.rsm</c> size,
+///   proc count, class count) trips first instead of silently
+///   passing every budget on a too-easy fixture.
+/// </remarks>
+procedure TRsmLocalsReaderTests.TestTfwLoadDiagnostic;
+const
+  TfwExePath = 'C:\MSE\TFW\TFW.exe';
+  // Total budget: the post-fix load is ~24 s on the developer
+  // machine. Allow 3x for CI / cold-cache / slower disks but trip
+  // well below the 425 s pre-fix value. A regression past this
+  // will get caught at the next test run instead of surfacing as
+  // a frozen MCP session minutes after deploy.
+  HardLimit  = 90 * 1000;
+  // Per-phase budgets, picked so each O(N^2) regression we just
+  // killed (insertion-sort on 200k procs, per-byte String alloc
+  // in the struct scan) trips its own assertion with a clear
+  // message. Each is roughly 5-10x the observed post-fix value.
+  // Names must match the strings emitted by OnPhase in
+  // TRsmLocalsReader (ScanSymbolStream / RecomputeProcSizes /
+  // DiscoverAndParseAllStructs / LinkMemberTypeIdsFromFormatA /
+  // DeriveClassParents); a typo here silently passes.
+  PhaseBudget_DiscoverAndParseAllStructs   = 30 * 1000;
+  PhaseBudget_RecomputeProcSizes           = 20 * 1000;
+  PhaseBudget_LinkMemberTypeIdsFromFormatA = 25 * 1000;
+  PhaseBudget_DeriveClassParents           = 30 * 1000;
+  PhaseBudget_ScanSymbolStream             = 10 * 1000;
+var
+  Reader      : TRsmLocalsReader;
+  TotalSW     : TStopwatch;
+  PhaseSW     : TStopwatch;
+  PhaseTable  : TStringList;
+  PhaseTimings: IKeyValue<String, Int64>;
+  LogPath     : String;
+  W           : TStreamWriter;
+  I           : Integer;
+begin
+  if not TFile.Exists(TfwExePath) then
+  begin
+    // Visible skip notice on stdout. Assert.Pass alone is invisible
+    // in most DUnitX runner outputs (it just records "Passed"); a
+    // Writeln guarantees the maintainer sees that the
+    // perf-regression net is currently down on this machine and
+    // can decide whether to point the test elsewhere.
+    var SkipMsg: String := Format(
+      'WARNING: large-RSM perf-regression test SKIPPED -- fixture not ' +
+      'found at "%s". The hot-path budgets below cannot trip without ' +
+      'it; restore the file or update TfwExePath.',
+      [TfwExePath]);
+    Writeln(SkipMsg);
+    Assert.Pass(SkipMsg);
+    Exit;
+  end;
+
+  // Announce which fixture we're about to drive through the reader,
+  // before the multi-second load starts. The information also goes
+  // into the per-run summary further down so dpt.log retains it for
+  // post-mortem comparison across runs (different .rsm sizes
+  // explain different timings).
+  var FixtureRsm: String := ChangeFileExt(TfwExePath, '.rsm');
+  var FixtureRsmMB: Double := 0;
+  if TFile.Exists(FixtureRsm) then
+    FixtureRsmMB := TFile.GetSize(FixtureRsm) / (1024 * 1024);
+  var FixtureLine: String := Format('  fixture: exe=%s  rsm=%s (%.1f MB)',
+    [TfwExePath, FixtureRsm, FixtureRsmMB]);
+  Writeln(FixtureLine);
+
+  // Sanity-check the fixture identity before we trust the perf
+  // budgets below. A "TFW.exe" pointing at a hello-world build
+  // would silently pass every budget because its sub-MB .rsm
+  // takes ~0 ms in every phase -- a useless green light. Require
+  // a large sidecar AND a six-figure proc count so a wrong
+  // fixture trips here with a clear message instead.
+  Assert.IsTrue(FixtureRsmMB > 50,
+    Format('Fixture .rsm is suspiciously small (%.1f MB). The ' +
+           'perf-regression test needs a multi-hundred-MB sidecar ' +
+           'to exercise the bulk-scan hot paths; the budgets below ' +
+           'are meaningless on a tiny fixture.', [FixtureRsmMB]));
+
+  PhaseTable := TStringList.Create;
+  PhaseTimings := Collections.NewPlainKeyValue<String, Int64>;
+  Reader := TRsmLocalsReader.Create;
+  try
+    PhaseSW := TStopwatch.StartNew;
+    Reader.OnPhase :=
+      procedure(APhase: String)
+      begin
+        PhaseSW.Stop;
+        PhaseTable.Add(Format('  %-32s %d ms',
+          [APhase, PhaseSW.ElapsedMilliseconds]));
+        PhaseTimings[APhase] := PhaseSW.ElapsedMilliseconds;
+        PhaseSW := TStopwatch.StartNew;
+      end;
+    TotalSW := TStopwatch.StartNew;
+    Reader.LoadFromFile(TfwExePath);
+    TotalSW.Stop;
+
+    // Mirror the timings into dpt.log so the file the user already
+    // tails for live progress also carries the post-mortem summary.
+    var Summary: String := Format('%s [tfw-diag] total=%d ms  procs=%d  classes=%d',
+      [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now),
+       Integer(TotalSW.ElapsedMilliseconds), Reader.Procs.Count, Reader.Classes.Count]);
+    LogPath := ChangeFileExt(ParamStr(0), '') + '.log';
+    try
+      W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
+      try
+        W.WriteLine(Summary);
+        W.WriteLine(FixtureLine);
+        for I := 0 to PhaseTable.Count - 1 do
+          W.WriteLine(PhaseTable[I]);
+      finally
+        W.Free;
+      end;
+    except
+      // diagnostics must never throw
+    end;
+
+    // Spot-check the decoder on a handful of named procs from TFW.
+    // The MCP-session diagnostic showed FindProcContaining missing
+    // for the user's breakpoint, so we cross-reference what the
+    // reader actually stored against the addresses the .map gives
+    // for the same procs. Mismatch or SegmentOffset = 0 here proves
+    // the decoder still drops them; a correct value indicates a
+    // downstream issue (size table, lookup, sort).
+    var Spot: TArray<String> := ['TFormMain.Create', 'TFormVBh.Create',
+                                 'TFormVBh.CreateGsVBhBridge',
+                                 'TFormMain.AfterMenuRebuild'];
+    var SpotLine: String;
+    for var Sp in Spot do
+    begin
+      var Pi := Reader.FindProcByName(Sp);
+      if Pi >= 0 then
+      begin
+        var SpProc := Reader.Procs[Pi];
+        SpotLine := Format('  spot: %-36s idx=%d  seg=0x%x  size=%d  locals=%d',
+          [Sp, Pi, SpProc.SegmentOffset, SpProc.Size, SpProc.Locals.Count]);
+        Writeln(SpotLine);
+        try
+          W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
+          try W.WriteLine(SpotLine); finally W.Free; end;
+        except end;
+        for var Li := 0 to SpProc.Locals.Count - 1 do
+        begin
+          var L := SpProc.Locals[Li];
+          var KindStr: String;
+          case L.Kind of
+            lkBpRel:    KindStr := 'bp';
+            lkRegister: KindStr := 'reg';
+          else
+            KindStr := '?';
+          end;
+          SpotLine := Format('    local[%d] %-12s kind=%s  bp=%d  reg=%d  typeIdx=0x%x',
+            [Li, L.Name, KindStr, L.BpOffset, L.RegParamIdx, L.TypeIdx]);
+          Writeln(SpotLine);
+          try
+            W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
+            try W.WriteLine(SpotLine); finally W.Free; end;
+          except end;
+        end;
+      end
+      else
+      begin
+        SpotLine := Format('  spot: %-36s <not in reader>', [Sp]);
+        Writeln(SpotLine);
+        try
+          W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
+          try W.WriteLine(SpotLine); finally W.Free; end;
+        except end;
+      end;
+    end;
+
+    // Also echo to stdout so DUnitX's runner output captures it.
+    Writeln(Summary);
+    Writeln(FixtureLine);
+    for I := 0 to PhaseTable.Count - 1 do
+      Writeln(PhaseTable[I]);
+
+    Assert.IsTrue(TotalSW.ElapsedMilliseconds < HardLimit,
+      Format('RSM load on TFW exceeded %d ms (took %d ms) -- ' +
+             'check phase timings above for the stalled section.',
+        [HardLimit, TotalSW.ElapsedMilliseconds]));
+    // Identity sanity-check (continued from the .rsm-size guard at
+    // the top): a TFW-class fixture must surface six-figure proc
+    // and four-figure class counts. The previous "> 1000" gate
+    // would have happily accepted a much smaller binary as the
+    // fixture, masking the fact that the perf budgets are no
+    // longer exercising the bulk-scan paths they were tuned for.
+    Assert.IsTrue(Reader.Procs.Count > 100000,
+      Format('Fixture produced only %d procs; expected >100k. ' +
+             'Likely pointing at a much smaller binary than the ' +
+             'TFW-class fixture this test is calibrated for.',
+        [Reader.Procs.Count]));
+    Assert.IsTrue(Reader.Classes.Count > 1000,
+      Format('Fixture produced only %d classes; expected >1000.',
+        [Reader.Classes.Count]));
+
+    // Per-phase regression guards. Each budget is well above the
+    // post-fix value (~0.5-12 s) but far below the broken-state
+    // value (~180-200 s) so a future O(N^2) creeping back into
+    // any one phase trips here with a specific failure message
+    // rather than a generic "load too slow". Parallel arrays
+    // pair name and budget by index -- a small struct would be
+    // tidier, but Delphi forbids declaring local record types
+    // inline inside a procedure body.
+    var BudgetNames: TArray<String> := [
+      'ScanSymbolStream',
+      'RecomputeProcSizes',
+      'DiscoverAndParseAllStructs',
+      'LinkMemberTypeIdsFromFormatA',
+      'DeriveClassParents'
+    ];
+    var BudgetMs: TArray<Int64> := [
+      PhaseBudget_ScanSymbolStream,
+      PhaseBudget_RecomputeProcSizes,
+      PhaseBudget_DiscoverAndParseAllStructs,
+      PhaseBudget_LinkMemberTypeIdsFromFormatA,
+      PhaseBudget_DeriveClassParents
+    ];
+    var PhaseMs: Int64 := 0;
+    for var Bi := 0 to High(BudgetNames) do
+    begin
+      Assert.IsTrue(PhaseTimings.TryGetValue(BudgetNames[Bi], PhaseMs),
+        Format('Phase "%s" not reported by the reader -- the OnPhase ' +
+               'name may have been renamed; update this test to match.',
+          [BudgetNames[Bi]]));
+      Assert.IsTrue(PhaseMs < BudgetMs[Bi],
+        Format('Phase "%s" exceeded budget: took %d ms (budget %d ms). ' +
+               'A perf regression likely reintroduced an O(N^2) loop -- ' +
+               'inspect the phase against its post-fix baseline.',
+          [BudgetNames[Bi], PhaseMs, BudgetMs[Bi]]));
+    end;
+  finally
+    Reader.Free;
+    PhaseTable.Free;
+  end;
+end;
 
 {$IFDEF CPUX64}
 procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
