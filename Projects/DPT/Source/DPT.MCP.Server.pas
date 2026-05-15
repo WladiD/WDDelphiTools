@@ -17,6 +17,7 @@ uses
   System.Classes,
   System.JSON,
   System.SyncObjs,
+  System.Threading,
 
   mormot.core.collections,
   mormot.core.json,
@@ -30,11 +31,21 @@ type
   TMcpServer = class
   private
     FCurrentExePath    : String;
-    /// Tracks whether the lazy RSM load was attempted for the
-    /// current session. The load runs once, on first get_locals /
-    /// evaluate, and is skipped on the rest. Reset on each
-    /// start_debug_session.
+    /// Tracks whether the RSM load has completed for the current
+    /// session. The load is kicked off in a background ITask by
+    /// HandleStartDebugSession (as soon as we know the .rsm file
+    /// exists) and runs in parallel with the user setting
+    /// breakpoints / hitting the first stop. EnsureDebugInfoLoaded
+    /// blocks on the task only if get_locals / evaluate arrive
+    /// before it has finished; once flipped to True the task is
+    /// gone and subsequent calls are no-ops.
     FDebugInfoLoaded   : Boolean;
+    /// Background task that runs FDebugger.LoadDebugInfoFromExe.
+    /// Lives from HandleStartDebugSession until either the user
+    /// calls a tool that waits on it, or stop_debug_session /
+    /// destruction joins it explicitly. nil whenever there is no
+    /// .rsm sidecar.
+    FRsmLoadTask       : ITask;
     FDebugger          : TDebugger;
     FExitRequest       : Boolean;
     FInputReader       : TTextReader;
@@ -59,6 +70,10 @@ type
     procedure SendResponse(const AID: TJSONValue; AResult: TJSONObject);
     procedure SendSamplingRequest(const AText: String);
     procedure WriteOutput(const AJSON: String);
+    procedure EnsureDebugInfoLoaded;
+    procedure RunRsmLoad(const AExePath: String);
+    procedure JoinRsmLoadTask;
+    procedure LogDiag(const AMessage: String);
   private // Tool handlers
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetLocals(AParams: TJSONObject): TJSONObject;
@@ -79,14 +94,6 @@ type
     function HandleRemoveBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleSetBreakpoint(AParams: TJSONObject): TJSONObject;
     function HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
-    /// Lazily load the .rsm sidecar tied to the current executable
-    /// the first time a tool actually needs it (get_locals, evaluate).
-    /// Subsequent calls are cheap no-ops once the data is in. The
-    /// load itself can take many seconds on large applications, so
-    /// we keep it out of start_debug_session to stay inside typical
-    /// MCP client request timeouts.
-    procedure EnsureDebugInfoLoaded;
-    procedure LogDiag(const AMessage: String);
     function HandleStepInto(AParams: TJSONObject): TJSONObject;
     function HandleStepOver(AParams: TJSONObject): TJSONObject;
     function HandleStopDebugSession(AParams: TJSONObject): TJSONObject;
@@ -150,6 +157,7 @@ end;
 
 destructor TMcpServer.Destroy;
 begin
+  JoinRsmLoadTask;
   DisconnectDebuggerEvents;
   if FOwnsDebugger then
     FDebugger.Free;
@@ -683,7 +691,23 @@ begin
 
   var ToolEvaluate := TJSONObject.Create;
   ToolEvaluate.AddPair('name', 'evaluate');
-  ToolEvaluate.AddPair('description', 'Evaluates a named variable (local or global) and returns its typed value. Searches locals first, then globals. Requires active paused debug session. Allowed types: "int" (4-byte signed), "int64" (8-byte signed), "string" (UnicodeString, the default Delphi string type), "ansistring", "widestring" (BSTR), "shortstring" (length-prefixed inline buffer; works for both locals and globals), "object" (returns "ClassName @ HexAddr" or "nil"). FIELD NAVIGATION: dotted names like "MyObj.FField" or "MyObj.FInner.FNested" are followed by dereferencing each intermediate object pointer, looking up the field offset via TD32 class info, and reading the final field with the requested type; intermediate nil objects yield "nil" as the result. Records (Delphi "record" types) are navigated inline without dereferencing, so paths like "MyObj.FRec.FX" or "MyObj.FRec.FInnerRec.FX" work the same way as class chains, and class-typed fields inside a record (e.g. "MyRec.FObj.FField") transition back to the dereferencing class hop automatically. Returns an error when the variable name is unknown, a navigated field does not exist on the resolved class or record, or the type is not in the supported list.');
+  ToolEvaluate.AddPair('description',
+    'Evaluates a named variable (local or global) and returns its typed value. ' +
+    'Searches locals first, then globals. Requires active paused debug session. ' +
+    'Allowed types: "int" (4-byte signed), "int64" (8-byte signed), "string" ' +
+    '(UnicodeString, the default Delphi string type), "ansistring", "widestring" ' +
+    '(BSTR), "shortstring" (length-prefixed inline buffer; works for both locals ' +
+    'and globals), "object" (returns "ClassName @ HexAddr" or "nil"). FIELD ' +
+    'NAVIGATION: dotted names like "MyObj.FField" or "MyObj.FInner.FNested" are ' +
+    'followed by dereferencing each intermediate object pointer, looking up the ' +
+    'field offset via TD32 class info, and reading the final field with the ' +
+    'requested type; intermediate nil objects yield "nil" as the result. Records ' +
+    '(Delphi "record" types) are navigated inline without dereferencing, so paths ' +
+    'like "MyObj.FRec.FX" or "MyObj.FRec.FInnerRec.FX" work the same way as class ' +
+    'chains, and class-typed fields inside a record (e.g. "MyRec.FObj.FField") ' +
+    'transition back to the dereferencing class hop automatically. Returns an ' +
+    'error when the variable name is unknown, a navigated field does not exist ' +
+    'on the resolved class or record, or the type is not in the supported list.');
   var SchemaEvaluate := TJSONObject.Create;
   SchemaEvaluate.AddPair('type', 'object');
   var PropEvaluate := TJSONObject.Create;
@@ -1027,17 +1051,49 @@ begin
   end;
 end;
 
-procedure TMcpServer.EnsureDebugInfoLoaded;
+/// <summary>
+///   Joins the background RSM loader (if any) and clears the task
+///   reference. Lifecycle helper used by every site that needs to
+///   mutate FDebugger or FCurrentExePath -- letting the task run
+///   past those points would expose freed or stale state to the
+///   loader thread.
+/// </summary>
+/// <remarks>
+///   Exceptions raised by the loader thread are swallowed here.
+///   EnsureDebugInfoLoaded deliberately does NOT call this helper:
+///   it needs to log the wait duration and forward exceptions to
+///   the tool result, so it inlines its own wait instead.
+/// </remarks>
+procedure TMcpServer.JoinRsmLoadTask;
+begin
+  if not Assigned(FRsmLoadTask) then Exit;
+  try FRsmLoadTask.Wait; except end;
+  FRsmLoadTask := nil;
+end;
+
+/// <summary>
+///   Synchronous body of the RSM load. Called from the background
+///   ITask kicked off by HandleStartDebugSession or -- in
+///   degenerate scenarios -- inline from EnsureDebugInfoLoaded.
+/// </summary>
+/// <remarks>
+///   Per-phase timings land in dpt.log so the user can watch the
+///   load progress in real time even when no MCP tool is currently
+///   waiting on it. The unit-private visibility is needed only so
+///   the task closure inside HandleStartDebugSession can reach it.
+/// </remarks>
+/// <param name="AExePath">
+///   Absolute path to the .exe whose .rsm sidecar should be parsed
+///   into FDebugger.FLocalsReader.
+/// </param>
+procedure TMcpServer.RunRsmLoad(const AExePath: String);
 var
-  SW : TStopwatch;
+  SW     : TStopwatch;
   PhaseSW: TStopwatch;
   RsmFile: String;
-  Sz : Int64;
+  Sz     : Int64;
 begin
-  if FDebugInfoLoaded then Exit;
-  if FCurrentExePath = '' then Exit;
-  if not Assigned(FDebugger) then Exit;
-  RsmFile := ChangeFileExt(FCurrentExePath, '.rsm');
+  RsmFile := ChangeFileExt(AExePath, '.rsm');
   Sz := 0;
   if TFile.Exists(RsmFile) then Sz := TFile.GetSize(RsmFile);
   LogDiag(Format('loading RSM debug info: %s (%.1f MB)',
@@ -1045,27 +1101,82 @@ begin
   SW := TStopwatch.StartNew;
   PhaseSW := TStopwatch.StartNew;
   try
-    FDebugger.LoadDebugInfoFromExe(FCurrentExePath,
+    FDebugger.LoadDebugInfoFromExe(AExePath,
       procedure(APhase: String)
       begin
-        // First call comes from the reader's first ReportPhase; we
-        // log the prior phase's duration when the next one starts,
-        // so dpt.log captures wall-time per phase.
         PhaseSW.Stop;
         LogDiag(Format('  phase %-30s  prev took %d ms',
           [APhase, PhaseSW.ElapsedMilliseconds]));
         PhaseSW := TStopwatch.StartNew;
       end);
   finally
-    // Always mark loaded so a parse error doesn't trap callers in
-    // an endless retry loop. LoadDebugInfoFromExe swallows its own
-    // exceptions and leaves FLocalsReader = nil on failure, which
-    // the get_locals / evaluate paths already detect.
-    FDebugInfoLoaded := True;
     SW.Stop;
     LogDiag(Format('RSM debug info loaded in %d ms',
       [SW.ElapsedMilliseconds]));
   end;
+end;
+
+/// <summary>
+///   Joins the background RSM load kicked off by
+///   HandleStartDebugSession so that get_locals / evaluate see a
+///   fully-parsed FLocalsReader.
+/// </summary>
+/// <remarks>
+///   If the load already completed while the user was setting
+///   breakpoints / waiting on the first stop, this is a
+///   near-zero-cost no-op. If the tool beat the loader to the
+///   punch, this blocks until it finishes. A degenerate fallback
+///   runs the load inline when no task is in flight (e.g.
+///   start_debug_session was bypassed by the test harness, or
+///   the .rsm appeared after start). The .rsm sidecar can take
+///   ~10 s to parse on TFW-sized binaries, which is why the load
+///   does not happen in HandleStartDebugSession itself: that
+///   would block start beyond typical MCP client timeouts.
+/// </remarks>
+procedure TMcpServer.EnsureDebugInfoLoaded;
+var
+  WaitSW: TStopwatch;
+begin
+  if FDebugInfoLoaded then Exit;
+  if FCurrentExePath = '' then Exit;
+  if not Assigned(FDebugger) then Exit;
+
+  if Assigned(FRsmLoadTask) then
+  begin
+    WaitSW := TStopwatch.StartNew;
+    try
+      // Wait re-raises any exception the loader thread threw. Wrap
+      // in try/except so the agent still gets a tool error rather
+      // than the server tearing itself down on a malformed sidecar.
+      try
+        FRsmLoadTask.Wait;
+      except
+        on E: Exception do
+          LogDiag('RSM background load raised: ' + E.Message);
+      end;
+    finally
+      WaitSW.Stop;
+      LogDiag(Format('waited %d ms for background RSM load',
+        [WaitSW.ElapsedMilliseconds]));
+      FRsmLoadTask := nil;
+    end;
+  end
+  else
+    // No task -- run inline. Belt-and-suspenders for the case
+    // where HandleStartDebugSession was bypassed (test harness)
+    // or the file showed up after we checked.
+    try
+      RunRsmLoad(FCurrentExePath);
+    except
+      on E: Exception do
+        LogDiag('RSM inline load raised: ' + E.Message);
+    end;
+
+  // Always mark loaded so a parse error doesn't trap callers in
+  // an endless retry loop. LoadDebugInfoFromExe swallows its own
+  // exceptions and leaves FLocalsReader = nil on failure, which
+  // the get_locals / evaluate paths already detect.
+  FDebugInfoLoaded := True;
 end;
 
 function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
@@ -1094,6 +1205,12 @@ begin
   if FOwnsDebugger then
     FreeAndNil(FDebugger);
 
+  // If a previous session's loader task is still in flight (rapid
+  // start->start sequence), join it before tearing down its
+  // FDebugger reference. Otherwise the task would race the
+  // FreeAndNil below and the new TDebugger.Create.
+  JoinRsmLoadTask;
+
   FDebugger := TDebugger.Create;
   FOwnsDebugger := True;
   ConnectDebuggerEvents;
@@ -1106,13 +1223,33 @@ begin
   if HasMap then
     FDebugger.LoadMapFile(MapFile);
 
-  // RSM debug info (required by get_locals / evaluate dotted-walk) is
-  // loaded LAZILY in EnsureDebugInfoLoaded, called on the first tool
-  // that actually needs it. The .rsm sidecar can reach ~1GB on real
-  // applications and parsing it synchronously here would block
-  // start_debug_session beyond typical MCP client timeouts. Sessions
-  // that only set breakpoints and read stack frames (resolved via the
-  // map) never trigger the load.
+  // RSM debug info (required by get_locals / evaluate) is loaded in
+  // a background ITask so start_debug_session returns immediately
+  // (the load can take ~10 s on TFW-sized .rsm sidecars). The user
+  // typically spends those seconds setting breakpoints / waiting
+  // for the target program to reach the first stop, so by the time
+  // they call get_locals / evaluate the load is usually already
+  // done. EnsureDebugInfoLoaded joins the task when needed.
+  // Skip launching the task when there's no .rsm next to the EXE --
+  // the inline fallback in EnsureDebugInfoLoaded covers that path
+  // and stays a no-op.
+  if FileExists(ChangeFileExt(ExePath, '.rsm')) then
+  begin
+    // Local copy of the path so the closure isn't tied to the
+    // mutable FCurrentExePath field (a follow-up start would
+    // otherwise leak the new path into the still-running task).
+    var ExePathLocal: String := ExePath;
+    FRsmLoadTask := TTask.Run(
+      procedure
+      begin
+        try
+          RunRsmLoad(ExePathLocal);
+        except
+          on E: Exception do
+            LogDiag('RSM background load raised: ' + E.Message);
+        end;
+      end);
+  end;
 
   for I := 0 to FPendingBreakpoints.Count - 1 do
     FDebugger.SetBreakpoint(FPendingBreakpoints[I].UnitName, FPendingBreakpoints[I].LineNumber);
@@ -1269,6 +1406,7 @@ begin
   if not RequireState([dsPaused, dsRunning, dsExited], Result) then
     Exit;
 
+  JoinRsmLoadTask;
   DisconnectDebuggerEvents;
   if FState <> dsExited then
     FDebugger.Detach;
@@ -1288,6 +1426,7 @@ begin
   if not RequireState([dsPaused, dsRunning, dsExited], Result) then
     Exit;
 
+  JoinRsmLoadTask;
   DisconnectDebuggerEvents;
   if FState <> dsExited then
     FDebugger.Terminate;
