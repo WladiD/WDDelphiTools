@@ -25,7 +25,8 @@ uses
   System.SysUtils,
 
   mormot.core.base,
-  mormot.core.collections;
+  mormot.core.collections,
+  mormot.core.os;
 
 type
 
@@ -154,15 +155,9 @@ type
     ///   from a hang.
     /// </summary>
     property OnPhase: TProc<String> read FOnPhase write FOnPhase;
-    /// <summary>
-    ///   Loads RSM debug info from the sidecar file produced next to
-    ///   a Delphi executable built with -VR. The sidecar's path is
-    ///   <c>ChangeFileExt(AExePath, '.rsm')</c>; this method takes
-    ///   the EXE path so callers can stay symmetric with the TD32
-    ///   reader's <c>LoadFromFile(ExePath)</c>.
-    /// </summary>
     procedure LoadFromFile(const AExePath: String);
     procedure LoadFromBytes(const ABytes: TBytes);
+    procedure LoadFromBuffer(ABuf: PByte; ASize: NativeInt);
     function  FindProcContaining(ASegmentOffset: NativeUInt): Integer;
     function  FindProcByName(const AName: String): Integer;
     function  FindClassByName(const AName: String): Integer;
@@ -210,28 +205,82 @@ begin
     FOnPhase(APhase);
 end;
 
+/// <summary>
+///   Loads RSM debug info from the sidecar file produced next to a
+///   Delphi executable built with -VR. The sidecar's path is
+///   <c>ChangeFileExt(AExePath, '.rsm')</c>; this method takes the
+///   EXE path so callers stay symmetric with the (retired) TD32
+///   reader's <c>LoadFromFile(ExePath)</c>.
+/// </summary>
+/// <remarks>
+///   The .rsm is memory-mapped into virtual memory and parsed
+///   directly from that view -- no 800 MB heap allocation, no
+///   800 MB copy out of the Windows file cache into user memory.
+///   The parser only ever walks the buffer with PByte pointer
+///   arithmetic, so a memory-mapped view is a drop-in substitute
+///   for the old "load whole file into TBytes" path. Pages fault
+///   in on first touch by the OS, which lets ScanSymbolStream /
+///   DiscoverAndParseAllStructs benefit from OS prefetch
+///   automatically.
+/// </remarks>
 procedure TRsmLocalsReader.LoadFromFile(const AExePath: String);
 var
   RsmPath: String;
-  Stream : TFileStream;
-  Bytes  : TBytes;
+  Mapping: TMemoryMap;
 begin
   RsmPath := ChangeFileExt(AExePath, '.rsm');
   if not FileExists(RsmPath) then
     Exit;
-  Stream := TFileStream.Create(RsmPath, fmOpenRead or fmShareDenyWrite);
+  // Map(filename, aForceMap=true) keeps the mapping alive for the
+  // entire LoadFromBuffer call below, then UnMap releases the
+  // section + closes the file handle. aForceMap forces mmap even
+  // for small files (the heuristic in mORMot would otherwise prefer
+  // a heap copy for ones < some threshold, but we don't care --
+  // even a small RSM benefits from skipping the copy).
+  if not Mapping.Map(RsmPath, {aForceMap=}True) then
+    Exit;
   try
-    SetLength(Bytes, Stream.Size);
-    if Stream.Size > 0 then
-      Stream.ReadBuffer(Bytes[0], Stream.Size);
+    ReportPhase('read file');
+    LoadFromBuffer(PByte(Mapping.Buffer), Mapping.Size);
   finally
-    Stream.Free;
+    Mapping.UnMap;
   end;
-  ReportPhase('read file');
-  LoadFromBytes(Bytes);
 end;
 
+/// <summary>
+///   Parses RSM debug info from a TBytes already held in memory.
+///   Convenient for tests and synthetic inputs.
+/// </summary>
+/// <remarks>
+///   Thin shim around <see cref="LoadFromBuffer"/>; production
+///   loads go through <see cref="LoadFromFile"/> ->
+///   <c>TMemoryMap</c> -> <c>LoadFromBuffer</c> and never
+///   materialise an 800-MB TBytes copy.
+/// </remarks>
 procedure TRsmLocalsReader.LoadFromBytes(const ABytes: TBytes);
+begin
+  if Length(ABytes) = 0 then
+    LoadFromBuffer(nil, 0)
+  else
+    LoadFromBuffer(PByte(@ABytes[0]), Length(ABytes));
+end;
+
+/// <summary>
+///   Parses the RSM symbol stream directly from a raw byte buffer.
+///   Used by <see cref="LoadFromFile"/> to feed memory-mapped data
+///   without copying it into a TBytes, and by
+///   <see cref="LoadFromBytes"/> which is a thin shim around it.
+/// </summary>
+/// <param name="ABuf">
+///   Pointer to the first byte of the RSM image; treated as
+///   read-only. Must reference at least ASize valid bytes.
+/// </param>
+/// <param name="ASize">
+///   Number of bytes available at ABuf. Buffers smaller than the
+///   8-byte CSH7 header are rejected silently (FProcs / FClasses
+///   are cleared and the method returns).
+/// </param>
+procedure TRsmLocalsReader.LoadFromBuffer(ABuf: PByte; ASize: NativeInt);
 const
   SigCSH7: UInt32 = $37485343; // 'CSH7' on disk in little-endian byte order
 var
@@ -1426,13 +1475,13 @@ begin
   FClasses.Clear;
   FProcByName.Clear;
   FClassByName.Clear;
-  if Length(ABytes) < 8 then
+  if (ABuf = nil) or (ASize < 8) then
     Exit;
-  if PUInt32(@ABytes[0])^ <> SigCSH7 then
+  if PUInt32(ABuf)^ <> SigCSH7 then
     Exit;
 
-  Buf := PByte(@ABytes[0]);
-  Sz  := Length(ABytes);
+  Buf := ABuf;
+  Sz  := ASize;
   // Each ReportPhase reports the wall-clock time elapsed since the
   // PREVIOUS ReportPhase call -- so the label must name the phase
   // that JUST finished, not the next one. The earlier ordering put
