@@ -16,7 +16,8 @@ uses
   DUnitX.TestFramework,
 
   DPT.Debugger,
-  DPT.MCP.Server;
+  DPT.MCP.Server,
+  Test.DPT.McpFixture;
 
 type
 
@@ -118,172 +119,6 @@ type
   end;
 
 implementation
-
-type
-  TStringTextReader = class(TTextReader)
-  public
-    FLines: TStringList;
-    FIndex: Integer;
-    constructor Create(const AText: string);
-    destructor Destroy; override;
-    function ReadLine: string; override;
-    function Peek: Integer; override;
-    function GetEndOfStream: Boolean; override;
-    procedure Close; override;
-    function Read: Integer; override;
-    function ReadBlock(var Buffer: TArray<Char>; Index, Count: Integer): Integer; override;
-    function ReadToEnd: string; override;
-    procedure Rewind; override;
-  end;
-
-  TStringTextWriter = class(TTextWriter)
-  private
-    FOutput: TStringList;
-    FLock: TCriticalSection;
-  public
-    constructor Create;
-    destructor Destroy; override;
-    procedure Write(const S: string); override;
-    procedure WriteLine(const S: string); override;
-    procedure Close; override;
-    procedure Flush; override;
-    function GetCount: Integer;
-    function GetLine(AIndex: Integer): string;
-    property Output: TStringList read FOutput;
-  end;
-
-{ TStringTextReader }
-
-constructor TStringTextReader.Create(const AText: string);
-begin
-  inherited Create;
-  FLines := TStringList.Create;
-  FLines.Text := AText;
-  FIndex := 0;
-end;
-
-destructor TStringTextReader.Destroy;
-begin
-  FLines.Free;
-  inherited;
-end;
-
-procedure TStringTextReader.Close;
-begin
-end;
-
-function TStringTextReader.GetEndOfStream: Boolean;
-begin
-  Result := FIndex >= FLines.Count;
-end;
-
-function TStringTextReader.Peek: Integer;
-begin
-  if FIndex < FLines.Count then Result := 1 else Result := -1;
-end;
-
-function TStringTextReader.Read: Integer;
-begin
-  Result := -1;
-end;
-
-function TStringTextReader.ReadBlock(var Buffer: TArray<Char>; Index, Count: Integer): Integer;
-begin
-  Result := 0;
-end;
-
-function TStringTextReader.ReadLine: string;
-begin
-  if FIndex < FLines.Count then
-  begin
-    Result := FLines[FIndex];
-    Inc(FIndex);
-  end
-  else
-    Result := '';
-end;
-
-function TStringTextReader.ReadToEnd: string;
-begin
-  Result := '';
-end;
-
-procedure TStringTextReader.Rewind;
-begin
-  FIndex := 0;
-end;
-
-{ TStringTextWriter }
-
-constructor TStringTextWriter.Create;
-begin
-  inherited Create;
-  FOutput := TStringList.Create;
-  FLock := TCriticalSection.Create;
-end;
-
-destructor TStringTextWriter.Destroy;
-begin
-  FLock.Free;
-  FOutput.Free;
-  inherited;
-end;
-
-procedure TStringTextWriter.Close;
-begin
-end;
-
-procedure TStringTextWriter.Flush;
-begin
-end;
-
-procedure TStringTextWriter.Write(const S: string);
-begin
-end;
-
-procedure TStringTextWriter.WriteLine(const S: string);
-begin
-  FLock.Enter;
-  try
-    FOutput.Add(S);
-  finally
-    FLock.Leave;
-  end;
-end;
-
-function TStringTextWriter.GetCount: Integer;
-begin
-  FLock.Enter;
-  try
-    Result := FOutput.Count;
-  finally
-    FLock.Leave;
-  end;
-end;
-
-function TStringTextWriter.GetLine(AIndex: Integer): string;
-begin
-  FLock.Enter;
-  try
-    Result := FOutput[AIndex];
-  finally
-    FLock.Leave;
-  end;
-end;
-
-procedure WaitForOutput(AWriter: TStringTextWriter; AMinCount: Integer; ATimeoutMs: Integer = 5000);
-var
-  Elapsed: Integer;
-begin
-  Elapsed := 0;
-  while (AWriter.GetCount < AMinCount) and (Elapsed < ATimeoutMs) do
-  begin
-    Sleep(50);
-    Inc(Elapsed, 50);
-  end;
-  Assert.IsTrue(AWriter.GetCount >= AMinCount,
-    Format('Timeout waiting for output. Expected %d lines, got %d', [AMinCount, AWriter.GetCount]));
-end;
 
 { TMcpServerTests }
 
@@ -1719,83 +1554,44 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateExtendedTypes;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 
-  procedure ExpectContains(ALineIdx: Integer; const ASubstr, ACtx: String);
+  procedure ExpectContains(const ALine, ASubstr, ACtx: String);
   begin
-    Assert.IsTrue(OutputWriter.GetLine(ALineIdx).Contains(ASubstr),
-      Format('%s: expected "%s", got: %s', [ACtx, ASubstr, OutputWriter.GetLine(ALineIdx)]));
+    Assert.IsTrue(ALine.Contains(ASubstr),
+      Format('%s: expected "%s", got: %s', [ACtx, ASubstr, ALine]));
   end;
 
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // $1122334455667788 = 1234605616436508552 in decimal.
+    Line := Fixture.Eval('DebugTarget.GGlobalInt64', 'int64');
+    ExpectContains(Line, '1234605616436508552', 'int64');
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue (async)
+    Line := Fixture.Eval('DebugTarget.GGlobalAnsi', 'ansistring');
+    ExpectContains(Line, 'Hello Ansi', 'ansistring');
 
-      WaitForOutput(OutputWriter, 6); // 4 responses + stopped notif + sampling
+    Line := Fixture.Eval('DebugTarget.GGlobalWide', 'widestring');
+    ExpectContains(Line, 'Hello Wide', 'widestring');
 
-      // Now paused. Queue one evaluate per type variation and process
-      // them sequentially. After each RunOnce, OutputWriter advances by
-      // exactly one entry (the response).
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalInt64", "type": "int64"}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalAnsi", "type": "ansistring"}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalWide", "type": "widestring"}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalShort", "type": "shortstring"}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalEmptyString", "type": "string"}}}');
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 10, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalNilObject", "type": "object"}}}');
+    Line := Fixture.Eval('DebugTarget.GGlobalShort', 'shortstring');
+    ExpectContains(Line, 'Hello Short', 'shortstring');
 
-      Server.RunOnce; // evaluate int64
-      // $1122334455667788 = 1234605616436508552 in decimal.
-      ExpectContains(6, '1234605616436508552', 'int64');
+    // Empty UnicodeString: the value part of the response is empty,
+    // but the variable-name and type prefix must still be present.
+    Line := Fixture.Eval('DebugTarget.GGlobalEmptyString', 'string');
+    ExpectContains(Line, 'GGlobalEmptyString', 'empty string variable name');
+    ExpectContains(Line, '(string)', 'empty string type tag');
 
-      Server.RunOnce; // evaluate ansistring
-      ExpectContains(7, 'Hello Ansi', 'ansistring');
-
-      Server.RunOnce; // evaluate widestring
-      ExpectContains(8, 'Hello Wide', 'widestring');
-
-      Server.RunOnce; // evaluate shortstring
-      ExpectContains(9, 'Hello Short', 'shortstring');
-
-      // Empty UnicodeString: the value part of the response is empty,
-      // but the variable-name and type prefix must still be present.
-      Server.RunOnce; // evaluate empty string
-      ExpectContains(10, 'GGlobalEmptyString', 'empty string variable name');
-      ExpectContains(10, '(string)', 'empty string type tag');
-
-      Server.RunOnce; // evaluate nil object
-      ExpectContains(11, 'nil', 'nil object');
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    Line := Fixture.Eval('DebugTarget.GGlobalNilObject', 'object');
+    ExpectContains(Line, 'nil', 'nil object');
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -1811,54 +1607,21 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateLocalShortString;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
-  RespLine    : String;
+  Fixture : TMcpEvalFixture;
+  ExePath : String;
+  RespLine: String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 45}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 45);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
-
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp 45
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue (async)
-
-      WaitForOutput(OutputWriter, 6); // 4 responses + stopped notif + sampling
-
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "LocalShort", "type": "shortstring"}}}');
-      Server.RunOnce;
-
-      RespLine := OutputWriter.GetLine(6);
-      Assert.IsTrue(RespLine.Contains('Hello Local Short'),
-        'LocalShort must evaluate to its full inline value "Hello Local Short" (>7 chars, exercises the 256-byte read path), got: ' + RespLine);
-      Assert.IsTrue(RespLine.Contains('LocalShort'),
-        'Response should include the variable name: ' + RespLine);
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    RespLine := Fixture.Eval('LocalShort', 'shortstring');
+    Assert.IsTrue(RespLine.Contains('Hello Local Short'),
+      'LocalShort must evaluate to its full inline value "Hello Local Short" (>7 chars, exercises the 256-byte read path), got: ' + RespLine);
+    Assert.IsTrue(RespLine.Contains('LocalShort'),
+      'Response should include the variable name: ' + RespLine);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -1939,61 +1702,30 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateOneLevelFieldNavigation;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // FOuterInt = $11111111 = 286331153
+    Line := Fixture.Eval('GGlobalOuter.FOuterInt', 'int');
+    Assert.IsTrue(Line.Contains('286331153'),
+      'GGlobalOuter.FOuterInt must equal 286331153 ($11111111), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // FOuterStr = 'Hello Outer'
+    Line := Fixture.Eval('GGlobalOuter.FOuterStr', 'string');
+    Assert.IsTrue(Line.Contains('Hello Outer'),
+      'GGlobalOuter.FOuterStr must equal "Hello Outer", got: ' + Line);
 
-      // FOuterInt = $11111111 = 286331153
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInt", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('286331153'),
-        'GGlobalOuter.FOuterInt must equal 286331153 ($11111111), got: ' + OutputWriter.GetLine(6));
-
-      // FOuterStr = 'Hello Outer'
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterStr", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Hello Outer'),
-        'GGlobalOuter.FOuterStr must equal "Hello Outer", got: ' + OutputWriter.GetLine(7));
-
-      // FOuterInner navigated as object: must return its class name
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner", "type": "object"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('TInner'),
-        'GGlobalOuter.FOuterInner must report TInner runtime class, got: ' + OutputWriter.GetLine(8));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FOuterInner navigated as object: must return its class name
+    Line := Fixture.Eval('GGlobalOuter.FOuterInner', 'object');
+    Assert.IsTrue(Line.Contains('TInner'),
+      'GGlobalOuter.FOuterInner must report TInner runtime class, got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2014,55 +1746,25 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateTwoLevelFieldNavigation;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // FInnerInt = $22222222 = 572662306
+    Line := Fixture.Eval('GGlobalOuter.FOuterInner.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('572662306'),
+      'GGlobalOuter.FOuterInner.FInnerInt must equal 572662306 ($22222222), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // FInnerInt = $22222222 = 572662306
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner.FInnerInt", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('572662306'),
-        'GGlobalOuter.FOuterInner.FInnerInt must equal 572662306 ($22222222), got: ' + OutputWriter.GetLine(6));
-
-      // FInnerStr = 'Hello Inner'
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FOuterInner.FInnerStr", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Hello Inner'),
-        'GGlobalOuter.FOuterInner.FInnerStr must equal "Hello Inner", got: ' + OutputWriter.GetLine(7));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FInnerStr = 'Hello Inner'
+    Line := Fixture.Eval('GGlobalOuter.FOuterInner.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Hello Inner'),
+      'GGlobalOuter.FOuterInner.FInnerStr must equal "Hello Inner", got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2075,50 +1777,21 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateFieldNavigationOnNilMidChain;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
-
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // GGlobalNilObject is nil. Asking for it as object directly (no
-      // navigation needed) must say "nil".
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "DebugTarget.GGlobalNilObject", "type": "object"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('nil'),
-        'GGlobalNilObject must evaluate to nil, got: ' + OutputWriter.GetLine(6));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // GGlobalNilObject is nil. Asking for it as object directly (no
+    // navigation needed) must say "nil".
+    Line := Fixture.Eval('DebugTarget.GGlobalNilObject', 'object');
+    Assert.IsTrue(Line.Contains('nil'),
+      'GGlobalNilObject must evaluate to nil, got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2130,51 +1803,22 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateFieldNavigationUnknownField;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
-
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // FNoSuch is not declared on TOuter; the walker should fail.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalOuter.FNoSuchField", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Failed to evaluate variable'),
-        'Unknown field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
-        'Unknown-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FNoSuch is not declared on TOuter; the walker should fail.
+    Line := Fixture.Eval('GGlobalOuter.FNoSuchField', 'int');
+    Assert.IsTrue(Line.Contains('Failed to evaluate variable'),
+      'Unknown field must produce a Failed-to-evaluate error: ' + Line);
+    Assert.IsTrue(Line.Contains('isError'),
+      'Unknown-field response must be flagged as an error: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2188,57 +1832,27 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordFieldNavigation;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // FOrigin.FX = $11111111 = 286331153
+    Line := Fixture.Eval('GGlobalWithRec.FOrigin.FX', 'int');
+    Assert.IsTrue(Line.Contains('286331153'),
+      'GGlobalWithRec.FOrigin.FX must equal 286331153 ($11111111), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // FOrigin.FX = $11111111 = 286331153
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FX", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('286331153'),
-        'GGlobalWithRec.FOrigin.FX must equal 286331153 ($11111111), got: ' + OutputWriter.GetLine(6));
-
-      // FOrigin.FY = $22222222 = 572662306. The +4 offset within the
-      // record proves the navigator advanced inline rather than
-      // dereferencing the record slot as a pointer.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FY", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('572662306'),
-        'GGlobalWithRec.FOrigin.FY must equal 572662306 ($22222222), got: ' + OutputWriter.GetLine(7));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FOrigin.FY = $22222222 = 572662306. The +4 offset within the
+    // record proves the navigator advanced inline rather than
+    // dereferencing the record slot as a pointer.
+    Line := Fixture.Eval('GGlobalWithRec.FOrigin.FY', 'int');
+    Assert.IsTrue(Line.Contains('572662306'),
+      'GGlobalWithRec.FOrigin.FY must equal 572662306 ($22222222), got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2254,68 +1868,36 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateNestedRecordFieldNavigation;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // FBounds.FTopLeft.FX = $33333333 = 858993459
+    Line := Fixture.Eval('GGlobalWithRec.FBounds.FTopLeft.FX', 'int');
+    Assert.IsTrue(Line.Contains('858993459'),
+      'GGlobalWithRec.FBounds.FTopLeft.FX must equal 858993459 ($33333333), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // FBounds.FTopLeft.FY = $44444444 = 1145324612
+    Line := Fixture.Eval('GGlobalWithRec.FBounds.FTopLeft.FY', 'int');
+    Assert.IsTrue(Line.Contains('1145324612'),
+      'GGlobalWithRec.FBounds.FTopLeft.FY must equal 1145324612 ($44444444), got: ' + Line);
 
-      // FBounds.FTopLeft.FX = $33333333 = 858993459
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FTopLeft.FX", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('858993459'),
-        'GGlobalWithRec.FBounds.FTopLeft.FX must equal 858993459 ($33333333), got: ' + OutputWriter.GetLine(6));
+    // FBounds.FBottomRight.FX = $55555555 = 1431655765. Validates the
+    // record-to-record offset: FBottomRight starts 8 bytes into FBounds.
+    Line := Fixture.Eval('GGlobalWithRec.FBounds.FBottomRight.FX', 'int');
+    Assert.IsTrue(Line.Contains('1431655765'),
+      'GGlobalWithRec.FBounds.FBottomRight.FX must equal 1431655765 ($55555555), got: ' + Line);
 
-      // FBounds.FTopLeft.FY = $44444444 = 1145324612
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FTopLeft.FY", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('1145324612'),
-        'GGlobalWithRec.FBounds.FTopLeft.FY must equal 1145324612 ($44444444), got: ' + OutputWriter.GetLine(7));
-
-      // FBounds.FBottomRight.FX = $55555555 = 1431655765. Validates the
-      // record-to-record offset: FBottomRight starts 8 bytes into FBounds.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FBottomRight.FX", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('1431655765'),
-        'GGlobalWithRec.FBounds.FBottomRight.FX must equal 1431655765 ($55555555), got: ' + OutputWriter.GetLine(8));
-
-      // FBounds.FBottomRight.FY = $66666666 = 1717986918
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FBounds.FBottomRight.FY", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(9).Contains('1717986918'),
-        'GGlobalWithRec.FBounds.FBottomRight.FY must equal 1717986918 ($66666666), got: ' + OutputWriter.GetLine(9));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FBounds.FBottomRight.FY = $66666666 = 1717986918
+    Line := Fixture.Eval('GGlobalWithRec.FBounds.FBottomRight.FY', 'int');
+    Assert.IsTrue(Line.Contains('1717986918'),
+      'GGlobalWithRec.FBounds.FBottomRight.FY must equal 1717986918 ($66666666), got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2329,64 +1911,33 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordToClassTransition;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // FPair.FObj.FInnerInt = $77777777 = 2004318071. This proves
+    // record -> class transition works: the navigator must deref FObj
+    // (a class slot inside a record) before looking up FInnerInt.
+    Line := Fixture.Eval('GGlobalWithRec.FPair.FObj.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('2004318071'),
+      'GGlobalWithRec.FPair.FObj.FInnerInt must equal 2004318071 ($77777777), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // FPair.FObj.FInnerStr = 'Inner via Pair'
+    Line := Fixture.Eval('GGlobalWithRec.FPair.FObj.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Inner via Pair'),
+      'GGlobalWithRec.FPair.FObj.FInnerStr must equal "Inner via Pair", got: ' + Line);
 
-      // FPair.FObj.FInnerInt = $77777777 = 2004318071. This proves
-      // record -> class transition works: the navigator must deref FObj
-      // (a class slot inside a record) before looking up FInnerInt.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FObj.FInnerInt", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('2004318071'),
-        'GGlobalWithRec.FPair.FObj.FInnerInt must equal 2004318071 ($77777777), got: ' + OutputWriter.GetLine(6));
-
-      // FPair.FObj.FInnerStr = 'Inner via Pair'
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FObj.FInnerStr", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Inner via Pair'),
-        'GGlobalWithRec.FPair.FObj.FInnerStr must equal "Inner via Pair", got: ' + OutputWriter.GetLine(7));
-
-      // FPair.FLabel = 'PairLabel'. Pure record path (no class transition);
-      // verifies that string fields work under the record-hop branch too.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FPair.FLabel", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('PairLabel'),
-        'GGlobalWithRec.FPair.FLabel must equal "PairLabel", got: ' + OutputWriter.GetLine(8));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FPair.FLabel = 'PairLabel'. Pure record path (no class transition);
+    // verifies that string fields work under the record-hop branch too.
+    Line := Fixture.Eval('GGlobalWithRec.FPair.FLabel', 'string');
+    Assert.IsTrue(Line.Contains('PairLabel'),
+      'GGlobalWithRec.FPair.FLabel must equal "PairLabel", got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2399,51 +1950,22 @@ end;
 /// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordUnknownFieldFails;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
-
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // FNoSuch is not declared on TPoint2D; the record-hop must fail.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithRec.FOrigin.FNoSuchField", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('Failed to evaluate variable'),
-        'Unknown record field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
-        'Unknown-record-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // FNoSuch is not declared on TPoint2D; the record-hop must fail.
+    Line := Fixture.Eval('GGlobalWithRec.FOrigin.FNoSuchField', 'int');
+    Assert.IsTrue(Line.Contains('Failed to evaluate variable'),
+      'Unknown record field must produce a Failed-to-evaluate error: ' + Line);
+    Assert.IsTrue(Line.Contains('isError'),
+      'Unknown-record-field response must be flagged as an error: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2467,67 +1989,35 @@ end;
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateGlobalRecordFieldNavigation;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // GGlobalMixed.FMixedInt = Integer($A1A1A1A1) sign-extends to
+    // -1583242847.
+    Line := Fixture.Eval('GGlobalMixed.FMixedInt', 'int');
+    Assert.IsTrue(Line.Contains('-1583242847'),
+      'GGlobalMixed.FMixedInt must equal -1583242847 ($A1A1A1A1), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // GGlobalMixed.FMixedStr is a string at offset 16 (after Int +
+    // 4 padding + Int64). Reading as a Delphi string evaluates the
+    // pointer at that slot and dereferences it -- a real string
+    // pointer here proves the field offset arithmetic is correct.
+    Line := Fixture.Eval('GGlobalMixed.FMixedStr', 'string');
+    Assert.IsTrue(Line.Contains('Mixed-A3'),
+      'GGlobalMixed.FMixedStr must equal "Mixed-A3", got: ' + Line);
 
-      // GGlobalMixed.FMixedInt = Integer($A1A1A1A1) = -1583242837 ... let
-      // me check: $A1A1A1A1 as signed Int32 = -1583242847. Pascal source
-      // sets it via Integer($A1A1A1A1) which sign-extends to that value.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalMixed.FMixedInt", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-1583242847'),
-        'GGlobalMixed.FMixedInt must equal -1583242847 ($A1A1A1A1), got: ' + OutputWriter.GetLine(6));
-
-      // GGlobalMixed.FMixedStr is a string at offset 16 (after Int +
-      // 4 padding + Int64). Reading as a Delphi string evaluates the
-      // pointer at that slot and dereferences it -- a real string
-      // pointer here proves the field offset arithmetic is correct.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalMixed.FMixedStr", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Mixed-A3'),
-        'GGlobalMixed.FMixedStr must equal "Mixed-A3", got: ' + OutputWriter.GetLine(7));
-
-      // GGlobalP3D.FY at offset 4 (TPoint3D = record FX, FY, FZ: Integer).
-      // Value $B2B2B2B2 = -1296911694 signed.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalP3D.FY", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('-1296911694'),
-        'GGlobalP3D.FY must equal -1296911694 ($B2B2B2B2), got: ' + OutputWriter.GetLine(8));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // GGlobalP3D.FY at offset 4 (TPoint3D = record FX, FY, FZ: Integer).
+    // Value $B2B2B2B2 = -1296911694 signed.
+    Line := Fixture.Eval('GGlobalP3D.FY', 'int');
+    Assert.IsTrue(Line.Contains('-1296911694'),
+      'GGlobalP3D.FY must equal -1296911694 ($B2B2B2B2), got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2557,84 +2047,52 @@ end;
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateHeaderPrefixedRecord;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // WhdrId at offset 8 = Integer($E3E3E3E3) = -471604253.
+    // A scanner that puts WhdrId at offset 0 would return
+    // $E1E1E1E1 = -505290017 (WhdrMagic). The two sentinels are
+    // intentionally distinct so a wrong-offset bug surfaces.
+    Line := Fixture.Eval('GGlobalWithHeader.WhdrId', 'int');
+    Assert.IsTrue(Line.Contains('-471604253'),
+      'GGlobalWithHeader.WhdrId must equal -471604253 ($E3E3E3E3), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // Nested record-in-record: WhdrHeader.WhdrVer at offset 4
+    // (within WhdrHeader at offset 0 of TWithHeader). $E2E2E2E2
+    // as signed Int32 = -488447262. Wrong offsets here would
+    // return WhdrMagic ($E1E1E1E1) or random garbage further in.
+    // This case used to fail BEFORE the Format-A field-record
+    // structural-anchor fix: WhdrHeader's TypeIdx wasn't being
+    // linked back to TWhdrHeader (the F-prefix gate dropped
+    // non-F-prefixed field-record entries), so the dotted-walk
+    // couldn't transition from TWithHeader into TWhdrHeader.
+    Line := Fixture.Eval('GGlobalWithHeader.WhdrHeader.WhdrVer', 'int');
+    Assert.IsTrue(Line.Contains('-488447262'),
+      'GGlobalWithHeader.WhdrHeader.WhdrVer must equal -488447262 ($E2E2E2E2), got: ' + Line);
 
-      // WhdrId at offset 8 = Integer($E3E3E3E3) = -471604253.
-      // A scanner that puts WhdrId at offset 0 would return
-      // $E1E1E1E1 = -505290017 (WhdrMagic). The two sentinels are
-      // intentionally distinct so a wrong-offset bug surfaces.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrId", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-471604253'),
-        'GGlobalWithHeader.WhdrId must equal -471604253 ($E3E3E3E3), got: ' + OutputWriter.GetLine(6));
+    // ShortString past the header AND past WhdrId. Verifies the
+    // offset arithmetic stays correct across non-uniform field
+    // widths and that the inline-shortstring read at FieldAddr
+    // sees the right buffer.
+    Line := Fixture.Eval('GGlobalWithHeader.WhdrShortStr', 'shortstring');
+    Assert.IsTrue(Line.Contains('whdr-short'),
+      'GGlobalWithHeader.WhdrShortStr must equal "whdr-short", got: ' + Line);
 
-      // Nested record-in-record: WhdrHeader.WhdrVer at offset 4
-      // (within WhdrHeader at offset 0 of TWithHeader). $E2E2E2E2
-      // as signed Int32 = -488447262. Wrong offsets here would
-      // return WhdrMagic ($E1E1E1E1) or random garbage further in.
-      // This case used to fail BEFORE the Format-A field-record
-      // structural-anchor fix: WhdrHeader's TypeIdx wasn't being
-      // linked back to TWhdrHeader (the F-prefix gate dropped
-      // non-F-prefixed field-record entries), so the dotted-walk
-      // couldn't transition from TWithHeader into TWhdrHeader.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrHeader.WhdrVer", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('-488447262'),
-        'GGlobalWithHeader.WhdrHeader.WhdrVer must equal -488447262 ($E2E2E2E2), got: ' + OutputWriter.GetLine(7));
-
-      // ShortString past the header AND past WhdrId. Verifies the
-      // offset arithmetic stays correct across non-uniform field
-      // widths and that the inline-shortstring read at FieldAddr
-      // sees the right buffer.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrShortStr", "type": "shortstring"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('whdr-short'),
-        'GGlobalWithHeader.WhdrShortStr must equal "whdr-short", got: ' + OutputWriter.GetLine(8));
-
-      // Long string (Delphi default UnicodeString): the slot at
-      // its computed offset must hold a real string pointer; a
-      // wrong offset would read a garbage 4 bytes and dereferencing
-      // them as a string heap-walk would fail.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrLongStr", "type": "string"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(9).Contains('Whdr-Long-E5'),
-        'GGlobalWithHeader.WhdrLongStr must equal "Whdr-Long-E5", got: ' + OutputWriter.GetLine(9));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // Long string (Delphi default UnicodeString): the slot at
+    // its computed offset must hold a real string pointer; a
+    // wrong offset would read a garbage 4 bytes and dereferencing
+    // them as a string heap-walk would fail.
+    Line := Fixture.Eval('GGlobalWithHeader.WhdrLongStr', 'string');
+    Assert.IsTrue(Line.Contains('Whdr-Long-E5'),
+      'GGlobalWithHeader.WhdrLongStr must equal "Whdr-Long-E5", got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2673,61 +2131,31 @@ end;
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateVariantRecord;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // VrCommon at offset 0 = Integer($F0F0F0F0) = -252645136.
+    // This part is identical to a non-variant record and is the
+    // baseline -- if it fails, the bug isn't variant-specific.
+    Line := Fixture.Eval('GGlobalVarRec.VrCommon', 'int');
+    Assert.IsTrue(Line.Contains('-252645136'),
+      'GGlobalVarRec.VrCommon must equal -252645136 ($F0F0F0F0), got: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
-
-      // VrCommon at offset 0 = Integer($F0F0F0F0) = -252645136.
-      // This part is identical to a non-variant record and is the
-      // baseline -- if it fails, the bug isn't variant-specific.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalVarRec.VrCommon", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-252645136'),
-        'GGlobalVarRec.VrCommon must equal -252645136 ($F0F0F0F0), got: ' + OutputWriter.GetLine(6));
-
-      // VrAsInt at offset 4 = Integer($F2F2F2F2) = -218959118.
-      // This is the variant-overlay assertion: if the scanner did
-      // NOT mark VrAsInt as overlaying VrCommon's tail, the field
-      // table would put it past the variant union (offset 8 or
-      // further) and the read would return zeros / garbage.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalVarRec.VrAsInt", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('-218959118'),
-        'GGlobalVarRec.VrAsInt must equal -218959118 ($F2F2F2F2), got: ' + OutputWriter.GetLine(7));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // VrAsInt at offset 4 = Integer($F2F2F2F2) = -218959118.
+    // This is the variant-overlay assertion: if the scanner did
+    // NOT mark VrAsInt as overlaying VrCommon's tail, the field
+    // table would put it past the variant union (offset 8 or
+    // further) and the read would return zeros / garbage.
+    Line := Fixture.Eval('GGlobalVarRec.VrAsInt', 'int');
+    Assert.IsTrue(Line.Contains('-218959118'),
+      'GGlobalVarRec.VrAsInt must equal -218959118 ($F2F2F2F2), got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
@@ -2753,84 +2181,51 @@ end;
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateNarrowIntFieldWidth;
 var
-  Debugger    : TDebugger;
-  Server      : TMcpServer;
-  InputReader : TStringTextReader;
-  OutputWriter: TStringTextWriter;
-  ExePath     : String;
-  MapFile     : String;
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
-  MapFile := ChangeFileExt(ExePath, '.map');
-
-  InputReader := TStringTextReader.Create(
-    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
-
-  Debugger := TDebugger.Create;
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    Debugger.LoadMapFile(MapFile);
-    Debugger.LoadDebugInfoFromExe(ExePath);
-    TDebuggerThread.Create(Debugger, ExePath);
+    // NiWord (Word at offset 0) = 1. Naive 4-byte read would
+    // return 1 or ($1234 shl 16) = $12340001 = 305397761.
+    // Width-clamped read returns 1.
+    Line := Fixture.Eval('GGlobalNarrow.NiWord', 'int');
+    Assert.IsTrue(Line.Contains(': 1"'),
+      'GGlobalNarrow.NiWord must equal 1 (width-clamped read), got: ' + Line);
+    Assert.IsFalse(Line.Contains('305397761'),
+      'NiWord must NOT carry NiWord2''s bytes into the high part: ' + Line);
 
-    OutputWriter := TStringTextWriter.Create;
-    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
-    try
-      Server.RunOnce; // init
-      Server.RunOnce; // set_bp
-      Server.RunOnce; // ignore_exc
-      Server.RunOnce; // continue
-      WaitForOutput(OutputWriter, 6);
+    // NiWord2 (Word at offset 2) = $1234 = 4660.
+    Line := Fixture.Eval('GGlobalNarrow.NiWord2', 'int');
+    Assert.IsTrue(Line.Contains('4660'),
+      'GGlobalNarrow.NiWord2 must equal 4660 ($1234), got: ' + Line);
 
-      // NiWord (Word at offset 0) = 1. Naive 4-byte read would
-      // return 1 or ($1234 shl 16) = $12340001 = 305397761.
-      // Width-clamped read returns 1.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiWord", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(6).Contains(': 1"'),
-        'GGlobalNarrow.NiWord must equal 1 (width-clamped read), got: ' + OutputWriter.GetLine(6));
-      Assert.IsFalse(OutputWriter.GetLine(6).Contains('305397761'),
-        'NiWord must NOT carry NiWord2''s bytes into the high part: ' + OutputWriter.GetLine(6));
+    // NiByte (Byte at offset 4) = $A5 = 165. Naive 4-byte read
+    // would mix in NiByte2 ($5A) and NiInteger's low bytes.
+    Line := Fixture.Eval('GGlobalNarrow.NiByte', 'int');
+    Assert.IsTrue(Line.Contains('165'),
+      'GGlobalNarrow.NiByte must equal 165 ($A5), got: ' + Line);
 
-      // NiWord2 (Word at offset 2) = $1234 = 4660.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiWord2", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(7).Contains('4660'),
-        'GGlobalNarrow.NiWord2 must equal 4660 ($1234), got: ' + OutputWriter.GetLine(7));
+    // NiByte2 (Byte at offset 5) = $5A = 90.
+    Line := Fixture.Eval('GGlobalNarrow.NiByte2', 'int');
+    Assert.IsTrue(Line.Contains(': 90"'),
+      'GGlobalNarrow.NiByte2 must equal 90 ($5A), got: ' + Line);
 
-      // NiByte (Byte at offset 4) = $A5 = 165. Naive 4-byte read
-      // would mix in NiByte2 ($5A) and NiInteger's low bytes.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiByte", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(8).Contains('165'),
-        'GGlobalNarrow.NiByte must equal 165 ($A5), got: ' + OutputWriter.GetLine(8));
-
-      // NiByte2 (Byte at offset 5) = $5A = 90.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiByte2", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(9).Contains(': 90"'),
-        'GGlobalNarrow.NiByte2 must equal 90 ($5A), got: ' + OutputWriter.GetLine(9));
-
-      // NiInteger (Integer at offset 6) = $DEADBEEF = -559038737.
-      // Last member in the record -- its Size derivation from the
-      // offset chain is undefined (no next member), so the clamp
-      // must NOT shorten the read here. Acts as a regression guard
-      // against accidentally clamping a last-member full-width
-      // field down to 0 or a stale size.
-      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiInteger", "type": "int"}}}');
-      Server.RunOnce;
-      Assert.IsTrue(OutputWriter.GetLine(10).Contains('-559038737'),
-        'GGlobalNarrow.NiInteger must equal -559038737 ($DEADBEEF) -- ' +
-        'last-member field must not be clamped, got: ' + OutputWriter.GetLine(10));
-    finally
-      Server.Free;
-      InputReader.Free;
-      OutputWriter.Free;
-    end;
+    // NiInteger (Integer at offset 6) = $DEADBEEF = -559038737.
+    // Last member in the record -- its Size derivation from the
+    // offset chain is undefined (no next member), so the clamp
+    // must NOT shorten the read here. Acts as a regression guard
+    // against accidentally clamping a last-member full-width
+    // field down to 0 or a stale size.
+    Line := Fixture.Eval('GGlobalNarrow.NiInteger', 'int');
+    Assert.IsTrue(Line.Contains('-559038737'),
+      'GGlobalNarrow.NiInteger must equal -559038737 ($DEADBEEF) -- ' +
+      'last-member field must not be clamped, got: ' + Line);
   finally
-    Debugger.Free;
+    Fixture.Free;
   end;
 end;
 
