@@ -132,6 +132,18 @@ type
     NiByte2   : Byte;
     NiInteger : Integer;
   end;
+  // IEEE 754 float types. Sentinels chosen so they're representable
+  // exactly (powers-of-2 sums) -- the evaluator's formatter must
+  // produce the literal expected string regardless of locale-specific
+  // FormatSettings (Invariant settings are required on the formatter
+  // side). Extended is 80-bit on Win32 and aliased to Double on
+  // Win64, so the formatter must consult FTargetIs32Bit to decide
+  // whether to read 10 or 8 bytes.
+  TFloats = record
+    FSingle   : Single;     // 4 bytes
+    FDouble   : Double;     // 8 bytes
+    FExtended : Extended;   // 10 bytes (Win32) / 8 bytes (Win64)
+  end;
 // Repro point for the register-passed class-pointer dotted-walk bug.
 
 type
@@ -165,7 +177,7 @@ type
 // (TComponent inherits TPersistent directly)).
 procedure TouchRtlInheritedComp(AComp: TMyComp);
 begin
-  Writeln('TouchRIC ', AComp.FCustomFlag, ' ', AComp.Name); Flush(Output); // Line 168 - inherited-field bp here
+  Writeln('TouchRIC ', AComp.FCustomFlag, ' ', AComp.Name); Flush(Output); // Line 180 - inherited-field bp here
 end;
 // Repro point for the VMT-walk inheritance fallback: AEmpty has no
 // own fields, so the RSM-driven ParentName chain cannot reach
@@ -173,7 +185,7 @@ end;
 // reading the live VMT's parent pointer at run time.
 procedure TouchEmptyChild(AEmpty: TEmptyChild);
 begin
-  Writeln('TouchEC ', AEmpty.Name); Flush(Output); // Line 176 - empty-child inherited-field bp here
+  Writeln('TouchEC ', AEmpty.Name); Flush(Output); // Line 188 - empty-child inherited-field bp here
 end;
 
 // Repro point for the register-passed class-pointer dotted-walk bug.
@@ -187,7 +199,7 @@ end;
 // used directly as the instance pointer.
 procedure TouchRegClassParam(AInner: TInner; AOther: TInner);
 begin
-  Writeln('TouchRCP ', AInner.FInnerInt, ' ', AOther.FInnerInt); Flush(Output); // Line 190 - register-class-param bp here
+  Writeln('TouchRCP ', AInner.FInnerInt, ' ', AOther.FInnerInt); Flush(Output); // Line 202 - register-class-param bp here
 end;
 // Instance-method repro for Self.<Field> dotted navigation. Self is
 // the implicit first register-passed argument; at a breakpoint placed
@@ -197,7 +209,7 @@ end;
 // through the same register-Self code path.
 procedure TDerived.TouchSelf;
 begin
-  Writeln('TouchSelf ', FInnerInt, ' ', FDerivedExtra); Flush(Output); // Line 200 - Self.<Field> bp here
+  Writeln('TouchSelf ', FInnerInt, ' ', FDerivedExtra); Flush(Output); // Line 212 - Self.<Field> bp here
 end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
@@ -266,6 +278,7 @@ var
   GGlobalWithHeader  : TWithHeader;
   GGlobalVarRec      : TVariantSlot;
   GGlobalNarrow      : TNarrowInts;
+  GGlobalFloats      : TFloats;
   GGlobalComp        : TMyComp;
   GGlobalEmptyChild  : TEmptyChild;
 begin
@@ -341,6 +354,12 @@ begin
   GGlobalNarrow.NiByte    := $A5;
   GGlobalNarrow.NiByte2   := $5A;
   GGlobalNarrow.NiInteger := Integer($DEADBEEF);
+  // Float sentinels: powers-of-2 sums so they're exactly
+  // representable in IEEE 754 and survive any locale-specific
+  // FormatSettings (the evaluator must use Invariant on output).
+  GGlobalFloats.FSingle   := 1.5;
+  GGlobalFloats.FDouble   := 2.25;
+  GGlobalFloats.FExtended := 3.125;
   // Multi-level-inheritance instance whose own field lives on TMyComp
   // and whose Name / Tag fields live on TComponent in the System.Classes
   // RTL unit. Used by the inherited-RTL-field navigation test.

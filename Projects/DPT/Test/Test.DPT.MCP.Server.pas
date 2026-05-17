@@ -91,6 +91,8 @@ type
     [Test]
     procedure TestMcpEvaluateInheritedFieldViaVmtWalk;
     [Test]
+    procedure TestMcpEvaluateFloatTypes;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2270,7 +2272,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 190);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 202);
   try
     // AInner = GGlobalOuter.FOuterInner -- TInner with
     // FInnerInt = $22222222 = 572662306 and FInnerStr = 'Hello Inner'.
@@ -2331,7 +2333,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 200);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 212);
   try
     // Whole-name Self resolves via the existing register-local read
     // path (Locals[].RawBytes already holds the EAX value). Acts as a
@@ -2463,7 +2465,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 168);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 180);
   try
     // Sanity: AComp is the live TMyComp instance.
     Line := Fixture.Eval('AComp', 'object');
@@ -2522,7 +2524,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 176);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 188);
   try
     // Sanity: AEmpty resolves as a TEmptyChild instance.
     Line := Fixture.Eval('AEmpty', 'object');
@@ -2540,6 +2542,51 @@ begin
     Line := Fixture.Eval('AEmpty.FTag', 'int');
     Assert.IsTrue(Line.Contains('2088533116'),
       'AEmpty.FTag must equal 2088533116 ($7C7C7C7C, inherited from TComponent), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   IEEE 754 float field navigation. Sentinels are powers-of-2
+///   sums (1.5 = 1 + 0.5, 2.25 = 2 + 0.25, 3.125 = 3 + 0.125)
+///   so they're exactly representable in <c>Single</c>,
+///   <c>Double</c> and <c>Extended</c> -- the round-trip from
+///   source-level literal through IEEE 754 binary back through the
+///   formatter must yield the literal string. The evaluator's
+///   float formatters MUST use invariant FormatSettings (period
+///   as decimal separator); otherwise the test fails on German
+///   locale runtime which would emit "1,5" instead of "1.5".
+/// </summary>
+/// <remarks>
+///   <c>Extended</c> is 80-bit (10 bytes) on Win32 and aliased to
+///   <c>Double</c> (8 bytes) on Win64. The formatter must consult
+///   the target architecture to decide whether to re-read 10 bytes
+///   from the field address (Win32) or just consume the 8-byte
+///   slot that GetLocals / the dotted walk already provides
+///   (Win64).
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateFloatTypes;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    Line := Fixture.Eval('GGlobalFloats.FSingle', 'single');
+    Assert.IsTrue(Line.Contains('1.5'),
+      'GGlobalFloats.FSingle must equal 1.5, got: ' + Line);
+
+    Line := Fixture.Eval('GGlobalFloats.FDouble', 'double');
+    Assert.IsTrue(Line.Contains('2.25'),
+      'GGlobalFloats.FDouble must equal 2.25, got: ' + Line);
+
+    Line := Fixture.Eval('GGlobalFloats.FExtended', 'extended');
+    Assert.IsTrue(Line.Contains('3.125'),
+      'GGlobalFloats.FExtended must equal 3.125, got: ' + Line);
   finally
     Fixture.Free;
   end;

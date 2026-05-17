@@ -2630,6 +2630,87 @@ begin
       end;
     end;
   end
+  else if SameText(AType, 'single') then
+  begin
+    // IEEE 754 single-precision (4 bytes). The RawBytes slot is at
+    // least 8 bytes; we consume the first 4 and ignore the rest.
+    if Length(RawBytes) >= 4 then
+    begin
+      var SingleVal: Single := 0.0;
+      Move(RawBytes[0], SingleVal, 4);
+      AValue := FloatToStrF(SingleVal, ffGeneral, 7, 0,
+        TFormatSettings.Invariant);
+      Result := True;
+    end;
+  end
+  else if SameText(AType, 'double') then
+  begin
+    // IEEE 754 double-precision (8 bytes). RawBytes is sized at 8.
+    if Length(RawBytes) >= 8 then
+    begin
+      var DoubleVal: Double := 0.0;
+      Move(RawBytes[0], DoubleVal, 8);
+      AValue := FloatToStrF(DoubleVal, ffGeneral, 15, 0,
+        TFormatSettings.Invariant);
+      Result := True;
+    end;
+  end
+  else if SameText(AType, 'extended') then
+  begin
+    // Delphi Extended is 80-bit (10 bytes) on both Win32 and Win64
+    // by default (EXCESSPRECISION ON is the dcc64 default). We
+    // re-read 10 bytes from Addr -- FieldAddr for dotted access,
+    // the global-symbol address for top-level globals -- and decode
+    // the 80-bit format manually into a Double for printing. The
+    // manual decode avoids depending on the host DPT.exe's own
+    // SizeOf(Extended), which can be 8 on builds with
+    // EXCESSPRECISION OFF.
+    if Assigned(Addr) then
+    begin
+      var ExtBuf: TBytes := ReadProcessMemory(Addr, 10);
+      if Length(ExtBuf) = 10 then
+      begin
+        // 80-bit Extended layout (LE):
+        //   bytes 0..7 = 64-bit mantissa with EXPLICIT leading 1 bit
+        //   bytes 8..9 = 1-bit sign + 15-bit biased exponent (bias $3FFF)
+        var Mantissa  : UInt64;
+        var SignExp   : UInt16;
+        Move(ExtBuf[0], Mantissa, 8);
+        Move(ExtBuf[8], SignExp, 2);
+        var Sign      : UInt64 := (SignExp shr 15) and 1;
+        var Exp80     : Integer := SignExp and $7FFF;
+        var DoubleBits: UInt64;
+        if (Exp80 = 0) and (Mantissa = 0) then
+          DoubleBits := Sign shl 63       // +/- zero
+        else if Exp80 = $7FFF then
+          // Inf / NaN: forward to Double Inf / NaN.
+          DoubleBits := (Sign shl 63) or
+                        (UInt64($7FF) shl 52) or
+                        (UInt64(Ord(Mantissa <> $8000000000000000)) shl 51)
+        else
+        begin
+          // Normalized: rebias exponent (80-bit bias $3FFF -> Double
+          // bias $3FF) and drop the explicit leading-1 bit by
+          // shifting the mantissa right by 11.
+          var ExpD: Integer := Exp80 - $3FFF + $3FF;
+          if ExpD <= 0 then
+            DoubleBits := Sign shl 63          // underflow -> +/- zero
+          else if ExpD >= $7FF then
+            DoubleBits := (Sign shl 63) or
+                          (UInt64($7FF) shl 52)  // overflow -> +/- Inf
+          else
+            DoubleBits := (Sign shl 63) or
+                          (UInt64(ExpD) shl 52) or
+                          ((Mantissa and $7FFFFFFFFFFFFFFF) shr 11);
+        end;
+        var DoubleVal: Double := 0.0;
+        Move(DoubleBits, DoubleVal, 8);
+        AValue := FloatToStrF(DoubleVal, ffGeneral, 18, 0,
+          TFormatSettings.Invariant);
+        Result := True;
+      end;
+    end;
+  end
   else if SameText(AType, 'object') then
   begin
     if Length(RawBytes) >= FTargetPointerSize then
