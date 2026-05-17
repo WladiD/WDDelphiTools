@@ -28,6 +28,13 @@ type
     Name   : string;
     Segment: Word;
     VA     : UInt64;
+    /// True when the symbol lives in a CODE / ICODE segment, false when
+    /// it lives in DATA / BSS / TLS. Set at parse time from the segment
+    /// class table. Lets simple-name lookups break suffix-match ties in
+    /// favour of variables over methods -- if the user types
+    /// "AppCaps", they almost always want the global variable, not a
+    /// unit-init procedure that happens to share the suffix.
+    IsCode : Boolean;
   end;
 
   TMapSegment = record
@@ -39,6 +46,10 @@ type
 
   TMapSegmentClass = record
     IsTLS  : Boolean;
+    /// True for CODE / ICODE class segments (the class column in the
+    /// segment table). Used by BuildSimpleNameIndex so suffix-collision
+    /// resolution prefers DATA / BSS variables over CODE methods.
+    IsCode : Boolean;
     Len    : UInt64;
     Segment: Word;
     Start  : UInt64;
@@ -57,12 +68,16 @@ type
     FProcNames       : IList<TMapProcName>;
     /// Lazy O(1) lookup table for VAFromSimpleName, keyed by the
     /// lowercased portion of a qualified map name AFTER the last
-    /// dot. Nil until the first call asks for it. Populated by
-    /// walking FProcNames once; subsequent VAFromSimpleName calls
-    /// are pure hashtable hits. Without this, PatchRsmProcAddresses
-    /// from-Map turns into procs * map-entries linear scans, which
-    /// on TFW (36k procs, 36k map entries) costs ~8 minutes.
-    FSimpleNameIndex : IKeyValue<String, UInt64>;
+    /// dot, mapping to the FProcNames index of the chosen entry.
+    /// Storing the INDEX rather than just the VA lets the build
+    /// pass break suffix-collision ties (CODE vs DATA) by consulting
+    /// FProcNames[idx].IsCode, while VAFromSimpleName remains O(1).
+    /// Nil until the first call asks for it. Populated by walking
+    /// FProcNames once; subsequent lookups are pure hashtable hits.
+    /// Without this, PatchRsmProcAddresses-from-Map turns into
+    /// procs * map-entries linear scans, which on TFW (36k procs,
+    /// 36k map entries) costs ~8 minutes.
+    FSimpleNameIndex : IKeyValue<String, Integer>;
     FSegmentClasses  : IList<TMapSegmentClass>;
     FSegments        : IList<TMapSegment>;
     procedure BuildSimpleNameIndex;
@@ -338,6 +353,7 @@ begin
     SC.Start := Offset;
     SC.Len := Len;
     SC.IsTLS := SameText(Copy(ClassName, 1, 3), 'TLS');
+    SC.IsCode := SameText(ClassName, 'CODE') or SameText(ClassName, 'ICODE');
     if SC.IsTLS then
       SC.VA := Offset
     else
@@ -468,6 +484,7 @@ begin
     Proc.Segment := Seg;
     Proc.VA := VA;
     Proc.Name := Name;
+    Proc.IsCode := FSegmentClasses[SegIndex].IsCode;
     FProcNames.Add(Proc);
   end;
 end;
@@ -755,20 +772,33 @@ end;
 
 procedure TMapFileParser.BuildSimpleNameIndex;
 // Populates FSimpleNameIndex by walking FProcNames once. The key is
-// lowercased to match the case-insensitive semantics the previous
-// linear scan provided via SameText. When several qualified names
-// share the same trailing identifier (overloads, multiple units
-// declaring the same global), the FIRST one wins -- mirroring the
-// original "Exit on first match" behavior so callers that depended
-// on map ordering still get the same answer.
+// the lowercased portion of a qualified name after its last dot; the
+// value is the FProcNames index of the chosen entry.
+//
+// Tie-break order when several qualified names share the same suffix:
+//
+//   1. Prefer DATA over CODE. Delphi's .map emits both global vars and
+//      unit-init procs whose qualified names can collide on their
+//      trailing identifier -- e.g. on TFW the global "Business.Root.
+//      AppCaps" (segment 4 = .bss) shares the suffix "AppCaps" with
+//      the unit-init proc "Base.AppCaps.Base.AppCaps" (segment 2 =
+//      .itext). A naive "first wins" picks the proc, so a downstream
+//      evaluate("AppCaps") reads from the wrong section. When the
+//      user types a simple name with no qualification, they almost
+//      always mean the variable: an `evaluate Foo.Field` simply can't
+//      mean a procedure. Preferring the DATA hit fixes both the bare
+//      "Foo" lookup and any dotted walk that starts from "Foo".
+//   2. Within the same kind (both DATA or both CODE), the first one
+//      encountered wins. This mirrors the prior "first match wins"
+//      semantics for callers that depended on map ordering.
 var
-  I       : Integer;
-  Name    : String;
-  DotPos  : Integer;
-  Suffix  : String;
-  Existing: UInt64;
+  I        : Integer;
+  Name     : String;
+  DotPos   : Integer;
+  Suffix   : String;
+  ExistIdx : Integer;
 begin
-  FSimpleNameIndex := Collections.NewPlainKeyValue<String, UInt64>;
+  FSimpleNameIndex := Collections.NewPlainKeyValue<String, Integer>;
   for I := 0 to FProcNames.Count - 1 do
   begin
     Name := FProcNames[I].Name;
@@ -779,19 +809,23 @@ begin
     if DotPos = Length(Name) - 1 then Continue;  // dot is last char (Pascal: 0-based pos from LastDelimiter)
     Suffix := LowerCase(Copy(Name, DotPos + 2, MaxInt));
     if Suffix = '' then Continue;
-    if not FSimpleNameIndex.TryGetValue(Suffix, Existing) then
-      FSimpleNameIndex.Add(Suffix, FProcNames[I].VA);
+    if not FSimpleNameIndex.TryGetValue(Suffix, ExistIdx) then
+      FSimpleNameIndex.Add(Suffix, I)
+    else if FProcNames[ExistIdx].IsCode and (not FProcNames[I].IsCode) then
+      FSimpleNameIndex[Suffix] := I;
   end;
 end;
 
 function TMapFileParser.VAFromSimpleName(const AProcName: string): UInt64;
+var
+  Idx: Integer;
 begin
   Result := 0;
   if AProcName = '' then Exit;
   if FSimpleNameIndex = nil then
     BuildSimpleNameIndex;
-  if not FSimpleNameIndex.TryGetValue(LowerCase(AProcName), Result) then
-    Result := 0;
+  if FSimpleNameIndex.TryGetValue(LowerCase(AProcName), Idx) then
+    Result := FProcNames[Idx].VA;
 end;
 
 end.

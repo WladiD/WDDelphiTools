@@ -2118,9 +2118,19 @@ var
   ObjPtr         : UIntPtr;
   ClsName        : String;
   Member         : TRsmClassMember;
+  /// Byte width of the final resolved record/class field, propagated
+  /// from the dotted-walk into the int / int64 interpretation so a
+  /// 1-byte Boolean or 2-byte Word doesn't get reported as a 4-byte
+  /// integer that visibly carries the next field's bytes in the high
+  /// part. Stays 0 for non-dotted lookups (direct global / local
+  /// access) and for variant-record overlay siblings whose size can't
+  /// be derived from the offset chain alone -- both cases fall back
+  /// to the user-requested type's width.
+  FieldKnownSize : Integer;
 begin
   Result := False;
   AValue := '';
+  FieldKnownSize := 0;
   Phase('begin');
 
   if FLastThreadHit = 0 then Exit;
@@ -2198,6 +2208,47 @@ begin
       FieldAddr := Addr;
       var PrevContextIdx: Integer := -1;
       var ContextIsRecord : Boolean := False;
+      // Prime the walk for record-typed globals. Without this, the
+      // first hop unconditionally tries class semantics on
+      // Segments[0] -- it reads the record's first bytes as if they
+      // were a VMT pointer, fails the VMT-class-name read, and
+      // returns "Failed to evaluate" even for a fully-resolved
+      // global like GGlobalMixed.FMixedInt. The RSM reader exposes
+      // the global's declared TypeIdx via FindGlobalTypeIdx; when
+      // that id resolves to a record entry in FClasses, the first
+      // hop is an inline record-hop (no deref).
+      var GStructIdx: Integer := -1;
+      var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
+      if GTypeIdx <> 0 then
+        // The global's encoded type id is the RSM 2-byte form, not
+        // the file-offset-based Classes[].TypeIdx token -- resolve
+        // through the registry-backed map. This is the direct
+        // route and works whenever both the global record and the
+        // registry record use the same id space (DebugTarget, and
+        // TFW impl-scope globals like MdtGlobal).
+        GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
+      if GStructIdx < 0 then
+        // Fallback for real-world binaries (TFW interface-scope and
+        // impl-scope globals both hit this), where the global's
+        // 2-byte type id at +3/+4 of the $20 record lives in an id
+        // space we haven't bridged to the registry. The resolver
+        // combines two structural signals that DON'T depend on the
+        // encoded id: a "T<globalName>" naming-convention hint, and
+        // proximity in the RSM byte stream between the global's $20
+        // record and each record-type definition that carries the
+        // named field. Either signal alone disambiguates the common
+        // case; both together cover all five TFW repro variables
+        // (AppCaps, MdtGlobal, GlobalKonsAplPortal and qualified
+        // forms) without false positives on fields like Id / Name
+        // that many records share.
+        GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
+          Segments[0], Segments[1]);
+      if (GStructIdx >= 0) and
+         (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+      begin
+        PrevContextIdx := GStructIdx;
+        ContextIsRecord := True;
+      end;
       for I := 1 to High(Segments) do
       begin
         if ContextIsRecord and (PrevContextIdx >= 0) then
@@ -2258,6 +2309,15 @@ begin
       // its own dedicated path which uses Addr.
       Addr := FieldAddr;
       RawBytes := ReadProcessMemory(FieldAddr, 8);
+      // Hand the field's declared width down to the int / int64
+      // formatter. Member is the LAST resolved member at this point
+      // (the terminal segment of the dotted path); its Size was
+      // derived at parse time from the gap to the next field's
+      // offset. A non-zero Size means we KNOW the field is narrower
+      // than the user's requested type, and the read should be
+      // clamped to that width instead of carrying neighbour bytes
+      // into the high part of the result.
+      FieldKnownSize := Integer(Member.Size);
     end;
     Phase('end dotted-walk');
   end;
@@ -2267,18 +2327,38 @@ begin
 
   if SameText(AType, 'int') then
   begin
-    if Length(RawBytes) >= 4 then
+    // Read exactly FieldKnownSize bytes when we know the field is
+    // narrower than 4 (Boolean = 1, Word / SmallInt = 2). Zero-extend
+    // to 32 bits so a Word like TMdt.Id at offset 20 returns its
+    // actual value (1) instead of getting concatenated with the next
+    // field's bytes (1 | (1 shl 16) = 65537). Sign-extending signed
+    // narrow types (SmallInt, ShortInt) would need the type's
+    // signedness from RSM, which we don't track for primitives -- the
+    // common case (unsigned Word / Byte / Boolean) is what users hit
+    // in practice, so default to zero-extend.
+    var ReadSize: Integer := 4;
+    if (FieldKnownSize > 0) and (FieldKnownSize < 4) then
+      ReadSize := FieldKnownSize;
+    if Length(RawBytes) >= ReadSize then
     begin
-      Move(RawBytes[0], IntVal, 4);
+      IntVal := 0;
+      Move(RawBytes[0], IntVal, ReadSize);
       AValue := IntToStr(IntVal);
       Result := True;
     end;
   end
   else if SameText(AType, 'int64') then
   begin
-    if Length(RawBytes) >= 8 then
+    // Same clamp story as 'int', extended to 8-byte targets: a
+    // Cardinal field (size 4) reported via type=int64 should read
+    // 4 bytes and zero-extend to 64, not pull 8 and concatenate.
+    var ReadSize: Integer := 8;
+    if (FieldKnownSize > 0) and (FieldKnownSize < 8) then
+      ReadSize := FieldKnownSize;
+    if Length(RawBytes) >= ReadSize then
     begin
-      Move(RawBytes[0], Int64Val, 8);
+      Int64Val := 0;
+      Move(RawBytes[0], Int64Val, ReadSize);
       AValue := IntToStr(Int64Val);
       Result := True;
     end;

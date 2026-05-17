@@ -90,6 +90,15 @@ type
     Name   : String;
     Offset : UInt32;
     TypeIdx: UInt32;
+    /// Byte width of this field as inferred from the gap to the next
+    /// field's offset, or 0 when the field is the last in its
+    /// structure and the size therefore can't be derived from the
+    /// offset chain alone. Used by <c>EvaluateVariable</c> to clamp
+    /// the read at a sub-DWORD field (e.g. Word at offset 20 in TMdt,
+    /// where the user asks for type "int" -- without the clamp, the
+    /// read pulls 4 bytes and visibly concatenates the next field's
+    /// bytes into the result).
+    Size   : UInt32;
   end;
 
   /// <summary>
@@ -142,6 +151,34 @@ type
     /// to O(N) on large binaries.
     FProcByName  : IKeyValue<String, Integer>;
     FClassByName : IKeyValue<String, Integer>;
+    /// Name -> RSM 2-byte type id for module-level variables. The
+    /// RSM emits these as $20 records identical in shape to LOCAL_TAG
+    /// records, just outside any proc scope. We need them so the
+    /// dotted-walk in TDebugger.EvaluateVariable can tell a global
+    /// of record type (no VMT, walk inline) from a global of class
+    /// type (deref + VMT walk) on the very FIRST segment.
+    FGlobalByName: IKeyValue<String, UInt32>;
+    /// Name -> file offset of the global's $20 record in the RSM byte
+    /// stream. Populated alongside FGlobalByName at each emit point.
+    /// The 2-byte type id at byte+3/+4 of the $20 record does not
+    /// always match the type registry's id (real-world binaries such
+    /// as TFW encode interface- and impl-scope globals in a separate
+    /// id space we have not bridged), so the dotted-walk needs a
+    /// SECOND way to find the record type. Proximity in the RSM byte
+    /// stream is that second way: records are declared in the same
+    /// section of the file as the globals that hold them, so the
+    /// record carrying the named field nearest to the global IS the
+    /// global's type. FindBestRecordForGlobalAndField uses this map.
+    FGlobalFileOffset: IKeyValue<String, NativeInt>;
+    /// Maps an RSM 2-byte type id (as encoded in $66 $00 $00
+    /// <lo><hi> payloads on locals / globals and on $2A registry
+    /// entries) to the index of the matching struct in FClasses.
+    /// Populated by LinkMemberTypeIdsFromFormatA's ScanTypeRegistry
+    /// pass. Needed because FClasses[i].TypeIdx holds the file
+    /// offset of the class name (used as a unique internal token),
+    /// NOT the RSM 2-byte id; without this map a lookup from a
+    /// global's encoded type id would never find the right struct.
+    FRsmTypeIdToClassIdx: IKeyValue<UInt32, Integer>;
     FOnPhase     : TProc<String>;
     procedure DeriveClassParents;
     procedure ReportPhase(const APhase: String); inline;
@@ -161,6 +198,65 @@ type
     function  FindProcContaining(ASegmentOffset: NativeUInt): Integer;
     function  FindProcByName(const AName: String): Integer;
     function  FindClassByName(const AName: String): Integer;
+    /// <summary>
+    ///   Returns the 2-byte RSM type id of the module-level global
+    ///   <c>AName</c>, or 0 when the name is not a known global
+    ///   (either it's a local / parameter / proc, or the reader
+    ///   didn't pick it up). Combine with FindStructByTypeIdx to
+    ///   resolve to a record / class entry in FClasses.
+    /// </summary>
+    function  FindGlobalTypeIdx(const AName: String): UInt32;
+    /// <summary>
+    ///   Resolves an RSM 2-byte type id (as encoded in $66 $00 $00
+    ///   payload on a local / global record, or in a $2A registry
+    ///   entry) directly to the FClasses index of the matching
+    ///   struct. Returns -1 when the id is unknown. This is the
+    ///   id-form callers actually want when walking dotted paths
+    ///   that originate from a typed global: FClasses[i].TypeIdx
+    ///   is the internal name-offset token, not the RSM id.
+    /// </summary>
+    function  FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
+    /// <summary>
+    ///   Returns the indices of every <c>skRecord</c> entry in
+    ///   <c>FClasses</c> that has a member named
+    ///   <paramref name="AFieldName"/> (case-insensitive). Used by
+    ///   the dotted-walk in <c>TDebugger.EvaluateVariable</c> as a
+    ///   reliable fallback when a global's encoded type id does
+    ///   not match the registry's id for the same type (which
+    ///   happens on real-world binaries -- TFW interface-scope
+    ///   globals encode a different id space than the registry
+    ///   uses). A field-name match is a structural fact about the
+    ///   record layout the user already named, so it does not
+    ///   depend on undecoded byte-level encoding details.
+    /// </summary>
+    function  FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;
+    /// <summary>
+    ///   Resolves the record type behind a global variable by combining
+    ///   two structural signals — neither of which depends on the
+    ///   global's encoded 2-byte type id (which is unreliable on
+    ///   real-world binaries):
+    ///   <list type="number">
+    ///     <item>Name hint: a record literally named <c>T</c> +
+    ///       <paramref name="AGlobalName"/> that carries
+    ///       <paramref name="AFieldName"/> wins outright (covers the
+    ///       <c>AppCaps</c>/<c>TAppCaps</c> Delphi convention).</item>
+    ///     <item>Proximity: among all records carrying
+    ///       <paramref name="AFieldName"/>, the one whose definition
+    ///       in the RSM byte stream lies closest to the global's $20
+    ///       record wins. Records and the globals that hold them are
+    ///       emitted in the same per-unit section of the file, so
+    ///       this is a structural disambiguator, not a heuristic.
+    ///       Covers <c>MdtGlobal</c>/<c>TMdt</c> and
+    ///       <c>GlobalKonsAplPortal</c>/<c>TKonsApl</c>, where the
+    ///       record name doesn't follow the simple <c>T</c>-prefix
+    ///       rule.</item>
+    ///   </list>
+    ///   Returns -1 when no record carrying the field exists, or
+    ///   when the global has not been seen by the reader (so its
+    ///   file offset isn't known and proximity can't be scored).
+    /// </summary>
+    function  FindBestRecordForGlobalAndField(const AGlobalName,
+      AFieldName: String): Integer;
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
     function  FindClassMember(const AClassName, AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
@@ -197,6 +293,9 @@ begin
   FClasses     := Collections.NewPlainList<TRsmClassInfo>;
   FProcByName  := Collections.NewPlainKeyValue<String, Integer>;
   FClassByName := Collections.NewPlainKeyValue<String, Integer>;
+  FGlobalByName := Collections.NewPlainKeyValue<String, UInt32>;
+  FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
+  FRsmTypeIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
 end;
 
 procedure TRsmLocalsReader.ReportPhase(const APhase: String);
@@ -350,6 +449,27 @@ var
     Result := True;
   end;
 
+  function IsValidFieldTypeinfoPrefix(AOffset: NativeInt): Boolean;
+  // Validates the 6 bytes that follow a record-field's name. The
+  // RSM emits every field with the exact prefix
+  //   $02 $00 <last-flag> $00 $00 $00       (last-flag: $00 or $02)
+  // where last-flag = $02 marks the record's terminal field. This
+  // structural anchor is far more selective than any first-character
+  // heuristic on the field name (e.g. requiring 'F' as the Delphi
+  // house-style prefix would drop every TFW record whose source uses
+  // a different convention -- TAppCaps.DbKindName, TMdt.Id, ...).
+  begin
+    Result := False;
+    if AOffset + 5 >= Sz then Exit;
+    if ByteAt(AOffset)     <> $02 then Exit;
+    if ByteAt(AOffset + 1) <> $00 then Exit;
+    if (ByteAt(AOffset + 2) <> $00) and (ByteAt(AOffset + 2) <> $02) then Exit;
+    if ByteAt(AOffset + 3) <> $00 then Exit;
+    if ByteAt(AOffset + 4) <> $00 then Exit;
+    if ByteAt(AOffset + 5) <> $00 then Exit;
+    Result := True;
+  end;
+
   procedure ScanFieldsBackwardFromClassName(AClassNameOff: NativeInt;
     AKind: TRsmStructKind; const AClassName: String);
   // Scan a fixed window of bytes BEFORE the class-trailer position
@@ -463,6 +583,15 @@ var
       Member.Name    := Cands[I].Name;
       Member.Offset  := Cands[I].Off;
       Member.TypeIdx := 0;
+      // Member size = gap to the next member's offset. The members
+      // are already sorted by offset above, so the gap is the natural
+      // proxy for sub-DWORD field widths (Byte, Word, ...). Last
+      // member's size stays 0 (unknown -- caller falls back to the
+      // user-requested type's width).
+      if (I + 1 < Count) and (Cands[I + 1].Off > Cands[I].Off) then
+        Member.Size := Cands[I + 1].Off - Cands[I].Off
+      else
+        Member.Size := 0;
       List.Add(Member);
     end;
 
@@ -529,11 +658,26 @@ var
     // The header between the size DWORD and the first field tag has
     // a variable layout (count, flags, padding) we don't fully
     // understand, so locate the first field tag heuristically: scan
-    // forward up to a bounded window for the first $02 byte that is
-    // followed by a plausible namelen and identifier-only name.
+    // forward up to a bounded window for the first $02 byte that
+    // looks like a complete field record. "Looks like" is now a
+    // STRUCTURAL anchor rather than a name-character heuristic:
+    // the 6 bytes after the field name must form the documented
+    // field-typeinfo prefix
+    //     $02 $00 <last-flag> $00 $00 $00          (last-flag in {$00, $02})
+    // which is far more selective than any first-character rule
+    // could be, and DOES NOT depend on Delphi house style (so
+    // records whose fields don't start with 'F' -- TFW's
+    // TAppCaps.DbKindName, TMdt.Id, ... -- get parsed correctly).
+    // 4 KB scan window. TAppCaps in TFW puts its first $02-field
+    // record ~500 bytes past the name (a variant-record case list
+    // / nested sub-record headers fill that gap), so the older
+    // 64-byte window dropped large interface-scope records
+    // entirely. 4 KB is well above anything we've seen in practice
+    // and the strict typeinfo-prefix anchor (above) keeps the
+    // false-positive rate at zero across the gap.
     FoundFirst := False;
     P := PStart;
-    PScan := PStart + 64;
+    PScan := PStart + 4096;
     if PScan > Sz - 8 then PScan := Sz - 8;
     while P < PScan do
     begin
@@ -542,7 +686,7 @@ var
         NameLen := ByteAt(P + 1);
         if (NameLen >= 1) and (NameLen <= 40) and
            ReadIdentifier(P + 1, Name) and
-           (Length(Name) >= 1) and (Name[1] = 'F') then
+           IsValidFieldTypeinfoPrefix(P + 2 + Length(Name)) then
         begin
           FoundFirst := True;
           Break;
@@ -554,7 +698,10 @@ var
 
     // Walk the field list. Each iteration advances P past the
     // current field's complete encoding (tag + name + 6-byte
-    // typeinfo + optional 4-byte next-offset).
+    // typeinfo + optional 4-byte next-offset). The same structural
+    // typeinfo-prefix anchor used in the first-field search above
+    // gates every subsequent field too, so we never have to
+    // depend on the field name's first character.
     Count := 0;
     Offsets[0] := 0;
     while (P + 8 < Sz) and (Count < MaxFields) do
@@ -563,7 +710,7 @@ var
       NameLen := ByteAt(P + 1);
       if (NameLen < 1) or (NameLen > 40) then Break;
       if not ReadIdentifier(P + 1, Name) then Break;
-      if (Length(Name) < 1) or (Name[1] <> 'F') then Break;
+      if not IsValidFieldTypeinfoPrefix(P + 2 + Length(Name)) then Break;
 
       // 6-byte typeinfo follows the name; byte 2 is the last-flag.
       if P + 2 + Length(Name) + 6 > Sz then Break;
@@ -609,6 +756,17 @@ var
       Member.Name    := Cands[I].Name;
       Member.Offset  := Cands[I].Offset;
       Member.TypeIdx := 0;
+      // Member size = gap to the next member's offset. Records can
+      // contain variant cases (case Byte of ...) whose siblings share
+      // an overlay offset, so the next member's offset isn't strictly
+      // greater than the current one's. Treat that as "unknown" (0):
+      // a wrong derived size on a variant overlay would be worse than
+      // letting EvaluateVariable fall back to the user-requested type
+      // width.
+      if (I + 1 < Count) and (Cands[I + 1].Offset > Cands[I].Offset) then
+        Member.Size := Cands[I + 1].Offset - Cands[I].Offset
+      else
+        Member.Size := 0;
       List.Add(Member);
     end;
 
@@ -1183,7 +1341,58 @@ var
           FProcs[FProcs.Count - 1].Locals.Add(Loc);
           Inc(LocalIdx);
           SeenLocalSinceProc := True;
+          // Also publish the (name, RSM-type-id) pair into the
+          // global type-index. The InProc gate above can't reliably
+          // tell a stack local apart from a module-level variable
+          // emitted in the same byte run (procs and globals share
+          // the $20 tag and SCOPE_END doesn't always fire between
+          // them), so we record the type info for both. The id is
+          // read VERBATIM from byte+3 / byte+4 of the payload
+          // rather than relying on Loc.TypeIdx -- the local-side
+          // decoder only populates Loc.TypeIdx when the
+          // BP-offset-disambiguating heuristic succeeds, which
+          // fails for global records whose payload format differs
+          // (TFW $E6-prefix globals, in particular). The dotted-
+          // walk consults locals FIRST via GetLocalAddress, so any
+          // local leaking into this dict can never out-rank the
+          // real local resolution.
+          if P + 2 + Integer(NameLen) + 4 < Sz then
+          begin
+            var GLo: Byte := ByteAt(P + 2 + NameLen + 3);
+            var GHi: Byte := ByteAt(P + 2 + NameLen + 4);
+            FGlobalByName[LowerCase(Name)] :=
+              UInt32(GLo) or (UInt32(GHi) shl 8);
+            FGlobalFileOffset[LowerCase(Name)] := P;
+          end;
           P := P + 2 + Length(Name);
+          Continue;
+        end;
+      end
+      // Module-level global variable: $20 NameLen Name <flag>
+      // $00 $00 <typeIdLo> <typeIdHi> ... emitted OUTSIDE any proc
+      // scope. The flag byte at +0 of the payload varies across
+      // record kinds and unit scopes ($66 for our DebugTarget
+      // impl-scope globals, $E6 for TFW interface-scope globals,
+      // possibly other values too), but the two $00 bytes that
+      // follow are stable, and the type id is always at +3,+4. We
+      // also drop the "is the hi byte $2E?" heuristic: TFW type
+      // ids carry arbitrary hi bytes (e.g. $48, $EB, $C7), and the
+      // 2-byte verbatim form already matches what
+      // ScanTypeRegistry stores in FRsmTypeIdToClassIdx.
+      else if (Tag = LOCAL_TAG) and (not InProc) then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 40) and
+           (P + 2 + Integer(NameLen) + 5 < Sz) and
+           (ByteAt(P + 2 + NameLen + 1) = $00) and
+           (ByteAt(P + 2 + NameLen + 2) = $00) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          var Lo: Byte := ByteAt(P + 2 + NameLen + 3);
+          var Hi: Byte := ByteAt(P + 2 + NameLen + 4);
+          FGlobalByName[LowerCase(Name)] := UInt32(Lo) or (UInt32(Hi) shl 8);
+          FGlobalFileOffset[LowerCase(Name)] := P;
+          P := P + 2 + Length(Name) + 5;
           Continue;
         end;
       end
@@ -1221,15 +1430,6 @@ var
   type
     TRawId = record Lo, Hi: Byte; end;
   var
-    // Raw 16-bit RSM type id -> FClasses index. Populated by
-    // ScanTypeRegistry from the $2A name-to-id records, joining
-    // each registry name against FClassByName so we never need a
-    // separate (name -> id) table or a second linear scan into
-    // FClasses. Prior code stored (name, id) pairs in a flat
-    // array and looked them up with two nested O(N) scans inside
-    // every field record, turning Link... into the dominant
-    // load-time cost on TFW (~12 s out of 22 s).
-    RawIdToClassIdx: IKeyValue<UInt32, Integer>;
     // Format-A-confirmed (classIdx, field-name) pairs. The backward
     // Format-B scan over-collects field candidates from neighbouring
     // class declarations because its window is fixed, so we keep an
@@ -1302,7 +1502,7 @@ var
       // Direct O(1) lookup via the registry-built hashmap. Returns
       // -1 if the raw id is unknown (built-in types or types we
       // didn't parse). Replaces the prior O(N^2) scan.
-      if not RawIdToClassIdx.TryGetValue(RawIdKey(ARaw), Result) then
+      if not FRsmTypeIdToClassIdx.TryGetValue(RawIdKey(ARaw), Result) then
         Result := -1;
     end;
 
@@ -1315,7 +1515,7 @@ var
       ClsIdx : Integer;
     begin
       // Walk the byte stream looking for $2A name-id records and
-      // populate RawIdToClassIdx by joining each registered name
+      // populate FRsmTypeIdToClassIdx by joining each registered name
       // against the already-built FClassByName index. The byte-walk
       // is driven by mORMot's SSE2-accelerated ByteScanIndex so we
       // jump directly to the next $2A tag instead of incrementing
@@ -1330,11 +1530,18 @@ var
         Skip := ByteScanIndex(PByteArray(Buf + P), Sz - P - 12, $2A);
         if Skip < 0 then Break;
         Inc(P, Skip);
+        // The byte directly after the name (a "kind" flag, possibly:
+        // $20=record, $A8=class-with-vmt, $88/$80=alias, $00=last-
+        // type-before-non-type) varies across registry entries, so
+        // we don't constrain it. The two bytes after that ARE
+        // reliably $00 $00 across every entry observed in
+        // DebugTarget.rsm and TFW.rsm, which keeps the false-
+        // positive rate near zero on incidental $2A bytes in the
+        // file.
         NL := ByteAt(P + 1);
         if (NL >= 2) and (NL <= 40) and
            (P + 2 + NL + 5 < Sz) and
            (ByteAt(P + 2) = Byte(Ord('T'))) and
-           (ByteAt(P + 2 + NL) = $20) and
            (ByteAt(P + 2 + NL + 1) = $00) and
            (ByteAt(P + 2 + NL + 2) = $00) and
            ReadIdentifier(P + 1, Name) then
@@ -1343,7 +1550,7 @@ var
           Id.Hi := ByteAt(P + 2 + NL + 4);
           ClsIdx := FindClassByName(Name);
           if ClsIdx >= 0 then
-            RawIdToClassIdx[RawIdKey(Id)] := ClsIdx;
+            FRsmTypeIdToClassIdx[RawIdKey(Id)] := ClsIdx;
           P := P + 2 + NL + 5;
         end
         else
@@ -1382,9 +1589,23 @@ var
         // field name still starts at TagOff+2 (i.e. one past the
         // length byte). Either way the first-character byte that
         // determines whether this is a field name lives at TagOff+2.
+        // Structural anchor instead of "Name[1]='F'". The Delphi
+        // F-prefix convention isn't universal -- real-world records
+        // have fields named WhdrHeader, DbKindName, etc. that the
+        // old check rejected, leaving them with TypeIdx=0 so the
+        // dotted-walk couldn't transition from a parent record
+        // into them. Validate the "$00 $02 $00" payload prefix
+        // BEFORE allocating the name; this is a more selective
+        // guard than any first-character rule could be.
         NL := ByteAt(TagOff + 1);
-        if (NL < 2) or (NL > 40) or (TagOff + 2 + NL > Sz) or
-           (ByteAt(TagOff + 2) <> Byte(Ord('F'))) then
+        if (NL < 2) or (NL > 40) or (TagOff + 2 + NL + 7 >= Sz) then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        var After: Integer := TagOff + 2 + NL;
+        if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
+           (ByteAt(After + 2) <> $00) then
         begin
           Inc(P);
           Continue;
@@ -1394,16 +1615,9 @@ var
           Inc(P);
           Continue;
         end;
-        // After the name expect the constant "00 02 00" + 2-byte
-        // field-type-id.
-        var After: Integer := TagOff + 2 + Length(Name);
+        // Final size guard for the rest of the field record (a
+        // bounded forward window plus the 2-byte parent id).
         if After + 5 + 6 + 2 > Sz then
-        begin
-          Inc(P);
-          Continue;
-        end;
-        if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
-           (ByteAt(After + 2) <> $00) then
         begin
           Inc(P);
           Continue;
@@ -1463,7 +1677,11 @@ var
     end;
 
   begin
-    RawIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
+    // FRsmTypeIdToClassIdx is a class field (so callers outside
+    // this method can look up "RSM type id -> FClasses index" too);
+    // clear it here rather than re-creating the interface so the
+    // public field reference stays stable across loads.
+    FRsmTypeIdToClassIdx.Clear;
     Confirmed := Collections.NewPlainKeyValue<String, Boolean>;
     ScanTypeRegistry;
     LinkFieldsFromFormatA;
@@ -1475,6 +1693,8 @@ begin
   FClasses.Clear;
   FProcByName.Clear;
   FClassByName.Clear;
+  FGlobalByName.Clear;
+  FGlobalFileOffset.Clear;
   if (ABuf = nil) or (ASize < 8) then
     Exit;
   if PUInt32(ABuf)^ <> SigCSH7 then
@@ -1734,6 +1954,114 @@ begin
   if FClassByName.TryGetValue(LowerCase(AName), Result) then
     Exit;
   Result := -1;
+end;
+
+function TRsmLocalsReader.FindGlobalTypeIdx(const AName: String): UInt32;
+begin
+  if not FGlobalByName.TryGetValue(LowerCase(AName), Result) then
+    Result := 0;
+end;
+
+function TRsmLocalsReader.FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
+begin
+  if not FRsmTypeIdToClassIdx.TryGetValue(ARsmId, Result) then
+    Result := -1;
+end;
+
+function TRsmLocalsReader.FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;
+var
+  Hits: IList<Integer>;
+  I, M: Integer;
+  Info: TRsmClassInfo;
+begin
+  // Linear over FClasses (~few thousand entries on TFW-class
+  // binaries) but only ever called from the dotted-walk's
+  // fallback path, so the cost is bounded by user actions
+  // (one evaluate-with-record-global per breakpoint).
+  Hits := Collections.NewPlainList<Integer>;
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if Info.Kind <> skRecord then Continue;
+    for M := 0 to Info.Members.Count - 1 do
+      if SameText(Info.Members[M].Name, AFieldName) then
+      begin
+        Hits.Add(I);
+        Break;
+      end;
+  end;
+  Result := Hits.AsArray;
+end;
+
+function TRsmLocalsReader.FindBestRecordForGlobalAndField(
+  const AGlobalName, AFieldName: String): Integer;
+var
+  GlobalOff   : NativeInt;
+  HintIdx     : Integer;
+  BestIdx     : Integer;
+  BestDist    : NativeInt;
+  I, M        : Integer;
+  Info        : TRsmClassInfo;
+  HasField    : Boolean;
+  Dist        : NativeInt;
+  HintHasField: Boolean;
+begin
+  Result := -1;
+
+  // Name hint: a record literally named "T<global>" is a strong
+  // Delphi-convention signal that the global's type IS that record.
+  // Verify the candidate carries AFieldName before accepting --
+  // otherwise the convention misleads us into a wrong record.
+  HintIdx := FindClassByName('T' + AGlobalName);
+  if (HintIdx >= 0) and (FClasses[HintIdx].Kind = skRecord) then
+  begin
+    HintHasField := False;
+    Info := FClasses[HintIdx];
+    for M := 0 to Info.Members.Count - 1 do
+      if SameText(Info.Members[M].Name, AFieldName) then
+      begin
+        HintHasField := True;
+        Break;
+      end;
+    if HintHasField then
+    begin
+      Result := HintIdx;
+      Exit;
+    end;
+  end;
+
+  // Proximity: among all records carrying AFieldName, the one whose
+  // file-offset definition lies closest to the global's $20 record
+  // wins. Records and the globals that hold them are emitted in the
+  // same per-unit section of the RSM byte stream, so the closest
+  // record-with-this-field IS the global's record type.
+  if not FGlobalFileOffset.TryGetValue(LowerCase(AGlobalName), GlobalOff) then
+    Exit;
+
+  BestIdx  := -1;
+  BestDist := High(NativeInt);
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if Info.Kind <> skRecord then Continue;
+    if Info.TypeIdx = 0 then Continue;
+    HasField := False;
+    for M := 0 to Info.Members.Count - 1 do
+      if SameText(Info.Members[M].Name, AFieldName) then
+      begin
+        HasField := True;
+        Break;
+      end;
+    if not HasField then Continue;
+    Dist := NativeInt(Info.TypeIdx) - GlobalOff;
+    if Dist < 0 then Dist := -Dist;
+    if Dist < BestDist then
+    begin
+      BestDist := Dist;
+      BestIdx  := I;
+    end;
+  end;
+  Result := BestIdx;
 end;
 
 function TRsmLocalsReader.FindStructByTypeIdx(ATypeIdx: UInt32): Integer;

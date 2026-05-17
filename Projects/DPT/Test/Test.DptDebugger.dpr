@@ -9,6 +9,7 @@ uses
   DUnitX.TestFramework,
 
   Test.DPT.Debugger,
+  Test.DPT.MapFileParser,
   Test.DPT.MCP.Server,
   Test.DPT.Rsm.LocalsReader;
 

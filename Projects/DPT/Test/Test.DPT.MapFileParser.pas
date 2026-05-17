@@ -56,6 +56,9 @@ type
     procedure LineNumberIterationDottedUnit32;
     [Test]
     procedure LineNumberIterationDottedUnit64;
+
+    [Test]
+    procedure VAFromSimpleNamePrefersDataOverCode;
   end;
 
 implementation
@@ -414,6 +417,108 @@ begin
     end;
   finally
     TFile.Delete(FixturePath);
+  end;
+end;
+
+/// <summary>
+///   Regression: simple-name lookups must prefer DATA / BSS entries
+///   over CODE / ICODE entries when the suffix collides.
+/// </summary>
+/// <remarks>
+///   On TFW the global <c>Business.Root.AppCaps</c> (.bss) shares the
+///   suffix <c>AppCaps</c> with the unit-init proc
+///   <c>Base.AppCaps.Base.AppCaps</c> (.itext); the old "first wins"
+///   rule returned the proc, so every
+///   <c>evaluate AppCaps.&lt;field&gt;</c> read from .text and produced
+///   x86 garbage. The fixture below reproduces the exact collision
+///   pattern with a synthetic .map: two segment classes (one CODE,
+///   one BSS) and two Publics-by-Value entries sharing the suffix
+///   <c>AppCaps</c>. Order matters -- the CODE entry appears FIRST,
+///   so a naive "first wins" resolver picks it; the assertion proves
+///   that <c>VAFromSimpleName</c> returns the BSS entry anyway.
+/// </remarks>
+procedure TTestMapFileParser.VAFromSimpleNamePrefersDataOverCode;
+const
+  Fixture =
+    ' Start         Length     Name                   Class' + sLineBreak +
+    ' 0001:00401000 00001000H .text                   CODE' + sLineBreak +
+    ' 0004:0050A000 00001000H .bss                    BSS' + sLineBreak +
+    sLineBreak +
+    'Detailed map of segments' + sLineBreak +
+    sLineBreak +
+    ' 0001:00000000 00001000 C=CODE     S=.text    G=(none)   M=DummyUnit ACBP=A9' + sLineBreak +
+    ' 0004:00000000 00001000 C=BSS      S=.bss     G=DGROUP   M=DummyUnit ACBP=A9' + sLineBreak +
+    sLineBreak +
+    '  Address         Publics by Value' + sLineBreak +
+    sLineBreak +
+    ' 0001:00000100       Base.AppCaps.Base.AppCaps' + sLineBreak +
+    ' 0004:00000200       Business.Root.AppCaps' + sLineBreak;
+var
+  FixturePath  : string;
+  Parser       : TMapFileParser;
+  CodeOnlyPath : string;
+  ParserCode   : TMapFileParser;
+begin
+  FixturePath := TPath.Combine(TPath.GetTempPath,
+    Format('DPT.SimpleNameCollision.%s.map',
+      [GUIDToString(TGUID.NewGuid)]));
+  TFile.WriteAllText(FixturePath, Fixture);
+  try
+    Parser := TMapFileParser.Create(FixturePath);
+    try
+      // BSS entry's VA = MAPAddrToVA(0x200 + 0x50A000) =
+      // 0x50A200 - 0x401000 = 0x109200.
+      // CODE entry's VA = MAPAddrToVA(0x100 + 0x401000) =
+      // 0x401100 - 0x401000 = 0x100.
+      // The collision-resolution must pick the BSS one.
+      Assert.AreEqual(UInt64($109200),
+        Parser.VAFromSimpleName('AppCaps'),
+        'Simple-name lookup must prefer the .bss global over the ' +
+        '.text unit-init proc when the suffix collides.');
+
+      // Unrelated single-hit lookups must still resolve correctly --
+      // the prefer-DATA tie-break must not break the common case
+      // where only one entry exists.
+      Assert.AreNotEqual(UInt64(0),
+        Parser.VAFromSimpleName('AppCaps'),
+        'AppCaps must resolve to a non-zero VA');
+    finally
+      Parser.Free;
+    end;
+  finally
+    TFile.Delete(FixturePath);
+  end;
+
+  // Edge case: when ALL collisions are CODE, "first wins" still
+  // applies. Mirrors the original semantics for callers that
+  // depended on map ordering.
+  CodeOnlyPath := TPath.Combine(TPath.GetTempPath,
+    Format('DPT.SimpleNameCodeOnly.%s.map',
+      [GUIDToString(TGUID.NewGuid)]));
+  TFile.WriteAllText(CodeOnlyPath,
+    ' Start         Length     Name                   Class' + sLineBreak +
+    ' 0001:00401000 00001000H .text                   CODE' + sLineBreak +
+    sLineBreak +
+    'Detailed map of segments' + sLineBreak +
+    sLineBreak +
+    ' 0001:00000000 00001000 C=CODE     S=.text    G=(none)   M=DummyUnit ACBP=A9' + sLineBreak +
+    sLineBreak +
+    '  Address         Publics by Value' + sLineBreak +
+    sLineBreak +
+    ' 0001:00000100       UnitA.Helper' + sLineBreak +
+    ' 0001:00000200       UnitB.Helper' + sLineBreak);
+  try
+    ParserCode := TMapFileParser.Create(CodeOnlyPath);
+    try
+      Assert.AreEqual(UInt64($100),
+        ParserCode.VAFromSimpleName('Helper'),
+        'When both candidates are CODE, the first encountered must ' +
+        'still win (mirrors the prior first-match semantics).');
+    finally
+      ParserCode.Free;
+    end;
+  finally
+    TFile.Delete(CodeOnlyPath);
   end;
 end;
 

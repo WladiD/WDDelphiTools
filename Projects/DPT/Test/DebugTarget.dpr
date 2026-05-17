@@ -77,6 +77,53 @@ type
   TPoint3D = record
     FX, FY, FZ : Integer;
   end;
+  // Mirrors the "TRecHeader prefix" pattern observed in real-world
+  // Delphi binaries. A correct field-offset computation must place 
+  // WhdrId at offset 8 (after Magic+Ver), NOT at offset 0. 
+  // The MCP-level evaluate test verifies that by reading back 
+  // the sentinel values via dotted paths.
+  TWhdrHeader = record
+    WhdrMagic : UInt32;
+    WhdrVer   : UInt32;
+  end;
+  TWithHeader = record
+    WhdrHeader   : TWhdrHeader;
+    WhdrId       : Integer;
+    WhdrShortStr : ShortString;
+    WhdrLongStr  : string;
+  end;
+  // Mirrors the "case Byte of" variant pattern from TFW's TKonsApl.
+  // The RSM emits each variant case as its own $02-prefixed field
+  // record but with overlapping offsets (next-offset DWORD does NOT
+  // advance between siblings of the same case branch). A correct
+  // scanner must surface every named variant field with its own
+  // offset, so dotted paths into either branch resolve correctly
+  // and the field-name fallback in the evaluator finds the right
+  // owning record.
+  TVariantSlot = record
+    VrCommon : Integer;
+    case Byte of
+      0: (VrAsInt   : Integer);
+      1: (VrAsByteA : Byte;
+          VrAsByteB : Byte;
+          VrAsByteC : Byte;
+          VrAsByteD : Byte);
+  end;
+  // Mirrors the "TMdt prefix" pattern seen in real-world Delphi
+  // binaries: a record whose first non-header fields are Word /
+  // Byte. type:"int" reads on those fields must clamp to the
+  // declared width or the result visibly concatenates the next
+  // field's bytes (Word at offset 0 followed by another Word at
+  // offset 2 = naive 4-byte read returns Lo or (Hi shl 16) instead
+  // of just Lo). Sentinels chosen so the wrong-width path is
+  // visibly different from the correct one.
+  TNarrowInts = packed record
+    NiWord    : Word;
+    NiWord2   : Word;
+    NiByte    : Byte;
+    NiByte2   : Byte;
+    NiInteger : Integer;
+  end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
   LocalCount : Integer;
@@ -141,6 +188,9 @@ var
   GGlobalWithRec     : TWithRec;
   GGlobalMixed       : TMixedRec;
   GGlobalP3D         : TPoint3D;
+  GGlobalWithHeader  : TWithHeader;
+  GGlobalVarRec      : TVariantSlot;
+  GGlobalNarrow      : TNarrowInts;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -182,6 +232,33 @@ begin
   GGlobalP3D.FX := Integer($B1B1B1B1);
   GGlobalP3D.FY := Integer($B2B2B2B2);
   GGlobalP3D.FZ := Integer($B3B3B3B3);
+  // Header-prefixed record: WhdrId at offset 8, WhdrShortStr at
+  // offset 12, WhdrLongStr right after the shortstring buffer.
+  // The MCP-level evaluate test reads each via a dotted path and
+  // checks the sentinel values come back, which only happens when
+  // the field-offset arithmetic in the dotted walk is correct.
+  GGlobalWithHeader.WhdrHeader.WhdrMagic := Integer($E1E1E1E1);
+  GGlobalWithHeader.WhdrHeader.WhdrVer   := Integer($E2E2E2E2);
+  GGlobalWithHeader.WhdrId                := Integer($E3E3E3E3);
+  GGlobalWithHeader.WhdrShortStr          := 'whdr-short';
+  GGlobalWithHeader.WhdrLongStr           := 'Whdr-Long-E5';
+  // Variant record with case Byte of. VrCommon at offset 0,
+  // VrAsInt and VrAsByteA-D share offset 4. The Int and Bytes
+  // sentinels are chosen so test assertions can distinguish a
+  // wrong-overlay-offset read from a correct one.
+  GGlobalVarRec.VrCommon  := Integer($F0F0F0F0);
+  GGlobalVarRec.VrAsInt   := Integer($F2F2F2F2);
+  // Narrow-int record: NiWord sentinel = 1 (low byte 0x01, high
+  // byte 0x00); NiWord2 sentinel = $1234. A naive 4-byte read at
+  // NiWord's offset would return 1 or ($1234 shl 16) = $12340001;
+  // a correct width-clamped read returns 1. NiByte sentinel = $A5,
+  // NiByte2 = $5A so a wrong-width read on NiByte is visibly
+  // different from $A5.
+  GGlobalNarrow.NiWord    := 1;
+  GGlobalNarrow.NiWord2   := $1234;
+  GGlobalNarrow.NiByte    := $A5;
+  GGlobalNarrow.NiByte2   := $5A;
+  GGlobalNarrow.NiInteger := Integer($DEADBEEF);
   // Touch the value-type globals so the linker keeps them in .bss/.data
   // instead of dead-code-eliminating them. The values themselves are
   // already set by the typed-constant initializers above.

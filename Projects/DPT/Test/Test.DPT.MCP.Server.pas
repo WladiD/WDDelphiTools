@@ -72,6 +72,14 @@ type
     [Test]
     procedure TestMcpEvaluateRecordUnknownFieldFails;
     [Test]
+    procedure TestMcpEvaluateGlobalRecordFieldNavigation;
+    [Test]
+    procedure TestMcpEvaluateHeaderPrefixedRecord;
+    [Test]
+    procedure TestMcpEvaluateVariantRecord;
+    [Test]
+    procedure TestMcpEvaluateNarrowIntFieldWidth;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -1563,12 +1571,14 @@ begin
   end;
 end;
 
+/// <summary>
+///   Two consecutive breakpoints with output produced between them.
+///   The first pause's <c>recent_output</c> must contain the lines
+///   emitted before reaching the first BP. After continue, the second
+///   pause's <c>recent_output</c> must contain ONLY the lines produced
+///   between the two pauses, NOT a re-delivery of the earlier lines.
+/// </summary>
 procedure TMcpServerTests.TestMcpRecentOutputIsDeltaSinceLastResume;
-// Two consecutive breakpoints with output produced between them. The
-// first pause's recent_output must contain the lines emitted before
-// reaching the first BP. After continue, the second pause's
-// recent_output must contain ONLY the lines produced between the two
-// pauses, NOT a re-delivery of the earlier lines.
 var
   Debugger     : TDebugger;
   Server       : TMcpServer;
@@ -1699,13 +1709,15 @@ begin
   end;
 end;
 
+/// <summary>
+///   Covers the type matrix beyond the int/string/object trio that the
+///   original evaluate tool already exercised: int64, ansistring,
+///   widestring, shortstring (globals only), plus the empty-string and
+///   nil-object edge cases. All seven evaluations happen in one paused
+///   session at line 15 (DeepProcedure Writeln) so that the per-test
+///   CreateProcess overhead is paid once.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateExtendedTypes;
-// Covers the type matrix beyond the int/string/object trio that the
-// original evaluate tool already exercised: int64, ansistring,
-// widestring, shortstring (globals only), plus the empty-string and
-// nil-object edge cases. All seven evaluations happen in one paused
-// session at line 15 (DeepProcedure Writeln) so that the per-test
-// CreateProcess overhead is paid once.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -1787,13 +1799,17 @@ begin
   end;
 end;
 
+/// <summary>
+///   Local-variable ShortString case: <c>GetLocals</c> only delivers
+///   8 raw bytes per slot, which would truncate any ShortString
+///   longer than 7 chars. <c>EvaluateVariable</c> resolves the
+///   runtime address via <c>GetLocalAddress</c> (with the Win64
+///   frame-base correction) and reads the full 256-byte inline
+///   buffer. Breakpoint at line 45 (Writeln in LocalsProcedure)
+///   guarantees <c>LocalShort</c> has been assigned before we
+///   inspect it.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateLocalShortString;
-// Local-variable ShortString case: GetLocals only delivers 8 raw bytes
-// per slot, which would truncate any ShortString longer than 7 chars.
-// EvaluateVariable resolves the runtime address via GetLocalAddress
-// (with the Win64 frame-base correction) and reads the full 256-byte
-// inline buffer. Breakpoint at line 45 (Writeln in LocalsProcedure)
-// guarantees LocalShort has been assigned before we inspect it.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -1846,12 +1862,15 @@ begin
   end;
 end;
 
+/// <summary>
+///   The MCP handler must surface a clear failure when (a) the
+///   variable name resolves to neither a local nor a global, and
+///   (b) the type argument is not in the supported list. Both are
+///   the realistic "AI agent typed something wrong" cases that
+///   should yield an error the agent can act on, not a silent
+///   default.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRejectsInvalidNameAndType;
-// The MCP handler must surface a clear failure when (a) the variable
-// name resolves to neither a local nor a global, and (b) the type
-// argument is not in the supported list. Both are the realistic
-// "AI agent typed something wrong" cases that should yield an error
-// the agent can act on, not a silent default.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -1910,11 +1929,15 @@ begin
   end;
 end;
 
+/// <summary>
+///   Single-level field navigation:
+///   <c>evaluate("GGlobalOuter.FOuterInt", "int")</c> must dereference
+///   the <c>GGlobalOuter</c> pointer, look up <c>FOuterInt</c>'s
+///   offset from TD32 class info, and return the integer at that
+///   runtime address. Same flow for <c>FOuterStr</c> (string field
+///   on first level).
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateOneLevelFieldNavigation;
-// Single-level field navigation: evaluate("GGlobalOuter.FOuterInt", "int")
-// must dereference the GGlobalOuter pointer, look up FOuterInt's offset
-// from TD32 class info, and return the integer at that runtime address.
-// Same flow for FOuterStr (string field on first level).
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -1974,15 +1997,22 @@ begin
   end;
 end;
 
+/// <summary>
+///   Two-level navigation:
+///   <c>evaluate("GGlobalOuter.FOuterInner.FInnerInt", "int")</c>
+///   must follow the field chain twice. The walker has to:
+///   <list type="number">
+///     <item>Resolve <c>GGlobalOuter</c> to its global address.</item>
+///     <item>Read pointer there → instance of <c>TOuter</c>.</item>
+///     <item>Determine runtime class via VMT, look up
+///       <c>FOuterInner</c> offset.</item>
+///     <item>Read pointer at that field → instance of <c>TInner</c>.</item>
+///     <item>Determine <c>TInner</c>'s runtime class, look up
+///       <c>FInnerInt</c> offset.</item>
+///     <item>Read 4-byte int at that final address.</item>
+///   </list>
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateTwoLevelFieldNavigation;
-// Two-level navigation: evaluate("GGlobalOuter.FOuterInner.FInnerInt", "int")
-// must follow the field chain twice. The walker has to:
-//   1. Resolve GGlobalOuter to its global address
-//   2. Read pointer there -> instance of TOuter
-//   3. Determine runtime class via VMT, look up FOuterInner offset
-//   4. Read pointer at that field -> instance of TInner
-//   5. Determine TInner's runtime class, look up FInnerInt offset
-//   6. Read 4-byte int at that final address
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2036,11 +2066,14 @@ begin
   end;
 end;
 
+/// <summary>
+///   When a field in the chain is nil, the walker must surface
+///   <c>"nil"</c> as the value (for the final segment) rather than
+///   dereferencing a null pointer or returning random garbage. Uses
+///   <c>GGlobalNilObject</c> as the trivial nil case (a global
+///   <c>TObject</c> set to nil).
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateFieldNavigationOnNilMidChain;
-// When a field in the chain is nil, the walker must surface "nil" as
-// the value (for the final segment) rather than dereferencing a null
-// pointer or returning random garbage. Uses GGlobalNilObject as the
-// trivial nil case (a global TObject set to nil).
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2089,10 +2122,13 @@ begin
   end;
 end;
 
+/// <summary>
+///   When a navigated field name doesn't exist on the resolved class,
+///   the handler must surface <c>"Failed to evaluate variable"</c>
+///   so the AI agent can detect typos rather than reading random
+///   nearby memory.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateFieldNavigationUnknownField;
-// When a navigated field name doesn't exist on the resolved class, the
-// handler must surface "Failed to evaluate variable" so the AI agent
-// can detect typos rather than reading random nearby memory.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2142,11 +2178,15 @@ begin
   end;
 end;
 
+/// <summary>
+///   Record-typed fields embedded in a class are walked WITHOUT
+///   dereferencing the record's slot (the record sits inline within
+///   the holding class). This test covers the basic
+///   class → record hop:
+///   <c>GGlobalWithRec.FOrigin.FX</c> / <c>.FY</c> where
+///   <c>FOrigin</c> is a <c>TPoint2D</c> record.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordFieldNavigation;
-// Record-typed fields embedded in a class are walked WITHOUT
-// dereferencing the record's slot (the record sits inline within the
-// holding class). This test covers the basic class -> record hop:
-// GGlobalWithRec.FOrigin.FX / .FY where FOrigin is a TPoint2D record.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2202,14 +2242,17 @@ begin
   end;
 end;
 
+/// <summary>
+///   Records nested within records: <c>TRect2D</c> contains two
+///   <c>TPoint2D</c> fields, each holding two integers. Walking
+///   <c>GGlobalWithRec.FBounds.FTopLeft.FX</c> must take three hops
+///   total: one class → record (<c>FBounds</c>), one
+///   record → record (<c>FTopLeft</c> inside <c>FBounds</c>), and
+///   one record → primitive (<c>FX</c> inside <c>FTopLeft</c>). Two
+///   of the four sub-fields are checked to verify offsets at both
+///   top-left and bottom-right of the rect.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateNestedRecordFieldNavigation;
-// Records nested within records: TRect2D contains two TPoint2D fields,
-// each holding two integers. Walking
-// GGlobalWithRec.FBounds.FTopLeft.FX must take three hops total: one
-// class->record (FBounds), one record->record (FTopLeft inside FBounds),
-// and one record->primitive (FX inside FTopLeft). Two of the four sub-
-// fields are checked to verify offsets at both top-left and bottom-
-// right of the rect.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2276,12 +2319,15 @@ begin
   end;
 end;
 
+/// <summary>
+///   A record may itself hold a class-typed field: <c>TPair</c>
+///   contains <c>FObj</c> of type <c>TInner</c>. Navigation through
+///   <c>GGlobalWithRec.FPair.FObj.FInnerInt</c> must transition from
+///   the record hop (no deref) BACK to the class hop (deref + VMT
+///   walk) at <c>FObj</c>. Also verifies a string field of the
+///   record (<c>FLabel</c>) for an inline-string read.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordToClassTransition;
-// A record may itself hold a class-typed field: TPair contains FObj of
-// type TInner. Navigation through GGlobalWithRec.FPair.FObj.FInnerInt
-// must transition from the record hop (no deref) BACK to the class hop
-// (deref + VMT walk) at FObj. Also verifies a string field of the
-// record (FLabel) for an inline-string read.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2344,11 +2390,14 @@ begin
   end;
 end;
 
+/// <summary>
+///   Asking for a non-existent field on a record (as opposed to a
+///   class) must produce the same Failed-to-evaluate error path.
+///   Without this guard, a bad field name on a record could silently
+///   advance by 0 and read the start of the record as the requested
+///   type.
+/// </summary>
 procedure TMcpServerTests.TestMcpEvaluateRecordUnknownFieldFails;
-// Asking for a non-existent field on a record (as opposed to a class)
-// must produce the same Failed-to-evaluate error path. Without this
-// guard, a bad field name on a record could silently advance by 0 and
-// read the start of the record as the requested type.
 var
   Debugger    : TDebugger;
   Server      : TMcpServer;
@@ -2388,6 +2437,393 @@ begin
         'Unknown record field must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
       Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
         'Unknown-record-field response must be flagged as an error: ' + OutputWriter.GetLine(6));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+/// <summary>
+///   The first segment of a dotted path can be a global variable
+///   whose declared type IS a record (no enclosing class). The walk
+///   must treat that first hop as inline -- NOT dereference it like
+///   an object pointer -- and look up the field directly via the
+///   record's type registry.
+/// </summary>
+/// <remarks>
+///   DebugTarget declares two such globals: <c>GGlobalMixed</c> of
+///   type <c>TMixedRec</c> and <c>GGlobalP3D</c> of type
+///   <c>TPoint3D</c>. Both are initialised with sentinel values the
+///   test cross-references via the typed evaluate.
+///
+///   Pre-fix this test fails because the evaluate dotted-walk
+///   unconditionally enters its class-hop branch on the first
+///   segment, reading the record's first 4-8 bytes as if they were a
+///   VMT pointer to an instance.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateGlobalRecordFieldNavigation;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // GGlobalMixed.FMixedInt = Integer($A1A1A1A1) = -1583242837 ... let
+      // me check: $A1A1A1A1 as signed Int32 = -1583242847. Pascal source
+      // sets it via Integer($A1A1A1A1) which sign-extends to that value.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalMixed.FMixedInt", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-1583242847'),
+        'GGlobalMixed.FMixedInt must equal -1583242847 ($A1A1A1A1), got: ' + OutputWriter.GetLine(6));
+
+      // GGlobalMixed.FMixedStr is a string at offset 16 (after Int +
+      // 4 padding + Int64). Reading as a Delphi string evaluates the
+      // pointer at that slot and dereferences it -- a real string
+      // pointer here proves the field offset arithmetic is correct.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalMixed.FMixedStr", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Mixed-A3'),
+        'GGlobalMixed.FMixedStr must equal "Mixed-A3", got: ' + OutputWriter.GetLine(7));
+
+      // GGlobalP3D.FY at offset 4 (TPoint3D = record FX, FY, FZ: Integer).
+      // Value $B2B2B2B2 = -1296911694 signed.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalP3D.FY", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('-1296911694'),
+        'GGlobalP3D.FY must equal -1296911694 ($B2B2B2B2), got: ' + OutputWriter.GetLine(8));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+/// <summary>
+///   Mirrors the "TRecHeader prefix" pattern observed in real-world
+///   Delphi binaries (TFW). <c>TWithHeader</c>'s layout is:
+///   <list type="bullet">
+///     <item><c>WhdrHeader: TWhdrHeader</c> -- 8 bytes (Magic + Ver
+///       at offset 0)</item>
+///     <item><c>WhdrId: Integer</c> -- offset 8</item>
+///     <item><c>WhdrShortStr: ShortString</c> -- offset 12,
+///       length-prefixed inline</item>
+///     <item><c>WhdrLongStr: string</c> -- immediately after the
+///       ShortString</item>
+///   </list>
+///   A correct evaluator MUST compute the field offset of
+///   <c>WhdrId</c> as 8, NOT 0 -- offset 0 would re-read
+///   <c>WhdrMagic</c> (<c>$E1E1E1E1</c>) and silently "succeed" with
+///   the wrong value.
+/// </summary>
+/// <remarks>
+///   The bug class this test was written to catch on TFW
+///   (<c>AppCaps.DbKindName</c> returned ok=False even though the
+///   record was resolved correctly) is reproduced here without
+///   needing the TFW binary, so the fix can be validated against a
+///   checked-in fixture.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateHeaderPrefixedRecord;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // WhdrId at offset 8 = Integer($E3E3E3E3) = -471604253.
+      // A scanner that puts WhdrId at offset 0 would return
+      // $E1E1E1E1 = -505290017 (WhdrMagic). The two sentinels are
+      // intentionally distinct so a wrong-offset bug surfaces.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrId", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-471604253'),
+        'GGlobalWithHeader.WhdrId must equal -471604253 ($E3E3E3E3), got: ' + OutputWriter.GetLine(6));
+
+      // Nested record-in-record: WhdrHeader.WhdrVer at offset 4
+      // (within WhdrHeader at offset 0 of TWithHeader). $E2E2E2E2
+      // as signed Int32 = -488447262. Wrong offsets here would
+      // return WhdrMagic ($E1E1E1E1) or random garbage further in.
+      // This case used to fail BEFORE the Format-A field-record
+      // structural-anchor fix: WhdrHeader's TypeIdx wasn't being
+      // linked back to TWhdrHeader (the F-prefix gate dropped
+      // non-F-prefixed field-record entries), so the dotted-walk
+      // couldn't transition from TWithHeader into TWhdrHeader.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrHeader.WhdrVer", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('-488447262'),
+        'GGlobalWithHeader.WhdrHeader.WhdrVer must equal -488447262 ($E2E2E2E2), got: ' + OutputWriter.GetLine(7));
+
+      // ShortString past the header AND past WhdrId. Verifies the
+      // offset arithmetic stays correct across non-uniform field
+      // widths and that the inline-shortstring read at FieldAddr
+      // sees the right buffer.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrShortStr", "type": "shortstring"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('whdr-short'),
+        'GGlobalWithHeader.WhdrShortStr must equal "whdr-short", got: ' + OutputWriter.GetLine(8));
+
+      // Long string (Delphi default UnicodeString): the slot at
+      // its computed offset must hold a real string pointer; a
+      // wrong offset would read a garbage 4 bytes and dereferencing
+      // them as a string heap-walk would fail.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalWithHeader.WhdrLongStr", "type": "string"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(9).Contains('Whdr-Long-E5'),
+        'GGlobalWithHeader.WhdrLongStr must equal "Whdr-Long-E5", got: ' + OutputWriter.GetLine(9));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+/// <summary>
+///   Mirrors the "case Byte of" variant pattern from TFW's
+///   <c>TKonsApl</c>. <c>TVarRec</c> layout is:
+///   <list type="bullet">
+///     <item><c>VrCommon: Integer</c> -- offset 0, size 4</item>
+///     <item><c>case Byte of</c>
+///       <list type="bullet">
+///         <item>0: <c>(VrAsInt: Integer)</c> -- overlay at offset 4,
+///           size 4</item>
+///         <item>1: <c>(VrAsByteA..D: Byte)</c> -- overlay at offset
+///           4, four bytes</item>
+///       </list>
+///     </item>
+///   </list>
+///   The RSM emits each variant case as a <c>$02</c>-prefixed field
+///   record but with overlapping offsets (next-offset DWORD does NOT
+///   advance between siblings of different variant branches). A
+///   correct scanner must:
+///   <list type="bullet">
+///     <item>surface every named variant field with its own offset
+///       (so dotted paths into either branch resolve correctly),
+///       AND</item>
+///     <item>leave <c>VrCommon</c> at offset 0 with <c>VrAsInt</c>
+///       at offset 4 (NOT at some accumulated offset 8/12/16 if the
+///       scanner naively treated all field records as sequential).</item>
+///   </list>
+/// </summary>
+/// <remarks>
+///   If the scanner mishandles the variant overlay, <c>VrAsInt</c>'s
+///   read would land in the wrong memory and the assertion would
+///   fail with random bytes instead of the <c>$F2F2F2F2</c>
+///   sentinel.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateVariantRecord;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // VrCommon at offset 0 = Integer($F0F0F0F0) = -252645136.
+      // This part is identical to a non-variant record and is the
+      // baseline -- if it fails, the bug isn't variant-specific.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalVarRec.VrCommon", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('-252645136'),
+        'GGlobalVarRec.VrCommon must equal -252645136 ($F0F0F0F0), got: ' + OutputWriter.GetLine(6));
+
+      // VrAsInt at offset 4 = Integer($F2F2F2F2) = -218959118.
+      // This is the variant-overlay assertion: if the scanner did
+      // NOT mark VrAsInt as overlaying VrCommon's tail, the field
+      // table would put it past the variant union (offset 8 or
+      // further) and the read would return zeros / garbage.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalVarRec.VrAsInt", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('-218959118'),
+        'GGlobalVarRec.VrAsInt must equal -218959118 ($F2F2F2F2), got: ' + OutputWriter.GetLine(7));
+    finally
+      Server.Free;
+      InputReader.Free;
+      OutputWriter.Free;
+    end;
+  finally
+    Debugger.Free;
+  end;
+end;
+
+/// <summary>
+///   Sub-DWORD fields (Word, Byte) read via <c>type:"int"</c> must
+///   be width-clamped to the field's declared size. Without the
+///   clamp, the read pulls 4 bytes and visibly concatenates the
+///   next field's bytes into the high part of the result -- the
+///   bug that turned <c>MdtGlobal.Id</c> (Word = 1) into 65537 on
+///   TFW because the adjacent <c>IdUmsatz</c> (= 1) leaked into
+///   bits 16-31.
+/// </summary>
+/// <remarks>
+///   <c>TNarrowInts</c> mirrors the TMdt prefix layout without
+///   needing the TFW binary: two adjacent Words then two adjacent
+///   Bytes, each with a distinct sentinel so a wrong-width read is
+///   visibly different from a correct one. The field-size info
+///   comes from the offset gap between consecutive members
+///   (populated by <c>ScanFieldsForwardFromRecordName</c>) and is
+///   propagated from the dotted-walk into
+///   <c>EvaluateVariable</c>'s int formatter as
+///   <c>FieldKnownSize</c>.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateNarrowIntFieldWidth;
+var
+  Debugger    : TDebugger;
+  Server      : TMcpServer;
+  InputReader : TStringTextReader;
+  OutputWriter: TStringTextWriter;
+  ExePath     : String;
+  MapFile     : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  MapFile := ChangeFileExt(ExePath, '.map');
+
+  InputReader := TStringTextReader.Create(
+    '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+
+  Debugger := TDebugger.Create;
+  try
+    Debugger.LoadMapFile(MapFile);
+    Debugger.LoadDebugInfoFromExe(ExePath);
+    TDebuggerThread.Create(Debugger, ExePath);
+
+    OutputWriter := TStringTextWriter.Create;
+    Server := TMcpServer.Create(Debugger, InputReader, OutputWriter);
+    try
+      Server.RunOnce; // init
+      Server.RunOnce; // set_bp
+      Server.RunOnce; // ignore_exc
+      Server.RunOnce; // continue
+      WaitForOutput(OutputWriter, 6);
+
+      // NiWord (Word at offset 0) = 1. Naive 4-byte read would
+      // return 1 or ($1234 shl 16) = $12340001 = 305397761.
+      // Width-clamped read returns 1.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiWord", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains(': 1"'),
+        'GGlobalNarrow.NiWord must equal 1 (width-clamped read), got: ' + OutputWriter.GetLine(6));
+      Assert.IsFalse(OutputWriter.GetLine(6).Contains('305397761'),
+        'NiWord must NOT carry NiWord2''s bytes into the high part: ' + OutputWriter.GetLine(6));
+
+      // NiWord2 (Word at offset 2) = $1234 = 4660.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiWord2", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('4660'),
+        'GGlobalNarrow.NiWord2 must equal 4660 ($1234), got: ' + OutputWriter.GetLine(7));
+
+      // NiByte (Byte at offset 4) = $A5 = 165. Naive 4-byte read
+      // would mix in NiByte2 ($5A) and NiInteger's low bytes.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiByte", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(8).Contains('165'),
+        'GGlobalNarrow.NiByte must equal 165 ($A5), got: ' + OutputWriter.GetLine(8));
+
+      // NiByte2 (Byte at offset 5) = $5A = 90.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 8, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiByte2", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(9).Contains(': 90"'),
+        'GGlobalNarrow.NiByte2 must equal 90 ($5A), got: ' + OutputWriter.GetLine(9));
+
+      // NiInteger (Integer at offset 6) = $DEADBEEF = -559038737.
+      // Last member in the record -- its Size derivation from the
+      // offset chain is undefined (no next member), so the clamp
+      // must NOT shorten the read here. Acts as a regression guard
+      // against accidentally clamping a last-member full-width
+      // field down to 0 or a stale size.
+      InputReader.FLines.Add('{"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "evaluate", "arguments": {"name": "GGlobalNarrow.NiInteger", "type": "int"}}}');
+      Server.RunOnce;
+      Assert.IsTrue(OutputWriter.GetLine(10).Contains('-559038737'),
+        'GGlobalNarrow.NiInteger must equal -559038737 ($DEADBEEF) -- ' +
+        'last-member field must not be clamped, got: ' + OutputWriter.GetLine(10));
     finally
       Server.Free;
       InputReader.Free;

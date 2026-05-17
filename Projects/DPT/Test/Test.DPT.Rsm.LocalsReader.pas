@@ -22,6 +22,7 @@ uses
   DUnitX.TestFramework,
   mormot.core.collections,
 
+  DPT.MapFileParser,
   DPT.Rsm.LocalsReader;
 
 type
@@ -81,6 +82,10 @@ type
     procedure TestOpenArrayParamRecognized32;
     [Test]
     procedure TestTfwLoadDiagnostic;
+    [Test]
+    procedure TestFindGlobalTypeIdx32;
+    [Test]
+    procedure TestTfwGlobalRecordResolves;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -719,6 +724,261 @@ procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin D
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
 procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
 procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
+
+/// <summary>
+///   Reader-level pinpoint for the global-record dotted-walk path.
+///   The higher-level evaluate test
+///   (<c>TestMcpEvaluateGlobalRecordFieldNavigation</c>) exercises
+///   end-to-end behaviour; this one isolates the three steps it
+///   relies on so a regression makes the failure mode obvious:
+///   <list type="number">
+///     <item>The reader scanned the global-variable record at all.</item>
+///     <item>The type id stored on that global resolves to a struct
+///       entry.</item>
+///     <item>That entry is the expected RECORD type for the global.</item>
+///   </list>
+/// </summary>
+/// <remarks>
+///   <c>FindStructByTypeIdx</c> is NOT the right call here: it
+///   compares against <c>Classes[i].TypeIdx</c>, which holds the
+///   internal file-offset token, not the RSM 2-byte type id we
+///   store in <c>FGlobalByName</c>. <c>FindClassIdxByRsmTypeId</c>
+///   is the registry-backed lookup that matches what the dotted-
+///   walk in <c>TDebugger.EvaluateVariable</c> uses.
+/// </remarks>
+procedure TRsmLocalsReaderTests.TestFindGlobalTypeIdx32;
+  procedure CheckGlobalResolvesTo(Reader: TRsmLocalsReader;
+    const AGlobalName, AExpectedRecord: String);
+  var
+    TypeIdx : UInt32;
+    StructIdx: Integer;
+  begin
+    TypeIdx := Reader.FindGlobalTypeIdx(AGlobalName);
+    Assert.IsTrue(TypeIdx <> 0,
+      Format('FindGlobalTypeIdx must surface %s -- the reader did not ' +
+             'pick up the global''s $20-prefixed type-info record.',
+        [AGlobalName]));
+
+    StructIdx := Reader.FindClassIdxByRsmTypeId(TypeIdx);
+    Assert.IsTrue(StructIdx >= 0,
+      Format('Global RSM type id 0x%x for %s did not resolve to a ' +
+             'struct via FindClassIdxByRsmTypeId -- the registry built ' +
+             'in LinkMemberTypeIdsFromFormatA is missing that id.',
+        [TypeIdx, AGlobalName]));
+
+    Assert.IsTrue(Reader.Classes[StructIdx].Kind = skRecord,
+      Format('%s must point at a RECORD entry, got kind=%d ' +
+             '(class=0, record=1).',
+        [AGlobalName, Ord(Reader.Classes[StructIdx].Kind)]));
+    Assert.AreEqual(AExpectedRecord, Reader.Classes[StructIdx].Name,
+      Format('%s resolves to the wrong record name (RSM id 0x%x).',
+        [AGlobalName, TypeIdx]));
+  end;
+var
+  Reader: TRsmLocalsReader;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(False));
+    CheckGlobalResolvesTo(Reader, 'GGlobalMixed', 'TMixedRec');
+    CheckGlobalResolvesTo(Reader, 'GGlobalP3D',   'TPoint3D');
+  finally
+    Reader.Free;
+  end;
+end;
+
+/// <summary>
+///   Developer-machine-only counterpart to TestFindGlobalTypeIdx32:
+///   covers globals declared in the interface section of a real
+///   large binary (TFW.exe), where the RSM encoder uses different
+///   $20-record payload flags than the impl-scope globals our
+///   DebugTarget fixture exercises.
+/// </summary>
+/// <remarks>
+///   The agent's TFW repro showed <c>evaluate AppCaps.DbKindName</c>
+///   failing with "Failed to evaluate variable" even though
+///   <c>evaluate AppCaps</c> (bare global) returns sensible bytes.
+///   We verify the two structural facts the dotted-walk relies on:
+///   <list type="number">
+///     <item>The interface-scope record types (TAppCaps, TKonsApl,
+///       TMdt) actually land in FClasses (which is gated on the
+///       record-field scanner accepting field names that don't
+///       follow Delphi's 'F'-prefix convention).</item>
+///     <item><c>FindRecordsByMemberName(field)</c> resolves a
+///       field name back to the right record uniquely -- the
+///       name-based fallback the evaluator falls back to when
+///       a global's encoded type id doesn't match the registry
+///       (still an open encoding question on TFW's interface-
+///       scope globals).</item>
+///   </list>
+///   Skipped silently when the TFW fixture is missing so the build
+///   stays green on clean machines.
+/// </remarks>
+procedure TRsmLocalsReaderTests.TestTfwGlobalRecordResolves;
+const
+  TfwExePath = 'C:\MSE\TFW\TFW.exe';
+  procedure CheckFieldUniquelyOwnedBy(Reader: TRsmLocalsReader;
+    const AFieldName, AExpectedRecord: String);
+  var
+    Hits: TArray<Integer>;
+  begin
+    Hits := Reader.FindRecordsByMemberName(AFieldName);
+    Assert.AreEqual(Integer(1), Integer(Length(Hits)),
+      Format('FindRecordsByMemberName(%s) must return exactly one ' +
+             'record, got %d. Ambiguity here would force the dotted-' +
+             'walk to give up on the name-based fallback.',
+        [AFieldName, Length(Hits)]));
+    Assert.AreEqual(AExpectedRecord, Reader.Classes[Hits[0]].Name,
+      Format('Field %s is owned by the wrong record -- expected %s.',
+        [AFieldName, AExpectedRecord]));
+  end;
+var
+  Reader: TRsmLocalsReader;
+begin
+  if not TFile.Exists(TfwExePath) then
+  begin
+    var SkipMsg: String := Format(
+      'WARNING: TFW global-record-resolution test SKIPPED -- fixture ' +
+      'not found at "%s". The interface-scope global encoding cannot ' +
+      'be exercised without it.', [TfwExePath]);
+    Writeln(SkipMsg);
+    Assert.Pass(SkipMsg);
+    Exit;
+  end;
+
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(TfwExePath);
+
+    // Pinpoint diagnostic: surface each upstream layer's state
+    // before the assertions, so a regression points at the broken
+    // layer instead of just "lookup failed".
+    var DumpCls: Integer;
+    DumpCls := Reader.FindClassByName('TAppCaps');
+    Writeln(Format('  tfw-global: TAppCaps    in FClasses idx=%d members=%d',
+      [DumpCls, Reader.Classes[DumpCls].Members.Count]));
+    Writeln(Format('  tfw-global: TAppCaps    TypeIdx=0x%x (record-name file offset)',
+      [Reader.Classes[DumpCls].TypeIdx]));
+    // Count how many TAppCaps occurrences are in FClasses -- if more
+    // than one, the scanner may have picked the wrong layout.
+    var TAppCapsCount: Integer := 0;
+    for var Q: Integer := 0 to Reader.Classes.Count - 1 do
+      if SameText(Reader.Classes[Q].Name, 'TAppCaps') then
+        Inc(TAppCapsCount);
+    Writeln(Format('  tfw-global: TAppCaps    occurrences in FClasses=%d',
+      [TAppCapsCount]));
+    for var M: Integer := 0 to Reader.Classes[DumpCls].Members.Count - 1 do
+      Writeln(Format('    [%d] off=%d (0x%x) name=%s',
+        [M, Reader.Classes[DumpCls].Members[M].Offset,
+         Reader.Classes[DumpCls].Members[M].Offset,
+         Reader.Classes[DumpCls].Members[M].Name]));
+    Writeln(Format('  tfw-global: TKonsApl    in FClasses idx=%d',
+      [Reader.FindClassByName('TKonsApl')]));
+    Writeln(Format('  tfw-global: TMdt        in FClasses idx=%d',
+      [Reader.FindClassByName('TMdt')]));
+    Writeln(Format('  tfw-global: AppCaps             FindGlobalTypeIdx=0x%x',
+      [Reader.FindGlobalTypeIdx('AppCaps')]));
+    Writeln(Format('  tfw-global: GlobalKonsAplPortal FindGlobalTypeIdx=0x%x',
+      [Reader.FindGlobalTypeIdx('GlobalKonsAplPortal')]));
+    Writeln(Format('  tfw-global: MdtGlobal           FindGlobalTypeIdx=0x%x',
+      [Reader.FindGlobalTypeIdx('MdtGlobal')]));
+
+    // The interface-scope record types must land in FClasses,
+    // which is gated on the structural-anchor field scanner
+    // accepting non-F-prefixed field names like DbKindName.
+    Assert.IsTrue(Reader.FindClassByName('TAppCaps') >= 0,
+      'TAppCaps must be discovered as a record');
+    Assert.IsTrue(Reader.FindClassByName('TKonsApl') >= 0,
+      'TKonsApl must be discovered as a record');
+    Assert.IsTrue(Reader.FindClassByName('TMdt') >= 0,
+      'TMdt must be discovered as a record');
+
+    // The dotted-walk's name-based fallback resolves
+    // GlobalName.FieldName by searching every record for the
+    // field name. The agent's repro used AppCaps.DbKindName --
+    // that's the structural anchor we verify here.
+    CheckFieldUniquelyOwnedBy(Reader, 'DbKindName', 'TAppCaps');
+
+    // FindBestRecordForGlobalAndField is the actual resolver the
+    // dotted-walk calls when the encoded-type-id path misses (which
+    // is the entire TFW case). Each line below matches a row of the
+    // agent's repro recipe: "evaluate <GlobalName>.<FieldName>"
+    // must succeed, and "succeed" starts with picking the correct
+    // record type here. AplMsgTable (Boolean inside TAppCaps), Id
+    // (Word inside TMdt, also lives on many other records), and
+    // Match (ShortString on TMdt) are the three shapes that have
+    // to all hit the right record despite Id/Match being common
+    // field names across the codebase.
+    var Idx: Integer;
+    Idx := Reader.FindBestRecordForGlobalAndField('AppCaps', 'DbKindName');
+    Assert.IsTrue(Idx >= 0,
+      'AppCaps.DbKindName must resolve via FindBestRecordForGlobalAndField');
+    Assert.AreEqual('TAppCaps', Reader.Classes[Idx].Name,
+      'AppCaps.DbKindName resolved to wrong record');
+
+    Idx := Reader.FindBestRecordForGlobalAndField('AppCaps', 'AplMsgTable');
+    Assert.IsTrue(Idx >= 0,
+      'AppCaps.AplMsgTable must resolve');
+    Assert.AreEqual('TAppCaps', Reader.Classes[Idx].Name,
+      'AppCaps.AplMsgTable resolved to wrong record');
+
+    Idx := Reader.FindBestRecordForGlobalAndField('MdtGlobal', 'Id');
+    Assert.IsTrue(Idx >= 0,
+      'MdtGlobal.Id must resolve -- proximity fallback should pick TMdt');
+    Assert.AreEqual('TMdt', Reader.Classes[Idx].Name,
+      'MdtGlobal.Id resolved to wrong record (Id is shared across many ' +
+      'records, so this is the proximity disambiguator at work)');
+
+    Idx := Reader.FindBestRecordForGlobalAndField('MdtGlobal', 'Match');
+    Assert.IsTrue(Idx >= 0,
+      'MdtGlobal.Match must resolve');
+    Assert.AreEqual('TMdt', Reader.Classes[Idx].Name,
+      'MdtGlobal.Match resolved to wrong record');
+
+    Idx := Reader.FindBestRecordForGlobalAndField('GlobalKonsAplPortal', 'Name');
+    Assert.IsTrue(Idx >= 0,
+      'GlobalKonsAplPortal.Name must resolve via proximity (the T-prefix ' +
+      'hint does not apply -- the type is TKonsApl, not ' +
+      'TGlobalKonsAplPortal)');
+    Assert.AreEqual('TKonsApl', Reader.Classes[Idx].Name,
+      'GlobalKonsAplPortal.Name resolved to wrong record');
+
+    // End-to-end address-resolution check: the actual user-facing bug
+    // was that GetAddressFromSymbol('AppCaps') returned the .itext VA
+    // of the unit-init proc "Base.AppCaps.Base.AppCaps" instead of
+    // the .bss VA of "Business.Root.AppCaps", because both share the
+    // suffix "AppCaps" and the simple-name index used to pick the
+    // first encountered. So `evaluate AppCaps.AnyField` read from
+    // .text and returned x86 garbage. The TMapFileParser fix
+    // (prefer DATA over CODE on suffix collisions) makes the
+    // simple-name lookup return the .bss VA. Verify by checking
+    // the resolved VA matches Business.Root.AppCaps's qualified
+    // VA, not Base.AppCaps.Base.AppCaps's.
+    var TfwMap: TMapFileParser;
+    TfwMap := TMapFileParser.Create('C:\MSE\TFW\TFW.map');
+    try
+      var Bss: UInt64 :=
+        TfwMap.VAFromUnitAndProcName('Business.Root', 'AppCaps');
+      var Itext: UInt64 :=
+        TfwMap.VAFromUnitAndProcName('Base.AppCaps', 'Base.AppCaps');
+      var Simple: UInt64 := TfwMap.VAFromSimpleName('AppCaps');
+      Writeln(Format('  tfw-global: VA(Business.Root.AppCaps)=0x%x',  [Bss]));
+      Writeln(Format('  tfw-global: VA(Base.AppCaps.Base.AppCaps)=0x%x', [Itext]));
+      Writeln(Format('  tfw-global: VA(simple AppCaps)=0x%x',         [Simple]));
+      Assert.AreEqual(Bss, Simple,
+        'After the prefer-DATA tie-break, VAFromSimpleName(''AppCaps'') ' +
+        'must return the Business.Root.AppCaps .bss VA, not the ' +
+        'Base.AppCaps.Base.AppCaps .itext VA');
+      Assert.AreNotEqual(Itext, Simple,
+        'Simple-name lookup must NOT return the .itext unit-init ' +
+        'proc VA -- that was the user-facing bug.');
+    finally
+      TfwMap.Free;
+    end;
+  finally
+    Reader.Free;
+  end;
+end;
 
 /// <summary>
 ///   Developer-machine-only perf-regression test for the RSM
