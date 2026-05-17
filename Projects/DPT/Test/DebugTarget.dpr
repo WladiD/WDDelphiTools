@@ -53,6 +53,14 @@ type
   public
     FDerivedExtra : Integer;
     FDerivedLabel : string;
+    // Instance method so the evaluator can resolve <Self>.<FieldName>
+    // at a breakpoint inside an instance method. Self is the implicit
+    // first register-passed argument (EAX on x86, RCX on x64) -- the
+    // GetLocalAddress / lkRegister fix already covers reading Self;
+    // class-discovery in the RSM reader must also recognise TDerived
+    // as a class even when it declares methods, so inherited and own
+    // fields stay reachable via FindClassMember.
+    procedure TouchSelf;
   end;
   TDeepDerived = class(TDerived)
   private
@@ -124,6 +132,73 @@ type
     NiByte2   : Byte;
     NiInteger : Integer;
   end;
+// Repro point for the register-passed class-pointer dotted-walk bug.
+
+type
+  // Multi-level inheritance through an RTL ancestor. Mirrors the
+  // TFW scenario where TFormMain inherits TComponent through several
+  // intermediate classes: own fields on the leaf class work, but
+  // fields declared on TComponent (FName, FTag, ...) are unreachable
+  // because the field-lookup walker either stops at the leaf or hits
+  // a forward-stub when it crosses into RTL-defined classes. The
+  // RSM does contain TComponent (and TPersistent), so the chain CAN
+  // be walked if FindClassMember recurses through ParentName
+  // reliably for RTL classes.
+  TMyComp = class(System.Classes.TComponent)
+  public
+    FCustomFlag : Integer;
+  end;
+  // Same hierarchy as TMyComp but with NO own fields. The RSM-parent
+  // heuristic (offset matching, tolerant or not) cannot bridge this
+  // class to TComponent because FirstOffs is 0 -- there is no own
+  // field whose offset could anchor the match. Only a live-VMT
+  // ancestor walk surfaces FName / FTag on this class. Mirrors the
+  // TFW intermediate-class case where CMainForm / CBaseForm may
+  // declare no own fields the RSM scanner can lock onto.
+  TEmptyChild = class(System.Classes.TComponent)
+  end;
+// Repro point for the inherited-field-via-RTL-ancestor walk.
+// AComp is a register-passed reference to a TComponent-derived
+// instance. AComp.FCustomFlag is the leaf class's own field;
+// AComp.FName / AComp.FTag are inherited from TComponent (two
+// hops up: TMyComp -> TPersistent -> TComponent in modern Delphi
+// (TComponent inherits TPersistent directly)).
+procedure TouchRtlInheritedComp(AComp: TMyComp);
+begin
+  Writeln('TouchRIC ', AComp.FCustomFlag, ' ', AComp.Name); Flush(Output); // Line 168 - inherited-field bp here
+end;
+// Repro point for the VMT-walk inheritance fallback: AEmpty has no
+// own fields, so the RSM-driven ParentName chain cannot reach
+// TComponent for it. Resolving AEmpty.FName / AEmpty.FTag requires
+// reading the live VMT's parent pointer at run time.
+procedure TouchEmptyChild(AEmpty: TEmptyChild);
+begin
+  Writeln('TouchEC ', AEmpty.Name); Flush(Output); // Line 176 - empty-child inherited-field bp here
+end;
+
+// Repro point for the register-passed class-pointer dotted-walk bug.
+// A plain procedure (no Self, no class methods) so the RSM reader's
+// class-discovery heuristic stays on its current code path: <AInner>
+// is a TInner reference passed in the first register slot (EAX on
+// x86, RCX on x64) with NO stack slot. <AOther> is the second
+// register-passed class param (EDX / RDX). Without the fix, the
+// dotted-walk's first segment uses a stale base-pointer offset and
+// dereferences a junk address; with the fix, the register value is
+// used directly as the instance pointer.
+procedure TouchRegClassParam(AInner: TInner; AOther: TInner);
+begin
+  Writeln('TouchRCP ', AInner.FInnerInt, ' ', AOther.FInnerInt); Flush(Output); // Line 190 - register-class-param bp here
+end;
+// Instance-method repro for Self.<Field> dotted navigation. Self is
+// the implicit first register-passed argument; at a breakpoint placed
+// on the first statement, EAX/RCX still hold the receiver and no
+// stack slot exists for Self. Tests both own (FDerivedExtra,
+// FDerivedLabel) and inherited (FInnerInt, FInnerStr) field access
+// through the same register-Self code path.
+procedure TDerived.TouchSelf;
+begin
+  Writeln('TouchSelf ', FInnerInt, ' ', FDerivedExtra); Flush(Output); // Line 200 - Self.<Field> bp here
+end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
   LocalCount : Integer;
@@ -191,9 +266,16 @@ var
   GGlobalWithHeader  : TWithHeader;
   GGlobalVarRec      : TVariantSlot;
   GGlobalNarrow      : TNarrowInts;
+  GGlobalComp        : TMyComp;
+  GGlobalEmptyChild  : TEmptyChild;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
+  // Push two items so TStringList.FCount = 2 -- gives a verifiable
+  // sentinel for the non-TComponent inheritance navigation test
+  // (TStringList -> TStrings -> TPersistent -> TObject).
+  GGlobalObject.Add('first-line');
+  GGlobalObject.Add('second-line');
   GGlobalOuter := TOuter.Create;
   GGlobalOuter.FOuterInt := $11111111;
   GGlobalOuter.FOuterStr := 'Hello Outer';
@@ -259,6 +341,18 @@ begin
   GGlobalNarrow.NiByte    := $A5;
   GGlobalNarrow.NiByte2   := $5A;
   GGlobalNarrow.NiInteger := Integer($DEADBEEF);
+  // Multi-level-inheritance instance whose own field lives on TMyComp
+  // and whose Name / Tag fields live on TComponent in the System.Classes
+  // RTL unit. Used by the inherited-RTL-field navigation test.
+  GGlobalComp             := TMyComp.Create(nil);
+  GGlobalComp.FCustomFlag := Integer($7E7E7E7E);
+  GGlobalComp.Name        := 'CompName';
+  GGlobalComp.Tag         := Integer($7D7D7D7D);
+  // No-own-fields probe: forces the VMT-walk fallback to surface
+  // TComponent's FName / FTag.
+  GGlobalEmptyChild       := TEmptyChild.Create(nil);
+  GGlobalEmptyChild.Name  := 'EmptyName';
+  GGlobalEmptyChild.Tag   := Integer($7C7C7C7C);
   // Touch the value-type globals so the linker keeps them in .bss/.data
   // instead of dead-code-eliminating them. The values themselves are
   // already set by the typed-constant initializers above.
@@ -267,6 +361,24 @@ begin
     Writeln(ErrOutput, 'stderr-tag-line'); Flush(ErrOutput);
     OutputDebugString('ods-tag-line');
     TargetProcedure;
+    // Reach the body of TouchRegClassParam with both class parameters
+    // live as register-passed locals. Used by the MCP-evaluate test
+    // for class-field navigation through a register-passed object
+    // pointer (the GetLocalAddress / lkRegister fix).
+    TouchRegClassParam(GGlobalOuter.FOuterInner, GGlobalDerived);
+    // Reach the body of TDerived.TouchSelf with Self live as the
+    // first register-passed argument. Drives the Self.<Field> dotted
+    // navigation test and exposes the RSM class-discovery gap for
+    // classes that declare methods.
+    GGlobalDerived.TouchSelf;
+    // Reach the body of TouchRtlInheritedComp with AComp live as a
+    // register-passed reference. Drives the inherited-RTL-field
+    // navigation test (Name / Tag declared on TComponent, walked
+    // via the FindClassMember ancestor chain).
+    TouchRtlInheritedComp(GGlobalComp);
+    // Reach TouchEmptyChild so the VMT-walk fallback test for
+    // ancestors via the no-own-fields path has a live BP context.
+    TouchEmptyChild(GGlobalEmptyChild);
     LocalsProcedure;
     if GGlobalInt = -1 then EdgeCaseLocalsProcedure;
     if GGlobalInt = -1 then OpenArrayStringProcedure(['A', 'B', 'C']);
@@ -279,6 +391,8 @@ begin
     GGlobalWithRec.FPair.FObj.Free;
     GGlobalWithRec.FNestedObj.Free;
     GGlobalWithRec.Free;
+    GGlobalComp.Free;
+    GGlobalEmptyChild.Free;
     GGlobalObject.Free;
   end;
 end.

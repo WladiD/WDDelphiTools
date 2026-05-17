@@ -98,6 +98,17 @@ type
     ///   Empty when the read failed.
     /// </summary>
     RawBytes: TBytes;
+    /// <summary>
+    ///   How the local was reached: a base-pointer offset on the stack
+    ///   (<c>lkBpRel</c>) or a CPU register (<c>lkRegister</c>). The
+    ///   dotted-walk in <c>EvaluateVariable</c> needs this to decide
+    ///   whether the first-segment instance pointer can be taken
+    ///   directly from <c>RawBytes</c> (register-passed class param --
+    ///   the register's value IS the instance pointer, with no slot
+    ///   address to dereference) or must come from the stack slot
+    ///   address through <c>ReadTargetPointer</c>.
+    /// </summary>
+    Kind    : TRsmLocalKind;
   end;
 
   TStepType = (stNone, stInto, stOver);
@@ -1107,6 +1118,16 @@ begin
   for I := 0 to Proc.Locals.Count - 1 do
     if SameText(Proc.Locals[I].Name, AName) then
     begin
+      // Register-passed locals (Self, register params) have no stack
+      // slot -- they live in a CPU register, so BpOffset is 0 (a
+      // valid frame address that happens to point at the saved-EBP
+      // slot). Returning that as the local's address would mislead
+      // the caller into dereferencing the saved frame pointer as if
+      // it were the parameter's value. The dotted-walk has a
+      // dedicated path that sources the instance pointer from
+      // <Locals[].RawBytes> for lkRegister; here we just decline.
+      if Proc.Locals[I].Kind = lkRegister then
+        Exit(False);
       AAddress := Pointer(BaseAddr + Proc.Locals[I].BpOffset);
       Exit(True);
     end;
@@ -1169,7 +1190,8 @@ begin
   for I := 0 to Proc.Locals.Count - 1 do
   begin
     Loc.BpOffset := Proc.Locals[I].BpOffset;
-    Loc.Name := Proc.Locals[I].Name;
+    Loc.Name     := Proc.Locals[I].Name;
+    Loc.Kind     := Proc.Locals[I].Kind;
     if Proc.Locals[I].Kind = lkRegister then
       Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx)
     else
@@ -2073,23 +2095,24 @@ function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: Stri
     Result := True;
   end;
 
-  // VMT walk: given a pointer that's expected to point at a class
-  // instance, follow the VMT to read the runtime class name. Returns
-  // False on nil pointer or any unreadable indirection.
-  function ReadRuntimeClassName(APtrVal: UIntPtr; out AClassName: String): Boolean;
+  // Read a class name from a VMT pointer directly (no instance
+  // dereference first). Used to walk the runtime ancestor chain
+  // where each step gives us a parent VMT pointer rather than an
+  // instance. Same offset constants as ReadRuntimeClassName below
+  // -- they were chosen empirically to match the Delphi 12 layout
+  // including the CPP_ABI_ADJUST shift on Win64.
+  function ReadClassNameFromVMT(AVMTPtr: UIntPtr; out AClassName: String): Boolean;
   var
-    VMTPtr, ClassNamePtr: UIntPtr;
-    VMTClassNameOfs     : Integer;
-    Buf                 : TBytes;
-    Len                 : Byte;
+    ClassNamePtr  : UIntPtr;
+    VMTClassNameOfs: Integer;
+    Buf           : TBytes;
+    Len           : Byte;
   begin
     Result := False;
     AClassName := '';
-    if APtrVal = 0 then Exit;
-    VMTPtr := ReadTargetPointer(Pointer(APtrVal));
-    if VMTPtr = 0 then Exit;
+    if AVMTPtr = 0 then Exit;
     if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
-    ClassNamePtr := ReadTargetPointer(Pointer(VMTPtr - UIntPtr(VMTClassNameOfs)));
+    ClassNamePtr := ReadTargetPointer(Pointer(AVMTPtr - UIntPtr(VMTClassNameOfs)));
     if ClassNamePtr = 0 then Exit;
     Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
     if Length(Buf) <= 1 then Exit;
@@ -2097,6 +2120,125 @@ function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: Stri
     if (Len = 0) or (1 + Integer(Len) > Length(Buf)) then Exit;
     AClassName := TEncoding.ANSI.GetString(Buf, 1, Len);
     Result := True;
+  end;
+
+  // VMT walk: given a pointer that's expected to point at a class
+  // instance, follow the VMT to read the runtime class name. Returns
+  // False on nil pointer or any unreadable indirection.
+  function ReadRuntimeClassName(APtrVal: UIntPtr; out AClassName: String): Boolean;
+  var
+    VMTPtr: UIntPtr;
+  begin
+    Result := False;
+    AClassName := '';
+    if APtrVal = 0 then Exit;
+    VMTPtr := ReadTargetPointer(Pointer(APtrVal));
+    if VMTPtr = 0 then Exit;
+    Result := ReadClassNameFromVMT(VMTPtr, AClassName);
+  end;
+
+  // Live ancestor walk: when FindClassMember can't find AFieldName in
+  // AStartClassName's RSM-derived chain, follow the runtime VMT's
+  // vmtParent slot up through each ancestor and try the lookup again
+  // on each parent's class name. Authoritative because the chain is
+  // exactly what the Delphi runtime uses for class-name reporting --
+  // no offset heuristics, no forward stubs. Stops when the field is
+  // located, when the parent VMT is nil (TObject reached), or after a
+  // defensive depth cap.
+  function FindFieldViaVmtWalk(AObjPtr: UIntPtr; const AFieldName: String;
+    out AMember: TRsmClassMember): Boolean;
+  const
+    MaxDepth = 32;
+
+    // Try ReadTargetPointer at <VMTPtr - cand> for each candidate
+    // offset; the first one that yields a non-zero pointer whose
+    // own VMT-classname slot resolves to a valid class name is
+    // taken as vmtParent. Delphi's layout puts vmtParent 8 bytes
+    // (Win32) / 16 bytes (Win64) before vmtClassName, but
+    // CPP_ABI_ADJUST and version-specific RTL additions shift the
+    // exact offset, so we probe both.
+    function TryReadParentVMT(AVMT: UIntPtr; out AParentVMT: UIntPtr;
+      out AParentName: String): Boolean;
+    var
+      Ofs, SelfPtrOfs: Integer;
+      Cand, Indirect, CandSelfPtr: UIntPtr;
+      Name: String;
+    begin
+      Result := False;
+      AParentVMT := 0;
+      AParentName := '';
+      // Delphi 12's vmtParent slot stores an indirection address, not
+      // the parent VMT directly: VMT-48 (Win32) / VMT-120 (Win64)
+      // holds the address of a slot whose contents are the actual
+      // parent VMT pointer. The compiler emits this indirection so
+      // cross-unit class references can be patched by the linker.
+      // We confirm the resolved VMT by checking its self-anchor at
+      // VMT-vmtSelfPtr (-88 / -176).
+      if FTargetIs32Bit then
+      begin
+        Ofs        := 48;
+        SelfPtrOfs := 88;
+      end
+      else
+      begin
+        Ofs        := 120;
+        SelfPtrOfs := 176;
+      end;
+      if NativeInt(AVMT) <= Ofs then Exit;
+      Indirect := ReadTargetPointer(Pointer(NativeInt(AVMT) - Ofs));
+      if Indirect = 0 then Exit;
+      // First try: the slot value IS the parent VMT (older Delphi
+      // versions without the indirection).
+      if NativeInt(Indirect) > SelfPtrOfs then
+      begin
+        CandSelfPtr := ReadTargetPointer(
+          Pointer(NativeInt(Indirect) - SelfPtrOfs));
+        if CandSelfPtr = Indirect then
+          Cand := Indirect
+        else
+          Cand := 0;
+      end
+      else
+        Cand := 0;
+      // Second try: dereference once more (Delphi 12+ external class
+      // indirection).
+      if Cand = 0 then
+      begin
+        Cand := ReadTargetPointer(Pointer(Indirect));
+        if Cand = 0 then Exit;
+        if NativeInt(Cand) <= SelfPtrOfs then Exit;
+        CandSelfPtr := ReadTargetPointer(Pointer(NativeInt(Cand) - SelfPtrOfs));
+        if CandSelfPtr <> Cand then Exit;
+      end;
+      if not ReadClassNameFromVMT(Cand, Name) then Exit;
+      if Length(Name) = 0 then Exit;
+      AParentVMT := Cand;
+      AParentName := Name;
+      Result := True;
+    end;
+
+  var
+    VMTPtr     : UIntPtr;
+    ParentVMT  : UIntPtr;
+    ParentName : String;
+    Depth      : Integer;
+  begin
+    Result := False;
+    AMember := Default(TRsmClassMember);
+    if AObjPtr = 0 then Exit;
+    if not Assigned(FLocalsReader) then Exit;
+    VMTPtr := ReadTargetPointer(Pointer(AObjPtr));
+    if VMTPtr = 0 then Exit;
+    Depth := 0;
+    while (VMTPtr <> 0) and (Depth < MaxDepth) do
+    begin
+      if not TryReadParentVMT(VMTPtr, ParentVMT, ParentName) then
+        Exit; // TObject reached or unresolvable
+      if FLocalsReader.FindClassMember(ParentName, AFieldName, AMember) then
+        Exit(True);
+      VMTPtr := ParentVMT;
+      Inc(Depth);
+    end;
   end;
 
 var
@@ -2178,12 +2320,53 @@ begin
     // address. The final segment's address is then read with the
     // user-specified type. Requires TD32 class layout (LoadDebugInfoFromExe).
     Segments := AName.Split(['.']);
+    var FirstHopHasInstancePtr: Boolean := False;
+    var FirstHopInstancePtr   : UIntPtr := 0;
     if (Length(Segments) >= 2) and Assigned(FLocalsReader) then
     begin
-      // Step 1: locate first segment. We need its runtime address (where
-      // the object pointer is stored), not the object pointer itself.
-      if not GetLocalAddress(FLastThreadHit, Segments[0], Addr) then
-        Addr := GetAddressFromSymbol(Segments[0]);
+      // Step 1: locate first segment.
+      //
+      // Three source kinds need different handling for the first hop:
+      //
+      //   * Register-passed local (Self, register params): the CPU
+      //     register's value IS the instance pointer; there is no
+      //     stack slot to dereference. GetLocals already pulled the
+      //     register value into <Locals[].RawBytes> via
+      //     RegisterParamBytes. We surface that value as
+      //     FirstHopInstancePtr and tell the class-hop branch below
+      //     to skip the initial ReadTargetPointer.
+      //
+      //   * BP-relative local: BpOffset is the stack-slot address;
+      //     the slot's contents are the instance pointer. Same
+      //     storage shape as a global, so we keep the existing
+      //     "FieldAddr = slot address, deref on first class-hop"
+      //     path by handing back the slot address via Addr.
+      //
+      //   * Global: the symbol's VA points at the slot. Same as
+      //     BPREL above. Also covers record-typed globals, which
+      //     the priming block below detects and routes through the
+      //     inline-record-hop path (no deref).
+      for I := 0 to High(Locals) do
+        if SameText(Locals[I].Name, Segments[0]) then
+        begin
+          if (Locals[I].Kind = lkRegister) and
+             (Length(Locals[I].RawBytes) >= FTargetPointerSize) then
+          begin
+            Move(Locals[I].RawBytes[0], FirstHopInstancePtr, FTargetPointerSize);
+            FirstHopHasInstancePtr := True;
+            // Hand the walker a non-nil Addr sentinel so the
+            // downstream "if not Assigned(Addr) then Exit" guard
+            // doesn't reject this case. The pointer value itself
+            // is consumed via FirstHopInstancePtr; Addr is only
+            // used to seed FieldAddr, which the first class-hop
+            // iteration overrides immediately.
+            Addr := Pointer(FirstHopInstancePtr);
+          end;
+          Break;
+        end;
+      if not Assigned(Addr) then
+        if not GetLocalAddress(FLastThreadHit, Segments[0], Addr) then
+          Addr := GetAddressFromSymbol(Segments[0]);
       if not Assigned(Addr) then Exit;
 
       // Step 2: walk the dotted segments. The state we carry between
@@ -2266,7 +2449,15 @@ begin
         end
         else
         begin
-          ObjPtr := ReadTargetPointer(FieldAddr);
+          // First class-hop on a register-passed local: the instance
+          // pointer is already in hand (the register value). Skip
+          // the deref -- there is no slot to read from. Every later
+          // class-hop runs the normal path because by then FieldAddr
+          // points inside a heap object at a class-typed field slot.
+          if (I = 1) and FirstHopHasInstancePtr then
+            ObjPtr := FirstHopInstancePtr
+          else
+            ObjPtr := ReadTargetPointer(FieldAddr);
           if ObjPtr = 0 then
           begin
             if I = High(Segments) then
@@ -2276,9 +2467,21 @@ begin
             end;
             Exit;
           end;
-          if not (ReadRuntimeClassName(ObjPtr, ClsName) and
-                  FLocalsReader.FindClassMember(ClsName, Segments[I], Member)) then
-            Exit;
+          if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
+          if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+          begin
+            // The runtime class doesn't declare this field and the
+            // RSM-derived ParentName chain didn't find it either --
+            // either an intermediate ancestor has no own fields the
+            // RSM scanner could lock onto, or the heuristic mis-paired
+            // the chain. Walk the LIVE VMT instead: each parent VMT's
+            // class name comes straight from the runtime, and a hit
+            // on any ancestor in FClasses yields the correct field
+            // offset (single-inheritance Delphi keeps field offsets
+            // stable across the entire descent of the declaring class).
+            if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
+              Exit;
+          end;
           FieldAddr := Pointer(ObjPtr + Member.Offset);
         end;
 

@@ -126,13 +126,26 @@ type
     ///   Name of the immediate parent class for class-kind entries.
     ///   Empty when the class is at the top of the user-visible
     ///   hierarchy (the implicit TObject parent or, for records,
-    ///   any inheritance at all). Populated by a post-parse pass
-    ///   that matches each class's first-own-field offset against
-    ///   other classes' last-own-field end, since the RSM symbol
-    ///   stream itself does not emit an explicit parent reference
-    ///   in any form the reader has identified.
+    ///   any inheritance at all). Populated by two complementary
+    ///   passes: (1) a post-parse offset-matching pass that joins
+    ///   classes whose instance layouts line up at the byte
+    ///   boundary, and (2) a type-id resolution pass driven by
+    ///   <see cref="ParentRawId"/> which handles cross-unit
+    ///   inheritance the offset heuristic cannot bridge.
     /// </summary>
     ParentName: String;
+    /// <summary>
+    ///   The 16-bit RSM type-id sitting in the two bytes immediately
+    ///   before the class-name length byte. Non-zero only when the
+    ///   class declares a cross-unit parent (e.g. user code
+    ///   inheriting <c>System.Classes.TComponent</c>); same-unit
+    ///   inheritance encodes zero here and is resolved through the
+    ///   offset heuristic instead. Looked up against
+    ///   <see cref="FRsmTypeIdToClassIdx"/> to populate
+    ///   <see cref="ParentName"/> after the type registry has been
+    ///   scanned.
+    /// </summary>
+    ParentRawId: UInt32;
   end;
 
   /// <summary>
@@ -181,6 +194,18 @@ type
     FRsmTypeIdToClassIdx: IKeyValue<UInt32, Integer>;
     FOnPhase     : TProc<String>;
     procedure DeriveClassParents;
+    /// <summary>
+    ///   Resolve <c>ParentName</c> for every class that has a
+    ///   non-zero <c>ParentRawId</c> and is still missing a parent
+    ///   after <c>DeriveClassParents</c>. The raw id was captured
+    ///   from the two bytes immediately preceding the class-name
+    ///   length byte; it is meaningful only after the type registry
+    ///   (<c>FRsmTypeIdToClassIdx</c>) has been populated by
+    ///   <c>LinkMemberTypeIdsFromFormatA</c>, which is why this
+    ///   pass runs after both DiscoverAndParseAllStructs and
+    ///   LinkMemberTypeIdsFromFormatA.
+    /// </summary>
+    procedure ResolveParentNamesFromTypeIds;
     procedure ReportPhase(const APhase: String); inline;
   public
     constructor Create;
@@ -471,7 +496,8 @@ var
   end;
 
   procedure ScanFieldsBackwardFromClassName(AClassNameOff: NativeInt;
-    AKind: TRsmStructKind; const AClassName: String);
+    AKind: TRsmStructKind; const AClassName: String;
+    AMinStartOff: NativeInt = 0);
   // Scan a fixed window of bytes BEFORE the class-trailer position
   // looking for <DWORD-offset-LE> <namelen> <name> patterns. The
   // class trailer (the bytes between the last field's name and the
@@ -481,9 +507,29 @@ var
   // a candidate; duplicates and overlaps are filtered out, and the
   // surviving members are sorted by offset to give source-declaration
   // order back.
+  //
+  // AMinStartOff caps the backward scan: bytes at or below this
+  // offset are NOT considered. This prevents a class's scan from
+  // reaching across the previous class's class-def region (which on
+  // closely-packed classes like TDerived -> TDeepDerived would
+  // otherwise leak the previous class's own fields into the next
+  // class's member list, corrupting the FirstOffs used by
+  // DeriveClassParents and producing an entirely wrong inheritance
+  // chain). Callers pass the previous class's TypeIdx; pass 0 (the
+  // default) for the very first class in the file.
   const
-    MaxFields    = 32;
-    ScanWindow   = 256;
+    MaxFields    = 128;
+    // Generous backward window so the scan reaches whatever
+    // distance separates the class anchor from its earliest field
+    // record. The AMinStartOff cap at the previous class's
+    // TypeIdx keeps the window from leaking across class
+    // boundaries no matter how large this constant is, so the
+    // effective per-class scan is naturally bounded by class
+    // packing. RTL classes such as TStrings emit ~6 KB of method
+    // records between their last field and the class trailer
+    // (TStringList similar), and TComponent has ~1 KB; 64 KB
+    // comfortably covers all observed cases.
+    ScanWindow   = 65536;
   type
     TCandidate = record
       Pos    : NativeInt; // start of the offset DWORD
@@ -508,6 +554,7 @@ var
     Count := 0;
     StartOff := AClassNameOff - ScanWindow;
     if StartOff < 0 then StartOff := 0;
+    if StartOff < AMinStartOff then StartOff := AMinStartOff;
 
     // Walk forward across the candidate window, recording every
     // position that successfully parses as <DWORD offset> <namelen>
@@ -842,6 +889,48 @@ var
       Result := True;
     end;
 
+    // Locate the class trailer marker `04 00 00 00 07 <L> <name>`
+    // (Win32) or `08 00 00 00 00 00 00 00 07 <L> <name>` (Win64)
+    // anywhere in the next AWindow bytes after the first occurrence
+    // of the class name. The tight checks above (trailer immediately
+    // at NameEnd+4 / NameEnd+8) cover classes with no methods; this
+    // forward-scan fallback covers classes that declare methods,
+    // where the RSM emits each method record between the first
+    // class-name and the trailer pattern, pushing the trailer past
+    // the tight-check offsets. The exact 4/8-byte zero prefix, the
+    // $07 type tag, and an exactly-matching duplicate name keep the
+    // false-positive rate negligible.
+    function FindClassTrailerWithin(ANameEnd: NativeInt; AWindow: NativeInt;
+      ANameStart: NativeInt; ANL: Byte): Boolean;
+    var
+      P, Stop: NativeInt;
+    begin
+      Result := False;
+      Stop := ANameEnd + AWindow;
+      if Stop > Sz - 5 - Integer(ANL) then
+        Stop := Sz - 5 - Integer(ANL);
+      P := ANameEnd;
+      while P < Stop do
+      begin
+        // Win32 trailer: 04 00 00 00 07 <L> <name>
+        if (ByteAt(P) = $04) and (ByteAt(P + 1) = $00) and
+           (ByteAt(P + 2) = $00) and (ByteAt(P + 3) = $00) and
+           (ByteAt(P + 4) = $07) and
+           SecondNameMatchesBytes(P + 5, ANameStart, ANL) then
+          Exit(True);
+        // Win64 trailer: 08 00 00 00 00 00 00 00 07 <L> <name>
+        if (P + 9 + Integer(ANL) < Sz) and
+           (ByteAt(P) = $08) and (ByteAt(P + 1) = $00) and
+           (ByteAt(P + 2) = $00) and (ByteAt(P + 3) = $00) and
+           (ByteAt(P + 4) = $00) and (ByteAt(P + 5) = $00) and
+           (ByteAt(P + 6) = $00) and (ByteAt(P + 7) = $00) and
+           (ByteAt(P + 8) = $07) and
+           SecondNameMatchesBytes(P + 9, ANameStart, ANL) then
+          Exit(True);
+        Inc(P);
+      end;
+    end;
+
   begin
     // Earlier the hot loop allocated a TBytes + String for every
     // byte position where a length-prefixed run of printable chars
@@ -868,12 +957,68 @@ var
         // Win64: $07 at NameEnd + 8, duplicate name at +9.
         else if (NameEnd + 9 + L < Sz) and (ByteAt(NameEnd + 8) = $07) and
                 SecondNameMatchesBytes(NameEnd + 9, NameStart, L) then
+          IsClass := True
+        // Classes that declare methods: the RSM emits a method record
+        // (procedure name + signature, etc.) for each method between
+        // the first class-name and the trailer marker, so the trailer
+        // no longer sits at NameEnd+4 / NameEnd+8.
+        //
+        // Filter trigger before scanning: a class-def with methods
+        // always starts with a small DWORD at NameEnd whose three
+        // high bytes are zero (the method-records header size). The
+        // *type-record* region's same name has non-zero garbage at
+        // NameEnd+1..4, so this filter cleanly separates the two
+        // and prevents the field-scanner from binding to the wrong
+        // anchor position. Without this filter the forward-scan
+        // matches a later region's trailer for the same class name
+        // and FindClassByName then locks out the correct match.
+        else if (NameEnd + 4 < Sz) and
+                (ByteAt(NameEnd + 1) = 0) and
+                (ByteAt(NameEnd + 2) = 0) and
+                (ByteAt(NameEnd + 3) = 0) and
+                (ByteAt(NameEnd + 4) = 0) and
+                // 8 KB window covers method-heavy RTL classes such as
+                // TStrings (~5.6 KB between first-name and trailer)
+                // and TForm-tier classes with dozens of published
+                // properties and event hooks. The trailer pattern
+                // (4-byte zero prefix, $07 type tag, exact-length
+                // duplicate name) is selective enough that wider
+                // windows don't increase the false-positive rate.
+                FindClassTrailerWithin(NameEnd, 8192, NameStart, L) then
           IsClass := True;
 
         if IsClass then
         begin
           if ReadIdentifier(P, Name) and (FindClassByName(Name) < 0) then
-            ScanFieldsBackwardFromClassName(P, skClass, Name);
+          begin
+            // Cap the backward field-scan at the previous class's
+            // anchor position so a tightly-packed sibling (e.g.
+            // TDerived immediately followed by TDeepDerived) cannot
+            // leak its own fields into this class's member list.
+            // FClasses is filled in source-declaration order, so the
+            // last-added entry is the closest preceding class in the
+            // byte stream.
+            var PrevAnchor: NativeInt := 0;
+            if FClasses.Count > 0 then
+              PrevAnchor := NativeInt(FClasses[FClasses.Count - 1].TypeIdx);
+            ScanFieldsBackwardFromClassName(P, skClass, Name, PrevAnchor);
+            // Capture the two bytes immediately before the length
+            // byte as a candidate parent-type-id. Cross-unit
+            // inheritance (e.g. user class -> System.Classes
+            // TComponent) puts a non-zero RSM 16-bit type-id here;
+            // same-unit inheritance leaves it zero. We don't
+            // resolve to a name yet -- the type registry isn't built
+            // until LinkMemberTypeIdsFromFormatA runs later --
+            // we just record the raw id for the post-pass.
+            if (P >= 2) and (FClasses.Count > 0) then
+            begin
+              var ClsIdx: Integer := FClasses.Count - 1;
+              var CInfo : TRsmClassInfo := FClasses[ClsIdx];
+              CInfo.ParentRawId := UInt32(ByteAt(P - 2)) or
+                                   (UInt32(ByteAt(P - 1)) shl 8);
+              FClasses[ClsIdx] := CInfo;
+            end;
+          end;
         end
         else if (P > 0) and (ByteAt(P - 1) = $0E) then
         begin
@@ -1719,7 +1864,43 @@ begin
   ReportPhase('LinkMemberTypeIdsFromFormatA');
   DeriveClassParents;
   ReportPhase('DeriveClassParents');
+  ResolveParentNamesFromTypeIds;
+  ReportPhase('ResolveParentNamesFromTypeIds');
   ReportPhase('done');
+end;
+
+procedure TRsmLocalsReader.ResolveParentNamesFromTypeIds;
+// Cross-unit inheritance the offset-matching heuristic cannot
+// bridge: e.g. a user class declared in DebugTarget inheriting
+// from System.Classes.TComponent. The RSM emits a 16-bit type-id
+// in the two bytes immediately preceding the class-name length
+// byte for such cross-unit parents; same-unit inheritance leaves
+// those bytes zero and is handled by DeriveClassParents instead.
+//
+// We capture that raw id during class discovery (into
+// ParentRawId), then resolve it here once the type registry
+// (FRsmTypeIdToClassIdx) has been built by
+// LinkMemberTypeIdsFromFormatA. Classes whose ParentName was
+// already filled in by DeriveClassParents are left alone -- the
+// offset heuristic is reliable for in-file chains and we treat
+// the type-id pass as a fallback that only fills gaps.
+var
+  I, ClsIdx: Integer;
+  Info     : TRsmClassInfo;
+begin
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if Info.Kind <> skClass then Continue;
+    if Info.ParentName <> '' then Continue;
+    if Info.ParentRawId = 0 then Continue;
+    if not FRsmTypeIdToClassIdx.TryGetValue(Info.ParentRawId, ClsIdx) then
+      Continue;
+    if (ClsIdx < 0) or (ClsIdx >= FClasses.Count) or (ClsIdx = I) then
+      Continue;
+    Info.ParentName := FClasses[ClsIdx].Name;
+    FClasses[I] := Info;
+  end;
 end;
 
 procedure TRsmLocalsReader.DeriveClassParents;
@@ -1847,6 +2028,35 @@ begin
         Match := Cand;
         Break;
       end;
+    end;
+    // Tolerance fallback: when no candidate's LastEnds matches
+    // FirstOffs[I] exactly, an RTL ancestor like TComponent is the
+    // typical reason -- the RSM emits the class declaration but
+    // hides some trailing instance bytes (interface dispatch tables,
+    // compiler-private slots) behind a layout the field-record scan
+    // can't surface. Accept the closest preceding match within 16
+    // bytes; tiebreaker is the latest-declared class (so a recently
+    // declared ancestor wins over an early-system-class collision).
+    // 16 bytes is enough to bridge the standard 8-byte
+    // FObservers/dispatch gap on Win32 plus one or two padding
+    // slots, and small enough that genuinely unrelated classes
+    // hundreds of bytes apart still fail to match.
+    if Match < 0 then
+    begin
+      var BestGap: UInt32 := 17;
+      for Cand := I - 1 downto 0 do
+      begin
+        if Kinds[Cand] <> skClass then Continue;
+        if LastEnds[Cand] = 0 then Continue;
+        if LastEnds[Cand] > FirstOffs[I] then Continue;
+        var Gap: UInt32 := FirstOffs[I] - LastEnds[Cand];
+        if Gap < BestGap then
+        begin
+          BestGap := Gap;
+          Match := Cand;
+        end;
+      end;
+      if BestGap > 16 then Match := -1;
     end;
     if Match >= 0 then
     begin

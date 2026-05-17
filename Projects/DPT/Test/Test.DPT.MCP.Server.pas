@@ -81,6 +81,16 @@ type
     [Test]
     procedure TestMcpEvaluateNarrowIntFieldWidth;
     [Test]
+    procedure TestMcpEvaluateClassFieldThroughRegisterParam;
+    [Test]
+    procedure TestMcpEvaluateSelfFieldInsideInstanceMethod;
+    [Test]
+    procedure TestMcpEvaluateMultiLevelInheritedField;
+    [Test]
+    procedure TestMcpEvaluateRtlInheritedField;
+    [Test]
+    procedure TestMcpEvaluateInheritedFieldViaVmtWalk;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2224,6 +2234,312 @@ begin
     Assert.IsTrue(Line.Contains('-559038737'),
       'GGlobalNarrow.NiInteger must equal -559038737 ($DEADBEEF) -- ' +
       'last-member field must not be clamped, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Dotted-walk navigation through a register-passed class pointer.
+///   Inside <c>TouchRegClassParam</c>, both parameters
+///   (<c>AInner</c>, <c>AOther</c>) are class references that live in
+///   CPU registers with NO stack slot (Delphi register call: EAX/EDX
+///   on x86, RCX/RDX on x64). Today the dotted-walk routes through
+///   <c>GetLocalAddress</c>, which ignores <c>lkRegister</c> and
+///   returns a junk base-pointer offset -- the subsequent
+///   <c>ReadTargetPointer</c> then dereferences a stack address and
+///   reads garbage as an instance pointer. The fix must source the
+///   instance pointer directly from the register file.
+/// </summary>
+/// <remarks>
+///   <para>Self (an instance method's implicit first arg) and a
+///   class-typed parameter share the same register-call mechanics, so
+///   the underlying bug AND its fix are identical. We exercise it via
+///   a plain procedure with two class parameters instead of a class
+///   method, to keep the RSM reader's class-discovery heuristic on
+///   the path the existing tests cover.</para>
+///   <para>The whole-name <c>evaluate AInner</c> case (no dot) is
+///   already covered by other tests; this fixture targets the dotted
+///   case <c>AInner.FInnerInt</c>, which is the one that fails today.</para>
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateClassFieldThroughRegisterParam;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 190);
+  try
+    // AInner = GGlobalOuter.FOuterInner -- TInner with
+    // FInnerInt = $22222222 = 572662306 and FInnerStr = 'Hello Inner'.
+    // First register slot (EAX/RCX). Without the fix, the dotted-walk
+    // dereferences a stack address and reads junk.
+    Line := Fixture.Eval('AInner.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('572662306'),
+      'AInner.FInnerInt must equal 572662306 ($22222222) -- register-passed ' +
+      'class pointer must source instance from register, not BP slot, got: ' + Line);
+
+    Line := Fixture.Eval('AInner.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Hello Inner'),
+      'AInner.FInnerStr must equal "Hello Inner", got: ' + Line);
+
+    // AOther = GGlobalDerived -- TDerived inherits from TInner with
+    // FInnerInt = $C1C1C1C1 = -1044266559 and FInnerStr = 'Inherited Inner'.
+    // Second register slot (EDX/RDX). Proves the fix isn't first-slot
+    // specific. Inherited-field lookup also rides this code path.
+    Line := Fixture.Eval('AOther.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('-1044266559'),
+      'AOther.FInnerInt must equal -1044266559 ($C1C1C1C1, inherited from TInner), got: ' + Line);
+
+    Line := Fixture.Eval('AOther.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Inherited Inner'),
+      'AOther.FInnerStr must equal "Inherited Inner" (inherited), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Self-field navigation inside an instance method. Driving the
+///   debugger to the first statement of <c>TDerived.TouchSelf</c>
+///   gives us a receiver pointer that lives in the first register
+///   slot (EAX on x86, RCX on x64) with NO stack slot, exactly like
+///   <c>TFormMain.Create</c> in the user's real-world TFW scenario.
+///   Covers both:
+///   <list type="bullet">
+///     <item>Own fields of the receiver (<c>Self.FDerivedExtra</c>,
+///       <c>Self.FDerivedLabel</c>) -- requires TDerived to be in
+///       the RSM class index.</item>
+///     <item>Inherited fields (<c>Self.FInnerInt</c>,
+///       <c>Self.FInnerStr</c>) -- requires the inheritance walk
+///       in <c>FindClassMember</c> to traverse TDerived ->
+///       TInner.</item>
+///   </list>
+///   This test exposes a class-discovery gap distinct from the
+///   register-Self pointer-source fix: today, declaring a method on
+///   a class shifts its RSM type-record shape enough to make the
+///   reader's class-signature heuristic miss it, so even with the
+///   pointer available the field lookup fails.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateSelfFieldInsideInstanceMethod;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 200);
+  try
+    // Whole-name Self resolves via the existing register-local read
+    // path (Locals[].RawBytes already holds the EAX value). Acts as a
+    // sanity check that the BP fired inside TouchSelf with Self live
+    // in the first register slot.
+    Line := Fixture.Eval('Self', 'object');
+    Assert.IsTrue(Line.Contains('TDerived'),
+      'Self must report TDerived runtime class, got: ' + Line);
+
+    // Self.FDerivedExtra = $C2C2C2C2 = -1027423550 (own field).
+    Line := Fixture.Eval('Self.FDerivedExtra', 'int');
+    Assert.IsTrue(Line.Contains('-1027423550'),
+      'Self.FDerivedExtra must equal -1027423550 ($C2C2C2C2), got: ' + Line);
+
+    // Self.FDerivedLabel = 'Derived-C3' (own string field).
+    Line := Fixture.Eval('Self.FDerivedLabel', 'string');
+    Assert.IsTrue(Line.Contains('Derived-C3'),
+      'Self.FDerivedLabel must equal "Derived-C3", got: ' + Line);
+
+    // Self.FInnerInt = $C1C1C1C1 = -1044266559 (inherited from
+    // TInner; proves the inheritance walk works through the
+    // register-Self pointer-source path).
+    Line := Fixture.Eval('Self.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('-1044266559'),
+      'Self.FInnerInt must equal -1044266559 ($C1C1C1C1, inherited), got: ' + Line);
+
+    // Self.FInnerStr = 'Inherited Inner' (inherited string field).
+    Line := Fixture.Eval('Self.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Inherited Inner'),
+      'Self.FInnerStr must equal "Inherited Inner" (inherited), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Multi-level inheritance navigation. <c>GGlobalDeep</c> is a
+///   <c>TDeepDerived</c> instance whose class hierarchy is:
+///   <c>TDeepDerived -&gt; TDerived -&gt; TInner -&gt; TObject</c>.
+///   Resolving <c>GGlobalDeep.FInnerInt</c> requires
+///   <c>FindClassMember</c> to walk TWO ancestor links to reach the
+///   field's owning class (TInner). A reliable ancestor walk needs
+///   each link in the chain to be encoded via the RSM-supplied
+///   parent reference, not the offset-collision heuristic that
+///   silently leaves <c>ParentName</c> empty whenever two unrelated
+///   classes happen to end at the same instance offset.
+/// </summary>
+/// <remarks>
+///   Covers each level of the chain so the failure mode tells us
+///   precisely where the recursion stops:
+///   <list type="bullet">
+///     <item><c>FDeepFlag</c> -- own field of TDeepDerived, no
+///       walk needed.</item>
+///     <item><c>FDerivedExtra</c> / <c>FDerivedLabel</c> -- one
+///       hop up to TDerived.</item>
+///     <item><c>FInnerInt</c> / <c>FInnerStr</c> -- two hops up to
+///       TInner.</item>
+///   </list>
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateMultiLevelInheritedField;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    // FDeepFlag = $D3D3D3D3 = -741092397 (own field, no inheritance walk).
+    Line := Fixture.Eval('GGlobalDeep.FDeepFlag', 'int');
+    Assert.IsTrue(Line.Contains('-741092397'),
+      'GGlobalDeep.FDeepFlag must equal -741092397 ($D3D3D3D3, own field), got: ' + Line);
+
+    // FDerivedExtra = $D2D2D2D2 = -757935406 (one inheritance hop:
+    // TDeepDerived -> TDerived).
+    Line := Fixture.Eval('GGlobalDeep.FDerivedExtra', 'int');
+    Assert.IsTrue(Line.Contains('-757935406'),
+      'GGlobalDeep.FDerivedExtra must equal -757935406 ($D2D2D2D2, ' +
+      'inherited from TDerived), got: ' + Line);
+
+    // FDerivedLabel = 'Deep Derived' (one inheritance hop).
+    Line := Fixture.Eval('GGlobalDeep.FDerivedLabel', 'string');
+    Assert.IsTrue(Line.Contains('Deep Derived'),
+      'GGlobalDeep.FDerivedLabel must equal "Deep Derived" (inherited), got: ' + Line);
+
+    // FInnerInt = $D1D1D1D1 = -774778415 (two inheritance hops:
+    // TDeepDerived -> TDerived -> TInner).
+    Line := Fixture.Eval('GGlobalDeep.FInnerInt', 'int');
+    Assert.IsTrue(Line.Contains('-774778415'),
+      'GGlobalDeep.FInnerInt must equal -774778415 ($D1D1D1D1, two hops ' +
+      'up to TInner), got: ' + Line);
+
+    // FInnerStr = 'Deep Inner' (two inheritance hops).
+    Line := Fixture.Eval('GGlobalDeep.FInnerStr', 'string');
+    Assert.IsTrue(Line.Contains('Deep Inner'),
+      'GGlobalDeep.FInnerStr must equal "Deep Inner" (two hops up), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Inherited-field navigation through an RTL ancestor.
+///   <c>TMyComp</c> inherits <c>System.Classes.TComponent</c>, so
+///   <c>AComp.FCustomFlag</c> is the leaf class's own field while
+///   <c>AComp.FName</c> and <c>AComp.FTag</c> live on TComponent
+///   itself. The same shape applies to the user's real-world TFW
+///   scenario where <c>TFormMain.FTag</c> / <c>TFormMain.FName</c>
+///   resolve through several VCL ancestors down to TComponent.
+/// </summary>
+/// <remarks>
+///   FName is the field backing the <c>Name</c> property; FTag
+///   backs <c>Tag</c>. Both are private on TComponent but the RSM
+///   emits them. The walk must:
+///   <list type="number">
+///     <item>Discover TComponent in <c>FClasses</c>.</item>
+///     <item>Hook TMyComp's <c>ParentName</c> chain up to
+///       TComponent (possibly through TPersistent in between).</item>
+///     <item>Recurse through <c>FindClassMember</c> until a field
+///       with the given name is found.</item>
+///   </list>
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateRtlInheritedField;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 168);
+  try
+    // Sanity: AComp is the live TMyComp instance.
+    Line := Fixture.Eval('AComp', 'object');
+    Assert.IsTrue(Line.Contains('TMyComp'),
+      'AComp must report TMyComp runtime class, got: ' + Line);
+
+    // AComp.FCustomFlag = $7E7E7E7E = 2122219134 (own field of TMyComp).
+    Line := Fixture.Eval('AComp.FCustomFlag', 'int');
+    Assert.IsTrue(Line.Contains('2122219134'),
+      'AComp.FCustomFlag must equal 2122219134 ($7E7E7E7E, own field), got: ' + Line);
+
+    // AComp.FName = 'CompName' (inherited from TComponent via TPersistent).
+    Line := Fixture.Eval('AComp.FName', 'string');
+    Assert.IsTrue(Line.Contains('CompName'),
+      'AComp.FName must equal "CompName" (inherited from TComponent), got: ' + Line);
+
+    // AComp.FTag = $7D7D7D7D = 2105376125 (inherited from TComponent).
+    Line := Fixture.Eval('AComp.FTag', 'int');
+    Assert.IsTrue(Line.Contains('2105376125'),
+      'AComp.FTag must equal 2105376125 ($7D7D7D7D, inherited from TComponent), got: ' + Line);
+
+    // Also reachable through the global handle (GetAddressFromSymbol
+    // path), which exercises the same ancestor walk via a different
+    // first-segment resolution.
+    Line := Fixture.Eval('GGlobalComp.FName', 'string');
+    Assert.IsTrue(Line.Contains('CompName'),
+      'GGlobalComp.FName must equal "CompName" via global handle, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Inherited-field navigation when the receiver class declares
+///   NO own fields. <c>TEmptyChild = class(TComponent)</c> with an
+///   empty body means <c>FirstOffs[TEmptyChild] = 0</c>, so the
+///   offset-matching parent heuristic in <c>DeriveClassParents</c>
+///   (including the tolerant variant) skips the class outright and
+///   leaves <c>ParentName</c> empty. The only way to surface
+///   <c>FName</c> / <c>FTag</c> from TComponent is to walk the live
+///   VMT chain at runtime: read the receiver's VMT, follow the
+///   <c>vmtParent</c> slot up to TComponent, and look the field up
+///   there.
+/// </summary>
+/// <remarks>
+///   Mirrors a TFW pattern where intermediate VCL ancestors
+///   (CMainForm, CBaseForm, TCustomForm, ...) may declare no own
+///   instance fields the RSM scanner can latch onto, so the
+///   chain must be reconstructed from the runtime VMT.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateInheritedFieldViaVmtWalk;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 176);
+  try
+    // Sanity: AEmpty resolves as a TEmptyChild instance.
+    Line := Fixture.Eval('AEmpty', 'object');
+    Assert.IsTrue(Line.Contains('TEmptyChild'),
+      'AEmpty must report TEmptyChild runtime class, got: ' + Line);
+
+    // AEmpty.FName = 'EmptyName' (inherited from TComponent; the
+    // receiver class declares no own fields, so this resolution
+    // MUST go through the live-VMT ancestor walk).
+    Line := Fixture.Eval('AEmpty.FName', 'string');
+    Assert.IsTrue(Line.Contains('EmptyName'),
+      'AEmpty.FName must equal "EmptyName" via VMT-walk to TComponent, got: ' + Line);
+
+    // AEmpty.FTag = $7C7C7C7C = 2088533116 (inherited from TComponent).
+    Line := Fixture.Eval('AEmpty.FTag', 'int');
+    Assert.IsTrue(Line.Contains('2088533116'),
+      'AEmpty.FTag must equal 2088533116 ($7C7C7C7C, inherited from TComponent), got: ' + Line);
   finally
     Fixture.Free;
   end;

@@ -43,6 +43,8 @@ type
     procedure DoTestFindProcContaining(AUse64Bit: Boolean);
     procedure DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
     procedure DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
+    procedure DoTestDeepDerivedInheritsAllAncestors(AUse64Bit: Boolean);
+    procedure DoTestNonComponentRtlInheritance(AUse64Bit: Boolean);
     procedure DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
     procedure DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
   public
@@ -76,6 +78,10 @@ type
     procedure TestDiscoversDerivedClass32;
     [Test]
     procedure TestDerivedInheritsBaseFields32;
+    [Test]
+    procedure TestDeepDerivedInheritsAllAncestors32;
+    [Test]
+    procedure TestNonComponentRtlInheritance32;
     [Test]
     procedure TestEdgeCaseLocalsAllDecoded32;
     [Test]
@@ -627,6 +633,109 @@ begin
   end;
 end;
 
+/// <summary>
+///   Multi-level inheritance walk. <c>TDeepDerived</c> -&gt;
+///   <c>TDerived</c> -&gt; <c>TInner</c> means that
+///   <c>FindClassMember('TDeepDerived', 'FInnerInt')</c> must traverse
+///   two ancestor links. A single broken link in the middle of the
+///   chain is enough to make resolution fail silently with the
+///   offset-collision heuristic; testing each level pinpoints which
+///   hop drops.
+/// </summary>
+procedure TRsmLocalsReaderTests.DoTestDeepDerivedInheritsAllAncestors(
+  AUse64Bit: Boolean);
+var
+  Reader     : TRsmLocalsReader;
+  Member     : TRsmClassMember;
+  ExpectedPtr: UInt32;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    if AUse64Bit then ExpectedPtr := 8 else ExpectedPtr := 4;
+
+    // Own field of TDeepDerived: no walk required.
+    Assert.IsTrue(Reader.FindClassMember('TDeepDerived', 'FDeepFlag', Member),
+      'TDeepDerived.FDeepFlag (own field) must be parsed');
+    Assert.AreEqual(ExpectedPtr * 5, Member.Offset);
+
+    // One hop up to TDerived.
+    Assert.IsTrue(Reader.FindClassMember('TDeepDerived', 'FDerivedExtra', Member),
+      'TDeepDerived must inherit FDerivedExtra from TDerived (one hop up)');
+    Assert.AreEqual(ExpectedPtr * 3, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TDeepDerived', 'FDerivedLabel', Member),
+      'TDeepDerived must inherit FDerivedLabel from TDerived (one hop up)');
+    Assert.AreEqual(ExpectedPtr * 4, Member.Offset);
+
+    // Two hops up to TInner.
+    Assert.IsTrue(Reader.FindClassMember('TDeepDerived', 'FInnerInt', Member),
+      'TDeepDerived must inherit FInnerInt from TInner (two hops up)');
+    Assert.AreEqual(ExpectedPtr, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('TDeepDerived', 'FInnerStr', Member),
+      'TDeepDerived must inherit FInnerStr from TInner (two hops up)');
+    Assert.AreEqual(ExpectedPtr * 2, Member.Offset);
+  finally
+    Reader.Free;
+  end;
+end;
+
+/// <summary>
+///   Verification probe for a non-TComponent RTL hierarchy:
+///   <c>TStringList -> TStrings -> TPersistent -> TObject</c>.
+///   Establishes how much of the fix is structurally general vs
+///   how much is bounded by Delphi's RSM emission shape for a
+///   specific hierarchy. Asserts what currently holds:
+///   <list type="bullet">
+///     <item><c>TStrings</c> is discovered as a class (proves the
+///       8 KB forward-scan window in the discovery is general --
+///       <c>TStrings</c> sits ~5.6 KB between its first name and
+///       its trailer in this binary, and the previous 2 KB window
+///       missed it entirely).</item>
+///     <item><c>TStringList.FCount</c> (an own field) resolves --
+///       the leaf class's field-scan window is wide enough.</item>
+///   </list>
+///   Does NOT yet assert
+///   <c>TStringList.FUpdateCount via TStrings</c>: the RSM emits
+///   <c>TStrings</c>'s field records in a region the per-class
+///   backward scan cannot currently reach (the records sit BEFORE
+///   the previous discovered class's anchor, which the
+///   AMinStartOff cap excludes to prevent cross-class leakage).
+///   That gap is the next work item for non-TComponent hierarchies.
+/// </summary>
+procedure TRsmLocalsReaderTests.DoTestNonComponentRtlInheritance(
+  AUse64Bit: Boolean);
+var
+  Reader   : TRsmLocalsReader;
+  Member   : TRsmClassMember;
+  StrIdx   : Integer;
+begin
+  Reader := TRsmLocalsReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    Assert.IsTrue(Reader.FindClassByName('TStringList') >= 0,
+      'TStringList must be discovered as a class');
+    StrIdx := Reader.FindClassByName('TStrings');
+    Assert.IsTrue(StrIdx >= 0,
+      'TStrings must be discovered as a class (general discovery, ' +
+      'not TComponent-specific)');
+
+    // TStringList's OWN fields (the ones whose records sit close
+    // enough behind the class anchor) are reachable via the chain
+    // walker. This validates that the same FindClassMember walker
+    // works regardless of which RTL family the hierarchy comes
+    // from.
+    Assert.IsTrue(
+      Reader.FindClassMember('TStringList', 'FCount', Member),
+      'TStringList.FCount (own field) must resolve');
+  finally
+    Reader.Free;
+  end;
+end;
+
 procedure TRsmLocalsReaderTests.DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
 // Exercises BPRel decoding against a deliberately diverse set of
 // local types (Variant, IInterface, dynamic array, record, Double,
@@ -722,6 +831,8 @@ end;
 
 procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
 procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
+procedure TRsmLocalsReaderTests.TestDeepDerivedInheritsAllAncestors32;   begin DoTestDeepDerivedInheritsAllAncestors(False);  end;
+procedure TRsmLocalsReaderTests.TestNonComponentRtlInheritance32;        begin DoTestNonComponentRtlInheritance(False);       end;
 procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
 procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
 
