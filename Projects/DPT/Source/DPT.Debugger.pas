@@ -132,9 +132,28 @@ type
   TOnExceptionEvent = procedure(Sender: TObject; const ExceptionRecord: TExceptionRecord; const FirstChance: Boolean; var Handled: Boolean) of object;
   TOnProcessExitEvent = procedure(Sender: TObject; ExitCode: Cardinal) of object;
 
+  /// <summary>
+  ///   Uniform contract for the per-type evaluate-output formatters.
+  ///   Each formatter consumes the bytes the dotted walk (or whole-
+  ///   name lookup) already fetched, plus the resolved field address
+  ///   (used by formatters that need more than 8 bytes -- ShortString
+  ///   re-reads up to 256, Extended re-reads 10). Returns True with
+  ///   <c>AValue</c> set to the printable representation; False with
+  ///   <c>AValue</c> empty to surface "Failed to evaluate variable".
+  /// </summary>
+  TEvaluateFormatter = function(const ARawBytes: TBytes; AAddr: Pointer;
+    AFieldKnownSize: Integer; out AValue: String): Boolean of object;
+
   TDebugger = class
   private
     FActiveThreads           : IKeyValue<Cardinal, THandle>;
+    /// Lowercased-type-name -> output formatter. Initialised once in
+    /// Create with the built-in set ("int", "int64", "string",
+    /// "ansistring", "widestring", "shortstring", "single", "double",
+    /// "extended", "object"). Adding a new type means: one new
+    /// FormatXxx method plus one registration line in Create. The
+    /// dispatch in EvaluateVariable becomes a single TryGetValue.
+    FFormatters              : IKeyValue<String, TEvaluateFormatter>;
     FBaseAddress             : UIntPtr;
     FBreakpointHitEvent      : TEvent;
     FBreakpointLock          : TCriticalSection;
@@ -193,6 +212,30 @@ type
     procedure StopOutputReaders;
     procedure PatchRsmProcAddressesFromMap;
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
+    /// Shared between FormatString / FormatAnsiString / FormatWideString.
+    /// Reads a Delphi long string given the pointer payload stored at
+    /// the field: 0 means empty/nil, otherwise points at the character
+    /// data with a 4-byte length field at offset -4. <c>ALengthIsBytes</c>
+    /// = True for WideString (BSTR), False for UnicodeString /
+    /// AnsiString (length is in characters).
+    function  ReadLongString(APtrVal: UIntPtr; ACharSize: Integer;
+      AEncoding: TEncoding; ALengthIsBytes: Boolean; out AOut: String): Boolean;
+    /// Read the class name pointed at by <c>AVMTPtr - vmtClassName</c>.
+    /// Used by the dotted-walk's VMT walk and by FormatObject.
+    function  ReadClassNameFromVMT(AVMTPtr: UIntPtr; out AClassName: String): Boolean;
+    /// Per-type evaluate output formatters. Their uniform contract is
+    /// captured by <see cref="TEvaluateFormatter"/>; they are
+    /// dispatched through <see cref="FFormatters"/>.
+    function  FormatInt        (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatInt64      (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatString     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatAnsiString (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatWideString (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatShortString(const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatSingle     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatDouble     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatExtended   (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatObject     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     /// <summary>
     ///   Resolve a parameter's register slot to the same 8-byte raw-bytes
     ///   shape ReadProcessMemory produces for stack-slot locals, so that
@@ -351,6 +394,21 @@ begin
   FFirstBreak := True;
   FTerminated := False;
   FTargetPointerSize := SizeOf(Pointer);
+
+  // Per-type evaluate output dispatch table. Add a new type by
+  // implementing one FormatXxx method matching TEvaluateFormatter
+  // and registering it here -- nothing else needs to change.
+  FFormatters := Collections.NewPlainKeyValue<String, TEvaluateFormatter>;
+  FFormatters['int']         := FormatInt;
+  FFormatters['int64']       := FormatInt64;
+  FFormatters['string']      := FormatString;
+  FFormatters['ansistring']  := FormatAnsiString;
+  FFormatters['widestring']  := FormatWideString;
+  FFormatters['shortstring'] := FormatShortString;
+  FFormatters['single']      := FormatSingle;
+  FFormatters['double']      := FormatDouble;
+  FFormatters['extended']    := FormatExtended;
+  FFormatters['object']      := FormatObject;
 end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);
@@ -2053,75 +2111,6 @@ function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: Stri
       AOnPhase(APhase);
   end;
 
-  // Reads a Delphi long string (UnicodeString/AnsiString/WideString) given
-  // its dynamic-pointer payload. <APtrVal> is the value stored AT the
-  // variable: 0 means empty/nil, otherwise it points at the character
-  // data, with a 4-byte length field (in characters for UnicodeString /
-  // AnsiString, in bytes for WideString) at offset -4.
-  function ReadLongString(APtrVal: UIntPtr; ACharSize: Integer;
-    AEncoding: TEncoding; ALengthIsBytes: Boolean; out AOut: String): Boolean;
-  var
-    LenBytes : TBytes;
-    StrLen   : Integer;
-    Content  : TBytes;
-    ByteCount: Integer;
-  begin
-    Result := False;
-    AOut := '';
-    if APtrVal = 0 then
-    begin
-      Result := True;
-      Exit;
-    end;
-    LenBytes := ReadProcessMemory(Pointer(APtrVal - 4), 4);
-    if Length(LenBytes) <> 4 then
-      Exit;
-    Move(LenBytes[0], StrLen, 4);
-    if (StrLen < 0) or (StrLen > 1024 * 1024) then
-      Exit;
-    if StrLen = 0 then
-    begin
-      Result := True;
-      Exit;
-    end;
-    if ALengthIsBytes then
-      ByteCount := StrLen
-    else
-      ByteCount := StrLen * ACharSize;
-    Content := ReadProcessMemory(Pointer(APtrVal), ByteCount);
-    if Length(Content) <> ByteCount then
-      Exit;
-    AOut := AEncoding.GetString(Content);
-    Result := True;
-  end;
-
-  // Read a class name from a VMT pointer directly (no instance
-  // dereference first). Used to walk the runtime ancestor chain
-  // where each step gives us a parent VMT pointer rather than an
-  // instance. Same offset constants as ReadRuntimeClassName below
-  // -- they were chosen empirically to match the Delphi 12 layout
-  // including the CPP_ABI_ADJUST shift on Win64.
-  function ReadClassNameFromVMT(AVMTPtr: UIntPtr; out AClassName: String): Boolean;
-  var
-    ClassNamePtr  : UIntPtr;
-    VMTClassNameOfs: Integer;
-    Buf           : TBytes;
-    Len           : Byte;
-  begin
-    Result := False;
-    AClassName := '';
-    if AVMTPtr = 0 then Exit;
-    if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
-    ClassNamePtr := ReadTargetPointer(Pointer(AVMTPtr - UIntPtr(VMTClassNameOfs)));
-    if ClassNamePtr = 0 then Exit;
-    Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
-    if Length(Buf) <= 1 then Exit;
-    Len := Buf[0];
-    if (Len = 0) or (1 + Integer(Len) > Length(Buf)) then Exit;
-    AClassName := TEncoding.ANSI.GetString(Buf, 1, Len);
-    Result := True;
-  end;
-
   // VMT walk: given a pointer that's expected to point at a class
   // instance, follow the VMT to read the runtime class name. Returns
   // False on nil pointer or any unreadable indirection.
@@ -2248,18 +2237,11 @@ var
   FieldAddr      : Pointer;
   I              : Integer;
   IsLocal        : Boolean;
-  PtrVal         : UIntPtr;
-  IntVal         : Integer;
-  Int64Val       : Int64;
-  VMTPtr         : UIntPtr;
-  ClassNamePtr   : UIntPtr;
-  VMTClassNameOfs: Integer;
-  LenByte        : Byte;
   RawBytes       : TBytes;
-  ShortBuf       : TBytes;
   ObjPtr         : UIntPtr;
   ClsName        : String;
   Member         : TRsmClassMember;
+  Formatter      : TEvaluateFormatter;
   /// Byte width of the final resolved record/class field, propagated
   /// from the dotted-walk into the int / int64 interpretation so a
   /// 1-byte Boolean or 2-byte Word doesn't get reported as a 4-byte
@@ -2528,229 +2510,368 @@ begin
   if Length(RawBytes) = 0 then Exit;
   Phase('format ' + AType);
 
-  if SameText(AType, 'int') then
-  begin
-    // Read exactly FieldKnownSize bytes when we know the field is
-    // narrower than 4 (Boolean = 1, Word / SmallInt = 2). Zero-extend
-    // to 32 bits so a Word like TMdt.Id at offset 20 returns its
-    // actual value (1) instead of getting concatenated with the next
-    // field's bytes (1 | (1 shl 16) = 65537). Sign-extending signed
-    // narrow types (SmallInt, ShortInt) would need the type's
-    // signedness from RSM, which we don't track for primitives -- the
-    // common case (unsigned Word / Byte / Boolean) is what users hit
-    // in practice, so default to zero-extend.
-    var ReadSize: Integer := 4;
-    if (FieldKnownSize > 0) and (FieldKnownSize < 4) then
-      ReadSize := FieldKnownSize;
-    if Length(RawBytes) >= ReadSize then
-    begin
-      IntVal := 0;
-      Move(RawBytes[0], IntVal, ReadSize);
-      AValue := IntToStr(IntVal);
-      Result := True;
-    end;
-  end
-  else if SameText(AType, 'int64') then
-  begin
-    // Same clamp story as 'int', extended to 8-byte targets: a
-    // Cardinal field (size 4) reported via type=int64 should read
-    // 4 bytes and zero-extend to 64, not pull 8 and concatenate.
-    var ReadSize: Integer := 8;
-    if (FieldKnownSize > 0) and (FieldKnownSize < 8) then
-      ReadSize := FieldKnownSize;
-    if Length(RawBytes) >= ReadSize then
-    begin
-      Int64Val := 0;
-      Move(RawBytes[0], Int64Val, ReadSize);
-      AValue := IntToStr(Int64Val);
-      Result := True;
-    end;
-  end
-  else if SameText(AType, 'string') then
-  begin
-    if Length(RawBytes) >= FTargetPointerSize then
-    begin
-      PtrVal := 0;
-      Move(RawBytes[0], PtrVal, FTargetPointerSize);
-      Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, False, AValue);
-    end;
-  end
-  else if SameText(AType, 'ansistring') then
-  begin
-    // AnsiString: pointer-to-byte data, 4-byte length at -4 in CHARACTERS,
-    // codepage at -12 (since D2009). Decoding uses the system ANSI
-    // codepage; for non-ASCII content the codepage at -12 would give a
-    // more accurate decode but ASCII content is identical either way.
-    if Length(RawBytes) >= FTargetPointerSize then
-    begin
-      PtrVal := 0;
-      Move(RawBytes[0], PtrVal, FTargetPointerSize);
-      Result := ReadLongString(PtrVal, 1, TEncoding.ANSI, False, AValue);
-    end;
-  end
-  else if SameText(AType, 'widestring') then
-  begin
-    // WideString is BSTR-compatible: 4-byte length at -4 in BYTES (not
-    // chars), data is UTF-16. Pointer of size FTargetPointerSize.
-    if Length(RawBytes) >= FTargetPointerSize then
-    begin
-      PtrVal := 0;
-      Move(RawBytes[0], PtrVal, FTargetPointerSize);
-      Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, True, AValue);
-    end;
-  end
-  else if SameText(AType, 'shortstring') then
-  begin
-    // ShortString is INLINE: the variable IS a length-prefixed buffer
-    // (max 256 bytes), not a pointer. GetLocals only returns the first
-    // 8 bytes per slot which truncates strings longer than 7 chars,
-    // so for locals we resolve the runtime address explicitly via
-    // GetLocalAddress and read up to 256 bytes from there. For globals
-    // the same approach applies against Addr.
-    var ShortAddr: Pointer := nil;
-    if IsLocal then
-      GetLocalAddress(FLastThreadHit, AName, ShortAddr)
-    else
-      ShortAddr := Addr;
+  // Consolidate the address handle for IsLocal callers so the
+  // ShortString / Extended formatters -- which need to re-read more
+  // than RawBytes' 8 bytes -- can rely on a single Addr regardless
+  // of whether the variable is local or global. Register-passed
+  // locals correctly leave Addr at nil here (GetLocalAddress
+  // declines them), which makes the > 8-byte formatters cleanly
+  // fail rather than dereference a junk stack pointer.
+  if IsLocal and (Addr = nil) then
+    GetLocalAddress(FLastThreadHit, AName, Addr);
 
-    if Assigned(ShortAddr) then
-    begin
-      ShortBuf := ReadProcessMemory(ShortAddr, 256);
-      if Length(ShortBuf) >= 1 then
-      begin
-        LenByte := ShortBuf[0];
-        if Integer(LenByte) + 1 <= Length(ShortBuf) then
-        begin
-          if LenByte = 0 then
-            AValue := ''
-          else
-            AValue := TEncoding.ANSI.GetString(ShortBuf, 1, LenByte);
-          Result := True;
-        end;
-      end;
-    end;
-  end
-  else if SameText(AType, 'single') then
+  if FFormatters.TryGetValue(LowerCase(AType), Formatter) then
+    Result := Formatter(RawBytes, Addr, FieldKnownSize, AValue);
+end;
+
+/// <summary>
+///   Reads a Delphi long string (UnicodeString / AnsiString /
+///   WideString) given its dynamic-pointer payload. <c>APtrVal</c>
+///   is the value stored AT the variable: 0 means empty/nil,
+///   otherwise it points at the character data with a 4-byte
+///   length field at offset -4. Length is in characters for
+///   UnicodeString / AnsiString, in bytes for WideString
+///   (<c>ALengthIsBytes</c> = True).
+/// </summary>
+function TDebugger.ReadLongString(APtrVal: UIntPtr; ACharSize: Integer;
+  AEncoding: TEncoding; ALengthIsBytes: Boolean; out AOut: String): Boolean;
+var
+  LenBytes : TBytes;
+  StrLen   : Integer;
+  Content  : TBytes;
+  ByteCount: Integer;
+begin
+  Result := False;
+  AOut := '';
+  if APtrVal = 0 then
   begin
-    // IEEE 754 single-precision (4 bytes). The RawBytes slot is at
-    // least 8 bytes; we consume the first 4 and ignore the rest.
-    if Length(RawBytes) >= 4 then
-    begin
-      var SingleVal: Single := 0.0;
-      Move(RawBytes[0], SingleVal, 4);
-      AValue := FloatToStrF(SingleVal, ffGeneral, 7, 0,
-        TFormatSettings.Invariant);
-      Result := True;
-    end;
-  end
-  else if SameText(AType, 'double') then
-  begin
-    // IEEE 754 double-precision (8 bytes). RawBytes is sized at 8.
-    if Length(RawBytes) >= 8 then
-    begin
-      var DoubleVal: Double := 0.0;
-      Move(RawBytes[0], DoubleVal, 8);
-      AValue := FloatToStrF(DoubleVal, ffGeneral, 15, 0,
-        TFormatSettings.Invariant);
-      Result := True;
-    end;
-  end
-  else if SameText(AType, 'extended') then
-  begin
-    // Delphi Extended is 80-bit (10 bytes) on both Win32 and Win64
-    // by default (EXCESSPRECISION ON is the dcc64 default). We
-    // re-read 10 bytes from Addr -- FieldAddr for dotted access,
-    // the global-symbol address for top-level globals -- and decode
-    // the 80-bit format manually into a Double for printing. The
-    // manual decode avoids depending on the host DPT.exe's own
-    // SizeOf(Extended), which can be 8 on builds with
-    // EXCESSPRECISION OFF.
-    if Assigned(Addr) then
-    begin
-      var ExtBuf: TBytes := ReadProcessMemory(Addr, 10);
-      if Length(ExtBuf) = 10 then
-      begin
-        // 80-bit Extended layout (LE):
-        //   bytes 0..7 = 64-bit mantissa with EXPLICIT leading 1 bit
-        //   bytes 8..9 = 1-bit sign + 15-bit biased exponent (bias $3FFF)
-        var Mantissa  : UInt64;
-        var SignExp   : UInt16;
-        Move(ExtBuf[0], Mantissa, 8);
-        Move(ExtBuf[8], SignExp, 2);
-        var Sign      : UInt64 := (SignExp shr 15) and 1;
-        var Exp80     : Integer := SignExp and $7FFF;
-        var DoubleBits: UInt64;
-        if (Exp80 = 0) and (Mantissa = 0) then
-          DoubleBits := Sign shl 63       // +/- zero
-        else if Exp80 = $7FFF then
-          // Inf / NaN: forward to Double Inf / NaN.
-          DoubleBits := (Sign shl 63) or
-                        (UInt64($7FF) shl 52) or
-                        (UInt64(Ord(Mantissa <> $8000000000000000)) shl 51)
-        else
-        begin
-          // Normalized: rebias exponent (80-bit bias $3FFF -> Double
-          // bias $3FF) and drop the explicit leading-1 bit by
-          // shifting the mantissa right by 11.
-          var ExpD: Integer := Exp80 - $3FFF + $3FF;
-          if ExpD <= 0 then
-            DoubleBits := Sign shl 63          // underflow -> +/- zero
-          else if ExpD >= $7FF then
-            DoubleBits := (Sign shl 63) or
-                          (UInt64($7FF) shl 52)  // overflow -> +/- Inf
-          else
-            DoubleBits := (Sign shl 63) or
-                          (UInt64(ExpD) shl 52) or
-                          ((Mantissa and $7FFFFFFFFFFFFFFF) shr 11);
-        end;
-        var DoubleVal: Double := 0.0;
-        Move(DoubleBits, DoubleVal, 8);
-        AValue := FloatToStrF(DoubleVal, ffGeneral, 18, 0,
-          TFormatSettings.Invariant);
-        Result := True;
-      end;
-    end;
-  end
-  else if SameText(AType, 'object') then
-  begin
-    if Length(RawBytes) >= FTargetPointerSize then
-    begin
-      PtrVal := 0;
-      Move(RawBytes[0], PtrVal, FTargetPointerSize);
-      if PtrVal = 0 then
-      begin
-        AValue := 'nil';
-        Result := True;
-      end
-      else
-      begin
-        VMTPtr := ReadTargetPointer(Pointer(PtrVal));
-        if VMTPtr <> 0 then
-        begin
-          if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
-          ClassNamePtr := ReadTargetPointer(Pointer(VMTPtr - UIntPtr(VMTClassNameOfs)));
-          if ClassNamePtr <> 0 then
-          begin
-            var Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
-            if Length(Buf) > 1 then
-            begin
-              LenByte := Buf[0];
-              if (LenByte > 0) and (1 + Integer(LenByte) <= Length(Buf)) then
-              begin
-                AValue := TEncoding.ANSI.GetString(Buf, 1, LenByte) + ' @ ' + Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
-                Result := True;
-              end;
-            end;
-          end;
-        end;
-        if not Result then
-        begin
-          AValue := 'Object @ ' + Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
-          Result := True;
-        end;
-      end;
-    end;
+    Result := True;
+    Exit;
   end;
+  LenBytes := ReadProcessMemory(Pointer(APtrVal - 4), 4);
+  if Length(LenBytes) <> 4 then
+    Exit;
+  Move(LenBytes[0], StrLen, 4);
+  if (StrLen < 0) or (StrLen > 1024 * 1024) then
+    Exit;
+  if StrLen = 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+  if ALengthIsBytes then
+    ByteCount := StrLen
+  else
+    ByteCount := StrLen * ACharSize;
+  Content := ReadProcessMemory(Pointer(APtrVal), ByteCount);
+  if Length(Content) <> ByteCount then
+    Exit;
+  AOut := AEncoding.GetString(Content);
+  Result := True;
+end;
+
+/// <summary>
+///   Read the class name pointed at by
+///   <c>AVMTPtr - vmtClassName</c>. Used by the dotted-walk's VMT
+///   walk and by <c>FormatObject</c>. Offsets chosen empirically to
+///   match the Delphi 12 layout including the CPP_ABI_ADJUST shift
+///   on Win64.
+/// </summary>
+function TDebugger.ReadClassNameFromVMT(AVMTPtr: UIntPtr;
+  out AClassName: String): Boolean;
+var
+  ClassNamePtr   : UIntPtr;
+  VMTClassNameOfs: Integer;
+  Buf            : TBytes;
+  Len            : Byte;
+begin
+  Result := False;
+  AClassName := '';
+  if AVMTPtr = 0 then Exit;
+  if FTargetIs32Bit then VMTClassNameOfs := 56 else VMTClassNameOfs := 136;
+  ClassNamePtr := ReadTargetPointer(Pointer(AVMTPtr - UIntPtr(VMTClassNameOfs)));
+  if ClassNamePtr = 0 then Exit;
+  Buf := ReadProcessMemory(Pointer(ClassNamePtr), 256);
+  if Length(Buf) <= 1 then Exit;
+  Len := Buf[0];
+  if (Len = 0) or (1 + Integer(Len) > Length(Buf)) then Exit;
+  AClassName := TEncoding.ANSI.GetString(Buf, 1, Len);
+  Result := True;
+end;
+
+/// <summary>
+///   Read exactly <c>AFieldKnownSize</c> bytes when we know the
+///   field is narrower than 4 (Boolean = 1, Word / SmallInt = 2).
+///   Zero-extend to 32 bits so a Word like <c>TMdt.Id</c> at offset
+///   20 returns its actual value (1) instead of getting
+///   concatenated with the next field's bytes
+///   (1 | (1 shl 16) = 65537). Sign-extending signed narrow types
+///   (SmallInt, ShortInt) would need the type's signedness from
+///   RSM, which we don't track for primitives -- the common case
+///   (unsigned Word / Byte / Boolean) is what users hit in
+///   practice, so default to zero-extend.
+/// </summary>
+function TDebugger.FormatInt(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  ReadSize: Integer;
+  IntVal  : Integer;
+begin
+  Result := False;
+  AValue := '';
+  ReadSize := 4;
+  if (AFieldKnownSize > 0) and (AFieldKnownSize < 4) then
+    ReadSize := AFieldKnownSize;
+  if Length(ARawBytes) < ReadSize then Exit;
+  IntVal := 0;
+  Move(ARawBytes[0], IntVal, ReadSize);
+  AValue := IntToStr(IntVal);
+  Result := True;
+end;
+
+/// <summary>
+///   Same clamp story as <c>FormatInt</c>, extended to 8-byte
+///   targets: a Cardinal field (size 4) reported via
+///   <c>type=int64</c> should read 4 bytes and zero-extend to 64,
+///   not pull 8 and concatenate.
+/// </summary>
+function TDebugger.FormatInt64(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  ReadSize: Integer;
+  Int64Val: Int64;
+begin
+  Result := False;
+  AValue := '';
+  ReadSize := 8;
+  if (AFieldKnownSize > 0) and (AFieldKnownSize < 8) then
+    ReadSize := AFieldKnownSize;
+  if Length(ARawBytes) < ReadSize then Exit;
+  Int64Val := 0;
+  Move(ARawBytes[0], Int64Val, ReadSize);
+  AValue := IntToStr(Int64Val);
+  Result := True;
+end;
+
+/// <summary>
+///   UnicodeString (the Delphi <c>string</c> default since D2009):
+///   pointer to UTF-16 data, 4-byte length at -4 in characters.
+/// </summary>
+function TDebugger.FormatString(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  PtrVal: UIntPtr;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, False, AValue);
+end;
+
+/// <summary>
+///   AnsiString: pointer-to-byte data, 4-byte length at -4 in
+///   CHARACTERS, codepage at -12 (since D2009). Decoding uses the
+///   system ANSI codepage; for non-ASCII content the codepage at
+///   -12 would give a more accurate decode but ASCII content is
+///   identical either way.
+/// </summary>
+function TDebugger.FormatAnsiString(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  PtrVal: UIntPtr;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  Result := ReadLongString(PtrVal, 1, TEncoding.ANSI, False, AValue);
+end;
+
+/// <summary>
+///   WideString is BSTR-compatible: 4-byte length at -4 in BYTES
+///   (not chars), data is UTF-16.
+/// </summary>
+function TDebugger.FormatWideString(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  PtrVal: UIntPtr;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  Result := ReadLongString(PtrVal, 2, TEncoding.Unicode, True, AValue);
+end;
+
+/// <summary>
+///   ShortString is INLINE: the variable IS a length-prefixed
+///   buffer (max 256 bytes), not a pointer. Re-read up to 256 bytes
+///   from <c>AAddr</c> -- which the caller consolidated to point at
+///   the actual storage regardless of whether the source was a
+///   local stack slot or a global.
+/// </summary>
+function TDebugger.FormatShortString(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  Buf    : TBytes;
+  LenByte: Byte;
+begin
+  Result := False;
+  AValue := '';
+  if not Assigned(AAddr) then Exit;
+  Buf := ReadProcessMemory(AAddr, 256);
+  if Length(Buf) < 1 then Exit;
+  LenByte := Buf[0];
+  if Integer(LenByte) + 1 > Length(Buf) then Exit;
+  if LenByte = 0 then
+    AValue := ''
+  else
+    AValue := TEncoding.ANSI.GetString(Buf, 1, LenByte);
+  Result := True;
+end;
+
+/// <summary>
+///   IEEE 754 single-precision (4 bytes). The RawBytes slot is at
+///   least 8 bytes; we consume the first 4 and ignore the rest.
+/// </summary>
+function TDebugger.FormatSingle(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  SingleVal: Single;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < 4 then Exit;
+  SingleVal := 0.0;
+  Move(ARawBytes[0], SingleVal, 4);
+  AValue := FloatToStrF(SingleVal, ffGeneral, 7, 0,
+    TFormatSettings.Invariant);
+  Result := True;
+end;
+
+/// <summary>
+///   IEEE 754 double-precision (8 bytes). RawBytes is sized at 8.
+/// </summary>
+function TDebugger.FormatDouble(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  DoubleVal: Double;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < 8 then Exit;
+  DoubleVal := 0.0;
+  Move(ARawBytes[0], DoubleVal, 8);
+  AValue := FloatToStrF(DoubleVal, ffGeneral, 15, 0,
+    TFormatSettings.Invariant);
+  Result := True;
+end;
+
+/// <summary>
+///   Delphi Extended is 80-bit (10 bytes) on both Win32 and Win64
+///   by default (<c>EXCESSPRECISION ON</c> is the dcc64 default).
+///   Re-read 10 bytes from <c>AAddr</c> and decode the 80-bit
+///   format manually into a Double for printing. The manual decode
+///   avoids depending on the host DPT.exe's own
+///   <c>SizeOf(Extended)</c>, which can be 8 on builds with
+///   <c>EXCESSPRECISION OFF</c>.
+/// </summary>
+/// <remarks>
+///   80-bit Extended layout (LE):
+///   <list type="bullet">
+///     <item>bytes 0..7 = 64-bit mantissa with EXPLICIT leading 1 bit</item>
+///     <item>bytes 8..9 = 1-bit sign + 15-bit biased exponent (bias $3FFF)</item>
+///   </list>
+/// </remarks>
+function TDebugger.FormatExtended(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  ExtBuf    : TBytes;
+  Mantissa  : UInt64;
+  SignExp   : UInt16;
+  Sign      : UInt64;
+  Exp80     : Integer;
+  ExpD      : Integer;
+  DoubleBits: UInt64;
+  DoubleVal : Double;
+begin
+  Result := False;
+  AValue := '';
+  if not Assigned(AAddr) then Exit;
+  ExtBuf := ReadProcessMemory(AAddr, 10);
+  if Length(ExtBuf) <> 10 then Exit;
+  Mantissa := 0;
+  SignExp := 0;
+  Move(ExtBuf[0], Mantissa, 8);
+  Move(ExtBuf[8], SignExp, 2);
+  Sign := (SignExp shr 15) and 1;
+  Exp80 := SignExp and $7FFF;
+  if (Exp80 = 0) and (Mantissa = 0) then
+    DoubleBits := Sign shl 63       // +/- zero
+  else if Exp80 = $7FFF then
+    // Inf / NaN: forward to Double Inf / NaN.
+    DoubleBits := (Sign shl 63) or
+                  (UInt64($7FF) shl 52) or
+                  (UInt64(Ord(Mantissa <> $8000000000000000)) shl 51)
+  else
+  begin
+    // Normalized: rebias exponent (80-bit bias $3FFF -> Double
+    // bias $3FF) and drop the explicit leading-1 bit by shifting
+    // the mantissa right by 11.
+    ExpD := Exp80 - $3FFF + $3FF;
+    if ExpD <= 0 then
+      DoubleBits := Sign shl 63          // underflow -> +/- zero
+    else if ExpD >= $7FF then
+      DoubleBits := (Sign shl 63) or
+                    (UInt64($7FF) shl 52)  // overflow -> +/- Inf
+    else
+      DoubleBits := (Sign shl 63) or
+                    (UInt64(ExpD) shl 52) or
+                    ((Mantissa and $7FFFFFFFFFFFFFFF) shr 11);
+  end;
+  DoubleVal := 0.0;
+  Move(DoubleBits, DoubleVal, 8);
+  AValue := FloatToStrF(DoubleVal, ffGeneral, 18, 0,
+    TFormatSettings.Invariant);
+  Result := True;
+end;
+
+/// <summary>
+///   Read the field as an instance pointer, then walk the VMT to
+///   read the runtime class name. Output is
+///   <c>"ClassName @ HexAddr"</c> or <c>"nil"</c> for a null
+///   pointer, or <c>"Object @ HexAddr"</c> when the pointer is
+///   non-zero but the VMT walk fails (garbage pointer).
+/// </summary>
+function TDebugger.FormatObject(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  PtrVal   : UIntPtr;
+  VMTPtr   : UIntPtr;
+  ClassName: String;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  if PtrVal = 0 then
+  begin
+    AValue := 'nil';
+    Exit(True);
+  end;
+  VMTPtr := ReadTargetPointer(Pointer(PtrVal));
+  if (VMTPtr <> 0) and ReadClassNameFromVMT(VMTPtr, ClassName) then
+    AValue := ClassName + ' @ ' +
+              Format('%.*x', [FTargetPointerSize * 2, PtrVal])
+  else
+    AValue := 'Object @ ' +
+              Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
+  Result := True;
 end;
 
 end.
