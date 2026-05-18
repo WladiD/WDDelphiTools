@@ -105,6 +105,8 @@ type
     [Test]
     procedure TestMcpEvaluateAutoTypeDetectionSelfDottedClassField;
     [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionEnum;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2855,6 +2857,50 @@ begin
     Assert.IsTrue(Line.Contains('TStringList @ '),
       'auto-detect on Self.<RtlClassField> must format as object ' +
       '"TStringList @ <hex>", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection on enum-typed variables and fields. The
+///   expected output shape is "Identifier (Ordinal)" -- the human-
+///   readable enum name with the numeric ordinal in parens, so the
+///   caller doesn't lose access to the underlying byte value.
+/// </summary>
+/// <remarks>
+///   Three slots, all initialised in <c>EnumProbeProcedure</c> at
+///   line 271:
+///   <list type="bullet">
+///     <item><c>LocalLight</c> = <c>lsYellow</c> (ord 1) -- local on
+///       BP stack.</item>
+///     <item><c>GGlobalLight</c> = <c>lsGreen</c> (ord 2) -- module
+///       global with an initialiser.</item>
+///     <item><c>GGlobalEnumRec.FLight</c> = <c>lsRed</c> (ord 0) --
+///       enum field reached via record-dotted navigation.</item>
+///   </list>
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionEnum;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 271);
+  try
+    Line := Fixture.EvalAuto('LocalLight');
+    Assert.IsTrue(Line.Contains('lsYellow') and Line.Contains('(1)'),
+      'auto-detect on enum local must format as "lsYellow (1)", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalLight');
+    Assert.IsTrue(Line.Contains('lsGreen') and Line.Contains('(2)'),
+      'auto-detect on enum global must format as "lsGreen (2)", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalEnumRec.FLight');
+    Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
+      'auto-detect on dotted enum field must format as "lsRed (0)", got: ' + Line);
   finally
     Fixture.Free;
   end;

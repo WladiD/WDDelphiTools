@@ -176,6 +176,12 @@ type
     /// auto-detected <c>evaluate Self.FName</c> picks the right
     /// formatter without the caller knowing the Delphi declaration.
     FPrimitiveTypeFormatters : IKeyValue<UInt16, String>;
+    /// Per-evaluate-call scratch: the RSM 2-byte type id the
+    /// auto-detection layer identified as an enum. <c>FormatEnum</c>
+    /// reads this to resolve the raw byte value to its constant
+    /// name (and stay within the uniform formatter contract that
+    /// otherwise carries no type-id context).
+    FLastEnumTypeId          : UInt32;
     FBaseAddress             : UIntPtr;
     FBreakpointHitEvent      : TEvent;
     FBreakpointLock          : TCriticalSection;
@@ -290,6 +296,7 @@ type
     function  FormatBool       (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatCurrency   (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatObject     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatEnum       (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     /// <summary>
     ///   Resolve a parameter's register slot to the same 8-byte raw-bytes
     ///   shape ReadProcessMemory produces for stack-slot locals, so that
@@ -466,6 +473,7 @@ begin
   FFormatters['boolean']     := FormatBool;       // alias for the Delphi keyword
   FFormatters['currency']    := FormatCurrency;
   FFormatters['object']      := FormatObject;
+  FFormatters['enum']        := FormatEnum;
 
   // Auto-detection: maps the Delphi compiler's built-in 2-byte
   // primitive type ids (captured by LinkFieldsFromFormatA into
@@ -2355,6 +2363,7 @@ begin
   AValue := '';
   AHint  := '';
   FieldKnownSize := 0;
+  FLastEnumTypeId := 0;
   Phase('begin');
 
   if FLastThreadHit = 0 then Exit;
@@ -2811,28 +2820,50 @@ function TDebugger.AutoDetectFormatterName(const AName: String; AIsLocal: Boolea
       Result := 'object';
   end;
 
+  function EnumLookup(ATypeId: UInt32): String;
+  // Returns 'enum' when the type id was seen in any $25 enum-constant
+  // record. Side effect: stashes the type id on the debugger so the
+  // 'enum' formatter (which gets the same uniform formatter args as
+  // every other formatter and therefore can't take a type-id arg
+  // directly) can resolve the ordinal to its identifier name.
+  begin
+    Result := '';
+    if (ATypeId = 0) or (not Assigned(FLocalsReader)) then Exit;
+    if FLocalsReader.IsEnumTypeId(ATypeId) then
+    begin
+      FLastEnumTypeId := ATypeId;
+      Result := 'enum';
+    end;
+  end;
+
 var
   GlobTypeIdx: UInt32;
 begin
   Result := '';
   // Path 1: terminal primitive field captured during the field-scan.
   if AMember.PrimitiveTypeId <> 0 then
+  begin
     if FPrimitiveTypeFormatters.TryGetValue(AMember.PrimitiveTypeId, Result) then
       Exit;
+    Result := EnumLookup(AMember.PrimitiveTypeId);
+    if Result <> '' then Exit;
+  end;
   // Path 2: terminal class-typed field.
   Result := ClassLookup(AMember.TypeIdx, False);
   if Result <> '' then Exit;
   // Path 3: whole-name local. The local's encoded TypeIdx is the
-  // 2-byte RSM id; try the primitive table first, then the class
-  // registry.
+  // 2-byte RSM id; try the primitive table, the enum registry,
+  // then the class registry.
   if AIsLocal and (AMatchedLocalTypeIdx <> 0) then
   begin
     if FPrimitiveTypeFormatters.TryGetValue(UInt16(AMatchedLocalTypeIdx), Result) then
       Exit;
+    Result := EnumLookup(AMatchedLocalTypeIdx);
+    if Result <> '' then Exit;
     Result := ClassLookup(AMatchedLocalTypeIdx, True);
     if Result <> '' then Exit;
   end;
-  // Path 4: whole-name global. Same dual lookup against the
+  // Path 4: whole-name global. Same triple lookup against the
   // global's registry type id.
   if (not AIsLocal) and Assigned(FLocalsReader) then
   begin
@@ -2841,6 +2872,8 @@ begin
     begin
       if FPrimitiveTypeFormatters.TryGetValue(UInt16(GlobTypeIdx), Result) then
         Exit;
+      Result := EnumLookup(GlobTypeIdx);
+      if Result <> '' then Exit;
       Result := ClassLookup(GlobTypeIdx, True);
     end;
   end;
@@ -3185,6 +3218,51 @@ begin
   IntVal := 0;
   Move(ARawBytes[0], IntVal, ReadSize);
   if IntVal = 0 then AValue := 'False' else AValue := 'True';
+  Result := True;
+end;
+
+/// <summary>
+///   Enum: read the ordinal byte from the raw value, then resolve it
+///   to the declared identifier via the RSM enum registry. The output
+///   is <c>"Identifier (Ordinal)"</c> so the caller keeps access to
+///   both the readable form and the underlying numeric value.
+/// </summary>
+/// <remarks>
+///   <c>FLastEnumTypeId</c> is the 2-byte enum type id the
+///   auto-detection layer matched. Without it, the formatter can't
+///   pick the right enum -- so callers must populate it before
+///   dispatching; the auto-detection path in <c>EvaluateVariable</c>
+///   takes care of that.
+/// </remarks>
+function TDebugger.FormatEnum(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  ReadSize : Integer;
+  Ordinal  : Integer;
+  EnumName : String;
+begin
+  Result := False;
+  AValue := '';
+  // Enums commonly fit in 1 byte (up to 256 elements) but the Delphi
+  // compiler widens to 2 / 4 bytes when the declared element set
+  // demands it. Use the field's known size when set; otherwise fall
+  // back to the conservative 1-byte read that matches the most
+  // common case.
+  ReadSize := AFieldKnownSize;
+  if ReadSize <= 0 then ReadSize := 1;
+  if ReadSize > 4 then ReadSize := 4;
+  if Length(ARawBytes) < ReadSize then Exit;
+  Ordinal := 0;
+  Move(ARawBytes[0], Ordinal, ReadSize);
+  if (FLastEnumTypeId <> 0) and Assigned(FLocalsReader) and
+     FLocalsReader.TryGetEnumConstantName(FLastEnumTypeId, Ordinal, EnumName) then
+    AValue := Format('%s (%d)', [EnumName, Ordinal])
+  else
+    // Type id resolved as an enum but this ordinal isn't registered
+    // (out-of-range value -- could happen on uninitialised stack
+    // memory or after a bad cast). Surface the ordinal so the
+    // caller still sees something useful.
+    AValue := Format('<unknown> (%d)', [Ordinal]);
   Result := True;
 end;
 

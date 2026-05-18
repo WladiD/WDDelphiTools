@@ -202,6 +202,18 @@ type
     /// NOT the RSM 2-byte id; without this map a lookup from a
     /// global's encoded type id would never find the right struct.
     FRsmTypeIdToClassIdx: IKeyValue<UInt32, Integer>;
+    /// Maps "<enumTypeId>:<ordinal>" -> enum-constant identifier name.
+    /// Populated by ScanEnumConstants from the $25 records the Delphi
+    /// compiler emits for each enum element: the record carries the
+    /// element name plus a 2-byte type id (e.g. $2E75 for
+    /// <c>TLightStatus</c>) and a 2*ordinal byte. We key the lookup
+    /// on the (type, ordinal) pair so the enum formatter can resolve
+    /// a raw byte value to its readable form (<c>lsGreen (2)</c>).
+    FEnumConstNames : IKeyValue<String, String>;
+    /// All RSM type ids that appear in $25 enum-constant records.
+    /// Used as the "is this an enum?" oracle the auto-detection
+    /// path consults before picking the enum formatter.
+    FEnumTypeIds    : IKeyValue<UInt32, Boolean>;
     FOnPhase     : TProc<String>;
     procedure DeriveClassParents;
     /// <summary>
@@ -251,6 +263,23 @@ type
     ///   is the internal name-offset token, not the RSM id.
     /// </summary>
     function  FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
+    /// <summary>
+    ///   Returns True when <paramref name="ATypeId"/> was seen in any
+    ///   $25 enum-constant record -- i.e. the type id designates an
+    ///   enumerated type. Used by auto-detection to pick the enum
+    ///   formatter for enum-typed locals / globals / dotted-terminal
+    ///   fields whose <c>Member.PrimitiveTypeId</c> carries the same
+    ///   2-byte id.
+    /// </summary>
+    function  IsEnumTypeId(ATypeId: UInt32): Boolean;
+    /// <summary>
+    ///   Resolves an enum (<c>ATypeId</c>, <c>AOrdinal</c>) pair to
+    ///   the enum-constant's identifier name. Returns False when the
+    ///   pair is not registered (either the type isn't an enum or
+    ///   the ordinal is outside the declared element range).
+    /// </summary>
+    function  TryGetEnumConstantName(ATypeId: UInt32; AOrdinal: Integer;
+      out AName: String): Boolean;
     /// <summary>
     ///   Returns the indices of every <c>skRecord</c> entry in
     ///   <c>FClasses</c> that has a member named
@@ -331,6 +360,8 @@ begin
   FGlobalByName := Collections.NewPlainKeyValue<String, UInt32>;
   FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
   FRsmTypeIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
+  FEnumConstNames := Collections.NewPlainKeyValue<String, String>;
+  FEnumTypeIds    := Collections.NewPlainKeyValue<UInt32, Boolean>;
 end;
 
 procedure TRsmLocalsReader.ReportPhase(const APhase: String);
@@ -1098,6 +1129,13 @@ var
     /// auto-detection path can't pick a formatter from the name
     /// alone.
     GLOBAL_PRIM_TAG = $27;
+    /// Tag for an enum-constant declaration. Each element of an
+    /// enumerated type emits one of these:
+    ///   $25 NL Name $0A $00 $00 <typeId-lo> $2E $00 $00 <2*ordinal>
+    /// The 2-byte type id and 2*ordinal pair are enough to register
+    /// (typeId, ordinal) -> name lookups so the enum formatter can
+    /// render <c>lsGreen (2)</c> instead of the raw byte value.
+    ENUM_CONST_TAG = $25;
     SCOPE_END = $63;
     AddrScanWindow = 32;
   var
@@ -1326,12 +1364,14 @@ var
              (ByteAt(PayloadStart + 1) = $00) and
              (ByteAt(PayloadStart + 2) = $00) then
           begin
-            // Type-id is the LE 16-bit value "<lo> $2E" (or just
-            // "<lo>" if byte 4 is not $2E for built-in types).
+            // Type-id is the LE 16-bit value "<lo> <hi>" when hi is
+            // a structured-type marker ($2E for most types, $2F for
+            // some Win64 sets); otherwise the type-id is the single
+            // byte at +3 (built-in primitive types).
             var Hi: Byte := ByteAt(PayloadStart + 4);
-            if Hi = $2E then
+            if (Hi = $2E) or (Hi = $2F) then
               Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                              (UInt32($2E) shl 8)
+                              (UInt32(Hi) shl 8)
             else
               Loc.TypeIdx := ByteAt(PayloadStart + 3);
           end;
@@ -1384,11 +1424,12 @@ var
           begin
             // Same two-byte type-id form as PARAM_TAG; surface as the
             // LE 16-bit value so the higher-level walker can match it
-            // against the class/record registry.
+            // against the class/record registry. $2E is the common
+            // hi marker; $2F appears on some Win64 sets.
             var Hi: Byte := ByteAt(PayloadStart + 4);
-            if Hi = $2E then
+            if (Hi = $2E) or (Hi = $2F) then
               Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                              (UInt32($2E) shl 8)
+                              (UInt32(Hi) shl 8)
             else
               Loc.TypeIdx := ByteAt(PayloadStart + 3);
           end;
@@ -1423,17 +1464,21 @@ var
           // widths, and then the offset can take either a 1-byte
           // signed or a 2-byte little-endian form:
           //
-          //   byte4 = $2E -- two-byte type-id "<lo> $2E" for class /
-          //                  record / set / dyn-array locals. The
-          //                  offset starts at byte 5 and continues
-          //                  for either 1 byte (LSB of byte5 = 0)
-          //                  or 2 bytes LE (LSB of byte5 = 1). The
-          //                  bytes that follow may include trailing
-          //                  type-name metadata which the outer
-          //                  loop skips over by advancing
-          //                  byte-by-byte until the next record
-          //                  tag, so we deliberately do NOT require
-          //                  byte 6 to be a record tag here.
+          //   byte4 = $2E or $2F -- two-byte type-id "<lo> <hi>" for
+          //                  class / record / set / dyn-array locals.
+          //                  $2E is the common marker; Win64 emits
+          //                  $2F for some sets (observed on TFlags =
+          //                  set of (Flag1, Flag2, Flag3) when the
+          //                  type-id falls in a specific range, e.g.
+          //                  $2F01). The offset starts at byte 5
+          //                  and continues for either 1 byte (LSB
+          //                  of byte5 = 0) or 2 bytes LE (LSB of
+          //                  byte5 = 1). The bytes that follow may
+          //                  include trailing type-name metadata
+          //                  which the outer loop skips over by
+          //                  advancing byte-by-byte until the next
+          //                  record tag, so we deliberately do NOT
+          //                  require byte 6 to be a record tag here.
           //
           //   byte4 = anything else -- one-byte type-id form. The
           //                  offset starts at byte 4. If the next
@@ -1451,7 +1496,7 @@ var
           if PayloadStart + 5 < Sz then
           begin
             var Byte4: Byte := ByteAt(PayloadStart + 4);
-            if Byte4 = $2E then
+            if (Byte4 = $2E) or (Byte4 = $2F) then
             begin
               // Two-byte type-id form. The offset bytes start at +5.
               var Byte5: Byte := ByteAt(PayloadStart + 5);
@@ -1472,11 +1517,12 @@ var
                 var Ofs8: ShortInt := ShortInt(Byte5);
                 Loc.BpOffset := Int32(Ofs8) div 2;
               end;
-              // Surface the type-id as the LE 16-bit value to allow
-              // the higher-level walker to match it against the
+              // Surface the type-id as the LE 16-bit value (with the
+              // ACTUAL hi byte we matched, $2E or $2F) so the
+              // higher-level walker can match it against the
               // class/record registry's 2-byte ids.
               Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                             (UInt32($2E) shl 8);
+                             (UInt32(Byte4) shl 8);
             end
             else
             begin
@@ -1580,10 +1626,55 @@ var
            (ByteAt(P + 2 + NameLen + 2) = $00) and
            ReadIdentifier(P + 1, Name) then
         begin
-          var PrimId: Byte := ByteAt(P + 2 + NameLen + 3);
+          // Two-byte vs single-byte type id. Enum / set / structured-
+          // typed globals carry a 2-byte id with $2E or $2F in the hi
+          // slot (e.g. $2E75 for TLightStatus); plain primitives have
+          // a single byte ($02 = Integer, $04 = string, ...). Pick
+          // the wider read when a structured hi marker is present so
+          // the auto-detection layer can resolve enum names instead
+          // of falling through.
+          var PrimId: UInt32;
+          var HiByte: Byte := 0;
+          if P + 2 + Integer(NameLen) + 4 < Sz then
+            HiByte := ByteAt(P + 2 + NameLen + 4);
+          if (HiByte = $2E) or (HiByte = $2F) then
+            PrimId := UInt32(ByteAt(P + 2 + NameLen + 3)) or
+                      (UInt32(HiByte) shl 8)
+          else
+            PrimId := ByteAt(P + 2 + NameLen + 3);
           FGlobalByName[LowerCase(Name)] := PrimId;
           FGlobalFileOffset[LowerCase(Name)] := P;
           P := P + 2 + Length(Name) + 4;
+          Continue;
+        end;
+      end
+      // Enum-constant record (works inside or outside a proc scope,
+      // since enums may be declared at unit, program, or local-type
+      // level). Expected shape:
+      //   $25 NL Name $0A $00 $00 <typeId-lo> $2E $00 $00 <2*ordinal>
+      // Registers (typeId, ordinal) -> Name and remembers typeId as
+      // an enum so auto-detect can pick the enum formatter.
+      else if Tag = ENUM_CONST_TAG then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 64) and
+           (P + 2 + Integer(NameLen) + 8 < Sz) and
+           (ByteAt(P + 2 + NameLen)     = $0A) and
+           (ByteAt(P + 2 + NameLen + 1) = $00) and
+           (ByteAt(P + 2 + NameLen + 2) = $00) and
+           (ByteAt(P + 2 + NameLen + 4) = $2E) and
+           (ByteAt(P + 2 + NameLen + 5) = $00) and
+           (ByteAt(P + 2 + NameLen + 6) = $00) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          var EnumTypeId: UInt32 :=
+            UInt32(ByteAt(P + 2 + NameLen + 3)) or (UInt32($2E) shl 8);
+          // The ordinal is stored doubled (the LSB is reserved as a
+          // form discriminator the same way BPRel offsets reserve it).
+          var Ordinal: Integer := Integer(ByteAt(P + 2 + NameLen + 7)) shr 1;
+          FEnumTypeIds[EnumTypeId] := True;
+          FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+          P := P + 2 + Length(Name) + 8;
           Continue;
         end;
       end
@@ -1883,6 +1974,18 @@ var
               else if (BodyLen = 9) and
                       (ByteAt(After + 5) = $9C) and
                       (ByteAt(After + 6) = $01) then
+                Member.PrimitiveTypeId :=
+                  UInt16(ByteAt(After + 3)) or
+                  (UInt16(ByteAt(After + 4)) shl 8)
+              // Enum-typed field. Body shape adds a $00 separator
+              // between the type id and the "$9C $01" reference
+              // marker (so the marker sits at +6..+7 instead of
+              // +5..+6). The type id at +3..+4 carries the enum's
+              // 2-byte id (e.g. $2E75 for TLightStatus); the enum
+              // formatter reads it via FEnumTypeIds.
+              else if (BodyLen >= 10) and
+                      (ByteAt(After + 6) = $9C) and
+                      (ByteAt(After + 7) = $01) then
                 Member.PrimitiveTypeId :=
                   UInt16(ByteAt(After + 3)) or
                   (UInt16(ByteAt(After + 4)) shl 8);
@@ -2251,6 +2354,25 @@ function TRsmLocalsReader.FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
 begin
   if not FRsmTypeIdToClassIdx.TryGetValue(ARsmId, Result) then
     Result := -1;
+end;
+
+function TRsmLocalsReader.IsEnumTypeId(ATypeId: UInt32): Boolean;
+begin
+  if ATypeId = 0 then Exit(False);
+  Result := FEnumTypeIds.ContainsKey(ATypeId);
+end;
+
+function TRsmLocalsReader.TryGetEnumConstantName(ATypeId: UInt32;
+  AOrdinal: Integer; out AName: String): Boolean;
+begin
+  AName  := '';
+  Result := False;
+  if ATypeId = 0 then Exit;
+  // Composite key keeps the lookup O(1) without needing a nested map
+  // per type id -- on TFW-class binaries with thousands of enums that
+  // matters for memory footprint.
+  Result := FEnumConstNames.TryGetValue(
+    IntToStr(ATypeId) + ':' + IntToStr(AOrdinal), AName);
 end;
 
 function TRsmLocalsReader.FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;

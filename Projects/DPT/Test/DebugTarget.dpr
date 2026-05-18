@@ -249,6 +249,28 @@ procedure TClassFieldHost.TouchSelf;
 begin
   Writeln('TouchSelfClass ', FHostInt); Flush(Output); // Line 250 - Self.<ClassField> bp here
 end;
+// Enum types for the enum-formatter probe. Placed AFTER the existing
+// BP-bearing methods so adding them doesn't shift line 209 / 217 /
+// 231 / 241 / 250 markers in the structural test suite.
+type
+  TLightStatus = (lsRed, lsYellow, lsGreen);
+  TEnumHostRec = record
+    FLight  : TLightStatus;
+    FFlag   : Integer;
+  end;
+var
+  GGlobalLight   : TLightStatus = lsGreen;
+  GGlobalEnumRec : TEnumHostRec;
+procedure EnumProbeProcedure;
+var
+  LocalLight : TLightStatus;
+begin
+  LocalLight := lsYellow;
+  GGlobalEnumRec.FLight := lsRed;
+  GGlobalEnumRec.FFlag  := Integer($EEEEEEEE);
+  Writeln('EnumProbe ', Ord(LocalLight), ' ', Ord(GGlobalLight), ' ',
+          Ord(GGlobalEnumRec.FLight)); Flush(Output); // Line 271 - enum bp here
+end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
   LocalCount : Integer;
@@ -446,6 +468,10 @@ begin
     // instance in the first register slot. Drives the
     // Self.<ClassField> auto-detect test.
     GGlobalClassHost.TouchSelf;
+    // Reach EnumProbeProcedure so the enum auto-detect test has
+    // a live BP context with both a local enum and a record-nested
+    // enum field initialised.
+    EnumProbeProcedure;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
