@@ -89,6 +89,8 @@ type
     procedure TestFormatClass_TrailingLineCommentMovesWithMethod;
     [Test]
     procedure TestFormatClass_ClassVarPreserved;
+    [Test]
+    procedure TestFormatClass_NoSeparatorBetweenConstAndVar;
   end;
 
 implementation
@@ -1199,6 +1201,36 @@ begin
   // No method banners between class and var
   Assert.IsFalse(LResult.Contains('class' + #13#10 + #13#10 + '{ ---'),
     'No banner between class and var keywords. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_NoSeparatorBetweenConstAndVar;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // A class body may declare a const block immediately followed by a var
+  // block within the same visibility section. The formatter must not insert
+  // the file-level "{ --- }" section separator between them — separators
+  // belong between top-level declarations, never inside a class.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  [TestFixture]' + #13#10 +
+    '  TestQuery = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    const' + #13#10 +
+    '     BaseGUID: TGUID = ''{CECED163-0078-4FE3-A13A-3FE64BC67D2C}'';' + #13#10 +
+    '    var' + #13#10 +
+    '     FData: Pointer;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsFalse(LResult.Contains('{ ---'),
+    'No section separator must appear inside the class body. Actual:' + #13#10 + LResult);
 end;
 
 end.

@@ -522,6 +522,16 @@ begin
   ClearTrivia(LToken);
   FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
 
+  // Source-indent of the var keyword is a fingerprint for class-internal vars
+  // that the parser flattened into a unit-level section (the surrounding class
+  // ended up as TUnparsedDeclarationSyntax). A real unit-level var lives at
+  // column 0 or 2, never at column 4+. Skip the section banner in that case.
+  if Length(LIndent) > 2 then
+  begin
+    AddLeadingTrivia(LToken, LTrailingPart + #13#10 + LComments + LIndent);
+    Exit;
+  end;
+
   LPrefix := LTrailingPart + #13#10#13#10;
   if (FExpectedTokenTextForSuppressedBanner = LToken.Text) or
      (Pos('{ -', LComments) > 0) or (Pos('{ =', LComments) > 0) then

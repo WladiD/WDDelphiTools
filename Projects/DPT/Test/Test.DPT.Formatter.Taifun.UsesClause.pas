@@ -41,6 +41,10 @@ type
     procedure TestFormatUsesClause_MultipleAppNamespaces;
     [Test]
     procedure TestFormatUsesClause_CurAppGroup;
+    [Test]
+    procedure TestFormatUsesClause_DUnitXIsRTL;
+    [Test]
+    procedure TestFormatUsesClause_CurNamespaceFromThirdParty;
   end;
 
 implementation
@@ -299,6 +303,46 @@ begin
     '  Tfr.BJ.Typ,' + #13#10 +
     '  Tfr.Skto.Typ;'),
     'Units matching the current unit prefix should form a separate group at the end. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_DUnitXIsRTL;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // DUnitX is part of Delphi and must be treated like Embarcadero RTL,
+  // sorted together with System.* in the very first uses block.
+  LSource := 'unit MyUnit; interface uses Spring.Collections, DUnitX.TestFramework, System.Classes; implementation end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    'uses' + #13#10 + #13#10 +
+    '  DUnitX.TestFramework,' + #13#10 +
+    '  System.Classes,' + #13#10 + #13#10 +
+    '  Spring.Collections;'),
+    'DUnitX.TestFramework must sort into the Delphi-RTL block. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_UsesClause.TestFormatUsesClause_CurNamespaceFromThirdParty;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Units that would otherwise be third-party but share the current unit's
+  // first namespace segment must be moved into the final CurApp block so they
+  // appear last. Here Test.Db.* shares "Test" with the current unit
+  // Test.Db.Table and must come after the third-party Spring.Collections.
+  LSource := 'unit Test.Db.Table; interface uses System.Classes, Spring.Collections, Test.Db.Data.Typ, Test.Db.Root; implementation end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    '  System.Classes,' + #13#10 + #13#10 +
+    '  Spring.Collections,' + #13#10 + #13#10 +
+    '  Test.Db.Data.Typ,' + #13#10 +
+    '  Test.Db.Root;'),
+    'Units sharing the current unit''s first segment must form a CurApp block at the end. Actual:' + #13#10 + LResult);
 end;
 
 end.

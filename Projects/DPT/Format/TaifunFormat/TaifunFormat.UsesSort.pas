@@ -42,9 +42,11 @@ var
 begin
   LLower := LowerCase(AName);
 
-  // Delphi RTL (all standard Embarcadero namespaces in one block)
+  // Delphi RTL (all standard Embarcadero namespaces in one block).
+  // DUnitX ships with Delphi and is treated as RTL.
   if LowerStartsWith(LLower, 'data.') or (LLower = 'data') or
      LowerStartsWith(LLower, 'datasnap.') or (LLower = 'datasnap') or
+     LowerStartsWith(LLower, 'dunitx.') or (LLower = 'dunitx') or
      LowerStartsWith(LLower, 'fmx.') or (LLower = 'fmx') or
      LowerStartsWith(LLower, 'net.') or (LLower = 'net') or
      LowerStartsWith(LLower, 'rest.') or (LLower = 'rest') or
@@ -103,7 +105,14 @@ begin
     Exit(GroupApp);
   end;
 
-  // Everything else is third-party
+  // Everything else is third-party — unless it shares the current unit's
+  // first namespace segment, in which case it joins the CurApp block at the
+  // end (e.g. unit Test.Db.Table uses Test.Db.Root).
+  LCurFirst := LowerCase(GetFirstSegment(ACurrentUnitName));
+  LFirst := LowerCase(GetFirstSegment(AName));
+  if (LCurFirst <> '') and (LFirst = LCurFirst) then
+    Exit(GroupCurApp);
+
   Result := GroupThirdParty;
 end;
 
