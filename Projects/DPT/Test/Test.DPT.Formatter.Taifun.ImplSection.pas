@@ -81,6 +81,8 @@ type
     procedure TestFormatImplementation_ShortDashSeparatorPreserved;
     [Test]
     procedure TestFormatTypeSection_BannerBetweenTypeSectionsIdempotent;
+    [Test]
+    procedure TestFormatImplementation_PreservesInitializationBanner;
   end;
 
 implementation
@@ -1220,6 +1222,38 @@ begin
   LResult2 := FormatSource(LResult);
   Assert.AreEqual(LResult, LResult2,
     'Banner between type sections should be idempotent');
+end;
+
+procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_PreservesInitializationBanner;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // The "{ === }" opening banner directly above an initialization or
+  // finalization keyword must survive formatting. StripBanners removes
+  // banners from the next significant token after `implementation`; when
+  // that token is `initialization`, the section's own opening banner gets
+  // stripped along with the implementation's closing banner.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    'initialization' + #13#10 +
+    '{ ======================================================================= }' + #13#10 +
+    #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains(
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    'initialization' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }'),
+    'initialization must keep its surrounding "{ === }" banner pair. Actual:' + #13#10 + LResult);
 end;
 
 end.

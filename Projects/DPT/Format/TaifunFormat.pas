@@ -661,7 +661,25 @@ begin
     
     AddTrailingTrivia(LToken, #13#10 + '{ ' + GetSep('=', 71) + ' }');
     FLastClassName := '';
-    LNext := GetNextToken(LToken); if Assigned(LNext) then FExpectedTokenTextForSuppressedBanner := FBanner.StripBanners(LNext);
+    LNext := GetNextToken(LToken);
+    if Assigned(LNext) then
+    begin
+      FExpectedTokenTextForSuppressedBanner := FBanner.StripBanners(LNext);
+      // StripBanners discards every "{ === }" line in the next token's
+      // leading trivia — including the OPENING banner of an immediately
+      // following initialization/finalization section. Re-emit it, and
+      // also strip the (now-redundant) banner on the token that follows
+      // so the closing banner isn't duplicated.
+      var LNextLower: string := LowerCase(LNext.Text);
+      if (LNextLower = 'initialization') or (LNextLower = 'finalization') then
+      begin
+        ClearTrivia(LNext);
+        AddLeadingTrivia(LNext, #13#10#13#10 + '{ ' + GetSep('=', 71) + ' }' + #13#10);
+        AddTrailingTrivia(LNext, #13#10 + '{ ' + GetSep('=', 71) + ' }');
+        var LAfter: TSyntaxToken := GetNextToken(LNext);
+        if Assigned(LAfter) then FBanner.StripBanners(LAfter);
+      end;
+    end;
   end;
 end;
 
