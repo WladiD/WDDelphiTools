@@ -99,6 +99,17 @@ type
     /// </summary>
     RawBytes: TBytes;
     /// <summary>
+    ///   2-byte RSM type-id of the local's declared type, copied
+    ///   from <c>TRsmLocal.TypeIdx</c> on the way out of
+    ///   <c>GetLocals</c>. Used by <c>EvaluateVariable</c>'s
+    ///   auto-detection path: when the caller omits the
+    ///   <c>type</c> argument, this id is looked up against
+    ///   <c>FPrimitiveTypeFormatters</c> (primitives like Integer,
+    ///   string, Double, ...) and against the class registry
+    ///   (instance-pointer locals).
+    /// </summary>
+    TypeIdx : UInt32;
+    /// <summary>
     ///   How the local was reached: a base-pointer offset on the stack
     ///   (<c>lkBpRel</c>) or a CPU register (<c>lkRegister</c>). The
     ///   dotted-walk in <c>EvaluateVariable</c> needs this to decide
@@ -154,6 +165,17 @@ type
     /// FormatXxx method plus one registration line in Create. The
     /// dispatch in EvaluateVariable becomes a single TryGetValue.
     FFormatters              : IKeyValue<String, TEvaluateFormatter>;
+    /// Well-known Delphi-compiler primitive type id -> formatter
+    /// name. The Delphi compiler emits a fixed set of 2-byte ids
+    /// for its built-in primitives (Integer, Word, Byte, Int64,
+    /// string, AnsiString, WideString, Boolean, Single, Double,
+    /// Extended, Currency, ...) inside the $2C field record's
+    /// "$9C $09" reference block. <c>EvaluateVariable</c> consults
+    /// this map when the caller omits the <c>type</c> argument and
+    /// the resolved Member has a non-zero PrimitiveTypeId, so an
+    /// auto-detected <c>evaluate Self.FName</c> picks the right
+    /// formatter without the caller knowing the Delphi declaration.
+    FPrimitiveTypeFormatters : IKeyValue<UInt16, String>;
     FBaseAddress             : UIntPtr;
     FBreakpointHitEvent      : TEvent;
     FBreakpointLock          : TCriticalSection;
@@ -212,6 +234,36 @@ type
     procedure StopOutputReaders;
     procedure PatchRsmProcAddressesFromMap;
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
+    /// Picks a formatter name for an <c>evaluate</c> call whose
+    /// <c>type</c> argument was omitted. The resolution order is
+    /// dotted-terminal primitive id -> dotted-terminal class id ->
+    /// matched local's TypeIdx (primitive or class) -> whole-name
+    /// global TypeIdx (primitive or class). Returns an empty string
+    /// when nothing matches; the caller then either falls through
+    /// to a record-terminal hint (when the value points at an
+    /// inline record) or surfaces "Failed to evaluate variable".
+    function  AutoDetectFormatterName(const AName: String; AIsLocal: Boolean;
+      AMatchedLocalTypeIdx: UInt32;
+      const AMember: TRsmClassMember): String;
+    /// Returns True (with the record's type name) when <c>AName</c>
+    /// is a record-typed local or global. Used by EvaluateVariable's
+    /// record-terminal fallback so a whole-name evaluate of an inline
+    /// record surfaces a navigable hint instead of an opaque failure.
+    function  TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
+      AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String): Boolean;
+    /// Returns True (with the formatted <c>"ClassName @ HexAddr"</c>)
+    /// when the raw bytes' leading pointer dereferences to a valid
+    /// VMT. Used by EvaluateVariable's class-pointer probe fallback
+    /// to auto-detect cross-unit / RTL class fields that Format-A
+    /// linking didn't populate with a TypeIdx.
+    function  TryProbeClassPointer(const ARawBytes: TBytes;
+      out AFormatted: String): Boolean;
+    /// Builds the hint message returned via <c>EvaluateVariable</c>'s
+    /// <c>AHint</c> out parameter when auto-detection found nothing.
+    /// The MCP layer surfaces this so the caller learns WHICH
+    /// explicit <c>type=</c> arg to retry with.
+    function  BuildAutoDetectHint(const AName: String;
+      const ARawBytes: TBytes): String;
     /// Shared between FormatString / FormatAnsiString / FormatWideString.
     /// Reads a Delphi long string given the pointer payload stored at
     /// the field: 0 means empty/nil, otherwise points at the character
@@ -235,6 +287,8 @@ type
     function  FormatSingle     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatDouble     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatExtended   (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatBool       (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatCurrency   (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatObject     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     /// <summary>
     ///   Resolve a parameter's register slot to the same 8-byte raw-bytes
@@ -276,7 +330,7 @@ type
     /// </summary>
     function  GetLocalAddress(AThreadHandle: THandle; const AName: String;
       out AAddress: Pointer): Boolean;
-    function  EvaluateVariable(const AName, AType: String; out AValue: String;
+    function  EvaluateVariable(const AName: String; var AType: String; out AValue, AHint: String;
       AOnPhase: TProc<String> = nil): Boolean;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
     function  GetStackSlots(AThreadHandle: THandle; AMaxSlots: Integer = 20): TArray<TStackSlot>;
@@ -408,7 +462,45 @@ begin
   FFormatters['single']      := FormatSingle;
   FFormatters['double']      := FormatDouble;
   FFormatters['extended']    := FormatExtended;
+  FFormatters['bool']        := FormatBool;
+  FFormatters['boolean']     := FormatBool;       // alias for the Delphi keyword
+  FFormatters['currency']    := FormatCurrency;
   FFormatters['object']      := FormatObject;
+
+  // Auto-detection: maps the Delphi compiler's built-in 2-byte
+  // primitive type ids (captured by LinkFieldsFromFormatA into
+  // Member.PrimitiveTypeId) to the formatter that handles them.
+  // The ids are compiler-defined constants and stable across
+  // binaries of the same Delphi version. Narrow integer types
+  // (Byte / Word / SmallInt / ShortInt / Boolean) map to "int"
+  // because the int formatter already width-clamps via Member.Size.
+  FPrimitiveTypeFormatters := Collections.NewPlainKeyValue<UInt16, String>;
+  FPrimitiveTypeFormatters[$03FD] := 'int';        // Integer / LongInt
+  FPrimitiveTypeFormatters[$0411] := 'int';        // Byte
+  FPrimitiveTypeFormatters[$0415] := 'int';        // Word
+  FPrimitiveTypeFormatters[$0409] := 'int64';      // Int64
+  FPrimitiveTypeFormatters[$0401] := 'string';     // UnicodeString
+  FPrimitiveTypeFormatters[$0419] := 'single';     // Single
+  FPrimitiveTypeFormatters[$041D] := 'double';     // Double
+  FPrimitiveTypeFormatters[$0421] := 'extended';   // Extended
+  FPrimitiveTypeFormatters[$0425] := 'bool';       // Boolean (body=15 form)
+  FPrimitiveTypeFormatters[$0429] := 'currency';   // Currency (body=15 form)
+  // Managed reference primitives: id encoded in the body=9 "$9C $01"
+  // form's +3..+4 slot. Same compiler-built-in constants for any
+  // binary of the matching Delphi version.
+  FPrimitiveTypeFormatters[$001C] := 'ansistring';
+  FPrimitiveTypeFormatters[$081E] := 'widestring';
+  FPrimitiveTypeFormatters[$100C] := 'shortstring';
+  // Single-byte primitive ids: encoded in the LOCAL_TAG record's
+  // byte+3 slot (BPRel locals) and in the $27 tag's byte+3 slot
+  // (top-level primitive globals). Independent id space from the
+  // 2-byte field-record ids above -- safe to share the same map
+  // because none overlap the 2-byte range used by structured types.
+  FPrimitiveTypeFormatters[$02] := 'int';          // Integer / LongInt
+  FPrimitiveTypeFormatters[$04] := 'string';       // UnicodeString
+  FPrimitiveTypeFormatters[$08] := 'int64';        // Int64
+  FPrimitiveTypeFormatters[$0A] := 'int';          // Cardinal / UInt32
+  FPrimitiveTypeFormatters[$0C] := 'shortstring';  // ShortString
 end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);
@@ -1250,6 +1342,7 @@ begin
     Loc.BpOffset := Proc.Locals[I].BpOffset;
     Loc.Name     := Proc.Locals[I].Name;
     Loc.Kind     := Proc.Locals[I].Kind;
+    Loc.TypeIdx  := Proc.Locals[I].TypeIdx;
     if Proc.Locals[I].Kind = lkRegister then
       Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx)
     else
@@ -2102,7 +2195,8 @@ begin
   FFinishedEvent.SetEvent;
 end;
 
-function TDebugger.EvaluateVariable(const AName, AType: String; out AValue: String;
+function TDebugger.EvaluateVariable(const AName: String; var AType: String;
+  out AValue, AHint: String;
   AOnPhase: TProc<String>): Boolean;
 
   procedure Phase(const APhase: String);
@@ -2237,6 +2331,11 @@ var
   FieldAddr      : Pointer;
   I              : Integer;
   IsLocal        : Boolean;
+  /// RSM 2-byte type id of the matched whole-name local. Used by
+  /// the auto-detection path so <c>evaluate LocalA</c> can pick a
+  /// formatter without an explicit <c>type</c>. Stays 0 for
+  /// non-local lookups (globals / dotted).
+  MatchedLocalTypeIdx: UInt32;
   RawBytes       : TBytes;
   ObjPtr         : UIntPtr;
   ClsName        : String;
@@ -2254,6 +2353,7 @@ var
 begin
   Result := False;
   AValue := '';
+  AHint  := '';
   FieldKnownSize := 0;
   Phase('begin');
 
@@ -2262,6 +2362,7 @@ begin
   Addr := nil;
   IsLocal := False;
   RawBytes := nil;
+  MatchedLocalTypeIdx := 0;
 
   // Resolve the variable. Two paths apply, tried in order:
   // 1. Treat the WHOLE name as a single identifier (matches a local, or
@@ -2278,6 +2379,7 @@ begin
     begin
       IsLocal := True;
       RawBytes := Locals[I].RawBytes;
+      MatchedLocalTypeIdx := Locals[I].TypeIdx;
       Break;
     end;
   end;
@@ -2507,6 +2609,7 @@ begin
     Phase('end dotted-walk');
   end;
 
+
   if Length(RawBytes) = 0 then Exit;
   Phase('format ' + AType);
 
@@ -2520,8 +2623,227 @@ begin
   if IsLocal and (Addr = nil) then
     GetLocalAddress(FLastThreadHit, AName, Addr);
 
+  // Auto-detection: empty AType means the caller wants the server
+  // to pick a formatter based on the RSM-derived type information.
+  // The actual lookup is delegated to AutoDetectFormatterName --
+  // see its summary for the full resolution order. The resolved
+  // formatter name is written back into AType (var parameter) so
+  // the MCP server can surface it in the response label.
+  if AType = '' then
+    AType := AutoDetectFormatterName(AName, IsLocal, MatchedLocalTypeIdx, Member);
+
   if FFormatters.TryGetValue(LowerCase(AType), Formatter) then
+  begin
     Result := Formatter(RawBytes, Addr, FieldKnownSize, AValue);
+    Exit;
+  end;
+
+  // Class-pointer probe fallback: when the dotted walk resolved a
+  // terminal Member but Format-A linking didn't populate its
+  // TypeIdx (common for cross-unit / RTL-defined class types --
+  // e.g. <Self.FNotification> on a VCL form, or <X.FList> where
+  // FList is TStringList), the auto-detect paths above all bail
+  // empty. Peek the 8 bytes as a class-instance pointer: dereference
+  // to a candidate VMT and require the runtime VMT-classname read
+  // to succeed. That strictness is what protects this fallback from
+  // misclassifying primitive-typed fields whose value bytes happen
+  // to fall in a readable memory range -- a primitive's "ptr" will
+  // not yield a real class name via the VMT chain.
+  if AType = '' then
+  begin
+    var ProbedName: String := '';
+    if TryProbeClassPointer(RawBytes, ProbedName) then
+    begin
+      AValue := ProbedName;
+      AType  := 'object';
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  // Record-terminal fallback: when auto-detection finds no scalar
+  // formatter but the whole name resolves to a record-typed global
+  // (or a record-typed local), surface the record's type name and
+  // hint at sub-navigation. Without this, evaluate would just bail
+  // with "Failed to evaluate" -- which hides the fact that the user
+  // simply needs to add ".FieldName" to drill in.
+  if (AType = '') and Assigned(FLocalsReader) then
+  begin
+    var RecTypeName: String := '';
+    if TryGetRecordTerminalName(AName, IsLocal, MatchedLocalTypeIdx, RecTypeName) then
+    begin
+      AValue := Format('record %s (use .FieldName to inspect fields)', [RecTypeName]);
+      AType  := 'record';
+      Result := True;
+      Exit;
+    end;
+  end;
+
+  // All auto-detect paths declined. Populate a context-aware hint
+  // so the MCP layer can surface a helpful message instead of an
+  // opaque "Failed to evaluate". The two common shapes we recognise:
+  //   * value is all-zero -> probably a nil class pointer that the
+  //     class-pointer probe declined (nil is ambiguous between
+  //     "nil object" and "Integer 0"). Suggest type=object.
+  //   * non-zero value with no usable type info -> the field exists
+  //     but its type wasn't recorded in the RSM Format-A registry
+  //     and the value doesn't dereference cleanly. Suggest the
+  //     usual primitive types.
+  if AType = '' then
+    AHint := BuildAutoDetectHint(AName, RawBytes);
+end;
+
+function TDebugger.BuildAutoDetectHint(const AName: String; const ARawBytes: TBytes): String;
+// Generates a one-line hint that names the most likely concrete
+// "type=" argument the user should try after auto-detection declined.
+// The MCP layer appends this to the "Failed to evaluate" message so
+// the caller learns WHAT to retry, not just THAT the call failed.
+var
+  PtrVal: UIntPtr;
+begin
+  Result := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  if PtrVal = 0 then
+    Result := Format(
+      '%s holds 0 (nil pointer or zero-valued primitive). ' +
+      'Auto-detection cannot pick a formatter for nil. ' +
+      'Try type=object for a class reference, type=int for an integer, ' +
+      'or type=string for a string.', [AName])
+  else
+    Result := Format(
+      '%s could not be auto-typed (no RSM type metadata for this field). ' +
+      'Try one of: type=object, type=int, type=int64, type=string.', [AName]);
+end;
+
+function TDebugger.TryProbeClassPointer(const ARawBytes: TBytes;
+  out AFormatted: String): Boolean;
+// Treats the first FTargetPointerSize bytes as a class-instance
+// pointer, dereferences to a candidate VMT slot, and only succeeds
+// when ReadClassNameFromVMT yields a real class name (i.e. the
+// pointer truly points at a class instance whose VMT layout matches
+// Delphi's). Used by the dotted-walk terminal fallback to recover
+// the "object" formatter when Format-A linking didn't populate the
+// terminal Member's TypeIdx -- the same situation that defeats
+// auto-detection of class-typed fields whose declared type lives in
+// another unit (TFW: Self.FESAutoUpdate, VCL: Self.FNotification).
+var
+  PtrVal   : UIntPtr;
+  VMTPtr   : UIntPtr;
+  ClassName: String;
+begin
+  Result := False;
+  AFormatted := '';
+  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  PtrVal := 0;
+  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  // Nil class pointers are ambiguous (could also be an uninitialized
+  // primitive). Decline so the caller falls through to the record-
+  // terminal hint / the explicit "Failed to evaluate" path -- the
+  // user can still get the value with an explicit type=object.
+  if PtrVal = 0 then Exit;
+  VMTPtr := ReadTargetPointer(Pointer(PtrVal));
+  if VMTPtr = 0 then Exit;
+  if not ReadClassNameFromVMT(VMTPtr, ClassName) then Exit;
+  AFormatted := ClassName + ' @ ' +
+                Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
+  Result := True;
+end;
+
+function TDebugger.TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
+  AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String): Boolean;
+// Returns True (with the record's type name) when AName refers to a
+// record-typed local or global. Used by EvaluateVariable's
+// record-terminal fallback so a whole-name evaluate of a record
+// surfaces a navigable hint instead of "Failed to evaluate".
+var
+  TypeId: UInt32;
+  ClsIdx: Integer;
+begin
+  Result := False;
+  ARecTypeName := '';
+  if not Assigned(FLocalsReader) then Exit;
+  if AIsLocal then
+    TypeId := AMatchedLocalTypeIdx
+  else
+    TypeId := FLocalsReader.FindGlobalTypeIdx(AName);
+  if TypeId = 0 then Exit;
+  ClsIdx := FLocalsReader.FindClassIdxByRsmTypeId(TypeId);
+  if (ClsIdx < 0) or (FLocalsReader.Classes[ClsIdx].Kind <> skRecord) then Exit;
+  ARecTypeName := FLocalsReader.Classes[ClsIdx].Name;
+  Result := True;
+end;
+
+/// <summary>
+///   Resolution order for omitted <c>type</c> arguments:
+///   <list type="number">
+///     <item>Dotted-terminal field with a captured primitive type id
+///       (Integer / Word / Double / string / Bool / Currency /
+///       AnsiString / WideString / ShortString / ...).</item>
+///     <item>Dotted-terminal field whose TypeIdx resolves to a class
+///       -> <c>"object"</c>.</item>
+///     <item>Whole-name local whose own TypeIdx is a primitive id or
+///       resolves to a class.</item>
+///     <item>Whole-name global whose registry type id is a primitive
+///       id or resolves to a class.</item>
+///   </list>
+///   Returns an empty string when nothing matches.
+/// </summary>
+function TDebugger.AutoDetectFormatterName(const AName: String; AIsLocal: Boolean;
+  AMatchedLocalTypeIdx: UInt32; const AMember: TRsmClassMember): String;
+
+  function ClassLookup(ATypeIdx: UInt32; AUseRegistry: Boolean): String;
+  // Returns 'object' when ATypeIdx resolves to a class in FClasses,
+  // empty otherwise. AUseRegistry switches between the registry-id
+  // lookup (for the 2-byte form globals carry) and the file-offset
+  // lookup (for the form Member.TypeIdx carries).
+  var
+    ClsIdx: Integer;
+  begin
+    Result := '';
+    if (ATypeIdx = 0) or (not Assigned(FLocalsReader)) then Exit;
+    if AUseRegistry then
+      ClsIdx := FLocalsReader.FindClassIdxByRsmTypeId(ATypeIdx)
+    else
+      ClsIdx := FLocalsReader.FindStructByTypeIdx(ATypeIdx);
+    if (ClsIdx >= 0) and (FLocalsReader.Classes[ClsIdx].Kind = skClass) then
+      Result := 'object';
+  end;
+
+var
+  GlobTypeIdx: UInt32;
+begin
+  Result := '';
+  // Path 1: terminal primitive field captured during the field-scan.
+  if AMember.PrimitiveTypeId <> 0 then
+    if FPrimitiveTypeFormatters.TryGetValue(AMember.PrimitiveTypeId, Result) then
+      Exit;
+  // Path 2: terminal class-typed field.
+  Result := ClassLookup(AMember.TypeIdx, False);
+  if Result <> '' then Exit;
+  // Path 3: whole-name local. The local's encoded TypeIdx is the
+  // 2-byte RSM id; try the primitive table first, then the class
+  // registry.
+  if AIsLocal and (AMatchedLocalTypeIdx <> 0) then
+  begin
+    if FPrimitiveTypeFormatters.TryGetValue(UInt16(AMatchedLocalTypeIdx), Result) then
+      Exit;
+    Result := ClassLookup(AMatchedLocalTypeIdx, True);
+    if Result <> '' then Exit;
+  end;
+  // Path 4: whole-name global. Same dual lookup against the
+  // global's registry type id.
+  if (not AIsLocal) and Assigned(FLocalsReader) then
+  begin
+    GlobTypeIdx := FLocalsReader.FindGlobalTypeIdx(AName);
+    if GlobTypeIdx <> 0 then
+    begin
+      if FPrimitiveTypeFormatters.TryGetValue(UInt16(GlobTypeIdx), Result) then
+        Exit;
+      Result := ClassLookup(GlobTypeIdx, True);
+    end;
+  end;
 end;
 
 /// <summary>
@@ -2837,6 +3159,52 @@ begin
   Move(DoubleBits, DoubleVal, 8);
   AValue := FloatToStrF(DoubleVal, ffGeneral, 18, 0,
     TFormatSettings.Invariant);
+  Result := True;
+end;
+
+/// <summary>
+///   Boolean field: read <c>AFieldKnownSize</c> bytes (default 1)
+///   and emit <c>"True"</c> / <c>"False"</c>. Delphi's
+///   <c>Boolean</c> / <c>ByteBool</c> are 1 byte, <c>WordBool</c>
+///   is 2, <c>LongBool</c> is 4. Any non-zero raw value reads as
+///   True; the formatter doesn't restrict itself to {0, 1} because
+///   <c>LongBool(-1)</c> is the documented Win32-API True.
+/// </summary>
+function TDebugger.FormatBool(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  ReadSize: Integer;
+  IntVal  : Integer;
+begin
+  Result := False;
+  AValue := '';
+  ReadSize := 1;
+  if (AFieldKnownSize > 0) and (AFieldKnownSize <= 4) then
+    ReadSize := AFieldKnownSize;
+  if Length(ARawBytes) < ReadSize then Exit;
+  IntVal := 0;
+  Move(ARawBytes[0], IntVal, ReadSize);
+  if IntVal = 0 then AValue := 'False' else AValue := 'True';
+  Result := True;
+end;
+
+/// <summary>
+///   Currency: 8-byte scaled Int64 with implicit 4-decimal scaling
+///   (the on-disk value is the literal Int64 of <c>Value * 10000</c>).
+///   Output is fixed-point with 4 decimal places, period as decimal
+///   separator (invariant formatting) so the result is locale-stable.
+/// </summary>
+function TDebugger.FormatCurrency(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  CurrVal: Currency;
+begin
+  Result := False;
+  AValue := '';
+  if Length(ARawBytes) < 8 then Exit;
+  CurrVal := 0;
+  Move(ARawBytes[0], CurrVal, 8);
+  AValue := CurrToStrF(CurrVal, ffFixed, 4, TFormatSettings.Invariant);
   Result := True;
 end;
 

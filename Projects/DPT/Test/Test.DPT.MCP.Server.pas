@@ -93,6 +93,18 @@ type
     [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
+    procedure TestMcpEvaluateAutoTypeDetection;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionMoreTypes;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionForLocal;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionForGlobal;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionRecordTerminal;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionSelfDottedClassField;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2272,7 +2284,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 202);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 231);
   try
     // AInner = GGlobalOuter.FOuterInner -- TInner with
     // FInnerInt = $22222222 = 572662306 and FInnerStr = 'Hello Inner'.
@@ -2333,7 +2345,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 212);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 241);
   try
     // Whole-name Self resolves via the existing register-local read
     // path (Locals[].RawBytes already holds the EAX value). Acts as a
@@ -2465,7 +2477,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 180);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 209);
   try
     // Sanity: AComp is the live TMyComp instance.
     Line := Fixture.Eval('AComp', 'object');
@@ -2524,7 +2536,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 188);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 217);
   try
     // Sanity: AEmpty resolves as a TEmptyChild instance.
     Line := Fixture.Eval('AEmpty', 'object');
@@ -2587,6 +2599,262 @@ begin
     Line := Fixture.Eval('GGlobalFloats.FExtended', 'extended');
     Assert.IsTrue(Line.Contains('3.125'),
       'GGlobalFloats.FExtended must equal 3.125, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection: when the <c>type</c> argument is omitted
+///   from the <c>evaluate</c> request, the server picks the formatter
+///   from the field's RSM-derived type id. Covers the major primitive
+///   classes (Integer / Word / Double / string / class-pointer) plus
+///   the existing structured-type fast-path (record / class), all
+///   reachable through the same dispatch table the explicit-type
+///   path uses.
+/// </summary>
+/// <remarks>
+///   Each assertion compares the auto-detected output against the
+///   explicit-type baseline so a regression in auto-detection cannot
+///   silently fall through to a wrong-but-non-empty formatter.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetection;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    // Integer (4-byte signed) — record-field path.
+    Line := Fixture.EvalAuto('GGlobalMixed.FMixedInt');
+    Assert.IsTrue(Line.Contains('-1583242847'),
+      'auto-detect must format GGlobalMixed.FMixedInt as int ' +
+      '($A1A1A1A1 = -1583242847), got: ' + Line);
+
+    // Word (2-byte, requires Member.Size width clamp).
+    Line := Fixture.EvalAuto('GGlobalNarrow.NiWord');
+    Assert.IsTrue(Line.Contains(': 1"'),
+      'auto-detect must format GGlobalNarrow.NiWord as int=1, got: ' + Line);
+
+    // string (UnicodeString) — pointer with -4 length prefix.
+    Line := Fixture.EvalAuto('GGlobalMixed.FMixedStr');
+    Assert.IsTrue(Line.Contains('Mixed-A3'),
+      'auto-detect must format GGlobalMixed.FMixedStr as string ' +
+      '"Mixed-A3", got: ' + Line);
+
+    // Double — IEEE 754 64-bit.
+    Line := Fixture.EvalAuto('GGlobalFloats.FDouble');
+    Assert.IsTrue(Line.Contains('2.25'),
+      'auto-detect must format GGlobalFloats.FDouble as double=2.25, got: ' + Line);
+
+    // class instance pointer — VMT walk yields "ClassName @ HexAddr".
+    Line := Fixture.EvalAuto('GGlobalOuter');
+    Assert.IsTrue(Line.Contains('TOuter @ '),
+      'auto-detect must format GGlobalOuter as object "TOuter @ <hex>", got: ' + Line);
+
+    // Dotted class-typed terminal field — terminal Member.TypeIdx must
+    // resolve through the RSM-id class registry. Without that path,
+    // real-world dotted walks like "Self.FNotification" never get a
+    // formatter assigned and surface as "Failed to evaluate".
+    Line := Fixture.EvalAuto('GGlobalOuter.FOuterInner');
+    Assert.IsTrue(Line.Contains('TInner @ '),
+      'auto-detect must format GGlobalOuter.FOuterInner as object "TInner @ <hex>", got: ' + Line);
+
+    // Whole-name global typed as an RTL-defined class (TStringList lives
+    // in System.Classes, not in the program's own RSM type-registry).
+    // The previous Path 4 (FindGlobalTypeIdx -> registry) misses these
+    // because RTL types aren't registered there. The class-pointer
+    // probe fallback recovers them by reading the VMT classname --
+    // same mechanism that fixes "Application" / "Self.<RtlField>".
+    Line := Fixture.EvalAuto('GGlobalObject');
+    Assert.IsTrue(Line.Contains('TStringList @ '),
+      'auto-detect must format GGlobalObject as object "TStringList @ <hex>", got: ' + Line);
+
+    // Nil class pointer: auto-detection cannot disambiguate "nil
+    // object" from "Integer 0" without type info, so the probe
+    // declines. The failure message must surface the AHint suggesting
+    // explicit types instead of bailing with an opaque "Failed".
+    Line := Fixture.EvalAuto('GGlobalNilObject');
+    Assert.IsTrue(Line.Contains('Failed to evaluate variable') and
+                  Line.Contains('type=object') and
+                  Line.Contains('nil pointer'),
+      'auto-detect failure on a nil class global must include the ' +
+      'type-suggestion hint, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection coverage for the primitive types the
+///   smaller test (<c>TestMcpEvaluateAutoTypeDetection</c>) didn't
+///   exercise: AnsiString, WideString, ShortString, Boolean, and
+///   Currency. Each ID needs an entry in
+///   <c>FPrimitiveTypeFormatters</c>; missing IDs surface here as a
+///   "Failed to evaluate variable" error.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionMoreTypes;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    Line := Fixture.EvalAuto('GGlobalPrim.FAnsi');
+    Assert.IsTrue(Line.Contains('Prim-Ansi'),
+      'auto-detect must format FAnsi as ansistring "Prim-Ansi", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalPrim.FWide');
+    Assert.IsTrue(Line.Contains('Prim-Wide'),
+      'auto-detect must format FWide as widestring "Prim-Wide", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalPrim.FShort');
+    Assert.IsTrue(Line.Contains('Prim-Short'),
+      'auto-detect must format FShort as shortstring "Prim-Short", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalPrim.FBool');
+    Assert.IsTrue(Line.Contains('True'),
+      'auto-detect must format FBool as bool "True", got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalPrim.FCurr');
+    Assert.IsTrue(Line.Contains('1234.5678'),
+      'auto-detect must format FCurr as currency "1234.5678", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection for matched local variables at a paused
+///   breakpoint. Requires <c>TLocalVar</c> to carry the RSM-derived
+///   <c>TypeIdx</c> so <c>AutoDetectFormatterName</c> can route via
+///   <c>FPrimitiveTypeFormatters</c> for primitive-typed locals.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionForLocal;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  // Line 45 is the breakpoint inside LocalsProcedure where LocalA,
+  // LocalB, LocalString and LocalShort hold their assigned values.
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 45);
+  try
+    Line := Fixture.EvalAuto('LocalA');
+    Assert.IsTrue(Line.Contains('305419896'),
+      'auto-detect must format LocalA as int ($12345678 = 305419896), got: ' + Line);
+
+    Line := Fixture.EvalAuto('LocalString');
+    Assert.IsTrue(Line.Contains('Hello Local'),
+      'auto-detect must format LocalString as string, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection for whole-name primitive globals (not
+///   reached via a dotted path). Requires the
+///   <c>FindGlobalTypeIdx</c> raw 2-byte id to also map through
+///   <c>FPrimitiveTypeFormatters</c> -- not just the class-id case
+///   covered by the smaller test.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionForGlobal;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    // GGlobalInt is set to $11223344 in main BEFORE TargetProcedure
+    // runs and reaches the BP, so the post-init value is observable.
+    Line := Fixture.EvalAuto('GGlobalInt');
+    Assert.IsTrue(Line.Contains('287454020'),
+      'auto-detect must format GGlobalInt as int ($11223344 = 287454020), got: ' + Line);
+
+    Line := Fixture.EvalAuto('GGlobalString');
+    Assert.IsTrue(Line.Contains('Hello Global'),
+      'auto-detect must format GGlobalString as string, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Asking for an inline-record terminal without an explicit type
+///   has no sensible single-value answer. The server must surface a
+///   helpful message that points the caller at sub-navigation
+///   (.FieldName), not silently print zeroes or fall through to a
+///   bogus formatter.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionRecordTerminal;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
+  try
+    Line := Fixture.EvalAuto('GGlobalFloats');
+    Assert.IsTrue(Line.Contains('record') and Line.Contains('TFloats'),
+      'auto-detect on a record terminal must report the record type ' +
+      'and suggest sub-navigation, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Auto-type-detection on a class-typed terminal field reached via a
+///   register-passed Self. Mirrors the shape that real-world VCL code
+///   uses constantly: <c>FormShow</c> referencing <c>Self.FNotification</c>
+///   etc. The whole-name Self case is already covered elsewhere; this
+///   exercises the DOTTED variant where the LAST hop's
+///   <c>Member.TypeIdx</c> drives the formatter pick.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionSelfDottedClassField;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  // Line 250 is inside TClassFieldHost.TouchSelf with Self live in the
+  // first register slot. GGlobalClassHost.FHostNested points at a TInner
+  // (program-defined class). FHostRtlList points at a TStringList
+  // (RTL-defined class) -- different RSM namespace, exercises the
+  // cross-unit class-id resolution that VCL forms hit constantly.
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 250);
+  try
+    Line := Fixture.EvalAuto('Self.FHostNested');
+    Assert.IsTrue(Line.Contains('TInner @ '),
+      'auto-detect on Self.<ProgramClassField> must format as object ' +
+      '"TInner @ <hex>", got: ' + Line);
+
+    // Sanity: explicit type=object must succeed so the failure surface
+    // below is isolated to auto-detect, not field resolution.
+    Line := Fixture.Eval('Self.FHostRtlList', 'object');
+    Assert.IsTrue(Line.Contains('TStringList @ '),
+      'explicit type=object on Self.<RtlClassField> must work, got: ' + Line);
+
+    Line := Fixture.EvalAuto('Self.FHostRtlList');
+    Assert.IsTrue(Line.Contains('TStringList @ '),
+      'auto-detect on Self.<RtlClassField> must format as object ' +
+      '"TStringList @ <hex>", got: ' + Line);
   finally
     Fixture.Free;
   end;

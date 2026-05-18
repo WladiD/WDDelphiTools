@@ -108,6 +108,13 @@ type
     ///   line cursor advance automatically across calls.
     /// </summary>
     function    Eval(const AVarName, AType: String): String;
+    /// <summary>
+    ///   Like <see cref="Eval"/> but omits the <c>type</c> argument
+    ///   entirely from the request, exercising the auto-detection
+    ///   path: the server picks the formatter based on the
+    ///   field's RSM-derived type information.
+    /// </summary>
+    function    EvalAuto(const AVarName: String): String;
     property Debugger    : TDebugger          read FDebugger;
     property Server      : TMcpServer         read FServer;
     property InputReader : TStringTextReader  read FInputReader;
@@ -306,6 +313,18 @@ begin
     '{"jsonrpc": "2.0", "id": %d, "method": "tools/call", ' +
     '"params": {"name": "evaluate", "arguments": ' +
     '{"name": "%s", "type": "%s"}}}', [FNextEvalId, AVarName, AType]));
+  FServer.RunOnce;
+  Result := FOutputWriter.GetLine(FNextLineIdx);
+  Inc(FNextEvalId);
+  Inc(FNextLineIdx);
+end;
+
+function TMcpEvalFixture.EvalAuto(const AVarName: String): String;
+begin
+  FInputReader.FLines.Add(Format(
+    '{"jsonrpc": "2.0", "id": %d, "method": "tools/call", ' +
+    '"params": {"name": "evaluate", "arguments": ' +
+    '{"name": "%s"}}}', [FNextEvalId, AVarName]));
   FServer.RunOnce;
   Result := FOutputWriter.GetLine(FNextLineIdx);
   Inc(FNextEvalId);

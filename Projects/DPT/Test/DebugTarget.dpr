@@ -66,6 +66,22 @@ type
   private
     FDeepFlag : Integer;
   end;
+  // Stand-alone host for the "register-passed Self with a class-typed
+  // field" auto-detect probe. Independent of TDerived so adding the
+  // class-typed field here can't shift offsets the structural tests
+  // baseline against the TInner / TDerived / TDeepDerived chain.
+  TClassFieldHost = class
+    FHostNested : TInner;
+    FHostInt    : Integer;
+    // RTL-defined class as a field type so the auto-detect probe
+    // covers the cross-unit shape that real-world code uses (e.g.
+    // VCL forms with TList<...> / TStringList / framework-defined
+    // class fields). TStringList lives in System.Classes, so its
+    // RSM type-id sits in a different namespace from this program's
+    // own type registry.
+    FHostRtlList : TStringList;
+    procedure TouchSelf;
+  end;
   TOuter = class FOuterInt: Integer; FOuterInner: TInner; FOuterStr: string; end;
   TPoint2D = record FX, FY: Integer; end;
   TRect2D  = record FTopLeft, FBottomRight: TPoint2D; end;
@@ -144,6 +160,19 @@ type
     FDouble   : Double;     // 8 bytes
     FExtended : Extended;   // 10 bytes (Win32) / 8 bytes (Win64)
   end;
+  // Bundle the primitive types we don't already cover via TMixedRec
+  // (Integer, Int64, string) or TFloats (Single, Double, Extended):
+  // AnsiString, WideString, ShortString, Boolean and Currency. Used by
+  // the evaluate-tool auto-detection tests to verify the
+  // primitive-type-id discovery path works across the full range of
+  // Delphi-built-in scalar types.
+  TPrimitives = record
+    FAnsi  : AnsiString;
+    FWide  : WideString;
+    FShort : ShortString;
+    FBool  : Boolean;
+    FCurr  : Currency;
+  end;
 // Repro point for the register-passed class-pointer dotted-walk bug.
 
 type
@@ -177,7 +206,7 @@ type
 // (TComponent inherits TPersistent directly)).
 procedure TouchRtlInheritedComp(AComp: TMyComp);
 begin
-  Writeln('TouchRIC ', AComp.FCustomFlag, ' ', AComp.Name); Flush(Output); // Line 180 - inherited-field bp here
+  Writeln('TouchRIC ', AComp.FCustomFlag, ' ', AComp.Name); Flush(Output); // Line 209 - inherited-field bp here
 end;
 // Repro point for the VMT-walk inheritance fallback: AEmpty has no
 // own fields, so the RSM-driven ParentName chain cannot reach
@@ -185,7 +214,7 @@ end;
 // reading the live VMT's parent pointer at run time.
 procedure TouchEmptyChild(AEmpty: TEmptyChild);
 begin
-  Writeln('TouchEC ', AEmpty.Name); Flush(Output); // Line 188 - empty-child inherited-field bp here
+  Writeln('TouchEC ', AEmpty.Name); Flush(Output); // Line 217 - empty-child inherited-field bp here
 end;
 
 // Repro point for the register-passed class-pointer dotted-walk bug.
@@ -199,7 +228,7 @@ end;
 // used directly as the instance pointer.
 procedure TouchRegClassParam(AInner: TInner; AOther: TInner);
 begin
-  Writeln('TouchRCP ', AInner.FInnerInt, ' ', AOther.FInnerInt); Flush(Output); // Line 202 - register-class-param bp here
+  Writeln('TouchRCP ', AInner.FInnerInt, ' ', AOther.FInnerInt); Flush(Output); // Line 231 - register-class-param bp here
 end;
 // Instance-method repro for Self.<Field> dotted navigation. Self is
 // the implicit first register-passed argument; at a breakpoint placed
@@ -209,7 +238,16 @@ end;
 // through the same register-Self code path.
 procedure TDerived.TouchSelf;
 begin
-  Writeln('TouchSelf ', FInnerInt, ' ', FDerivedExtra); Flush(Output); // Line 212 - Self.<Field> bp here
+  Writeln('TouchSelf ', FInnerInt, ' ', FDerivedExtra); Flush(Output); // Line 241 - Self.<Field> bp here
+end;
+// Instance-method repro for auto-detection of "register-passed Self
+// with a CLASS-typed terminal field" (Self.FHostNested). Mirrors the
+// shape that VCL forms produce all the time (Self.FNotification,
+// Self.FListBox etc.) and exercises the terminal Member.TypeIdx
+// lookup against the RSM type registry.
+procedure TClassFieldHost.TouchSelf;
+begin
+  Writeln('TouchSelfClass ', FHostInt); Flush(Output); // Line 250 - Self.<ClassField> bp here
 end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
@@ -272,6 +310,7 @@ var
   GGlobalOuter       : TOuter;
   GGlobalDerived     : TDerived;
   GGlobalDeep        : TDeepDerived;
+  GGlobalClassHost   : TClassFieldHost;
   GGlobalWithRec     : TWithRec;
   GGlobalMixed       : TMixedRec;
   GGlobalP3D         : TPoint3D;
@@ -279,6 +318,7 @@ var
   GGlobalVarRec      : TVariantSlot;
   GGlobalNarrow      : TNarrowInts;
   GGlobalFloats      : TFloats;
+  GGlobalPrim        : TPrimitives;
   GGlobalComp        : TMyComp;
   GGlobalEmptyChild  : TEmptyChild;
 begin
@@ -306,6 +346,12 @@ begin
   GGlobalDeep.FDerivedExtra := Integer($D2D2D2D2);
   GGlobalDeep.FDerivedLabel := 'Deep Derived';
   GGlobalDeep.FDeepFlag     := Integer($D3D3D3D3);
+  GGlobalClassHost := TClassFieldHost.Create;
+  GGlobalClassHost.FHostNested := TInner.Create;
+  GGlobalClassHost.FHostNested.FInnerInt := Integer($E1E1E1E1);
+  GGlobalClassHost.FHostInt    := Integer($E2E2E2E2);
+  GGlobalClassHost.FHostRtlList := TStringList.Create;
+  GGlobalClassHost.FHostRtlList.Add('Host-RTL');
   GGlobalWithRec := TWithRec.Create;
   GGlobalWithRec.FOrigin.FX := $11111111;
   GGlobalWithRec.FOrigin.FY := $22222222;
@@ -360,6 +406,12 @@ begin
   GGlobalFloats.FSingle   := 1.5;
   GGlobalFloats.FDouble   := 2.25;
   GGlobalFloats.FExtended := 3.125;
+  // Primitive bundle for auto-type-detection coverage.
+  GGlobalPrim.FAnsi   := 'Prim-Ansi';
+  GGlobalPrim.FWide   := 'Prim-Wide';
+  GGlobalPrim.FShort  := 'Prim-Short';
+  GGlobalPrim.FBool   := True;
+  GGlobalPrim.FCurr   := 1234.5678;
   // Multi-level-inheritance instance whose own field lives on TMyComp
   // and whose Name / Tag fields live on TComponent in the System.Classes
   // RTL unit. Used by the inherited-RTL-field navigation test.
@@ -390,6 +442,10 @@ begin
     // navigation test and exposes the RSM class-discovery gap for
     // classes that declare methods.
     GGlobalDerived.TouchSelf;
+    // Reach TClassFieldHost.TouchSelf with Self holding a TClassFieldHost
+    // instance in the first register slot. Drives the
+    // Self.<ClassField> auto-detect test.
+    GGlobalClassHost.TouchSelf;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
@@ -407,6 +463,9 @@ begin
     GGlobalOuter.Free;
     GGlobalDerived.Free;
     GGlobalDeep.Free;
+    GGlobalClassHost.FHostNested.Free;
+    GGlobalClassHost.FHostRtlList.Free;
+    GGlobalClassHost.Free;
     GGlobalWithRec.FPair.FObj.Free;
     GGlobalWithRec.FNestedObj.Free;
     GGlobalWithRec.Free;

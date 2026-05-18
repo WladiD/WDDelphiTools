@@ -712,11 +712,12 @@ begin
   SchemaEvaluate.AddPair('type', 'object');
   var PropEvaluate := TJSONObject.Create;
   PropEvaluate.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
-  PropEvaluate.AddPair('type', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Data type: "int", "int64", "string", or "object"'));
+  PropEvaluate.AddPair('type', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Optional. Output type: "int", "int64", "string", "ansistring", "widestring", "shortstring", "single", "double", "extended", or "object". Omit (or pass empty) to let the server auto-detect from the field''s RSM type id.'));
   SchemaEvaluate.AddPair('properties', PropEvaluate);
   var ReqEvaluate := TJSONArray.Create;
   ReqEvaluate.Add('name');
-  ReqEvaluate.Add('type');
+  // 'type' is optional: when omitted, the server picks the formatter
+  // automatically from the field's RSM-derived type id.
   SchemaEvaluate.AddPair('required', ReqEvaluate);
   ToolEvaluate.AddPair('inputSchema', SchemaEvaluate);
   ToolsArr.Add(ToolEvaluate);
@@ -1534,6 +1535,7 @@ var
   Name     : String;
   VType    : String;
   Value    : String;
+  Hint     : String;
   TotalSW  : TStopwatch;
   PhaseSW  : TStopwatch;
   OK       : Boolean;
@@ -1543,7 +1545,14 @@ begin
   EnsureDebugInfoLoaded;
 
   Name := AParams.GetValue('name').Value;
-  VType := AParams.GetValue('type').Value;
+  // The 'type' argument is optional: callers may omit it to ask the
+  // server to pick a formatter automatically from the field's
+  // RSM-derived type id (see EvaluateVariable's auto-detection path,
+  // which fires whenever VType is empty).
+  if AParams.GetValue('type') <> nil then
+    VType := AParams.GetValue('type').Value
+  else
+    VType := '';
 
   // Phase timing for the evaluate path. Total + per-phase deltas land
   // in dpt.log next to DPT.exe. Useful for spotting slow steps on big
@@ -1638,7 +1647,7 @@ begin
   end;
   TotalSW := TStopwatch.StartNew;
   PhaseSW := TStopwatch.StartNew;
-  OK := FDebugger.EvaluateVariable(Name, VType, Value,
+  OK := FDebugger.EvaluateVariable(Name, VType, Value, Hint,
     procedure(APhase: String)
     begin
       PhaseSW.Stop;
@@ -1651,7 +1660,18 @@ begin
     [BoolToStr(OK, True), TotalSW.ElapsedMilliseconds]));
 
   if OK then
-    Result := MakeTextResult(Format('Variable %s (%s): %s', [Name, VType, Value]))
+  begin
+    // When the caller didn't pin a type explicitly, EvaluateVariable
+    // resolves AType in-place to the auto-detected formatter name --
+    // surface that so the response is still labelled with the
+    // effective type rather than empty parens.
+    if VType <> '' then
+      Result := MakeTextResult(Format('Variable %s (%s): %s', [Name, VType, Value]))
+    else
+      Result := MakeTextResult(Format('Variable %s: %s', [Name, Value]));
+  end
+  else if Hint <> '' then
+    Result := MakeErrorResult('Failed to evaluate variable: ' + Name + '. ' + Hint)
   else
     Result := MakeErrorResult('Failed to evaluate variable: ' + Name);
 end;

@@ -99,6 +99,16 @@ type
     /// read pulls 4 bytes and visibly concatenates the next field's
     /// bytes into the result).
     Size   : UInt32;
+    /// Well-known 2-byte primitive type id emitted by the Delphi
+    /// compiler for built-in types (Integer = $03FD, Word = $0415,
+    /// Double = $041D, etc.). Populated by
+    /// <c>LinkFieldsFromFormatA</c> from the "$9C $09" primitive-
+    /// reference block inside a $2C field record. Zero for class-
+    /// or record-typed fields (use <c>TypeIdx</c> for those instead).
+    /// Drives evaluate-tool auto-detection: when the caller omits
+    /// the <c>type</c> argument, this id is mapped to a formatter
+    /// name through a fixed compiler-built-in table.
+    PrimitiveTypeId: UInt16;
   end;
 
   /// <summary>
@@ -1076,6 +1086,18 @@ var
     // never make it into Proc.Locals and get_locals / evaluate fail
     // for every method whose params don't spill to the stack.
     REGVAR_TAG = $21;
+    /// Tag for top-level primitive globals (Integer / string / Int64 /
+    /// ShortString / object-typed nil). The plain LOCAL_TAG ($20) is
+    /// used for structured-typed globals (class / record) whose
+    /// payload carries a 2-byte registry type id; primitive globals
+    /// use this distinct tag with a different payload shape:
+    ///   $27 NL Name $66 $00 $00 <1-byte primitive id> <4-byte VA>
+    ///   <$9C $09 ...> (trailing field-style type-ref metadata).
+    /// Without this branch, FGlobalByName has no entry for
+    /// GGlobalInt / GGlobalString / ..., so the evaluate
+    /// auto-detection path can't pick a formatter from the name
+    /// alone.
+    GLOBAL_PRIM_TAG = $27;
     SCOPE_END = $63;
     AddrScanWindow = 32;
   var
@@ -1541,6 +1563,30 @@ var
           Continue;
         end;
       end
+      // Top-level primitive global: $27 NL Name $66 $00 $00
+      // <1-byte primitive id> <4-byte VA> [$9C $09 ...].
+      // Stores the 1-byte id (Integer=$02 / UnicodeString=$04 /
+      // Int64=$08 / Cardinal=$0A / ShortString=$0C / ...) verbatim
+      // into FGlobalByName so the higher-level auto-detection can
+      // route through FPrimitiveTypeFormatters with the same map
+      // that already serves BPRel-local primitive ids.
+      else if (Tag = GLOBAL_PRIM_TAG) and (not InProc) then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 1) and (NameLen <= 40) and
+           (P + 2 + Integer(NameLen) + 4 < Sz) and
+           (ByteAt(P + 2 + NameLen)     = $66) and
+           (ByteAt(P + 2 + NameLen + 1) = $00) and
+           (ByteAt(P + 2 + NameLen + 2) = $00) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          var PrimId: Byte := ByteAt(P + 2 + NameLen + 3);
+          FGlobalByName[LowerCase(Name)] := PrimId;
+          FGlobalFileOffset[LowerCase(Name)] := P;
+          P := P + 2 + Length(Name) + 4;
+          Continue;
+        end;
+      end
       else if (Tag = SCOPE_END) and SeenLocalSinceProc then
       begin
         InProc := False;
@@ -1802,17 +1848,46 @@ var
         // (class, field-name) pair was authoritatively confirmed by
         // Format A so PruneSpuriousMembers can drop members the
         // backward field scan over-eagerly attributed to this class.
+        //
+        // Three $2C body shapes the compiler emits for non-class
+        // fields, all routed into Member.PrimitiveTypeId so the
+        // evaluate-tool's auto-detection path can pick the matching
+        // formatter without an explicit <c>type</c> argument:
+        //   - body=14: numeric primitive (Integer, Word, Byte,
+        //     Int64, UnicodeString, Single, Double, Extended).
+        //     "$9C $09" reference at +5..+6, primitive id two bytes
+        //     before the terminator.
+        //   - body=15: numeric primitive with extra leading byte
+        //     (Boolean, Currency, ...). Same end-relative position.
+        //   - body=9: managed reference primitive (AnsiString,
+        //     WideString, ShortString). "$9C $01" reference at
+        //     +5..+6 and the primitive id at the same +3..+4 slot
+        //     the class-resolution path treats as FieldId (which
+        //     consequently can't match a registered class).
         for M := 0 to FClasses[ParentIdx].Members.Count - 1 do
         begin
           Member := FClasses[ParentIdx].Members[M];
-          if SameText(Member.Name, Name) and (Member.TypeIdx = 0) then
+          if SameText(Member.Name, Name) and (Member.TypeIdx = 0) and
+             (Member.PrimitiveTypeId = 0) then
           begin
             FieldIdx := FindClassIdxForRawId(FieldId);
             if FieldIdx >= 0 then
+              Member.TypeIdx := FClasses[FieldIdx].TypeIdx
+            else
             begin
-              Member.TypeIdx := FClasses[FieldIdx].TypeIdx;
-              FClasses[ParentIdx].Members[M] := Member;
+              var BodyLen: Integer := EndOff - After;
+              if (BodyLen = 14) or (BodyLen = 15) then
+                Member.PrimitiveTypeId :=
+                  UInt16(ByteAt(EndOff - 5)) or
+                  (UInt16(ByteAt(EndOff - 4)) shl 8)
+              else if (BodyLen = 9) and
+                      (ByteAt(After + 5) = $9C) and
+                      (ByteAt(After + 6) = $01) then
+                Member.PrimitiveTypeId :=
+                  UInt16(ByteAt(After + 3)) or
+                  (UInt16(ByteAt(After + 4)) shl 8);
             end;
+            FClasses[ParentIdx].Members[M] := Member;
             ConfirmedAdd(ParentIdx, Name);
             Break;
           end;
