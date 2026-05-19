@@ -440,7 +440,7 @@ begin
         var CapObj := TJSONObject.Create;
         CapObj.AddPair('tools', TJSONObject.Create);
         ResultObj.AddPair('capabilities', CapObj);
-        ResultObj.AddPair('serverInfo', TJSONObject.Create.AddPair('name', 'DPT-Debugger').AddPair('version', '1.0.0'));
+        ResultObj.AddPair('serverInfo', TJSONObject.Create.AddPair('name', 'DPT-Debugger').AddPair('version', '1.1.0'));
         ResultObj.AddPair('instructions',
           'DPT-Debugger - a hardware-breakpoint debugger for Delphi Win32/Win64 executables built with a .map file.' + sLineBreak +
           sLineBreak +
