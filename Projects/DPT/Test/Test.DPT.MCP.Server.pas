@@ -2888,7 +2888,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 271);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 281);
   try
     Line := Fixture.EvalAuto('LocalLight');
     Assert.IsTrue(Line.Contains('lsYellow') and Line.Contains('(1)'),
@@ -2901,6 +2901,15 @@ begin
     Line := Fixture.EvalAuto('GGlobalEnumRec.FLight');
     Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
       'auto-detect on dotted enum field must format as "lsRed (0)", got: ' + Line);
+
+    // Cross-unit enum field via Self/dotted navigation. The field
+    // name follows Delphi convention F<TypeWithoutT>, so the
+    // name-based enum resolver infers the type as TThreadPriority
+    // (declared in System.Classes) and auto-detects the value.
+    Line := Fixture.EvalAuto('GGlobalThPriHost.FThreadPriority');
+    Assert.IsTrue(Line.Contains('tpHigher') and Line.Contains('(4)'),
+      'auto-detect on cross-unit enum field via name convention must ' +
+      'format as "tpHigher (4)", got: ' + Line);
   finally
     Fixture.Free;
   end;

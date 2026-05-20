@@ -264,6 +264,12 @@ type
     /// linking didn't populate with a TypeIdx.
     function  TryProbeClassPointer(const ARawBytes: TBytes;
       out AFormatted: String): Boolean;
+    /// Last-resort enum auto-detect: F<X> field name -> T<X> enum
+    /// type, only when the raw bytes look like a small ordinal
+    /// (high bytes zero). Bypasses the formatter dispatch and
+    /// returns the pre-rendered <c>"name (ord)"</c> string.
+    function  TryNameBasedEnumLookup(const AName: String;
+      const ARawBytes: TBytes; out AFormatted: String): Boolean;
     /// Builds the hint message returned via <c>EvaluateVariable</c>'s
     /// <c>AHint</c> out parameter when auto-detection found nothing.
     /// The MCP layer surfaces this so the caller learns WHICH
@@ -2372,6 +2378,13 @@ begin
   IsLocal := False;
   RawBytes := nil;
   MatchedLocalTypeIdx := 0;
+  // Stack-allocated record fields aren't zero-initialised in Delphi
+  // (especially on Win64) -- a leftover PrimitiveTypeId / TypeIdx
+  // from a prior call would trip the auto-detection's Path 1 / 2
+  // and route a whole-name local or global through the wrong
+  // formatter. Always start from a clean slate so Path 3 / 4 see
+  // the real (empty) Member context.
+  Member := Default(TRsmClassMember);
 
   // Resolve the variable. Two paths apply, tried in order:
   // 1. Treat the WHOLE name as a single identifier (matches a local, or
@@ -2670,6 +2683,25 @@ begin
     end;
   end;
 
+  // Name-based enum resolver: when the dotted walk resolved a
+  // terminal Member with no type info AND the class-pointer probe
+  // declined (bytes don't look like a class instance), try matching
+  // the field name's F-prefix convention to an enum type name. Only
+  // fire when the raw bytes look like a small enum ordinal -- if
+  // higher-order bytes are non-zero, the value is probably a
+  // pointer or wide integer, not an enum.
+  if AType = '' then
+  begin
+    var EnumName: String := '';
+    if TryNameBasedEnumLookup(AName, RawBytes, EnumName) then
+    begin
+      AValue := EnumName;
+      AType  := 'enum';
+      Result := True;
+      Exit;
+    end;
+  end;
+
   // Record-terminal fallback: when auto-detection finds no scalar
   // formatter but the whole name resolves to a record-typed global
   // (or a record-typed local), surface the record's type name and
@@ -2724,6 +2756,69 @@ begin
     Result := Format(
       '%s could not be auto-typed (no RSM type metadata for this field). ' +
       'Try one of: type=object, type=int, type=int64, type=string.', [AName]);
+end;
+
+function TDebugger.TryNameBasedEnumLookup(const AName: String;
+  const ARawBytes: TBytes; out AFormatted: String): Boolean;
+// Last-resort enum auto-detect when the field has no usable type
+// metadata. Mirrors Delphi's F<X> -> T<X> naming convention --
+// strips a leading 'F' from the field name and looks up the
+// resulting <c>T&lt;X&gt;</c> in the type-name registry. Only fires
+// when the raw value bytes look like a small enum ordinal (the
+// upper bytes are zero), so cross-unit class fields whose names
+// would coincidentally match an enum-named type don't get
+// misrouted -- the class-pointer probe handles those. When the
+// primary id resolves to several alias secondaries, the call site
+// passes the expected constant-name prefix (derived from the type
+// name via Delphi's PascalCase-acronym convention, e.g.
+// <c>TWindowState</c> -> <c>"ws"</c>) so the lookup picks the
+// right enum's constants out of the ambiguous set.
+var
+  Terminal, Stripped: String;
+  DotPos            : Integer;
+  Candidate         : UInt32;
+  Ordinal           : Integer;
+  EnumName          : String;
+  Prefix            : String;
+  I                 : Integer;
+begin
+  Result     := False;
+  AFormatted := '';
+  if not Assigned(FLocalsReader) then Exit;
+  if Length(ARawBytes) < 1 then Exit;
+  // High bytes can legitimately carry data even for enum fields:
+  // when reading 8 bytes from a 1-byte enum field, adjacent fields'
+  // bytes leak in. The class-pointer probe (which ran first) has
+  // already filtered out real class pointers, and the constant
+  // lookup will reject out-of-range ordinals -- so it's safe to
+  // proceed using byte 0 as the candidate ordinal without a
+  // pre-filter on the upper bytes.
+  Terminal := AName;
+  DotPos := Terminal.LastIndexOf('.');
+  if DotPos >= 0 then
+    Terminal := Terminal.Substring(DotPos + 1);
+  Stripped := Terminal;
+  if (Length(Stripped) > 1) and (Stripped[1] = 'F') and
+     CharInSet(Stripped[2], ['A'..'Z']) then
+    Stripped := Copy(Stripped, 2, MaxInt);
+  Candidate := FLocalsReader.FindTypeIdByName('T' + Stripped);
+  if Candidate = 0 then Exit;
+  if not FLocalsReader.IsEnumTypeId(Candidate) then Exit;
+  Ordinal := ARawBytes[0];
+  // Build the conventional constant-name prefix: take every uppercase
+  // letter of the X in T<X> and lowercase it. TWindowState -> "ws",
+  // TThreadPriority -> "tp", TFontStyle -> "fs". This matches the
+  // Delphi convention where each enum element starts with this
+  // acronym (wsNormal, tpHigher, fsBold).
+  Prefix := '';
+  for I := 1 to Length(Stripped) do
+    if CharInSet(Stripped[I], ['A'..'Z']) then
+      Prefix := Prefix + LowerCase(Stripped[I]);
+  if FLocalsReader.TryGetEnumConstantName(Candidate, Ordinal, EnumName, Prefix) then
+  begin
+    AFormatted := Format('%s (%d)', [EnumName, Ordinal]);
+    Result := True;
+  end;
 end;
 
 function TDebugger.TryProbeClassPointer(const ARawBytes: TBytes;
@@ -2877,6 +2972,12 @@ begin
       Result := ClassLookup(GlobTypeIdx, True);
     end;
   end;
+
+  // (Path 5 name-based enum resolver lives in
+  // <see cref="TryNameBasedEnumLookup"/> -- invoked from
+  // EvaluateVariable AFTER the class-pointer probe so we don't
+  // misroute a cross-unit class field whose name happens to match
+  // some enum's T-prefix convention.)
 end;
 
 /// <summary>

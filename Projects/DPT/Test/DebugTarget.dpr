@@ -258,9 +258,18 @@ type
     FLight  : TLightStatus;
     FFlag   : Integer;
   end;
+type
+  // Class holding a cross-unit enum-typed field whose name follows
+  // the Delphi convention <c>F&lt;TypeName-without-T&gt;</c>. With
+  // the name-based enum resolver, auto-detect picks the right enum
+  // by inferring the type name from the field name.
+  TThPriHost = class
+    FThreadPriority : TThreadPriority;
+  end;
 var
-  GGlobalLight   : TLightStatus = lsGreen;
-  GGlobalEnumRec : TEnumHostRec;
+  GGlobalLight    : TLightStatus = lsGreen;
+  GGlobalEnumRec  : TEnumHostRec;
+  GGlobalThPriHost: TThPriHost;
 procedure EnumProbeProcedure;
 var
   LocalLight : TLightStatus;
@@ -268,8 +277,10 @@ begin
   LocalLight := lsYellow;
   GGlobalEnumRec.FLight := lsRed;
   GGlobalEnumRec.FFlag  := Integer($EEEEEEEE);
-  Writeln('EnumProbe ', Ord(LocalLight), ' ', Ord(GGlobalLight), ' ',
-          Ord(GGlobalEnumRec.FLight)); Flush(Output); // Line 271 - enum bp here
+  GGlobalThPriHost.FThreadPriority := tpHigher;
+  Writeln('EnumProbe ', Ord(LocalLight), ' ',                           // Line 281 - enum bp here
+          Ord(GGlobalLight), ' ', Ord(GGlobalEnumRec.FLight), ' ',
+          Ord(GGlobalThPriHost.FThreadPriority)); Flush(Output);
 end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
@@ -374,6 +385,7 @@ begin
   GGlobalClassHost.FHostInt    := Integer($E2E2E2E2);
   GGlobalClassHost.FHostRtlList := TStringList.Create;
   GGlobalClassHost.FHostRtlList.Add('Host-RTL');
+  GGlobalThPriHost := TThPriHost.Create;
   GGlobalWithRec := TWithRec.Create;
   GGlobalWithRec.FOrigin.FX := $11111111;
   GGlobalWithRec.FOrigin.FY := $22222222;
@@ -492,6 +504,7 @@ begin
     GGlobalClassHost.FHostNested.Free;
     GGlobalClassHost.FHostRtlList.Free;
     GGlobalClassHost.Free;
+    GGlobalThPriHost.Free;
     GGlobalWithRec.FPair.FObj.Free;
     GGlobalWithRec.FNestedObj.Free;
     GGlobalWithRec.Free;

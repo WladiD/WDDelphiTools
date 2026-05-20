@@ -22,6 +22,7 @@ interface
 uses
 
   System.Classes,
+  System.StrUtils,
   System.SysUtils,
 
   mormot.core.base,
@@ -210,10 +211,36 @@ type
     /// on the (type, ordinal) pair so the enum formatter can resolve
     /// a raw byte value to its readable form (<c>lsGreen (2)</c>).
     FEnumConstNames : IKeyValue<String, String>;
-    /// All RSM type ids that appear in $25 enum-constant records.
-    /// Used as the "is this an enum?" oracle the auto-detection
-    /// path consults before picking the enum formatter.
+    /// All RSM type ids that appear in $25 enum-constant records,
+    /// plus any aliases discovered in $2A registry bodies. Used as
+    /// the "is this an enum?" oracle the auto-detection path
+    /// consults before picking the enum formatter.
     FEnumTypeIds    : IKeyValue<UInt32, Boolean>;
+    /// Subset of FEnumTypeIds populated ONLY from the cross-unit
+    /// $25 form ($8A prefix). These ids are the ones the compiler
+    /// embeds in $2A registry bodies as a secondary alias; scanning
+    /// only against this restricted set avoids false matches with
+    /// program-local enum ids (whose hi byte $2E coincidentally
+    /// appears in many class / record bodies).
+    FCrossUnitEnumIds: IKeyValue<UInt32, Boolean>;
+    /// Maps an enum alias id (the type id used in $2A registry
+    /// primary slot or in a class-field record) to the LIST of
+    /// canonical ids under which (typeId, ordinal) -> name pairs
+    /// might be stored in FEnumConstNames. Populated by
+    /// ScanTypeRegistry by scanning every 2-byte slot in a $2A
+    /// body and recording each one that's already a known enum --
+    /// so a primary like $0AA9 (TWindowState) ends up linked to
+    /// every secondary the compiler emitted across its uses
+    /// (e.g. $0295 in Vcl.Forms, $513D / $873E in other compile
+    /// contexts). The lookup tries each in turn.
+    FEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
+    /// Lowercased type-name -> primary 2-byte type id, populated
+    /// by ScanTypeRegistry from $2A entries. Used by the name-based
+    /// enum resolver: a field <c>F&lt;X&gt;</c> whose owning class
+    /// doesn't carry a usable Format-A type id can fall back to
+    /// looking up the enum named <c>T&lt;X&gt;</c> here, then
+    /// formatting the value through the standard enum path.
+    FTypeIdByName   : IKeyValue<String, UInt32>;
     FOnPhase     : TProc<String>;
     procedure DeriveClassParents;
     /// <summary>
@@ -273,13 +300,28 @@ type
     /// </summary>
     function  IsEnumTypeId(ATypeId: UInt32): Boolean;
     /// <summary>
+    ///   Resolves a type name (case-insensitive) to the 2-byte
+    ///   primary type id captured from its <c>$2A</c> registry entry.
+    ///   Returns 0 when the name isn't registered. Combine with
+    ///   <see cref="IsEnumTypeId"/> to confirm the resolved id
+    ///   belongs to an enum.
+    /// </summary>
+    function  FindTypeIdByName(const AName: String): UInt32;
+    /// <summary>
     ///   Resolves an enum (<c>ATypeId</c>, <c>AOrdinal</c>) pair to
     ///   the enum-constant's identifier name. Returns False when the
     ///   pair is not registered (either the type isn't an enum or
     ///   the ordinal is outside the declared element range).
     /// </summary>
+    /// <param name="AExpectedPrefix">
+    ///   When the primary id is aliased to multiple secondaries
+    ///   (the same primary appears in several $2A entries), pick
+    ///   the candidate whose constant name starts with this
+    ///   prefix. Empty string disables prefix filtering and
+    ///   re-applies the safer "ambiguous -> fail" behavior.
+    /// </param>
     function  TryGetEnumConstantName(ATypeId: UInt32; AOrdinal: Integer;
-      out AName: String): Boolean;
+      out AName: String; const AExpectedPrefix: String = ''): Boolean;
     /// <summary>
     ///   Returns the indices of every <c>skRecord</c> entry in
     ///   <c>FClasses</c> that has a member named
@@ -362,6 +404,9 @@ begin
   FRsmTypeIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
   FEnumConstNames := Collections.NewPlainKeyValue<String, String>;
   FEnumTypeIds    := Collections.NewPlainKeyValue<UInt32, Boolean>;
+  FTypeIdByName   := Collections.NewPlainKeyValue<String, UInt32>;
+  FEnumAliasesByPrimary := Collections.NewPlainKeyValue<UInt32, IList<UInt32>>;
+  FCrossUnitEnumIds := Collections.NewPlainKeyValue<UInt32, Boolean>;
 end;
 
 procedure TRsmLocalsReader.ReportPhase(const APhase: String);
@@ -1136,6 +1181,21 @@ var
     /// (typeId, ordinal) -> name lookups so the enum formatter can
     /// render <c>lsGreen (2)</c> instead of the raw byte value.
     ENUM_CONST_TAG = $25;
+    /// Tag for a type-registry entry. Carries the enum/class/record's
+    /// 2-byte primary type id immediately after the name. Multiple
+    /// $2A entries can share a primary id (one per compile context),
+    /// each carrying a different secondary at +7,+8. ScanSymbolStream
+    /// uses these for proximity-based alias linking with $25 records
+    /// (the secondary that an enum's constants actually share with
+    /// its $2A entry must precede the $2A by less than this bytewise
+    /// distance, since the Delphi RSM emits the constants right
+    /// before the type-registry entry).
+    TYPE_REGISTRY_TAG = $2A;
+    /// Largest gap (bytes) between an enum's last $25 constant record
+    /// and the $2A entry that registers its name. Observed gap in
+    /// DebugTarget is ~7.5KB (TThreadPriority); allow a generous
+    /// 16KB so production-sized binaries stay covered.
+    EnumProximityWindow = 16384;
     SCOPE_END = $63;
     AddrScanWindow = 32;
   var
@@ -1268,6 +1328,18 @@ var
     SeenLocalSinceProc := False;
     LocalIdx := 0;
     P := 0;
+    // Tracks the most recently scanned $25 cross-unit enum-constant
+    // record. The Delphi RSM emits all of an enum's $25 records
+    // back-to-back, then the $2A registry entry that names it. By
+    // remembering the last $25 secondary id and updating it on every
+    // new $25, we can bridge the $2A primary to the secondary the
+    // $25 records actually carry their constants under -- without
+    // depending on a single fixed body-offset slot, which differs
+    // across compile contexts (TWindowState has multiple $2A entries
+    // with different secondaries, only one of which holds the real
+    // constants).
+    var LastEnumSecondary: UInt32 := 0;
+    var LastEnumSecondaryPos: NativeInt := -1;
     while P + 2 < Sz do
     begin
       Tag := ByteAt(P);
@@ -1657,6 +1729,8 @@ var
       else if Tag = ENUM_CONST_TAG then
       begin
         NameLen := ByteAt(P + 1);
+        // Program-local form (8-byte body):
+        //   $25 NL Name $0A $00 $00 <typeId-lo> $2E $00 $00 <2*ord>
         if (NameLen >= 1) and (NameLen <= 64) and
            (P + 2 + Integer(NameLen) + 8 < Sz) and
            (ByteAt(P + 2 + NameLen)     = $0A) and
@@ -1676,6 +1750,88 @@ var
           FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
           P := P + 2 + Length(Name) + 8;
           Continue;
+        end;
+        // Cross-unit form (12-byte body, emitted for enums declared
+        // in another unit -- e.g. TThreadPriority from System.Classes):
+        //   $25 NL Name $8A $00 $00 <4-byte RVA> <typeId-lo> <typeId-hi>
+        //                <$00 $00> <2*ord>
+        // The high byte of typeId here is NOT $2E ($0441 for
+        // TThreadPriority); we record it verbatim so the enum
+        // registry covers cross-unit ids too.
+        if (NameLen >= 1) and (NameLen <= 64) and
+           (P + 2 + Integer(NameLen) + 12 < Sz) and
+           (ByteAt(P + 2 + NameLen)     = $8A) and
+           (ByteAt(P + 2 + NameLen + 1) = $00) and
+           (ByteAt(P + 2 + NameLen + 2) = $00) and
+           (ByteAt(P + 2 + NameLen + 9) = $00) and
+           (ByteAt(P + 2 + NameLen + 10) = $00) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          var EnumTypeId: UInt32 :=
+            UInt32(ByteAt(P + 2 + NameLen + 7)) or
+            (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
+          var Ordinal: Integer :=
+            Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
+          if EnumTypeId <> 0 then
+          begin
+            FEnumTypeIds[EnumTypeId] := True;
+            FCrossUnitEnumIds[EnumTypeId] := True;
+            FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+            LastEnumSecondary := EnumTypeId;
+            LastEnumSecondaryPos := P;
+          end;
+          P := P + 2 + Length(Name) + 12;
+          Continue;
+        end;
+      end
+      // Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
+      // Bridge the primary to any cross-unit enum secondary that
+      // appears as a 2-byte LE slot in this $2A's body. Filtering
+      // to cross-unit-only secondaries (those captured from the $25
+      // $8A-prefix form) avoids false matches with program-local
+      // enum ids whose $2E hi byte coincidentally appears in many
+      // class / record bodies. Multiple aliases may accumulate if
+      // the same primary appears in several $2A entries with
+      // different secondaries; downstream lookup falls back to
+      // <unknown> when those aliases disagree on the constant name,
+      // so wrong-name results never leak through.
+      else if Tag = TYPE_REGISTRY_TAG then
+      begin
+        NameLen := ByteAt(P + 1);
+        if (NameLen >= 2) and (NameLen <= 40) and
+           (P + 2 + Integer(NameLen) + 5 < Sz) and
+           (ByteAt(P + 2 + NameLen + 1) = $00) and
+           (ByteAt(P + 2 + NameLen + 2) = $00) then
+        begin
+          var Primary: UInt32 :=
+            UInt32(ByteAt(P + 2 + NameLen + 3)) or
+            (UInt32(ByteAt(P + 2 + NameLen + 4)) shl 8);
+          // Only the +7,+8 slot has been observed to consistently
+          // hold the secondary id in genuine enum $2A entries. Wider
+          // scans (any 2-byte pair in +5..+22) bring random byte
+          // pairs in class / record bodies into range and false-
+          // match cross-unit enum ids -- TOuter / TFloats end up
+          // tagged as enums when their body happens to contain a
+          // pair matching some registered enum's id.
+          if (Primary <> 0) and (P + 2 + NameLen + 8 < Sz) then
+          begin
+            var SecCandidate: UInt32 :=
+              UInt32(ByteAt(P + 2 + NameLen + 7)) or
+              (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
+            if (SecCandidate <> 0) and (SecCandidate <> Primary) and
+               FCrossUnitEnumIds.ContainsKey(SecCandidate) then
+            begin
+              FEnumTypeIds[Primary] := True;
+              var AliasList: IList<UInt32>;
+              if not FEnumAliasesByPrimary.TryGetValue(Primary, AliasList) then
+              begin
+                AliasList := Collections.NewPlainList<UInt32>;
+                FEnumAliasesByPrimary[Primary] := AliasList;
+              end;
+              if AliasList.IndexOf(SecCandidate) < 0 then
+                AliasList.Add(SecCandidate);
+            end;
+          end;
         end;
       end
       else if (Tag = SCOPE_END) and SeenLocalSinceProc then
@@ -1833,6 +1989,18 @@ var
           ClsIdx := FindClassByName(Name);
           if ClsIdx >= 0 then
             FRsmTypeIdToClassIdx[RawIdKey(Id)] := ClsIdx;
+          // Also record the (name, typeId) pair regardless of whether
+          // the name matches a class in FClasses. The name-based enum
+          // resolver in AutoDetectFormatterName uses this to translate
+          // a field name like FThreadPriority into a known enum's id
+          // when Format-A linking did not capture the field's type --
+          // the common cross-unit case in real-world binaries.
+          FTypeIdByName[LowerCase(Name)] := RawIdKey(Id);
+          // (Enum alias linking has moved to ScanSymbolStream's $2A
+          // handler, which uses proximity to the preceding $25 block
+          // and avoids the wrong-secondary picks the +7,+8 slot gave
+          // on real-world binaries where the same primary appears
+          // in multiple $2A entries with different secondaries.)
           P := P + 2 + NL + 5;
         end
         else
@@ -2362,17 +2530,67 @@ begin
   Result := FEnumTypeIds.ContainsKey(ATypeId);
 end;
 
+
+function TRsmLocalsReader.FindTypeIdByName(const AName: String): UInt32;
+begin
+  if not FTypeIdByName.TryGetValue(LowerCase(AName), Result) then
+    Result := 0;
+end;
+
 function TRsmLocalsReader.TryGetEnumConstantName(ATypeId: UInt32;
-  AOrdinal: Integer; out AName: String): Boolean;
+  AOrdinal: Integer; out AName: String; const AExpectedPrefix: String): Boolean;
+var
+  AliasList: IList<UInt32>;
+  OrdStr   : String;
+  I        : Integer;
+  Candidate: String;
 begin
   AName  := '';
   Result := False;
   if ATypeId = 0 then Exit;
-  // Composite key keeps the lookup O(1) without needing a nested map
-  // per type id -- on TFW-class binaries with thousands of enums that
-  // matters for memory footprint.
-  Result := FEnumConstNames.TryGetValue(
-    IntToStr(ATypeId) + ':' + IntToStr(AOrdinal), AName);
+  OrdStr := ':' + IntToStr(AOrdinal);
+  // First try the input id directly -- the $25 record may have
+  // registered constants under it.
+  if FEnumConstNames.TryGetValue(IntToStr(ATypeId) + OrdStr, AName) then
+    Exit(True);
+  if not FEnumAliasesByPrimary.TryGetValue(ATypeId, AliasList) then
+    Exit;
+  // The compiler emits multiple secondary ids per $2A entry; only one
+  // (or some) actually carries the $25-registered constants for this
+  // primary, others may belong to UNRELATED enums whose ids happened
+  // to appear in this entry's body. When the caller supplies an
+  // expected prefix (derived from the enum's type name via Delphi's
+  // PascalCase-acronym convention, e.g. TWindowState -> "ws"),
+  // return the first candidate whose name starts with that prefix --
+  // the right one out of the ambiguous set. Without a prefix hint,
+  // fall back to the safer "all agree or fail" rule that prevents
+  // misleading wrong-name results.
+  if AExpectedPrefix <> '' then
+  begin
+    for I := 0 to AliasList.Count - 1 do
+      if FEnumConstNames.TryGetValue(
+        IntToStr(AliasList[I]) + OrdStr, Candidate) then
+        if StartsText(AExpectedPrefix, Candidate) then
+        begin
+          AName  := Candidate;
+          Result := True;
+          Exit;
+        end;
+    Exit;
+  end;
+  for I := 0 to AliasList.Count - 1 do
+    if FEnumConstNames.TryGetValue(
+      IntToStr(AliasList[I]) + OrdStr, Candidate) then
+    begin
+      if AName = '' then
+        AName := Candidate
+      else if AName <> Candidate then
+      begin
+        AName  := '';
+        Exit(False);
+      end;
+    end;
+  Result := AName <> '';
 end;
 
 function TRsmLocalsReader.FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;

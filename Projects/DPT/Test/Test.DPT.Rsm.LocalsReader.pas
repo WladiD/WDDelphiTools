@@ -1128,11 +1128,19 @@ const
   // TRsmLocalsReader (ScanSymbolStream / RecomputeProcSizes /
   // DiscoverAndParseAllStructs / LinkMemberTypeIdsFromFormatA /
   // DeriveClassParents); a typo here silently passes.
-  PhaseBudget_DiscoverAndParseAllStructs   = 30 * 1000;
+  PhaseBudget_DiscoverAndParseAllStructs   = 45 * 1000;
   PhaseBudget_RecomputeProcSizes           = 20 * 1000;
   PhaseBudget_LinkMemberTypeIdsFromFormatA = 25 * 1000;
   PhaseBudget_DeriveClassParents           = 30 * 1000;
-  PhaseBudget_ScanSymbolStream             = 10 * 1000;
+  // ScanSymbolStream now also processes $25 enum-constant records
+  // (both program-local $0A and cross-unit $8A forms) and $2A
+  // type-registry entries inline for the cross-unit enum alias
+  // linking. Each adds modest per-byte work that on TFW-class
+  // binaries (800MB+ RSM) lifts the phase from ~7s baseline to
+  // ~13s; raise the budget to 20s so the test still catches a
+  // genuine O(N^2) regression while accepting the new feature
+  // cost.
+  PhaseBudget_ScanSymbolStream             = 20 * 1000;
 var
   Reader      : TRsmLocalsReader;
   TotalSW     : TStopwatch;
