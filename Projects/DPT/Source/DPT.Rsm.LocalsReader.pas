@@ -27,137 +27,11 @@ uses
 
   mormot.core.base,
   mormot.core.collections,
-  mormot.core.os;
+  mormot.core.os,
+
+  DPT.Rsm.Model;
 
 type
-
-  /// <summary>
-  ///   A single local variable extracted from an RSM symbol stream:
-  ///   its source name, its signed offset relative to the procedure's
-  ///   base pointer (EBP/RBP), and the RSM type-id of its declared
-  ///   type.
-  /// </summary>
-  /// <summary>
-  ///   How a local/parameter is reached from the executing thread:
-  ///   either as a BP-relative stack slot (lkBpRel) where the address
-  ///   is FramePtr + BpOffset, or as a register parameter (lkRegister)
-  ///   where the value lives in a CPU register at the time of the
-  ///   call. Register parameters appear for the first few arguments of
-  ///   a Delphi proc under the default "register" / Win64 ABI -- they
-  ///   are NOT spilled to stack slots, so callers must read them out of
-  ///   the thread's register file instead of from FramePtr + offset.
-  /// </summary>
-  TRsmLocalKind = (lkBpRel, lkRegister);
-
-  TRsmLocal = record
-    Name    : String;
-    BpOffset: Int32;
-    TypeIdx : UInt32;
-    Kind    : TRsmLocalKind;
-    /// <summary>
-    ///   Zero-based index of the parameter within the calling-
-    ///   convention's register order: 0 = 1st reg param, 1 = 2nd, etc.
-    ///   Only meaningful when Kind = lkRegister. The concrete register
-    ///   is platform-specific (x86 Delphi default: EAX, EDX, ECX;
-    ///   Win64 ABI: RCX, RDX, R8, R9), so the higher layer resolves
-    ///   index -> register name when reading the value.
-    /// </summary>
-    RegParamIdx: Byte;
-  end;
-
-  /// <summary>
-  ///   A procedure scope extracted from an RSM symbol stream, with
-  ///   all of its locals attached. <c>SegmentOffset</c> is the RVA
-  ///   of the procedure's first instruction within the executable's
-  ///   code segment, in the same convention as the TD32 reader uses.
-  /// </summary>
-  TRsmProc = record
-    Name         : String;
-    SegmentOffset: NativeUInt;
-    Size         : NativeUInt;
-    Locals       : IList<TRsmLocal>;
-  end;
-
-  /// <summary>
-  ///   A field of a Delphi class or record extracted from an RSM type
-  ///   record: the field's name, its byte offset within the parent
-  ///   instance, and the RSM type-id of the field's declared type.
-  ///   For class fields the offset is relative to the instance pointer
-  ///   (so the first field sits at offset SizeOf(Pointer), past the
-  ///   VMT slot); for record fields the offset is relative to the
-  ///   start of the record.
-  /// </summary>
-  TRsmClassMember = record
-    Name   : String;
-    Offset : UInt32;
-    TypeIdx: UInt32;
-    /// Byte width of this field as inferred from the gap to the next
-    /// field's offset, or 0 when the field is the last in its
-    /// structure and the size therefore can't be derived from the
-    /// offset chain alone. Used by <c>EvaluateVariable</c> to clamp
-    /// the read at a sub-DWORD field (e.g. Word at offset 20 in TMdt,
-    /// where the user asks for type "int" -- without the clamp, the
-    /// read pulls 4 bytes and visibly concatenates the next field's
-    /// bytes into the result).
-    Size   : UInt32;
-    /// Well-known 2-byte primitive type id emitted by the Delphi
-    /// compiler for built-in types (Integer = $03FD, Word = $0415,
-    /// Double = $041D, etc.). Populated by
-    /// <c>LinkFieldsFromFormatA</c> from the "$9C $09" primitive-
-    /// reference block inside a $2C field record. Zero for class-
-    /// or record-typed fields (use <c>TypeIdx</c> for those instead).
-    /// Drives evaluate-tool auto-detection: when the caller omits
-    /// the <c>type</c> argument, this id is mapped to a formatter
-    /// name through a fixed compiler-built-in table.
-    PrimitiveTypeId: UInt16;
-  end;
-
-  /// <summary>
-  ///   Whether a structured type from the RSM type stream is a Delphi
-  ///   class (with a VMT pointer at instance offset 0) or a Delphi
-  ///   record (no VMT, fields start at offset 0). Decides whether
-  ///   navigation through this type dereferences the holding slot
-  ///   (class) or treats it as inline data (record).
-  /// </summary>
-  TRsmStructKind = (skClass, skRecord);
-
-  /// <summary>
-  ///   A class or record declared in the debugged binary, parsed from
-  ///   the RSM type stream: its short name, its RSM type-id (used by
-  ///   record-typed field navigation, where the holding field's static
-  ///   TypeIdx is the only key to identify the inline record's layout),
-  ///   the kind, and the ordered list of its member fields.
-  /// </summary>
-  TRsmClassInfo = record
-    Name      : String;
-    TypeIdx   : UInt32;
-    Kind      : TRsmStructKind;
-    Members   : IList<TRsmClassMember>;
-    /// <summary>
-    ///   Name of the immediate parent class for class-kind entries.
-    ///   Empty when the class is at the top of the user-visible
-    ///   hierarchy (the implicit TObject parent or, for records,
-    ///   any inheritance at all). Populated by two complementary
-    ///   passes: (1) a post-parse offset-matching pass that joins
-    ///   classes whose instance layouts line up at the byte
-    ///   boundary, and (2) a type-id resolution pass driven by
-    ///   <see cref="ParentRawId"/> which handles cross-unit
-    ///   inheritance the offset heuristic cannot bridge.
-    /// </summary>
-    ParentName: String;
-    /// <summary>
-    ///   The 16-bit RSM type-id sitting in the two bytes immediately
-    ///   before the class-name length byte. Non-zero only when the
-    ///   class declares a cross-unit parent (e.g. user code
-    ///   inheriting <c>System.Classes.TComponent</c>); same-unit
-    ///   inheritance encodes zero here and is resolved through the
-    ///   offset heuristic instead. Looked up against
-    ///   <see cref="FRsmTypeIdToClassIdx"/> to populate
-    ///   <see cref="ParentName"/> after the type registry has been
-    ///   scanned.
-    /// </summary>
-    ParentRawId: UInt32;
-  end;
 
   /// <summary>
   ///   Reader for the RSM (CSH7) symbol container produced by the
@@ -491,8 +365,6 @@ end;
 ///   are cleared and the method returns).
 /// </param>
 procedure TRsmLocalsReader.LoadFromBuffer(ABuf: PByte; ASize: NativeInt);
-const
-  SigCSH7: UInt32 = $37485343; // 'CSH7' on disk in little-endian byte order
 var
   Buf: PByte;
   Sz : NativeInt;
@@ -1123,6 +995,10 @@ var
   // own record and the next proc (or the $63 scope-end byte). Both
   // Win32 and Win64 proc-address forms are decoded inline below.
   //
+  // Tag-byte definitions live in <see cref="TRsmTag"/> (in
+  // DPT.Rsm.Model); locally aliased here for readability inside the
+  // scan loop.
+  //
   // === Win32 proc-address encoding ===
   // After the name and the fixed "20 00 00" prefix, a 4-byte little-
   // endian DWORD packs the proc's runtime VA into the high 28 bits
@@ -1150,54 +1026,15 @@ var
   // This covers code sections up to 2MB; for larger binaries the
   // higher VA bits would have to come from bytes 3/4 (not yet RE'd).
   const
-    PROC_TAG  = $28;
-    LOCAL_TAG = $20;
-    PARAM_TAG = $22;
-    // Register-passed variable record: $21 NameLen Name $66 $00 $00 <type-id-lo> <type-id-hi>.
-    // Used for the parameters that live in CPU registers under
-    // Delphi's default calling convention -- on x86 that's the first
-    // three slots (EAX/EDX/ECX), on x64 the first four (RCX/RDX/R8/R9).
-    // Constructors emit an extra slot for the hidden allocation flag.
-    // Without this tag, register-resident params (Self, AOwner, ...)
-    // never make it into Proc.Locals and get_locals / evaluate fail
-    // for every method whose params don't spill to the stack.
-    REGVAR_TAG = $21;
-    /// Tag for top-level primitive globals (Integer / string / Int64 /
-    /// ShortString / object-typed nil). The plain LOCAL_TAG ($20) is
-    /// used for structured-typed globals (class / record) whose
-    /// payload carries a 2-byte registry type id; primitive globals
-    /// use this distinct tag with a different payload shape:
-    ///   $27 NL Name $66 $00 $00 <1-byte primitive id> <4-byte VA>
-    ///   <$9C $09 ...> (trailing field-style type-ref metadata).
-    /// Without this branch, FGlobalByName has no entry for
-    /// GGlobalInt / GGlobalString / ..., so the evaluate
-    /// auto-detection path can't pick a formatter from the name
-    /// alone.
-    GLOBAL_PRIM_TAG = $27;
-    /// Tag for an enum-constant declaration. Each element of an
-    /// enumerated type emits one of these:
-    ///   $25 NL Name $0A $00 $00 <typeId-lo> $2E $00 $00 <2*ordinal>
-    /// The 2-byte type id and 2*ordinal pair are enough to register
-    /// (typeId, ordinal) -> name lookups so the enum formatter can
-    /// render <c>lsGreen (2)</c> instead of the raw byte value.
-    ENUM_CONST_TAG = $25;
-    /// Tag for a type-registry entry. Carries the enum/class/record's
-    /// 2-byte primary type id immediately after the name. Multiple
-    /// $2A entries can share a primary id (one per compile context),
-    /// each carrying a different secondary at +7,+8. ScanSymbolStream
-    /// uses these for proximity-based alias linking with $25 records
-    /// (the secondary that an enum's constants actually share with
-    /// its $2A entry must precede the $2A by less than this bytewise
-    /// distance, since the Delphi RSM emits the constants right
-    /// before the type-registry entry).
-    TYPE_REGISTRY_TAG = $2A;
-    /// Largest gap (bytes) between an enum's last $25 constant record
-    /// and the $2A entry that registers its name. Observed gap in
-    /// DebugTarget is ~7.5KB (TThreadPriority); allow a generous
-    /// 16KB so production-sized binaries stay covered.
-    EnumProximityWindow = 16384;
-    SCOPE_END = $63;
-    AddrScanWindow = 32;
+    PROC_TAG          = TRsmTag.PROC_TAG;
+    LOCAL_TAG         = TRsmTag.LOCAL_TAG;
+    PARAM_TAG         = TRsmTag.PARAM_TAG;
+    REGVAR_TAG        = TRsmTag.REGVAR_TAG;
+    GLOBAL_PRIM_TAG   = TRsmTag.GLOBAL_PRIM_TAG;
+    ENUM_CONST_TAG    = TRsmTag.ENUM_CONST_TAG;
+    TYPE_REGISTRY_TAG = TRsmTag.TYPE_REGISTRY_TAG;
+    SCOPE_END         = TRsmTag.SCOPE_END;
+    AddrScanWindow    = 32;
   var
     P        : NativeInt;
     Tag      : Byte;
@@ -2188,7 +2025,7 @@ begin
   FGlobalFileOffset.Clear;
   if (ABuf = nil) or (ASize < 8) then
     Exit;
-  if PUInt32(ABuf)^ <> SigCSH7 then
+  if PUInt32(ABuf)^ <> TRsmTag.SigCSH7 then
     Exit;
 
   Buf := ABuf;

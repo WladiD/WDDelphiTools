@@ -19,6 +19,7 @@ uses
   mormot.core.collections,
 
   DPT.MapFileParser,
+  DPT.Rsm.Model,
   DPT.Rsm.LocalsReader;
 
 function OpenThread(dwDesiredAccess: Cardinal; bInheritHandle: BOOL; dwThreadId: Cardinal): THandle; stdcall; external kernel32;

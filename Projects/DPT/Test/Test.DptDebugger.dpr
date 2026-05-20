@@ -12,7 +12,8 @@ uses
   Test.DPT.MapFileParser,
   Test.DPT.McpFixture,
   Test.DPT.MCP.Server,
-  Test.DPT.Rsm.LocalsReader;
+  Test.DPT.Rsm.LocalsReader,
+  Test.DPT.Rsm.Model;
 
 var
   runner: ITestRunner;

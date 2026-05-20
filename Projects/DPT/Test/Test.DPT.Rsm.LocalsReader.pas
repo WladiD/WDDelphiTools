@@ -23,6 +23,7 @@ uses
   mormot.core.collections,
 
   DPT.MapFileParser,
+  DPT.Rsm.Model,
   DPT.Rsm.LocalsReader;
 
 type
