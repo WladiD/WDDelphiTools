@@ -11,9 +11,10 @@ unit Test.DPT.Rsm.Reader;
 // these tests verify the value the reader's post-process passes
 // (Format-A linking, class-parent derivation, cross-unit type-id
 // resolution) add on top of that data via the Find/Is/TryGet API.
-// Test.DPT.Rsm.LocalsReader exercises the wider behavioural surface
-// through the legacy alias and is the regression fence; here we
-// focus on what the facade itself contributes.
+// Test.DPT.Rsm.LocalsReader (TRsmReaderLegacyTests) exercises the
+// wider behavioural surface against the same TRsmReader class and
+// is the regression fence; here we focus on what the facade itself
+// contributes.
 
 interface
 

@@ -9,7 +9,7 @@ unit Test.DPT.Rsm.Scanner;
 // Direct tests for TRsmScanner: loads the DebugTarget .rsm fixture
 // and asserts the raw scan output (procs, classes, globals, enum
 // constants, type aliases). These tests bypass the
-// TRsmLocalsReader facade so a regression in the byte-stream walk
+// TRsmReader facade so a regression in the byte-stream walk
 // can be pinned to the scanner and not the post-process passes
 // that sit on top.
 

@@ -24,12 +24,12 @@ uses
 
   DPT.MapFileParser,
   DPT.Rsm.Model,
-  DPT.Rsm.LocalsReader;
+  DPT.Rsm.Reader;
 
 type
 
   [TestFixture]
-  TRsmLocalsReaderTests = class
+  TRsmReaderLegacyTests = class
   private
     function ResolveRsmPath(AUse64Bit: Boolean): String;
     function ResolveExePath(AUse64Bit: Boolean): String;
@@ -131,7 +131,7 @@ uses
   System.Classes,
   System.Diagnostics;
 
-function TRsmLocalsReaderTests.ResolveExePath(AUse64Bit: Boolean): String;
+function TRsmReaderLegacyTests.ResolveExePath(AUse64Bit: Boolean): String;
 var
   Sub: String;
 begin
@@ -144,12 +144,12 @@ begin
     Result := ExpandFileName(Sub + '\DebugTarget.exe');
 end;
 
-function TRsmLocalsReaderTests.ResolveRsmPath(AUse64Bit: Boolean): String;
+function TRsmReaderLegacyTests.ResolveRsmPath(AUse64Bit: Boolean): String;
 begin
   Result := ChangeFileExt(ResolveExePath(AUse64Bit), '.rsm');
 end;
 
-procedure TRsmLocalsReaderTests.TestRsmFilePresent;
+procedure TRsmReaderLegacyTests.TestRsmFilePresent;
 var
   Path: String;
 begin
@@ -167,7 +167,7 @@ begin
   {$ENDIF}
 end;
 
-procedure TRsmLocalsReaderTests.TestRsmStartsWithCsh7Magic;
+procedure TRsmReaderLegacyTests.TestRsmStartsWithCsh7Magic;
 var
   FS  : TFileStream;
   Buf : array[0..3] of Byte;
@@ -187,15 +187,15 @@ begin
   Assert.AreEqual(Integer($37), Integer(Buf[3]), 'RSM byte 3 must be ''7''');
 end;
 
-procedure TRsmLocalsReaderTests.TestLoadFromMissingFileLeavesEmpty;
+procedure TRsmReaderLegacyTests.TestLoadFromMissingFileLeavesEmpty;
 var
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
   // Loading a non-existent EXE path must succeed silently (no .rsm
   // sidecar -> empty reader). The TD32 reader raises on a missing
   // file because it reads the EXE itself; the RSM reader skips
   // gracefully when the sidecar is absent.
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile('Z:\does-not-exist\nope.exe');
     Assert.IsTrue(Reader.Procs.Count = 0);
@@ -205,16 +205,16 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.TestLoadFromBytesWithoutSignatureLeavesEmpty;
+procedure TRsmReaderLegacyTests.TestLoadFromBytesWithoutSignatureLeavesEmpty;
 var
   Buf   : TBytes;
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
   SetLength(Buf, 1024);
   FillChar(Buf[0], Length(Buf), 0);
   Buf[0] := Ord('M');
   Buf[1] := Ord('Z');
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromBytes(Buf);
     Assert.IsTrue(Reader.Procs.Count = 0);
@@ -224,11 +224,11 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestParsesProcedures(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestParsesProcedures(AUse64Bit: Boolean);
 var
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     Assert.IsTrue(Reader.Procs.Count > 0,
@@ -244,9 +244,9 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestParsesLocalsForLocalsProcedure(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestParsesLocalsForLocalsProcedure(AUse64Bit: Boolean);
 var
-  Reader   : TRsmLocalsReader;
+  Reader   : TRsmReader;
   ProcIdx  : Integer;
   Proc     : TRsmProc;
   HasA     : Boolean;
@@ -254,7 +254,7 @@ var
   HasC     : Boolean;
   I        : Integer;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('LocalsProcedure');
@@ -279,16 +279,16 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestLocalsHaveDistinctOffsets(AUse64Bit: Boolean);
 var
-  Reader : TRsmLocalsReader;
+  Reader : TRsmReader;
   ProcIdx: Integer;
   Proc   : TRsmProc;
   Seen   : TArray<Int32>;
   I, J   : Integer;
   RealOffsets, SynthOffsets: Integer;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('LocalsProcedure');
@@ -325,11 +325,11 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestFindProcByName(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestFindProcByName(AUse64Bit: Boolean);
 var
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     Assert.IsTrue(Reader.FindProcByName('localsprocedure') >= 0,
@@ -341,13 +341,13 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestParsesClassMembers(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestParsesClassMembers(AUse64Bit: Boolean);
 var
-  Reader     : TRsmLocalsReader;
+  Reader     : TRsmReader;
   Member     : TRsmClassMember;
   ExpectedPtr: UInt32;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -384,14 +384,14 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestParsesRecordMembers(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestParsesRecordMembers(AUse64Bit: Boolean);
 var
-  Reader  : TRsmLocalsReader;
+  Reader  : TRsmReader;
   Member  : TRsmClassMember;
   PointIdx: Integer;
   RectIdx : Integer;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -441,14 +441,14 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestRecordTypeIdxRoundTrip(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestRecordTypeIdxRoundTrip(AUse64Bit: Boolean);
 var
-  Reader  : TRsmLocalsReader;
+  Reader  : TRsmReader;
   PointIdx: Integer;
   TypeIdx : UInt32;
   Member  : TRsmClassMember;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -472,9 +472,9 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestClassFieldTypeIdxLinking(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestClassFieldTypeIdxLinking(AUse64Bit: Boolean);
 var
-  Reader        : TRsmLocalsReader;
+  Reader        : TRsmReader;
   WithRecIdx    : Integer;
   Members       : IList<TRsmClassMember>;
   I             : Integer;
@@ -491,7 +491,7 @@ begin
   // is itself a known class or record must have Member.TypeIdx set
   // to that type's surrogate. This is what removes the
   // size+name-heuristic dependency in EvaluateVariable's dotted walk.
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -534,26 +534,26 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.TestClassFieldTypeIdxLinking32;          begin DoTestClassFieldTypeIdxLinking(False);         end;
+procedure TRsmReaderLegacyTests.TestClassFieldTypeIdxLinking32;          begin DoTestClassFieldTypeIdxLinking(False);         end;
 {$IFDEF CPUX64}
-procedure TRsmLocalsReaderTests.TestClassFieldTypeIdxLinking64;          begin DoTestClassFieldTypeIdxLinking(True);          end;
+procedure TRsmReaderLegacyTests.TestClassFieldTypeIdxLinking64;          begin DoTestClassFieldTypeIdxLinking(True);          end;
 {$ENDIF}
 
-procedure TRsmLocalsReaderTests.TestParsesProcedures32;                 begin DoTestParsesProcedures(False);                 end;
-procedure TRsmLocalsReaderTests.TestParsesLocalsForLocalsProcedure32;   begin DoTestParsesLocalsForLocalsProcedure(False);   end;
-procedure TRsmLocalsReaderTests.TestLocalsHaveDistinctOffsets32;        begin DoTestLocalsHaveDistinctOffsets(False);        end;
-procedure TRsmLocalsReaderTests.TestFindProcByName32;                   begin DoTestFindProcByName(False);                   end;
-procedure TRsmLocalsReaderTests.TestParsesClassMembers32;               begin DoTestParsesClassMembers(False);               end;
-procedure TRsmLocalsReaderTests.TestParsesRecordMembers32;              begin DoTestParsesRecordMembers(False);              end;
-procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip32;           begin DoTestRecordTypeIdxRoundTrip(False);           end;
+procedure TRsmReaderLegacyTests.TestParsesProcedures32;                 begin DoTestParsesProcedures(False);                 end;
+procedure TRsmReaderLegacyTests.TestParsesLocalsForLocalsProcedure32;   begin DoTestParsesLocalsForLocalsProcedure(False);   end;
+procedure TRsmReaderLegacyTests.TestLocalsHaveDistinctOffsets32;        begin DoTestLocalsHaveDistinctOffsets(False);        end;
+procedure TRsmReaderLegacyTests.TestFindProcByName32;                   begin DoTestFindProcByName(False);                   end;
+procedure TRsmReaderLegacyTests.TestParsesClassMembers32;               begin DoTestParsesClassMembers(False);               end;
+procedure TRsmReaderLegacyTests.TestParsesRecordMembers32;              begin DoTestParsesRecordMembers(False);              end;
+procedure TRsmReaderLegacyTests.TestRecordTypeIdxRoundTrip32;           begin DoTestRecordTypeIdxRoundTrip(False);           end;
 
-procedure TRsmLocalsReaderTests.DoTestFindProcContaining(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestFindProcContaining(AUse64Bit: Boolean);
 var
-  Reader : TRsmLocalsReader;
+  Reader : TRsmReader;
   ProcIdx: Integer;
   Proc   : TRsmProc;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('LocalsProcedure');
@@ -574,15 +574,15 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.TestFindProcContaining32;                begin DoTestFindProcContaining(False);               end;
+procedure TRsmReaderLegacyTests.TestFindProcContaining32;                begin DoTestFindProcContaining(False);               end;
 
-procedure TRsmLocalsReaderTests.DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestDiscoversDerivedClass(AUse64Bit: Boolean);
 var
-  Reader     : TRsmLocalsReader;
+  Reader     : TRsmReader;
   Member     : TRsmClassMember;
   ExpectedPtr: UInt32;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -607,13 +607,13 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestDerivedInheritsBaseFields(AUse64Bit: Boolean);
 var
-  Reader     : TRsmLocalsReader;
+  Reader     : TRsmReader;
   Member     : TRsmClassMember;
   ExpectedPtr: UInt32;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -643,14 +643,14 @@ end;
 ///   offset-collision heuristic; testing each level pinpoints which
 ///   hop drops.
 /// </summary>
-procedure TRsmLocalsReaderTests.DoTestDeepDerivedInheritsAllAncestors(
+procedure TRsmReaderLegacyTests.DoTestDeepDerivedInheritsAllAncestors(
   AUse64Bit: Boolean);
 var
-  Reader     : TRsmLocalsReader;
+  Reader     : TRsmReader;
   Member     : TRsmClassMember;
   ExpectedPtr: UInt32;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -706,14 +706,14 @@ end;
 ///   AMinStartOff cap excludes to prevent cross-class leakage).
 ///   That gap is the next work item for non-TComponent hierarchies.
 /// </summary>
-procedure TRsmLocalsReaderTests.DoTestNonComponentRtlInheritance(
+procedure TRsmReaderLegacyTests.DoTestNonComponentRtlInheritance(
   AUse64Bit: Boolean);
 var
-  Reader   : TRsmLocalsReader;
+  Reader   : TRsmReader;
   Member   : TRsmClassMember;
   StrIdx   : Integer;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
 
@@ -737,7 +737,7 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
 // Exercises BPRel decoding against a deliberately diverse set of
 // local types (Variant, IInterface, dynamic array, record, Double,
 // Boolean, Char, set, pointer, class). Every such local must
@@ -746,14 +746,14 @@ procedure TRsmLocalsReaderTests.DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolea
 // encoding form it falls back to a synthesized far-below-zero
 // value, which this test fails on so the gap surfaces.
 var
-  Reader : TRsmLocalsReader;
+  Reader : TRsmReader;
   ProcIdx: Integer;
   Proc   : TRsmProc;
   I      : Integer;
   Synth  : Integer;
   Names  : String;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('EdgeCaseLocalsProcedure');
@@ -800,14 +800,14 @@ end;
 ///   fails on a missing BpOffset when the agent asks for the
 ///   parameter value.
 /// </remarks>
-procedure TRsmLocalsReaderTests.DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
+procedure TRsmReaderLegacyTests.DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
 var
-  Reader     : TRsmLocalsReader;
+  Reader     : TRsmReader;
   ProcIdx, I : Integer;
   Proc       : TRsmProc;
   Found      : Boolean;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(AUse64Bit));
     ProcIdx := Reader.FindProcByName('OpenArrayStringProcedure');
@@ -830,12 +830,12 @@ begin
   end;
 end;
 
-procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
-procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
-procedure TRsmLocalsReaderTests.TestDeepDerivedInheritsAllAncestors32;   begin DoTestDeepDerivedInheritsAllAncestors(False);  end;
-procedure TRsmLocalsReaderTests.TestNonComponentRtlInheritance32;        begin DoTestNonComponentRtlInheritance(False);       end;
-procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
-procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
+procedure TRsmReaderLegacyTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
+procedure TRsmReaderLegacyTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
+procedure TRsmReaderLegacyTests.TestDeepDerivedInheritsAllAncestors32;   begin DoTestDeepDerivedInheritsAllAncestors(False);  end;
+procedure TRsmReaderLegacyTests.TestNonComponentRtlInheritance32;        begin DoTestNonComponentRtlInheritance(False);       end;
+procedure TRsmReaderLegacyTests.TestEdgeCaseLocalsAllDecoded32;          begin DoTestEdgeCaseLocalsAllDecoded(False);         end;
+procedure TRsmReaderLegacyTests.TestOpenArrayParamRecognized32;          begin DoTestOpenArrayParamRecognized(False);         end;
 
 /// <summary>
 ///   Reader-level pinpoint for the global-record dotted-walk path.
@@ -858,8 +858,8 @@ procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized32;          begin D
 ///   is the registry-backed lookup that matches what the dotted-
 ///   walk in <c>TDebugger.EvaluateVariable</c> uses.
 /// </remarks>
-procedure TRsmLocalsReaderTests.TestFindGlobalTypeIdx32;
-  procedure CheckGlobalResolvesTo(Reader: TRsmLocalsReader;
+procedure TRsmReaderLegacyTests.TestFindGlobalTypeIdx32;
+  procedure CheckGlobalResolvesTo(Reader: TRsmReader;
     const AGlobalName, AExpectedRecord: String);
   var
     TypeIdx : UInt32;
@@ -887,9 +887,9 @@ procedure TRsmLocalsReaderTests.TestFindGlobalTypeIdx32;
         [AGlobalName, TypeIdx]));
   end;
 var
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(ResolveExePath(False));
     CheckGlobalResolvesTo(Reader, 'GGlobalMixed', 'TMixedRec');
@@ -926,10 +926,10 @@ end;
 ///   Skipped silently when the TFW fixture is missing so the build
 ///   stays green on clean machines.
 /// </remarks>
-procedure TRsmLocalsReaderTests.TestTfwGlobalRecordResolves;
+procedure TRsmReaderLegacyTests.TestTfwGlobalRecordResolves;
 const
   TfwExePath = 'C:\MSE\TFW\TFW.exe';
-  procedure CheckFieldUniquelyOwnedBy(Reader: TRsmLocalsReader;
+  procedure CheckFieldUniquelyOwnedBy(Reader: TRsmReader;
     const AFieldName, AExpectedRecord: String);
   var
     Hits: TArray<Integer>;
@@ -945,7 +945,7 @@ const
         [AFieldName, AExpectedRecord]));
   end;
 var
-  Reader: TRsmLocalsReader;
+  Reader: TRsmReader;
 begin
   if not TFile.Exists(TfwExePath) then
   begin
@@ -958,7 +958,7 @@ begin
     Exit;
   end;
 
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     Reader.LoadFromFile(TfwExePath);
 
@@ -1112,7 +1112,7 @@ end;
 ///   proc count, class count) trips first instead of silently
 ///   passing every budget on a too-easy fixture.
 /// </remarks>
-procedure TRsmLocalsReaderTests.TestTfwLoadDiagnostic;
+procedure TRsmReaderLegacyTests.TestTfwLoadDiagnostic;
 const
   TfwExePath = 'C:\MSE\TFW\TFW.exe';
   // Total budget: the post-fix load is ~24 s on the developer
@@ -1126,7 +1126,7 @@ const
   // in the struct scan) trips its own assertion with a clear
   // message. Each is roughly 5-10x the observed post-fix value.
   // Names must match the strings emitted by OnPhase in
-  // TRsmLocalsReader (ScanSymbolStream / RecomputeProcSizes /
+  // TRsmReader (ScanSymbolStream / RecomputeProcSizes /
   // DiscoverAndParseAllStructs / LinkMemberTypeIdsFromFormatA /
   // DeriveClassParents); a typo here silently passes.
   PhaseBudget_DiscoverAndParseAllStructs   = 45 * 1000;
@@ -1143,7 +1143,7 @@ const
   // cost.
   PhaseBudget_ScanSymbolStream             = 20 * 1000;
 var
-  Reader      : TRsmLocalsReader;
+  Reader      : TRsmReader;
   TotalSW     : TStopwatch;
   PhaseSW     : TStopwatch;
   PhaseTable  : TStringList;
@@ -1196,7 +1196,7 @@ begin
 
   PhaseTable := TStringList.Create;
   PhaseTimings := Collections.NewPlainKeyValue<String, Int64>;
-  Reader := TRsmLocalsReader.Create;
+  Reader := TRsmReader.Create;
   try
     PhaseSW := TStopwatch.StartNew;
     Reader.OnPhase :=
@@ -1353,21 +1353,21 @@ begin
 end;
 
 {$IFDEF CPUX64}
-procedure TRsmLocalsReaderTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
-procedure TRsmLocalsReaderTests.TestParsesLocalsForLocalsProcedure64;   begin DoTestParsesLocalsForLocalsProcedure(True);    end;
-procedure TRsmLocalsReaderTests.TestLocalsHaveDistinctOffsets64;        begin DoTestLocalsHaveDistinctOffsets(True);         end;
-procedure TRsmLocalsReaderTests.TestFindProcByName64;                   begin DoTestFindProcByName(True);                    end;
-procedure TRsmLocalsReaderTests.TestFindProcContaining64;               begin DoTestFindProcContaining(True);                end;
-procedure TRsmLocalsReaderTests.TestParsesClassMembers64;               begin DoTestParsesClassMembers(True);                end;
-procedure TRsmLocalsReaderTests.TestParsesRecordMembers64;              begin DoTestParsesRecordMembers(True);               end;
-procedure TRsmLocalsReaderTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;
-procedure TRsmLocalsReaderTests.TestDiscoversDerivedClass64;            begin DoTestDiscoversDerivedClass(True);             end;
-procedure TRsmLocalsReaderTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
-procedure TRsmLocalsReaderTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
-procedure TRsmLocalsReaderTests.TestOpenArrayParamRecognized64;         begin DoTestOpenArrayParamRecognized(True);          end;
+procedure TRsmReaderLegacyTests.TestParsesProcedures64;                 begin DoTestParsesProcedures(True);                  end;
+procedure TRsmReaderLegacyTests.TestParsesLocalsForLocalsProcedure64;   begin DoTestParsesLocalsForLocalsProcedure(True);    end;
+procedure TRsmReaderLegacyTests.TestLocalsHaveDistinctOffsets64;        begin DoTestLocalsHaveDistinctOffsets(True);         end;
+procedure TRsmReaderLegacyTests.TestFindProcByName64;                   begin DoTestFindProcByName(True);                    end;
+procedure TRsmReaderLegacyTests.TestFindProcContaining64;               begin DoTestFindProcContaining(True);                end;
+procedure TRsmReaderLegacyTests.TestParsesClassMembers64;               begin DoTestParsesClassMembers(True);                end;
+procedure TRsmReaderLegacyTests.TestParsesRecordMembers64;              begin DoTestParsesRecordMembers(True);               end;
+procedure TRsmReaderLegacyTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;
+procedure TRsmReaderLegacyTests.TestDiscoversDerivedClass64;            begin DoTestDiscoversDerivedClass(True);             end;
+procedure TRsmReaderLegacyTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
+procedure TRsmReaderLegacyTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
+procedure TRsmReaderLegacyTests.TestOpenArrayParamRecognized64;         begin DoTestOpenArrayParamRecognized(True);          end;
 {$ENDIF}
 
 initialization
-  TDUnitX.RegisterTestFixture(TRsmLocalsReaderTests);
+  TDUnitX.RegisterTestFixture(TRsmReaderLegacyTests);
 
 end.

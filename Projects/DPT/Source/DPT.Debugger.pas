@@ -20,7 +20,7 @@ uses
 
   DPT.MapFileParser,
   DPT.Rsm.Model,
-  DPT.Rsm.LocalsReader;
+  DPT.Rsm.Reader;
 
 function OpenThread(dwDesiredAccess: Cardinal; bInheritHandle: BOOL; dwThreadId: Cardinal): THandle; stdcall; external kernel32;
 
@@ -196,7 +196,7 @@ type
     FLastExceptionFirstChance: Boolean;
     FLastThreadHit           : THandle;
     FLastThreadId            : Cardinal;
-    FLocalsReader            : TRsmLocalsReader;
+    FLocalsReader            : TRsmReader;
     FMapScanner              : TMapFileParser;
     FOutputBuffer            : IList<TCapturedOutputLine>;
     FOutputLock              : TCriticalSection;
@@ -382,7 +382,7 @@ type
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
     property  LastThreadHit: THandle read FLastThreadHit;
     property  LastThreadId: Cardinal read FLastThreadId;
-    property  LocalsReader: TRsmLocalsReader read FLocalsReader;
+    property  LocalsReader: TRsmReader read FLocalsReader;
     property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
@@ -1167,7 +1167,7 @@ begin
   FreeAndNil(FLocalsReader);
   if not FileExists(AExePath) then
     Exit;
-  FLocalsReader := TRsmLocalsReader.Create;
+  FLocalsReader := TRsmReader.Create;
   FLocalsReader.OnPhase := AOnPhase;
   try
     FLocalsReader.LoadFromFile(AExePath);
@@ -1180,7 +1180,7 @@ end;
 
 procedure TDebugger.PatchRsmProcAddressesFromMap;
 // Both Win32 and Win64 proc-address forms are now decoded in
-// TRsmLocalsReader.LoadFromBytes, so under normal conditions every
+// TRsmReader.LoadFromBytes, so under normal conditions every
 // proc lands with a non-zero SegmentOffset. This routine remains as
 // a defensive backstop: if the reader fails to recognize a proc's
 // address bytes (e.g. when an unknown encoding variant is encountered
