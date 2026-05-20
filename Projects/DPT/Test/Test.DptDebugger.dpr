@@ -13,7 +13,8 @@ uses
   Test.DPT.McpFixture,
   Test.DPT.MCP.Server,
   Test.DPT.Rsm.LocalsReader,
-  Test.DPT.Rsm.Model;
+  Test.DPT.Rsm.Model,
+  Test.DPT.Rsm.Scanner;
 
 var
   runner: ITestRunner;
