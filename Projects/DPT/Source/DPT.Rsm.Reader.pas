@@ -68,129 +68,31 @@ type
     FScopeLocalTypeIdToEnumDef: IKeyValue<UInt32, Integer>;
     procedure LinkMemberTypeIdsFromFormatA;
     procedure DeriveClassParents;
-    /// <summary>
-    ///   Resolve <c>ParentName</c> for every class that has a
-    ///   non-zero <c>ParentRawId</c> and is still missing a parent
-    ///   after <c>DeriveClassParents</c>. The raw id was captured
-    ///   from the two bytes immediately preceding the class-name
-    ///   length byte; it is meaningful only after the type registry
-    ///   (<c>FRsmTypeIdToClassIdx</c>) has been populated by
-    ///   <c>LinkMemberTypeIdsFromFormatA</c>, which is why this
-    ///   pass runs after both DiscoverAndParseAllStructs and
-    ///   LinkMemberTypeIdsFromFormatA.
-    /// </summary>
     procedure ResolveParentNamesFromTypeIds;
     function  GetOnPhase: TProc<String>;
     procedure SetOnPhase(const AValue: TProc<String>);
     function  GetProcs: IList<TRsmProc>;
     function  GetClasses: IList<TRsmClassInfo>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
-    /// <summary>
-    ///   Post-scan pass that walks every registered global,
-    ///   identifies those whose stored type id carries the scope-
-    ///   local enum marker ($1E hi-byte), and -- via the same
-    ///   unit-suffix matching used by
-    ///   <see cref="TryResolveScopeLocalEnum"/> -- binds each
-    ///   distinct scope-local type id to the EnumDef of the unit
-    ///   the anchor variable's name implies. Because the compiler
-    ///   reuses the same scope-local id for all variables of the
-    ///   same (unit, type) pair, a SINGLE conventionally-named
-    ///   anchor variable is enough to bridge every other variable
-    ///   sharing that type id -- even those whose own name carries
-    ///   no unit hint at all.
-    /// </summary>
     procedure BuildScopeLocalTypeIdBridge;
     procedure RunPostProcess;
   public
     constructor Create;
     destructor Destroy; override;
-    /// <summary>
-    ///   Optional progress callback fired by the scanner at each
-    ///   major parsing phase. Lets callers surface what the parser
-    ///   is doing on very large RSM files, where a single phase can
-    ///   run for many seconds and otherwise looks indistinguishable
-    ///   from a hang.
-    /// </summary>
-    property OnPhase: TProc<String> read GetOnPhase write SetOnPhase;
+
     procedure LoadFromFile(const AExePath: String);
     procedure LoadFromBytes(const ABytes: TBytes);
     procedure LoadFromBuffer(ABuf: PByte; ASize: NativeInt);
     function  FindProcContaining(ASegmentOffset: NativeUInt): Integer;
     function  FindProcByName(const AName: String): Integer;
     function  FindClassByName(const AName: String): Integer;
-    /// <summary>
-    ///   Returns the 2-byte RSM type id of the module-level global
-    ///   <c>AName</c>, or 0 when the name is not a known global
-    ///   (either it's a local / parameter / proc, or the reader
-    ///   didn't pick it up). Combine with FindStructByTypeIdx to
-    ///   resolve to a record / class entry in Classes.
-    /// </summary>
     function  FindGlobalTypeIdx(const AName: String): UInt32;
-    /// <summary>
-    ///   Resolves an RSM 2-byte type id (as encoded in $66 $00 $00
-    ///   payload on a local / global record, or in a $2A registry
-    ///   entry) directly to the Classes index of the matching
-    ///   struct. Returns -1 when the id is unknown.
-    /// </summary>
     function  FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
-    /// <summary>
-    ///   Returns True when <paramref name="ATypeId"/> was seen in any
-    ///   $25 enum-constant record -- i.e. the type id designates an
-    ///   enumerated type. Used by auto-detection to pick the enum
-    ///   formatter for enum-typed locals / globals / dotted-terminal
-    ///   fields whose <c>Member.PrimitiveTypeId</c> carries the same
-    ///   2-byte id.
-    /// </summary>
     function  IsEnumTypeId(ATypeId: UInt32): Boolean;
-    /// <summary>
-    ///   Resolves a type name (case-insensitive) to the 2-byte
-    ///   primary type id captured from its <c>$2A</c> registry entry.
-    ///   Returns 0 when the name isn't registered. Combine with
-    ///   <see cref="IsEnumTypeId"/> to confirm the resolved id
-    ///   belongs to an enum.
-    /// </summary>
     function  FindTypeIdByName(const AName: String): UInt32;
-    /// <summary>
-    ///   Resolves an enum (<c>ATypeId</c>, <c>AOrdinal</c>) pair to
-    ///   the enum-constant's identifier name. Returns False when the
-    ///   pair is not registered (either the type isn't an enum or
-    ///   the ordinal is outside the declared element range).
-    /// </summary>
-    /// <param name="AExpectedPrefix">
-    ///   When the primary id is aliased to multiple secondaries
-    ///   (the same primary appears in several $2A entries), pick
-    ///   the candidate whose constant name starts with this
-    ///   prefix. Empty string disables prefix filtering and
-    ///   re-applies the safer "ambiguous -> fail" behavior.
-    /// </param>
     function  TryGetEnumConstantName(ATypeId: UInt32; AOrdinal: Integer;
       out AName: String; const AExpectedPrefix: String = ''): Boolean;
-    /// <summary>
-    ///   Returns the indices of every <c>skRecord</c> entry in
-    ///   <c>Classes</c> that has a member named
-    ///   <paramref name="AFieldName"/> (case-insensitive). Used by
-    ///   the dotted-walk in <c>TDebugger.EvaluateVariable</c> as a
-    ///   reliable fallback when a global's encoded type id does
-    ///   not match the registry's id for the same type.
-    /// </summary>
     function  FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;
-    /// <summary>
-    ///   Resolves the record type behind a global variable by combining
-    ///   two structural signals -- neither of which depends on the
-    ///   global's encoded 2-byte type id (which is unreliable on
-    ///   real-world binaries):
-    ///   <list type="number">
-    ///     <item>Name hint: a record literally named <c>T</c> +
-    ///       <paramref name="AGlobalName"/> that carries
-    ///       <paramref name="AFieldName"/> wins outright.</item>
-    ///     <item>Proximity: among all records carrying
-    ///       <paramref name="AFieldName"/>, the one whose definition
-    ///       in the RSM byte stream lies closest to the global's $20
-    ///       record wins.</item>
-    ///   </list>
-    ///   Returns -1 when no record carrying the field exists, or
-    ///   when the global has not been seen by the reader.
-    /// </summary>
     function  FindBestRecordForGlobalAndField(const AGlobalName,
       AFieldName: String): Integer;
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
@@ -199,13 +101,13 @@ type
     function  FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
     function  IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
-    /// <summary>
-    ///   Recompute the Size field of every proc as the gap to the
-    ///   next proc by SegmentOffset. Callers may patch each proc's
-    ///   SegmentOffset from a side channel (e.g. the .map file)
-    ///   and then invoke this method to refresh sizes.
-    /// </summary>
     procedure RecomputeProcSizes;
+
+    function  TryResolveScopeLocalEnum(const AVariableName: String;
+      AOrdinal: Integer; const AExpectedType: String;
+      out AName: String): Boolean;
+    function  TryResolveByScopeLocalTypeId(ATypeId: UInt32;
+      AOrdinal: Integer; out AName: String): Boolean;
     property  Procs: IList<TRsmProc> read GetProcs;
     property  Classes: IList<TRsmClassInfo> read GetClasses;
     /// <summary>
@@ -218,47 +120,13 @@ type
     /// </summary>
     property  EnumDefs: IList<TRsmEnumDef> read GetEnumDefs;
     /// <summary>
-    ///   Resolves an enum-typed variable's ordinal value to the
-    ///   identifier name of the matching element, using the
-    ///   <see cref="EnumDefs"/> registry plus a name-hint heuristic
-    ///   for picking the right (unit, type) pair when the variable's
-    ///   stored type id is scope-local and does not match any of the
-    ///   registered enum primaries.
+    ///   Optional progress callback fired by the scanner at each
+    ///   major parsing phase. Lets callers surface what the parser
+    ///   is doing on very large RSM files, where a single phase can
+    ///   run for many seconds and otherwise looks indistinguishable
+    ///   from a hang.
     /// </summary>
-    /// <param name="AVariableName">
-    ///   Name of the variable being evaluated. When the variable name
-    ///   ends in a substring that matches one of the registered units'
-    ///   trailing segment (case-insensitive, e.g. "Alpha" matches
-    ///   <c>DebugTarget.EnumAlpha</c>), only that unit's enum of the
-    ///   given type name is considered -- this disambiguates sibling-
-    ///   unit enums that share the same type name. When no unit hint
-    ///   matches, all (type-name = <c>AExpectedType</c>) entries
-    ///   compete and the LAST-declared one wins (Delphi's uses-order
-    ///   "last wins" rule for unqualified type references).
-    /// </param>
-    /// <param name="AExpectedType">
-    ///   Optional type name hint (e.g. "TStatus"). When empty, every
-    ///   parsed enum def is searched -- expensive on large binaries
-    ///   and prone to false matches, so callers should supply a hint
-    ///   whenever they can derive one from the variable's RSM
-    ///   metadata.
-    /// </param>
-    function  TryResolveScopeLocalEnum(const AVariableName: String;
-      AOrdinal: Integer; const AExpectedType: String;
-      out AName: String): Boolean;
-    /// <summary>
-    ///   Direct bridge from a variable's stored scope-local enum
-    ///   type id to an element name -- the strong-form resolver
-    ///   that doesn't depend on the variable's own name carrying a
-    ///   unit suffix. Built by
-    ///   <see cref="BuildScopeLocalTypeIdBridge"/> via at least one
-    ///   anchor variable per scope-local id. Returns False when no
-    ///   bridge entry exists for <paramref name="ATypeId"/> or the
-    ///   ordinal sits in an enum gap; callers should fall back to
-    ///   <see cref="TryResolveScopeLocalEnum"/> in that case.
-    /// </summary>
-    function  TryResolveByScopeLocalTypeId(ATypeId: UInt32;
-      AOrdinal: Integer; out AName: String): Boolean;
+    property OnPhase: TProc<String> read GetOnPhase write SetOnPhase;
   end;
 
 implementation
@@ -305,6 +173,32 @@ begin
   Result := FScanner.EnumDefs;
 end;
 
+/// <summary>
+///   Resolves an enum-typed variable's ordinal value to the
+///   identifier name of the matching element, using the
+///   <see cref="EnumDefs"/> registry plus a name-hint heuristic
+///   for picking the right (unit, type) pair when the variable's
+///   stored type id is scope-local and does not match any of the
+///   registered enum primaries.
+/// </summary>
+/// <param name="AVariableName">
+///   Name of the variable being evaluated. When the variable name
+///   ends in a substring that matches one of the registered units'
+///   trailing segment (case-insensitive, e.g. "Alpha" matches
+///   <c>DebugTarget.EnumAlpha</c>), only that unit's enum of the
+///   given type name is considered -- this disambiguates sibling-
+///   unit enums that share the same type name. When no unit hint
+///   matches, all (type-name = <c>AExpectedType</c>) entries
+///   compete and the LAST-declared one wins (Delphi's uses-order
+///   "last wins" rule for unqualified type references).
+/// </param>
+/// <param name="AExpectedType">
+///   Optional type name hint (e.g. "TStatus"). When empty, every
+///   parsed enum def is searched -- expensive on large binaries
+///   and prone to false matches, so callers should supply a hint
+///   whenever they can derive one from the variable's RSM
+///   metadata.
+/// </param>
 function TRsmReader.TryResolveScopeLocalEnum(const AVariableName: String;
   AOrdinal: Integer; const AExpectedType: String;
   out AName: String): Boolean;
@@ -471,6 +365,20 @@ begin
   Report('done');
 end;
 
+/// <summary>
+///   Post-scan pass that walks every registered global,
+///   identifies those whose stored type id carries the scope-
+///   local enum marker ($1E hi-byte), and -- via the same
+///   unit-suffix matching used by
+///   <see cref="TryResolveScopeLocalEnum"/> -- binds each
+///   distinct scope-local type id to the EnumDef of the unit
+///   the anchor variable's name implies. Because the compiler
+///   reuses the same scope-local id for all variables of the
+///   same (unit, type) pair, a SINGLE conventionally-named
+///   anchor variable is enough to bridge every other variable
+///   sharing that type id -- even those whose own name carries
+///   no unit hint at all.
+/// </summary>
 procedure TRsmReader.BuildScopeLocalTypeIdBridge;
 // Strong-form bridge from scope-local type id ($1E** hi-byte) to
 // the matching TRsmEnumDef. Each (unit, type) pair has its own
@@ -543,6 +451,17 @@ begin
   end;
 end;
 
+/// <summary>
+///   Direct bridge from a variable's stored scope-local enum
+///   type id to an element name -- the strong-form resolver
+///   that doesn't depend on the variable's own name carrying a
+///   unit suffix. Built by
+///   <see cref="BuildScopeLocalTypeIdBridge"/> via at least one
+///   anchor variable per scope-local id. Returns False when no
+///   bridge entry exists for <paramref name="ATypeId"/> or the
+///   ordinal sits in an enum gap; callers should fall back to
+///   <see cref="TryResolveScopeLocalEnum"/> in that case.
+/// </summary>
 function TRsmReader.TryResolveByScopeLocalTypeId(ATypeId: UInt32;
   AOrdinal: Integer; out AName: String): Boolean;
 var
@@ -881,6 +800,17 @@ begin
   PruneSpuriousMembers;
 end;
 
+/// <summary>
+///   Resolve <c>ParentName</c> for every class that has a
+///   non-zero <c>ParentRawId</c> and is still missing a parent
+///   after <c>DeriveClassParents</c>. The raw id was captured
+///   from the two bytes immediately preceding the class-name
+///   length byte; it is meaningful only after the type registry
+///   (<c>FRsmTypeIdToClassIdx</c>) has been populated by
+///   <c>LinkMemberTypeIdsFromFormatA</c>, which is why this
+///   pass runs after both DiscoverAndParseAllStructs and
+///   LinkMemberTypeIdsFromFormatA.
+/// </summary>
 procedure TRsmReader.ResolveParentNamesFromTypeIds;
 // Cross-unit inheritance the offset-matching heuristic cannot
 // bridge: e.g. a user class declared in DebugTarget inheriting
@@ -1066,6 +996,12 @@ begin
   end;
 end;
 
+/// <summary>
+///   Recompute the Size field of every proc as the gap to the
+///   next proc by SegmentOffset. Callers may patch each proc's
+///   SegmentOffset from a side channel (e.g. the .map file)
+///   and then invoke this method to refresh sizes.
+/// </summary>
 procedure TRsmReader.RecomputeProcSizes;
 begin
   FScanner.RecomputeProcSizes;
@@ -1103,30 +1039,71 @@ begin
   Result := -1;
 end;
 
+/// <summary>
+///   Returns the 2-byte RSM type id of the module-level global
+///   <c>AName</c>, or 0 when the name is not a known global
+///   (either it's a local / parameter / proc, or the reader
+///   didn't pick it up). Combine with FindStructByTypeIdx to
+///   resolve to a record / class entry in Classes.
+/// </summary>
 function TRsmReader.FindGlobalTypeIdx(const AName: String): UInt32;
 begin
   if not FScanner.GlobalByName.TryGetValue(LowerCase(AName), Result) then
     Result := 0;
 end;
 
+/// <summary>
+///   Resolves an RSM 2-byte type id (as encoded in $66 $00 $00
+///   payload on a local / global record, or in a $2A registry
+///   entry) directly to the Classes index of the matching
+///   struct. Returns -1 when the id is unknown.
+/// </summary>
 function TRsmReader.FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
 begin
   if not FRsmTypeIdToClassIdx.TryGetValue(ARsmId, Result) then
     Result := -1;
 end;
 
+/// <summary>
+///   Returns True when <paramref name="ATypeId"/> was seen in any
+///   $25 enum-constant record -- i.e. the type id designates an
+///   enumerated type. Used by auto-detection to pick the enum
+///   formatter for enum-typed locals / globals / dotted-terminal
+///   fields whose <c>Member.PrimitiveTypeId</c> carries the same
+///   2-byte id.
+/// </summary>
 function TRsmReader.IsEnumTypeId(ATypeId: UInt32): Boolean;
 begin
   if ATypeId = 0 then Exit(False);
   Result := FScanner.EnumTypeIds.ContainsKey(ATypeId);
 end;
 
+/// <summary>
+///   Resolves a type name (case-insensitive) to the 2-byte
+///   primary type id captured from its <c>$2A</c> registry entry.
+///   Returns 0 when the name isn't registered. Combine with
+///   <see cref="IsEnumTypeId"/> to confirm the resolved id
+///   belongs to an enum.
+/// </summary>
 function TRsmReader.FindTypeIdByName(const AName: String): UInt32;
 begin
   if not FTypeIdByName.TryGetValue(LowerCase(AName), Result) then
     Result := 0;
 end;
 
+/// <summary>
+///   Resolves an enum (<c>ATypeId</c>, <c>AOrdinal</c>) pair to
+///   the enum-constant's identifier name. Returns False when the
+///   pair is not registered (either the type isn't an enum or
+///   the ordinal is outside the declared element range).
+/// </summary>
+/// <param name="AExpectedPrefix">
+///   When the primary id is aliased to multiple secondaries
+///   (the same primary appears in several $2A entries), pick
+///   the candidate whose constant name starts with this
+///   prefix. Empty string disables prefix filtering and
+///   re-applies the safer "ambiguous -> fail" behavior.
+/// </param>
 function TRsmReader.TryGetEnumConstantName(ATypeId: UInt32;
   AOrdinal: Integer; out AName: String; const AExpectedPrefix: String): Boolean;
 var
@@ -1182,6 +1159,14 @@ begin
   Result := AName <> '';
 end;
 
+/// <summary>
+///   Returns the indices of every <c>skRecord</c> entry in
+///   <c>Classes</c> that has a member named
+///   <paramref name="AFieldName"/> (case-insensitive). Used by
+///   the dotted-walk in <c>TDebugger.EvaluateVariable</c> as a
+///   reliable fallback when a global's encoded type id does
+///   not match the registry's id for the same type.
+/// </summary>
 function TRsmReader.FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;
 var
   Hits    : IList<Integer>;
@@ -1208,6 +1193,23 @@ begin
   Result := Hits.AsArray;
 end;
 
+/// <summary>
+///   Resolves the record type behind a global variable by combining
+///   two structural signals -- neither of which depends on the
+///   global's encoded 2-byte type id (which is unreliable on
+///   real-world binaries):
+///   <list type="number">
+///     <item>Name hint: a record literally named <c>T</c> +
+///       <paramref name="AGlobalName"/> that carries
+///       <paramref name="AFieldName"/> wins outright.</item>
+///     <item>Proximity: among all records carrying
+///       <paramref name="AFieldName"/>, the one whose definition
+///       in the RSM byte stream lies closest to the global's $20
+///       record wins.</item>
+///   </list>
+///   Returns -1 when no record carrying the field exists, or
+///   when the global has not been seen by the reader.
+/// </summary>
 function TRsmReader.FindBestRecordForGlobalAndField(
   const AGlobalName, AFieldName: String): Integer;
 var
