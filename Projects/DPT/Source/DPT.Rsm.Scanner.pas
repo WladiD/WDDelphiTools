@@ -1343,7 +1343,19 @@ begin
       end;
     end
     // Top-level primitive global: $27 NL Name $66 $00 $00 <id> <4-byte VA>.
-    else if (Tag = GLOBAL_PRIM_TAG) and (not InProc) then
+    //
+    // We deliberately do NOT gate this branch on `not InProc`. The $27
+    // tag is reserved for top-level primitive globals -- it never
+    // appears as an in-proc local record, so the InProc state is not a
+    // valid filter here. Gating on InProc breaks early-region globals
+    // (GGlobalInt / GGlobalString in DebugTarget) when an earlier
+    // proc record opens InProc but emits no LOCAL/PARAM/REGVAR record
+    // to flip SeenLocalSinceProc -- in that case SCOPE_END can never
+    // close the scope, and every subsequent $27 record is silently
+    // skipped. The $27 + $66 + $00 $00 + ReadIdentifier validation
+    // chain is strong enough to anchor the decode without the InProc
+    // guard.
+    else if Tag = GLOBAL_PRIM_TAG then
     begin
       NameLen := ByteAt(P + 1);
       if (NameLen >= 1) and (NameLen <= 40) and
