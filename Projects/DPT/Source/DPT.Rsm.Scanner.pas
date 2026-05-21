@@ -94,7 +94,41 @@ type
     /// produce TWO entries, NOT one.
     FEnumDefs    : IList<TRsmEnumDef>;
     FOnPhase     : TProc<String>;
+    /// Scan-loop state, valid only for the duration of
+    /// <see cref="ScanSymbolStream"/>. Held as fields so the per-tag
+    /// handler methods below can share them without bloated var-
+    /// parameter lists.
+    FScanInProc            : Boolean;
+    FScanSeenLocalSinceProc: Boolean;
+    FScanLocalIdx          : Integer;
+    FScanRegParam          : Integer;
+    /// Buffer of $25 enum-constant records seen since the last $2A
+    /// type-registry entry. The cross-unit $25 form encodes elements
+    /// with a SHARED secondary id (typically 0x0002) that collides
+    /// across sibling-unit enums; we delay writing them into
+    /// FEnumConstNames until the matching $2A surfaces a unique
+    /// primary id, then flush all buffered constants keyed by that
+    /// primary -- avoiding the last-wins collision on the secondary.
+    FPendingEnumConstants  : IList<TRsmEnumElement>;
+    /// Most recently scanned $25 cross-unit secondary id and its
+    /// file position. The Delphi RSM emits all of an enum's $25
+    /// records back-to-back, then the $2A registry entry that names
+    /// it; remembering the last $25 secondary id lets us bridge the
+    /// $2A primary to it without depending on a single fixed body-
+    /// offset slot (which differs across compile contexts).
+    FLastEnumSecondary     : UInt32;
+    FLastEnumSecondaryPos  : NativeInt;
     procedure ReportPhase(const APhase: String); inline;
+    function  DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
+    function  HandleProcRecord(var P: NativeInt): Boolean;
+    function  HandleParamRecord(var P: NativeInt): Boolean;
+    function  HandleRegVarRecord(var P: NativeInt): Boolean;
+    function  HandleLocalRecord(var P: NativeInt): Boolean;
+    function  HandleModuleGlobalLocalTagRecord(var P: NativeInt): Boolean;
+    function  HandleGlobalPrimRecord(var P: NativeInt): Boolean;
+    function  HandleEnumConstantRecord(var P: NativeInt): Boolean;
+    procedure HandleEnumDefRecord(P: NativeInt);
+    procedure HandleTypeRegistryRecord(P: NativeInt);
     procedure ScanSymbolStream;
     procedure DiscoverAndParseAllStructs;
     procedure ScanFieldsBackwardFromClassName(AClassNameOff: NativeInt;
@@ -905,15 +939,11 @@ begin
   end;
 end;
 
-procedure TRsmScanner.ScanSymbolStream;
-// Walk the RSM symbol stream looking for procedure ($28 tag) and
-// local ($20 tag) records. Each proc owns the locals between its
-// own record and the next proc (or the $63 scope-end byte). Both
-// Win32 and Win64 proc-address forms are decoded inline below.
-//
-// Tag-byte definitions live in <see cref="TRsmTag"/> (in
-// DPT.Rsm.Model); locally aliased here for readability inside the
-// scan loop.
+function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
+// Decode the variable-length address payload that follows a
+// $28 PROC record's name. Returns the segment-relative RVA
+// (offset within the .text section) or 0 when the record is a
+// forward-declaration / cross-reference with no usable address.
 //
 // === Win32 proc-address encoding ===
 // After the name and the fixed "20 00 00" prefix, a 4-byte little-
@@ -941,6 +971,777 @@ procedure TRsmScanner.ScanSymbolStream;
 // Procs are 16-byte aligned, so VA bits 0-3 are implicitly zero.
 // This covers code sections up to 2MB; for larger binaries the
 // higher VA bits would have to come from bytes 3/4 (not yet RE'd).
+
+  function TryWin32(AOff: NativeInt): NativeUInt;
+  // Win32 PROC-address payload: 4 bytes encoding the full
+  // 28-bit virtual address as ((VA shl 4) or $07). The low
+  // nibble of byte 0 is the format marker ($07); the remaining
+  // 28 bits are the VA. There is NO constant tag byte at byte
+  // 3 -- earlier code required byte 3 = $04 because the test
+  // corpus only contained binaries with VAs in [$401000,
+  // $4FFFFF] (the high byte of (VA shl 4) is $04 in that
+  // window). TFW puts most of its code well beyond that range
+  // (e.g. 0x598BBD4), so byte 3 simply carries the VA's high
+  // bits and varies build to build. The decoded-range guard
+  // (0 < Dec < 256 MB, matching the 28-bit encoding capacity)
+  // remains the integrity check.
+  var DW: UInt32; Dec: Int64;
+  begin
+    Result := 0;
+    if AOff + 3 >= FSz then Exit;
+    if (ByteAt(AOff) and $0F) <> $07 then Exit;
+    DW := DwordAt(AOff);
+    Dec := (Int64(DW) shr 4) - $401000;
+    if (Dec > 0) and (Dec < $10000000) then
+      Result := NativeUInt(Dec);
+  end;
+
+  function TryWin64(AOff: NativeInt): NativeUInt;
+  var MOff: NativeInt; B0, B1, B2: Byte; Va: UInt32;
+  begin
+    Result := 0;
+    if AOff + 4 >= FSz then Exit;
+    if (ByteAt(AOff) and $7F) <> $03 then Exit;
+    // Marker layout "04 10 ?? 2E 00": bytes 0/1/3/4 are
+    // constant across the corpus; the byte at position 2 is a
+    // per-binary counter that the linker varies build-to-build
+    // (it isn't tied to the proc, but to the overall RSM
+    // module layout), so we accept any value there.
+    for MOff := AOff + 4 to AOff + 5 do
+      if (MOff + 4 < FSz) and
+         (ByteAt(MOff)     = $04) and (ByteAt(MOff + 1) = $10) and
+         (ByteAt(MOff + 3) = $2E) and (ByteAt(MOff + 4) = $00) then
+      begin
+        B0 := ByteAt(AOff);
+        B1 := ByteAt(AOff + 1);
+        B2 := ByteAt(AOff + 2);
+        Va := ((UInt32(B0) shr 7) and 1) shl 4 or
+              (UInt32(B1) shl 5) or
+              (UInt32(B2) shl 13);
+        Va := Va and $1FFFFF;
+        if Va >= $1000 then
+          Exit(NativeUInt(Va - $1000));
+      end;
+  end;
+
+var
+  Tag: Byte;
+begin
+  // Sub-tag dispatch:
+  //   $20 -- simple inline form, address at +3.
+  //   $A0 -- extended form with type-ref/timestamp metadata,
+  //          address DWORD at +7.
+  //   $41 -- another extended variant seen in large binaries
+  //          (e.g. method records), address DWORD at +4 after
+  //          a "41 02 10 00" header.
+  //   $80, $00, ... -- forward-declaration / cross-reference
+  //          records with no embedded address. The caller's
+  //          dedup-and-patch step picks up the address when a
+  //          later definition record arrives.
+  Result := 0;
+  if AStartOff + 3 >= FSz then Exit;
+  Tag := ByteAt(AStartOff);
+  case Tag of
+    $20:
+      begin
+        Result := TryWin32(AStartOff + 3);
+        if Result = 0 then
+          Result := TryWin64(AStartOff + 3);
+      end;
+    $A0:
+      Result := TryWin32(AStartOff + 7);
+    $41:
+      Result := TryWin32(AStartOff + 4);
+  end;
+end;
+
+function TRsmScanner.HandleProcRecord(var P: NativeInt): Boolean;
+// Proc record: $28 NameLen Name <variable-length payload>.
+// Returns True after consuming the record (P advanced past the
+// name); False on rejection so the outer dispatcher single-byte-
+// advances.
+var
+  NameLen    : Byte;
+  Name       : String;
+  Proc       : TRsmProc;
+  Decoded    : NativeUInt;
+  ExistingIdx: Integer;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  // Real proc declarations are preceded by a distinctive
+  // run-up (e.g. $FF $28 for the extended form, or just $28
+  // for the simple inline form). Detect the address payload
+  // by scanning the post-name window for a recognizable
+  // encoding pattern rather than assuming a fixed offset
+  // because large binaries emit a richer prefix (timestamp /
+  // type-ref / etc.) between name and address.
+  Decoded := 0;
+  if P + 2 + Length(Name) + 4 < FSz then
+    Decoded := DecodeProcAddrPayload(P + 2 + Length(Name));
+  // First time we see this name: add a fresh entry.
+  // Already there: a later occurrence often carries the real
+  // address while the first was a forward declaration, so
+  // patch the existing entry when the new decode yields a
+  // non-zero result.
+  if not FProcByName.TryGetValue(LowerCase(Name), ExistingIdx) then
+    ExistingIdx := -1;
+  if ExistingIdx < 0 then
+  begin
+    Proc := Default(TRsmProc);
+    Proc.Name := Name;
+    Proc.SegmentOffset := Decoded;
+    if Decoded > 0 then
+      Proc.Size := $1000
+    else
+      Proc.Size := 0;
+    Proc.Locals := Collections.NewPlainList<TRsmLocal>;
+    FProcByName[LowerCase(Name)] := FProcs.Count;
+    // Linker-emitted "@Name" aliases should be findable by
+    // both the prefixed and the bare form, so register the
+    // alias too when the stored name starts with "@".
+    if (Length(Name) > 0) and (Name[1] = '@') then
+      FProcByName[LowerCase(Copy(Name, 2, MaxInt))] := FProcs.Count;
+    FProcs.Add(Proc);
+    FScanInProc := True;
+    FScanSeenLocalSinceProc := False;
+    FScanLocalIdx := 0;
+    FScanRegParam := 0;
+  end
+  else if (FProcs[ExistingIdx].SegmentOffset = 0) and (Decoded > 0) then
+  begin
+    Proc := FProcs[ExistingIdx];
+    Proc.SegmentOffset := Decoded;
+    Proc.Size := $1000;
+    FProcs[ExistingIdx] := Proc;
+  end;
+  P := P + 2 + Length(Name);
+  Result := True;
+end;
+
+function TRsmScanner.HandleParamRecord(var P: NativeInt): Boolean;
+// Parameter record: $22 NameLen Name $62 $00 $00 <type-id 2 bytes>.
+// Unlike LOCAL_TAG, this record does NOT carry a frame offset:
+// open-array parameters (and other parameters in the calling
+// convention's register slots) live in CPU registers, not on
+// the stack. We capture the parameter so callers see it in the
+// Locals list, tagged as register-passed with its zero-based
+// register-param index; the higher layer resolves the index to
+// the concrete register (RCX/RDX/... on Win64, EAX/EDX/ECX on
+// Win32 default register convention).
+var
+  NameLen: Byte;
+  Name   : String;
+  Loc    : TRsmLocal;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  Loc := Default(TRsmLocal);
+  Loc.Name        := Name;
+  Loc.BpOffset    := 0;
+  Loc.TypeIdx     := 0;
+  Loc.Kind        := lkRegister;
+  Loc.RegParamIdx := Byte(FScanRegParam);
+  Inc(FScanRegParam);
+  var PayloadStart: NativeInt := P + 2 + Length(Name);
+  if (PayloadStart + 4 < FSz) and
+     (ByteAt(PayloadStart)     = $62) and
+     (ByteAt(PayloadStart + 1) = $00) and
+     (ByteAt(PayloadStart + 2) = $00) then
+  begin
+    // Type-id is the LE 16-bit value "<lo> <hi>" when hi is
+    // a structured-type marker ($2E for most types, $2F for
+    // some Win64 sets); otherwise the type-id is the single
+    // byte at +3 (built-in primitive types).
+    var Hi: Byte := ByteAt(PayloadStart + 4);
+    if (Hi = $2E) or (Hi = $2F) then
+      Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                      (UInt32(Hi) shl 8)
+    else
+      Loc.TypeIdx := ByteAt(PayloadStart + 3);
+  end;
+  FProcs[FProcs.Count - 1].Locals.Add(Loc);
+  Inc(FScanLocalIdx);
+  FScanSeenLocalSinceProc := True;
+  // Advance past the parameter's payload (3-byte prefix
+  // "$62 $00 $00" + 2-byte type-id = 5 bytes), then look for
+  // the hidden high-index sub-record "$20 $21 ..." that
+  // follows an open-array parameter. Open-array params occupy
+  // TWO register slots (pointer + high-index), so when the
+  // compiler emitted that hidden record we consume an extra
+  // RegParam slot to keep subsequent params' indices correct.
+  P := P + 2 + Length(Name);
+  if (P + 4 < FSz) and (ByteAt(P) = $62) and
+     (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
+    P := P + 5;
+  if (P + 1 < FSz) and (ByteAt(P) = $20) and (ByteAt(P + 1) = $21) then
+    Inc(FScanRegParam);
+  Result := True;
+end;
+
+function TRsmScanner.HandleRegVarRecord(var P: NativeInt): Boolean;
+// Register-passed variable: $21 NameLen Name $66 $00 $00 <typeidLo> <typeidHi>.
+var
+  NameLen: Byte;
+  Name   : String;
+  Loc    : TRsmLocal;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  Loc := Default(TRsmLocal);
+  Loc.Name        := Name;
+  Loc.BpOffset    := 0;
+  Loc.TypeIdx     := 0;
+  Loc.Kind        := lkRegister;
+  Loc.RegParamIdx := Byte(FScanRegParam);
+  Inc(FScanRegParam);
+  var PayloadStart: NativeInt := P + 2 + Length(Name);
+  if (PayloadStart + 4 < FSz) and
+     (ByteAt(PayloadStart)     = $66) and
+     (ByteAt(PayloadStart + 1) = $00) and
+     (ByteAt(PayloadStart + 2) = $00) then
+  begin
+    var Hi: Byte := ByteAt(PayloadStart + 4);
+    if (Hi = $2E) or (Hi = $2F) then
+      Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                      (UInt32(Hi) shl 8)
+    else
+      Loc.TypeIdx := ByteAt(PayloadStart + 3);
+  end;
+  FProcs[FProcs.Count - 1].Locals.Add(Loc);
+  Inc(FScanLocalIdx);
+  FScanSeenLocalSinceProc := True;
+  P := P + 2 + Length(Name);
+  if (P + 4 < FSz) and (ByteAt(P) = $66) and
+     (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
+    P := P + 5;
+  Result := True;
+end;
+
+function TRsmScanner.HandleLocalRecord(var P: NativeInt): Boolean;
+// Stack local: $20 NameLen Name <typeinfo + BP-offset payload>.
+// Only valid inside a proc scope (gated by the dispatcher).
+var
+  NameLen: Byte;
+  Name   : String;
+  Loc    : TRsmLocal;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  Loc := Default(TRsmLocal);
+  Loc.Name     := Name;
+  Loc.BpOffset := -10000 - (FScanLocalIdx * 4);
+  Loc.TypeIdx  := 0;
+  Loc.Kind     := lkBpRel;
+  var PayloadStart: NativeInt := P + 2 + Length(Name);
+  if PayloadStart + 5 < FSz then
+  begin
+    var Byte4: Byte := ByteAt(PayloadStart + 4);
+    if (Byte4 = $2E) or (Byte4 = $2F) then
+    begin
+      var Byte5: Byte := ByteAt(PayloadStart + 5);
+      if (Byte5 and 1) = 1 then
+      begin
+        if PayloadStart + 6 < FSz then
+        begin
+          var Hi : Byte := ByteAt(PayloadStart + 6);
+          var W  : Word := Word(Byte5) or (Word(Hi) shl 8);
+          var SW : SmallInt := SmallInt(W);
+          Loc.BpOffset := (Int32(SW) - 1) div 4;
+        end;
+      end
+      else
+      begin
+        var Ofs8: ShortInt := ShortInt(Byte5);
+        Loc.BpOffset := Int32(Ofs8) div 2;
+      end;
+      Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
+                     (UInt32(Byte4) shl 8);
+    end
+    else
+    begin
+      var Next5: Byte := ByteAt(PayloadStart + 5);
+      if (Next5 = TRsmTag.LOCAL_TAG) or (Next5 = TRsmTag.PROC_TAG) or
+         (Next5 = TRsmTag.SCOPE_END) then
+      begin
+        var Ofs8: ShortInt := ShortInt(Byte4);
+        Loc.BpOffset := Int32(Ofs8) div 2;
+        Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+      end
+      else if PayloadStart + 6 < FSz then
+      begin
+        var Next6: Byte := ByteAt(PayloadStart + 6);
+        if (Next6 = TRsmTag.LOCAL_TAG) or (Next6 = TRsmTag.PROC_TAG) or
+           (Next6 = TRsmTag.SCOPE_END) then
+        begin
+          var Hi : Byte := ByteAt(PayloadStart + 5);
+          var W  : Word := Word(Byte4) or (Word(Hi) shl 8);
+          var SW : SmallInt := SmallInt(W);
+          Loc.BpOffset := (Int32(SW) - 1) div 4;
+          Loc.TypeIdx  := ByteAt(PayloadStart + 3);
+        end;
+      end;
+    end;
+  end;
+  FProcs[FProcs.Count - 1].Locals.Add(Loc);
+  Inc(FScanLocalIdx);
+  FScanSeenLocalSinceProc := True;
+  // Also publish the (name, RSM-type-id) pair into the
+  // global type-index. The InProc gate above can't reliably
+  // tell a stack local apart from a module-level variable
+  // emitted in the same byte run (procs and globals share
+  // the $20 tag and SCOPE_END doesn't always fire between
+  // them), so we record the type info for both.
+  if P + 2 + Integer(NameLen) + 4 < FSz then
+  begin
+    var GLo: Byte := ByteAt(P + 2 + NameLen + 3);
+    var GHi: Byte := ByteAt(P + 2 + NameLen + 4);
+    FGlobalByName[LowerCase(Name)] :=
+      UInt32(GLo) or (UInt32(GHi) shl 8);
+    FGlobalFileOffset[LowerCase(Name)] := P;
+  end;
+  P := P + 2 + Length(Name);
+  Result := True;
+end;
+
+function TRsmScanner.HandleModuleGlobalLocalTagRecord(var P: NativeInt): Boolean;
+// Module-level global variable emitted with the LOCAL_TAG ($20)
+// outside any proc scope. The compiler reuses $20 for both stack
+// locals and module-level variables; the dispatcher's FScanInProc
+// gate picks the right handler.
+var
+  NameLen: Byte;
+  Name   : String;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 40) then Exit;
+  if P + 2 + Integer(NameLen) + 5 >= FSz then Exit;
+  if (ByteAt(P + 2 + NameLen + 1) <> $00) or
+     (ByteAt(P + 2 + NameLen + 2) <> $00) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  var Lo: Byte := ByteAt(P + 2 + NameLen + 3);
+  var Hi: Byte := ByteAt(P + 2 + NameLen + 4);
+  FGlobalByName[LowerCase(Name)] := UInt32(Lo) or (UInt32(Hi) shl 8);
+  FGlobalFileOffset[LowerCase(Name)] := P;
+  P := P + 2 + Length(Name) + 5;
+  Result := True;
+end;
+
+function TRsmScanner.HandleGlobalPrimRecord(var P: NativeInt): Boolean;
+// Top-level primitive global: $27 NL Name $66 $00 $00 <id> <4-byte VA>.
+//
+// We deliberately do NOT gate this branch on `not InProc`. The $27
+// tag is reserved for top-level primitive globals -- it never
+// appears as an in-proc local record, so the InProc state is not a
+// valid filter here. Gating on InProc breaks early-region globals
+// (GGlobalInt / GGlobalString in DebugTarget) when an earlier
+// proc record opens InProc but emits no LOCAL/PARAM/REGVAR record
+// to flip SeenLocalSinceProc -- in that case SCOPE_END can never
+// close the scope, and every subsequent $27 record is silently
+// skipped. The $27 + $66 + $00 $00 + ReadIdentifier validation
+// chain is strong enough to anchor the decode without the InProc
+// guard.
+var
+  NameLen: Byte;
+  Name   : String;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 40) then Exit;
+  if P + 2 + Integer(NameLen) + 4 >= FSz then Exit;
+  if (ByteAt(P + 2 + NameLen)     <> $66) or
+     (ByteAt(P + 2 + NameLen + 1) <> $00) or
+     (ByteAt(P + 2 + NameLen + 2) <> $00) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  // Two-byte vs single-byte type id. Structured-typed globals
+  // carry a 2-byte id where the hi byte is a "kind" marker:
+  //   $2E -- program-local enum primary (e.g. $2E75 = TLightStatus)
+  //   $2F -- some Win64 set types
+  //   $1E -- scope-local enum alias for same-compilation cross-
+  //          unit enums (e.g. TStatus from sibling units). The
+  //          lo byte is sequentially allocated per scope, and
+  //          the bridge from this alias to the enum's primary
+  //          lives in the $03 ENUM_DEF + $63 $65 UNIT_BRIDGE
+  //          record pair, not in this $27 record.
+  // Plain primitives have a single byte ($02 = Integer,
+  // $04 = string, ...) with whatever byte follows as the start
+  // of the 4-byte VA.
+  var PrimId: UInt32;
+  var HiByte: Byte := ByteAt(P + 2 + NameLen + 4);
+  if (HiByte = $2E) or (HiByte = $2F) or (HiByte = $1E) then
+    PrimId := UInt32(ByteAt(P + 2 + NameLen + 3)) or
+              (UInt32(HiByte) shl 8)
+  else
+    PrimId := ByteAt(P + 2 + NameLen + 3);
+  FGlobalByName[LowerCase(Name)] := PrimId;
+  FGlobalFileOffset[LowerCase(Name)] := P;
+  P := P + 2 + Length(Name) + 4;
+  Result := True;
+end;
+
+function TRsmScanner.HandleEnumConstantRecord(var P: NativeInt): Boolean;
+// Enum-constant record ($25). Works inside or outside a proc scope.
+// Two top-level forms (program-local and cross-unit); the cross-
+// unit form further splits into three body variants chosen by the
+// payload's typeId-hi byte and the LSB of the ordinal byte.
+var
+  NameLen: Byte;
+  Name   : String;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  // Program-local form (8-byte body).
+  if (NameLen >= 1) and (NameLen <= 64) and
+     (P + 2 + Integer(NameLen) + 8 < FSz) and
+     (ByteAt(P + 2 + NameLen)     = $0A) and
+     (ByteAt(P + 2 + NameLen + 1) = $00) and
+     (ByteAt(P + 2 + NameLen + 2) = $00) and
+     (ByteAt(P + 2 + NameLen + 4) = $2E) and
+     (ByteAt(P + 2 + NameLen + 5) = $00) and
+     (ByteAt(P + 2 + NameLen + 6) = $00) and
+     ReadIdentifier(P + 1, Name) then
+  begin
+    var EnumTypeId: UInt32 :=
+      UInt32(ByteAt(P + 2 + NameLen + 3)) or (UInt32($2E) shl 8);
+    // The ordinal is stored doubled (the LSB is reserved as a
+    // form discriminator the same way BPRel offsets reserve it).
+    var Ordinal: Integer := Integer(ByteAt(P + 2 + NameLen + 7)) shr 1;
+    FEnumTypeIds[EnumTypeId] := True;
+    FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+    P := P + 2 + Length(Name) + 8;
+    Exit(True);
+  end;
+  // Cross-unit form -- three body variants depending on whether
+  // the enum's primary id is "real cross-unit" (a separately-
+  // compiled RTL/VCL type like TThreadPriority with primary
+  // 0x0441) or "same-compilation cross-unit" (a user type
+  // declared in a sibling source file, e.g. TStatus from
+  // DebugTarget.EnumAlpha) -- and, within the latter family,
+  // whether the element's explicit ordinal value fits in a
+  // single byte or needs Delphi's LSB-discriminated 2-byte
+  // encoding (Delphi enums may carry arbitrary explicit ordinal
+  // assignments, e.g. <c>(a = 1, b = 100)</c>).
+  //
+  // RTL 12-byte body (e.g. TThreadPriority):
+  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> <typeId-hi>
+  //                 $00 $00 <2*ord>
+  //   typeId-hi != $00 (real cross-unit id, e.g. $04 for TThreadPriority).
+  //
+  // Same-compilation 11-byte body (single-byte ord, ord <= 127):
+  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <2*ord>
+  //   typeId-hi = $00 (small shared secondary, e.g. 0x0002).
+  //
+  // Same-compilation 12-byte body (2-byte ord, sparse / ord >= 128):
+  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <ord-byte-lo> <ord-byte-hi>
+  //   typeId-hi = $00 AND ord-byte-lo's LSB = 1. The ordinal is
+  //   decoded as <c>(W - 1) / 4</c> where W is the LE word at
+  //   +10..+11 -- the same LSB-as-continuation encoding the
+  //   BPRel-offset decoder uses for stack offsets > +/-64.
+  //
+  // Discriminator order: typeId-hi first picks RTL vs same-comp;
+  // then byte[+10]'s LSB picks single- vs 2-byte ord within
+  // same-comp.
+  if (NameLen >= 1) and (NameLen <= 64) and
+     (P + 2 + Integer(NameLen) + 11 < FSz) and
+     (ByteAt(P + 2 + NameLen)     = $8A) and
+     (ByteAt(P + 2 + NameLen + 1) = $00) and
+     (ByteAt(P + 2 + NameLen + 2) = $00) and
+     (ByteAt(P + 2 + NameLen + 9) = $00) and
+     ReadIdentifier(P + 1, Name) then
+  begin
+    var EnumTypeId: UInt32 :=
+      UInt32(ByteAt(P + 2 + NameLen + 7)) or
+      (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
+    var HiByte: Byte := ByteAt(P + 2 + NameLen + 8);
+    var Ordinal: Integer;
+    var BodyLen: Integer;
+    if HiByte <> 0 then
+    begin
+      // RTL 12-byte form: requires +10 = $00 (double-pad) and
+      // single-byte 2*ord at +11.
+      if (P + 2 + Integer(NameLen) + 12 >= FSz) or
+         (ByteAt(P + 2 + NameLen + 10) <> $00) then
+        Exit(False);
+      Ordinal := Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
+      BodyLen := 12;
+    end
+    else
+    begin
+      var OrdByte0: Byte := ByteAt(P + 2 + NameLen + 10);
+      if (OrdByte0 and 1) = 0 then
+      begin
+        // Same-comp 11-byte form: single-byte 2*ord at +10.
+        Ordinal := Integer(OrdByte0) shr 1;
+        BodyLen := 11;
+      end
+      else
+      begin
+        // Same-comp 12-byte sparse form: 2-byte LSB-extended ord
+        // at +10..+11. Decoded as (W - 1) >> 2 per Delphi's
+        // LSB-as-continuation scheme.
+        if P + 2 + Integer(NameLen) + 12 >= FSz then
+          Exit(False);
+        var W: Word := Word(OrdByte0) or
+                       (Word(ByteAt(P + 2 + NameLen + 11)) shl 8);
+        Ordinal := (Integer(W) - 1) shr 2;
+        BodyLen := 12;
+      end;
+    end;
+    if EnumTypeId <> 0 then
+    begin
+      // For the RTL 12-byte form, the typeId IS a unique primary
+      // -- register it directly. For the same-compilation forms,
+      // the typeId is the shared secondary (typically 0x0002
+      // across sibling-unit enums); BUFFER the constant rather
+      // than writing it under the secondary, so the upcoming
+      // $2A registry entry can flush it under its TRUE primary
+      // and avoid the last-wins collision on the secondary.
+      if HiByte <> 0 then
+      begin
+        FEnumTypeIds[EnumTypeId] := True;
+        FCrossUnitEnumIds[EnumTypeId] := True;
+        FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+      end
+      else
+      begin
+        FCrossUnitEnumIds[EnumTypeId] := True;
+        var Pe: TRsmEnumElement;
+        Pe.Name    := Name;
+        Pe.Ordinal := Ordinal;
+        FPendingEnumConstants.Add(Pe);
+      end;
+      FLastEnumSecondary := EnumTypeId;
+      FLastEnumSecondaryPos := P;
+    end;
+    P := P + 2 + Length(Name) + BodyLen;
+    Exit(True);
+  end;
+end;
+
+procedure TRsmScanner.HandleEnumDefRecord(P: NativeInt);
+// Enum type-definition record ($03): the AUTHORITATIVE source for
+// a (unit, type) pair's element list in declaration order.
+//   $03 NL TypeName $01 $00 $00 $00 $00 <max-ord> $00 $00 $00 $00 $00 $00 $00
+//     (<elem-len> <elem-name>) * (max-ord + 1)
+//     <unit-len> <unit-name>
+// Two units declaring the same type name produce TWO independent
+// $03 records; the (unit, type) pair disambiguates same-name
+// cross-unit enums that the $2A registry collapses last-wins.
+//
+// Doesn't try to advance the dispatcher's P past the unit name --
+// the record's trailer varies. Single-byte advance is fine; the
+// outer loop's $03 dispatch will skip the inner bytes harmlessly.
+var
+  NameLen: Byte;
+  Name   : String;
+begin
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 2) or (NameLen > 40) then Exit;
+  if P + 2 + Integer(NameLen) + 13 >= FSz then Exit;
+  if (ByteAt(P + 2 + NameLen)      <> $01) or
+     (ByteAt(P + 2 + NameLen + 1)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 2)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 3)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 4)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 6)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 7)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 8)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 9)  <> $00) or
+     (ByteAt(P + 2 + NameLen + 10) <> $00) or
+     (ByteAt(P + 2 + NameLen + 11) <> $00) or
+     (ByteAt(P + 2 + NameLen + 12) <> $00) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  // Number of elements = max-ord + 1 (max-ord at payload byte
+  // +5 relative to the post-name position).
+  var MaxOrd: Integer := ByteAt(P + 2 + NameLen + 5);
+  var ElemCount: Integer := MaxOrd + 1;
+  // Sanity cap. Real enums rarely exceed ~256 elements; cap
+  // generously to bail on a coincidental $03 byte hit.
+  if (ElemCount < 1) or (ElemCount > 512) then Exit;
+  var CursorPos: NativeInt := P + 2 + NameLen + 13;
+  var Elements: IList<TRsmEnumElement> :=
+    Collections.NewPlainList<TRsmEnumElement>;
+  for var EI: Integer := 0 to ElemCount - 1 do
+  begin
+    if CursorPos >= FSz then Exit;
+    var ElemLen: Byte := ByteAt(CursorPos);
+    if (ElemLen < 1) or (ElemLen > 64) or
+       (CursorPos + 1 + ElemLen > FSz) then Exit;
+    var ElemName: String;
+    if not ReadIdentifier(CursorPos, ElemName) then Exit;
+    // Ordinal defaults to list index. The $03 record format we
+    // currently decode handles contiguous 0..N-1 enums (the
+    // common case for sibling-unit / RTL enum types). Sparse
+    // / explicit-value enums (<c>type T = (a = 1, b = 5)</c>)
+    // use a different RSM emission shape not yet decoded; the
+    // model is ready for them (Ordinal is per-element) -- only
+    // this scanner branch needs extending when a real sparse
+    // sample shows up.
+    var Elem: TRsmEnumElement;
+    Elem.Name    := ElemName;
+    Elem.Ordinal := EI;
+    Elements.Add(Elem);
+    CursorPos := CursorPos + 1 + ElemLen;
+  end;
+  // Unit name comes right after the element list. Optional in
+  // theory but in practice always present for user enums.
+  var UnitName: String := '';
+  if CursorPos < FSz then
+  begin
+    var UnitLen: Byte := ByteAt(CursorPos);
+    if (UnitLen >= 1) and (UnitLen <= 64) and
+       (CursorPos + 1 + UnitLen <= FSz) then
+      ReadIdentifier(CursorPos, UnitName);
+  end;
+  var Def: TRsmEnumDef;
+  Def.TypeName := Name;
+  Def.UnitName := UnitName;
+  Def.Elements := Elements;
+  FEnumDefs.Add(Def);
+end;
+
+procedure TRsmScanner.HandleTypeRegistryRecord(P: NativeInt);
+// Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
+// Bridge the primary to any cross-unit enum secondary that
+// appears as a 2-byte LE slot in this $2A's body, AND flush
+// the per-enum buffer of pending $25 constants under this
+// primary (avoiding the last-wins collision the shared
+// secondary id would otherwise cause).
+//
+// Doesn't advance the dispatcher's P -- the outer loop's
+// single-byte advance is sufficient; subsequent bytes are
+// re-dispatched harmlessly.
+var
+  NameLen: Byte;
+  Name   : String;
+begin
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 2) or (NameLen > 40) then Exit;
+  if P + 2 + Integer(NameLen) + 5 >= FSz then Exit;
+  if (ByteAt(P + 2 + NameLen + 1) <> $00) or
+     (ByteAt(P + 2 + NameLen + 2) <> $00) then Exit;
+  if not ReadIdentifier(P + 1, Name) then Exit;
+  var Primary: UInt32 :=
+    UInt32(ByteAt(P + 2 + NameLen + 3)) or
+    (UInt32(ByteAt(P + 2 + NameLen + 4)) shl 8);
+  // Only the +7,+8 slot has been observed to consistently
+  // hold the secondary id in genuine enum $2A entries.
+  if (Primary <> 0) and (P + 2 + NameLen + 8 < FSz) then
+  begin
+    var SecCandidate: UInt32 :=
+      UInt32(ByteAt(P + 2 + NameLen + 7)) or
+      (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
+    if (SecCandidate <> 0) and (SecCandidate <> Primary) and
+       FCrossUnitEnumIds.ContainsKey(SecCandidate) then
+    begin
+      FEnumTypeIds[Primary] := True;
+      var AliasList: IList<UInt32>;
+      if not FEnumAliasesByPrimary.TryGetValue(Primary, AliasList) then
+      begin
+        AliasList := Collections.NewPlainList<UInt32>;
+        FEnumAliasesByPrimary[Primary] := AliasList;
+      end;
+      if AliasList.IndexOf(SecCandidate) < 0 then
+        AliasList.Add(SecCandidate);
+    end;
+  end;
+  // Flush pending $25 records (buffered since the last $2A)
+  // into FEnumConstNames keyed by THIS $2A's primary. The
+  // pending buffer is the per-enum block emitted right
+  // before this registry entry; the secondary id used to key
+  // those records would collide across sibling-unit enums
+  // (same secondary 0x0002 for all three TStatus's), but
+  // primary-keying is unique per (unit, type) and so
+  // disambiguates cleanly.
+  if (Primary <> 0) and (FPendingEnumConstants.Count > 0) then
+  begin
+    for var FI: Integer := 0 to FPendingEnumConstants.Count - 1 do
+    begin
+      var Fe: TRsmEnumElement := FPendingEnumConstants[FI];
+      FEnumConstNames[IntToStr(Primary) + ':' + IntToStr(Fe.Ordinal)] := Fe.Name;
+    end;
+    FEnumTypeIds[Primary] := True;
+
+    // Locate the OWNING UNIT by scanning forward for the next
+    // PROC_TAG whose name contains a '.' (the unit's init
+    // proc, e.g. "DebugTarget.EnumAlpha"). The registry entry
+    // is immediately followed by the unit's standard
+    // initialisation sequence -- one or two PROC_TAGs (often
+    // including a "Finalization" stub without a dot) and
+    // then the dotted unit-init proc. A 1024-byte forward
+    // window comfortably covers the standard layout.
+    var UnitNameSparse: String := '';
+    var Q: NativeInt := P + 2 + NameLen + 5;
+    var QStop: NativeInt := Q + 1024;
+    if QStop > FSz - 2 then QStop := FSz - 2;
+    while Q < QStop do
+    begin
+      if ByteAt(Q) = TRsmTag.PROC_TAG then
+      begin
+        var ProcNL: Byte := ByteAt(Q + 1);
+        if (ProcNL >= 2) and (ProcNL <= 64) and
+           (Q + 2 + ProcNL <= FSz) then
+        begin
+          var ProcName: String;
+          if ReadIdentifier(Q + 1, ProcName) and
+             ProcName.Contains('.') then
+          begin
+            UnitNameSparse := ProcName;
+            Break;
+          end;
+        end;
+      end;
+      Inc(Q);
+    end;
+
+    // Synthesise an EnumDef so the reader's name-suffix-
+    // based resolver can disambiguate same-name sibling-
+    // unit enums. The buffered constants carry their explicit
+    // ordinals -- the def works for sparse enums (gaps and
+    // non-zero starts) since lookup goes through
+    // TRsmEnumDef.TryFindByOrdinal.
+    if UnitNameSparse <> '' then
+    begin
+      var Def: TRsmEnumDef;
+      Def.TypeName := Name;
+      Def.UnitName := UnitNameSparse;
+      Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
+      for var GI: Integer := 0 to FPendingEnumConstants.Count - 1 do
+        Def.Elements.Add(FPendingEnumConstants[GI]);
+      FEnumDefs.Add(Def);
+    end;
+  end;
+  FPendingEnumConstants.Clear;
+end;
+
+procedure TRsmScanner.ScanSymbolStream;
+// Walk the RSM symbol stream and dispatch each record to its
+// per-tag handler. Handlers update P themselves when they
+// successfully consume a record and return True; on rejection
+// they leave P untouched and return False, so the outer loop
+// falls through to the single-byte advance below. Tag-byte
+// definitions live in <see cref="TRsmTag"/> (in DPT.Rsm.Model);
+// locally aliased here so the case-labels stay readable.
+//
+// FScanSeenLocalSinceProc guards SCOPE_END from closing the
+// proc scope while we're still inside the proc's address-
+// payload bytes. The $A0 sub-form's payload runs ~18 bytes of
+// essentially arbitrary data (timestamp/type-ref/encoded VA/
+// trailer) and on large binaries routinely contains a $63 byte.
+// Without this guard, an incidental $63 would fire SCOPE_END
+// BEFORE the first real param/local record had been read -- on
+// TFW every class-method's Self / params silently vanished. The
+// flag flips True only once we've actually parsed a local-
+// shaped record ($20 / $21 / $22) since the last PROC_TAG.
 const
   PROC_TAG          = TRsmTag.PROC_TAG;
   LOCAL_TAG         = TRsmTag.LOCAL_TAG;
@@ -951,806 +1752,54 @@ const
   TYPE_REGISTRY_TAG = TRsmTag.TYPE_REGISTRY_TAG;
   ENUM_DEF_TAG      = TRsmTag.ENUM_DEF_TAG;
   SCOPE_END         = TRsmTag.SCOPE_END;
-  AddrScanWindow    = 32;
 var
-  P        : NativeInt;
-  Tag      : Byte;
-  NameLen  : Byte;
-  Name     : String;
-  Proc     : TRsmProc;
-  Loc      : TRsmLocal;
-  InProc   : Boolean;
-  LocalIdx : Integer;
-  RegParam : Integer;
-  /// Guards SCOPE_END from closing the proc scope while we are
-  /// still inside the proc's address-payload bytes. The payload
-  /// for the $A0 sub-form runs ~18 bytes of essentially arbitrary
-  /// data (timestamp/type-ref/encoded VA/trailer), and on large
-  /// binaries it routinely contains a $63 byte. Without this
-  /// guard, that incidental $63 fires SCOPE_END BEFORE the first
-  /// real param/local record has been read -- so on TFW every
-  /// class-method's Self / params silently vanished. The flag
-  /// flips to True only once we've actually parsed a local-shaped
-  /// record ($20 / $21 / $22) since the last PROC_TAG, which
-  /// puts SCOPE_END detection back on solid ground.
-  SeenLocalSinceProc: Boolean;
-  /// Buffer of $25 enum-constant records seen since the last $2A
-  /// type-registry entry. The cross-unit $25 form encodes elements
-  /// with a SHARED secondary id (typically 0x0002) that collides
-  /// across sibling-unit enums; we delay writing them into
-  /// FEnumConstNames until the matching $2A surfaces a unique
-  /// primary id, then flush all buffered constants keyed by that
-  /// primary -- avoiding the last-wins collision on the secondary.
-  PendingEnumConstants: IList<TRsmEnumElement>;
-
-  function FindProcByName(const AName: String): Integer;
-  begin
-    if not FProcByName.TryGetValue(LowerCase(AName), Result) then
-      Result := -1;
-  end;
-
-  function DecodeAddrPayload(AStartOff: NativeInt): NativeUInt;
-  // The proc record's post-name payload starts with a sub-tag byte
-  // that picks between two layouts:
-  //
-  //   $20 -- simple inline form. Address bytes follow the constant
-  //          "20 00 00" 3-byte prefix at offset 3, in the Win32
-  //          DWORD form ($xy yz zz 04 with low nibble $7) or the
-  //          Win64 3-byte form ($xy yy yy, anchored by the
-  //          "04 10 21 2e 00" marker just after it).
-  //
-  //   $A0 -- extended form used by large binaries. A type-ref /
-  //          timestamp lives between the prefix and the Win32
-  //          address DWORD, putting the address bytes at offset 7.
-  //
-  //   anything else -- forward declaration or pure cross-reference
-  //                    record with no usable address. Real address
-  //                    arrives in a later occurrence of the same
-  //                    proc, which the caller patches in.
-
-    function TryWin32(AOff: NativeInt): NativeUInt;
-    // Win32 PROC-address payload: 4 bytes encoding the full
-    // 28-bit virtual address as ((VA shl 4) or $07). The low
-    // nibble of byte 0 is the format marker ($07); the remaining
-    // 28 bits are the VA. There is NO constant tag byte at byte
-    // 3 -- earlier code required byte 3 = $04 because the test
-    // corpus only contained binaries with VAs in [$401000,
-    // $4FFFFF] (the high byte of (VA shl 4) is $04 in that
-    // window). TFW puts most of its code well beyond that range
-    // (e.g. 0x598BBD4), so byte 3 simply carries the VA's high
-    // bits and varies build to build. The decoded-range guard
-    // (0 < Dec < 256 MB, matching the 28-bit encoding capacity)
-    // remains the integrity check.
-    var DW: UInt32; Dec: Int64;
-    begin
-      Result := 0;
-      if AOff + 3 >= FSz then Exit;
-      if (ByteAt(AOff) and $0F) <> $07 then Exit;
-      DW := DwordAt(AOff);
-      Dec := (Int64(DW) shr 4) - $401000;
-      if (Dec > 0) and (Dec < $10000000) then
-        Result := NativeUInt(Dec);
-    end;
-
-    function TryWin64(AOff: NativeInt): NativeUInt;
-    var MOff: NativeInt; B0, B1, B2: Byte; Va: UInt32;
-    begin
-      Result := 0;
-      if AOff + 4 >= FSz then Exit;
-      if (ByteAt(AOff) and $7F) <> $03 then Exit;
-      // Marker layout "04 10 ?? 2E 00": bytes 0/1/3/4 are
-      // constant across the corpus; the byte at position 2 is a
-      // per-binary counter that the linker varies build-to-build
-      // (it isn't tied to the proc, but to the overall RSM
-      // module layout), so we accept any value there.
-      for MOff := AOff + 4 to AOff + 5 do
-        if (MOff + 4 < FSz) and
-           (ByteAt(MOff)     = $04) and (ByteAt(MOff + 1) = $10) and
-           (ByteAt(MOff + 3) = $2E) and (ByteAt(MOff + 4) = $00) then
-        begin
-          B0 := ByteAt(AOff);
-          B1 := ByteAt(AOff + 1);
-          B2 := ByteAt(AOff + 2);
-          Va := ((UInt32(B0) shr 7) and 1) shl 4 or
-                (UInt32(B1) shl 5) or
-                (UInt32(B2) shl 13);
-          Va := Va and $1FFFFF;
-          if Va >= $1000 then
-            Exit(NativeUInt(Va - $1000));
-        end;
-    end;
-
-  var
-    Tag: Byte;
-  begin
-    // Sub-tag dispatch:
-    //   $20 -- simple inline form, address at +3.
-    //   $A0 -- extended form with type-ref/timestamp metadata,
-    //          address DWORD at +7.
-    //   $41 -- another extended variant seen in large binaries
-    //          (e.g. method records), address DWORD at +4 after
-    //          a "41 02 10 00" header.
-    //   $80, $00, ... -- forward-declaration / cross-reference
-    //          records with no embedded address. The caller's
-    //          dedup-and-patch step picks up the address when a
-    //          later definition record arrives.
-    Result := 0;
-    if AStartOff + 3 >= FSz then Exit;
-    Tag := ByteAt(AStartOff);
-    case Tag of
-      $20:
-        begin
-          Result := TryWin32(AStartOff + 3);
-          if Result = 0 then
-            Result := TryWin64(AStartOff + 3);
-        end;
-      $A0:
-        Result := TryWin32(AStartOff + 7);
-      $41:
-        Result := TryWin32(AStartOff + 4);
-    end;
-  end;
-
+  P  : NativeInt;
+  Tag: Byte;
 begin
-  InProc := False;
-  SeenLocalSinceProc := False;
-  LocalIdx := 0;
-  RegParam := 0;
-  PendingEnumConstants := Collections.NewPlainList<TRsmEnumElement>;
+  FScanInProc := False;
+  FScanSeenLocalSinceProc := False;
+  FScanLocalIdx := 0;
+  FScanRegParam := 0;
+  FPendingEnumConstants := Collections.NewPlainList<TRsmEnumElement>;
+  FLastEnumSecondary := 0;
+  FLastEnumSecondaryPos := -1;
   P := 0;
-  // Tracks the most recently scanned $25 cross-unit enum-constant
-  // record. The Delphi RSM emits all of an enum's $25 records
-  // back-to-back, then the $2A registry entry that names it. By
-  // remembering the last $25 secondary id and updating it on every
-  // new $25, we can bridge the $2A primary to the secondary the
-  // $25 records actually carry their constants under -- without
-  // depending on a single fixed body-offset slot, which differs
-  // across compile contexts (TWindowState has multiple $2A entries
-  // with different secondaries, only one of which holds the real
-  // constants).
-  var LastEnumSecondary: UInt32 := 0;
-  var LastEnumSecondaryPos: NativeInt := -1;
   while P + 2 < FSz do
   begin
     Tag := ByteAt(P);
-    // Proc record: $28 NameLen Name <variable-length payload>.
-    if Tag = PROC_TAG then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 64) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        // Real proc declarations are preceded by a distinctive
-        // run-up (e.g. $FF $28 for the extended form, or just $28
-        // for the simple inline form). Detect the address payload
-        // by scanning the post-name window for a recognizable
-        // encoding pattern rather than assuming a fixed offset
-        // because large binaries emit a richer prefix (timestamp /
-        // type-ref / etc.) between name and address.
-        var Decoded: NativeUInt := 0;
-        if P + 2 + Length(Name) + 4 < FSz then
-          Decoded := DecodeAddrPayload(P + 2 + Length(Name));
-        // First time we see this name: add a fresh entry.
-        // Already there: a later occurrence often carries the real
-        // address while the first was a forward declaration, so
-        // patch the existing entry when the new decode yields a
-        // non-zero result.
-        var ExistingIdx: Integer := FindProcByName(Name);
-        if ExistingIdx < 0 then
+    case Tag of
+      PROC_TAG:
+        if HandleProcRecord(P) then Continue;
+      PARAM_TAG:
+        if FScanInProc and (FProcs.Count > 0) and
+           HandleParamRecord(P) then Continue;
+      REGVAR_TAG:
+        if FScanInProc and (FProcs.Count > 0) and
+           HandleRegVarRecord(P) then Continue;
+      LOCAL_TAG:
+        if FScanInProc and (FProcs.Count > 0) then
         begin
-          Proc := Default(TRsmProc);
-          Proc.Name := Name;
-          Proc.SegmentOffset := Decoded;
-          if Decoded > 0 then
-            Proc.Size := $1000
-          else
-            Proc.Size := 0;
-          Proc.Locals := Collections.NewPlainList<TRsmLocal>;
-          FProcByName[LowerCase(Name)] := FProcs.Count;
-          // Linker-emitted "@Name" aliases should be findable by
-          // both the prefixed and the bare form, so register the
-          // alias too when the stored name starts with "@".
-          if (Length(Name) > 0) and (Name[1] = '@') then
-            FProcByName[LowerCase(Copy(Name, 2, MaxInt))] := FProcs.Count;
-          FProcs.Add(Proc);
-          InProc := True;
-          SeenLocalSinceProc := False;
-          LocalIdx := 0;
-          RegParam := 0;
+          if HandleLocalRecord(P) then Continue;
         end
-        else if (FProcs[ExistingIdx].SegmentOffset = 0) and (Decoded > 0) then
+        else if not FScanInProc then
         begin
-          Proc := FProcs[ExistingIdx];
-          Proc.SegmentOffset := Decoded;
-          Proc.Size := $1000;
-          FProcs[ExistingIdx] := Proc;
+          if HandleModuleGlobalLocalTagRecord(P) then Continue;
         end;
-        P := P + 2 + Length(Name);
-        Continue;
-      end;
-    end
-    // Parameter record: $22 NameLen Name $62 $00 $00 <type-id 2 bytes>.
-    // Unlike LOCAL_TAG, this record does NOT carry a frame offset:
-    // open-array parameters (and other parameters in the calling
-    // convention's register slots) live in CPU registers, not on
-    // the stack. We capture the parameter so callers see it in the
-    // Locals list, tagged as register-passed with its zero-based
-    // register-param index; the higher layer resolves the index to
-    // the concrete register (RCX/RDX/... on Win64, EAX/EDX/ECX on
-    // Win32 default register convention).
-    else if (Tag = PARAM_TAG) and InProc and (FProcs.Count > 0) then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 64) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        Loc := Default(TRsmLocal);
-        Loc.Name        := Name;
-        Loc.BpOffset    := 0;
-        Loc.TypeIdx     := 0;
-        Loc.Kind        := lkRegister;
-        Loc.RegParamIdx := Byte(RegParam);
-        Inc(RegParam);
-        var PayloadStart: NativeInt := P + 2 + Length(Name);
-        if (PayloadStart + 4 < FSz) and
-           (ByteAt(PayloadStart)     = $62) and
-           (ByteAt(PayloadStart + 1) = $00) and
-           (ByteAt(PayloadStart + 2) = $00) then
+      GLOBAL_PRIM_TAG:
+        if HandleGlobalPrimRecord(P) then Continue;
+      ENUM_CONST_TAG:
+        if HandleEnumConstantRecord(P) then Continue;
+      ENUM_DEF_TAG:
+        HandleEnumDefRecord(P);
+      TYPE_REGISTRY_TAG:
+        HandleTypeRegistryRecord(P);
+      SCOPE_END:
+        if FScanSeenLocalSinceProc then
         begin
-          // Type-id is the LE 16-bit value "<lo> <hi>" when hi is
-          // a structured-type marker ($2E for most types, $2F for
-          // some Win64 sets); otherwise the type-id is the single
-          // byte at +3 (built-in primitive types).
-          var Hi: Byte := ByteAt(PayloadStart + 4);
-          if (Hi = $2E) or (Hi = $2F) then
-            Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                            (UInt32(Hi) shl 8)
-          else
-            Loc.TypeIdx := ByteAt(PayloadStart + 3);
+          FScanInProc := False;
+          FScanSeenLocalSinceProc := False;
+          FScanLocalIdx := 0;
         end;
-        FProcs[FProcs.Count - 1].Locals.Add(Loc);
-        Inc(LocalIdx);
-        SeenLocalSinceProc := True;
-        // Advance past the parameter's payload (3-byte prefix
-        // "$62 $00 $00" + 2-byte type-id = 5 bytes), then look for
-        // the hidden high-index sub-record "$20 $21 ..." that
-        // follows an open-array parameter. Open-array params occupy
-        // TWO register slots (pointer + high-index), so when the
-        // compiler emitted that hidden record we consume an extra
-        // RegParam slot to keep subsequent params' indices correct.
-        P := P + 2 + Length(Name);
-        if (P + 4 < FSz) and (ByteAt(P) = $62) and
-           (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
-          P := P + 5;
-        if (P + 1 < FSz) and (ByteAt(P) = $20) and (ByteAt(P + 1) = $21) then
-          Inc(RegParam);
-        Continue;
-      end;
-    end
-    // Register-passed variable: $21 NameLen Name $66 $00 $00 <typeidLo> <typeidHi>.
-    else if (Tag = REGVAR_TAG) and InProc and (FProcs.Count > 0) then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 64) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        Loc := Default(TRsmLocal);
-        Loc.Name        := Name;
-        Loc.BpOffset    := 0;
-        Loc.TypeIdx     := 0;
-        Loc.Kind        := lkRegister;
-        Loc.RegParamIdx := Byte(RegParam);
-        Inc(RegParam);
-        var PayloadStart: NativeInt := P + 2 + Length(Name);
-        if (PayloadStart + 4 < FSz) and
-           (ByteAt(PayloadStart)     = $66) and
-           (ByteAt(PayloadStart + 1) = $00) and
-           (ByteAt(PayloadStart + 2) = $00) then
-        begin
-          var Hi: Byte := ByteAt(PayloadStart + 4);
-          if (Hi = $2E) or (Hi = $2F) then
-            Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                            (UInt32(Hi) shl 8)
-          else
-            Loc.TypeIdx := ByteAt(PayloadStart + 3);
-        end;
-        FProcs[FProcs.Count - 1].Locals.Add(Loc);
-        Inc(LocalIdx);
-        SeenLocalSinceProc := True;
-        P := P + 2 + Length(Name);
-        if (P + 4 < FSz) and (ByteAt(P) = $66) and
-           (ByteAt(P + 1) = $00) and (ByteAt(P + 2) = $00) then
-          P := P + 5;
-        Continue;
-      end;
-    end
-    else if (Tag = LOCAL_TAG) and InProc and (FProcs.Count > 0) then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 64) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        Loc := Default(TRsmLocal);
-        Loc.Name     := Name;
-        Loc.BpOffset := -10000 - (LocalIdx * 4);
-        Loc.TypeIdx  := 0;
-        Loc.Kind     := lkBpRel;
-        var PayloadStart: NativeInt := P + 2 + Length(Name);
-        if PayloadStart + 5 < FSz then
-        begin
-          var Byte4: Byte := ByteAt(PayloadStart + 4);
-          if (Byte4 = $2E) or (Byte4 = $2F) then
-          begin
-            var Byte5: Byte := ByteAt(PayloadStart + 5);
-            if (Byte5 and 1) = 1 then
-            begin
-              if PayloadStart + 6 < FSz then
-              begin
-                var Hi : Byte := ByteAt(PayloadStart + 6);
-                var W  : Word := Word(Byte5) or (Word(Hi) shl 8);
-                var SW : SmallInt := SmallInt(W);
-                Loc.BpOffset := (Int32(SW) - 1) div 4;
-              end;
-            end
-            else
-            begin
-              var Ofs8: ShortInt := ShortInt(Byte5);
-              Loc.BpOffset := Int32(Ofs8) div 2;
-            end;
-            Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
-                           (UInt32(Byte4) shl 8);
-          end
-          else
-          begin
-            var Next5: Byte := ByteAt(PayloadStart + 5);
-            if (Next5 = LOCAL_TAG) or (Next5 = PROC_TAG) or (Next5 = SCOPE_END) then
-            begin
-              var Ofs8: ShortInt := ShortInt(Byte4);
-              Loc.BpOffset := Int32(Ofs8) div 2;
-              Loc.TypeIdx  := ByteAt(PayloadStart + 3);
-            end
-            else if PayloadStart + 6 < FSz then
-            begin
-              var Next6: Byte := ByteAt(PayloadStart + 6);
-              if (Next6 = LOCAL_TAG) or (Next6 = PROC_TAG) or (Next6 = SCOPE_END) then
-              begin
-                var Hi : Byte := ByteAt(PayloadStart + 5);
-                var W  : Word := Word(Byte4) or (Word(Hi) shl 8);
-                var SW : SmallInt := SmallInt(W);
-                Loc.BpOffset := (Int32(SW) - 1) div 4;
-                Loc.TypeIdx  := ByteAt(PayloadStart + 3);
-              end;
-            end;
-          end;
-        end;
-        FProcs[FProcs.Count - 1].Locals.Add(Loc);
-        Inc(LocalIdx);
-        SeenLocalSinceProc := True;
-        // Also publish the (name, RSM-type-id) pair into the
-        // global type-index. The InProc gate above can't reliably
-        // tell a stack local apart from a module-level variable
-        // emitted in the same byte run (procs and globals share
-        // the $20 tag and SCOPE_END doesn't always fire between
-        // them), so we record the type info for both.
-        if P + 2 + Integer(NameLen) + 4 < FSz then
-        begin
-          var GLo: Byte := ByteAt(P + 2 + NameLen + 3);
-          var GHi: Byte := ByteAt(P + 2 + NameLen + 4);
-          FGlobalByName[LowerCase(Name)] :=
-            UInt32(GLo) or (UInt32(GHi) shl 8);
-          FGlobalFileOffset[LowerCase(Name)] := P;
-        end;
-        P := P + 2 + Length(Name);
-        Continue;
-      end;
-    end
-    // Module-level global variable (outside any proc scope).
-    else if (Tag = LOCAL_TAG) and (not InProc) then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 40) and
-         (P + 2 + Integer(NameLen) + 5 < FSz) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        var Lo: Byte := ByteAt(P + 2 + NameLen + 3);
-        var Hi: Byte := ByteAt(P + 2 + NameLen + 4);
-        FGlobalByName[LowerCase(Name)] := UInt32(Lo) or (UInt32(Hi) shl 8);
-        FGlobalFileOffset[LowerCase(Name)] := P;
-        P := P + 2 + Length(Name) + 5;
-        Continue;
-      end;
-    end
-    // Top-level primitive global: $27 NL Name $66 $00 $00 <id> <4-byte VA>.
-    //
-    // We deliberately do NOT gate this branch on `not InProc`. The $27
-    // tag is reserved for top-level primitive globals -- it never
-    // appears as an in-proc local record, so the InProc state is not a
-    // valid filter here. Gating on InProc breaks early-region globals
-    // (GGlobalInt / GGlobalString in DebugTarget) when an earlier
-    // proc record opens InProc but emits no LOCAL/PARAM/REGVAR record
-    // to flip SeenLocalSinceProc -- in that case SCOPE_END can never
-    // close the scope, and every subsequent $27 record is silently
-    // skipped. The $27 + $66 + $00 $00 + ReadIdentifier validation
-    // chain is strong enough to anchor the decode without the InProc
-    // guard.
-    else if Tag = GLOBAL_PRIM_TAG then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 1) and (NameLen <= 40) and
-         (P + 2 + Integer(NameLen) + 4 < FSz) and
-         (ByteAt(P + 2 + NameLen)     = $66) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        // Two-byte vs single-byte type id. Structured-typed globals
-        // carry a 2-byte id where the hi byte is a "kind" marker:
-        //   $2E -- program-local enum primary (e.g. $2E75 = TLightStatus)
-        //   $2F -- some Win64 set types
-        //   $1E -- scope-local enum alias for same-compilation cross-
-        //          unit enums (e.g. TStatus from sibling units). The
-        //          lo byte is sequentially allocated per scope, and
-        //          the bridge from this alias to the enum's primary
-        //          lives in the $03 ENUM_DEF + $63 $65 UNIT_BRIDGE
-        //          record pair, not in this $27 record.
-        // Plain primitives have a single byte ($02 = Integer,
-        // $04 = string, ...) with whatever byte follows as the start
-        // of the 4-byte VA.
-        var PrimId: UInt32;
-        var HiByte: Byte := 0;
-        if P + 2 + Integer(NameLen) + 4 < FSz then
-          HiByte := ByteAt(P + 2 + NameLen + 4);
-        if (HiByte = $2E) or (HiByte = $2F) or (HiByte = $1E) then
-          PrimId := UInt32(ByteAt(P + 2 + NameLen + 3)) or
-                    (UInt32(HiByte) shl 8)
-        else
-          PrimId := ByteAt(P + 2 + NameLen + 3);
-        FGlobalByName[LowerCase(Name)] := PrimId;
-        FGlobalFileOffset[LowerCase(Name)] := P;
-        P := P + 2 + Length(Name) + 4;
-        Continue;
-      end;
-    end
-    // Enum-constant record (works inside or outside a proc scope).
-    else if Tag = ENUM_CONST_TAG then
-    begin
-      NameLen := ByteAt(P + 1);
-      // Program-local form (8-byte body).
-      if (NameLen >= 1) and (NameLen <= 64) and
-         (P + 2 + Integer(NameLen) + 8 < FSz) and
-         (ByteAt(P + 2 + NameLen)     = $0A) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         (ByteAt(P + 2 + NameLen + 4) = $2E) and
-         (ByteAt(P + 2 + NameLen + 5) = $00) and
-         (ByteAt(P + 2 + NameLen + 6) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        var EnumTypeId: UInt32 :=
-          UInt32(ByteAt(P + 2 + NameLen + 3)) or (UInt32($2E) shl 8);
-        // The ordinal is stored doubled (the LSB is reserved as a
-        // form discriminator the same way BPRel offsets reserve it).
-        var Ordinal: Integer := Integer(ByteAt(P + 2 + NameLen + 7)) shr 1;
-        FEnumTypeIds[EnumTypeId] := True;
-        FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
-        P := P + 2 + Length(Name) + 8;
-        Continue;
-      end;
-      // Cross-unit form -- three body variants depending on whether
-      // the enum's primary id is "real cross-unit" (a separately-
-      // compiled RTL/VCL type like TThreadPriority with primary
-      // 0x0441) or "same-compilation cross-unit" (a user type
-      // declared in a sibling source file, e.g. TStatus from
-      // DebugTarget.EnumAlpha) -- and, within the latter family,
-      // whether the element's explicit ordinal value fits in a
-      // single byte or needs Delphi's LSB-discriminated 2-byte
-      // encoding (Delphi enums may carry arbitrary explicit ordinal
-      // assignments, e.g. <c>(a = 1, b = 100)</c>).
-      //
-      // RTL 12-byte body (e.g. TThreadPriority):
-      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> <typeId-hi>
-      //                 $00 $00 <2*ord>
-      //   typeId-hi != $00 (real cross-unit id, e.g. $04 for TThreadPriority).
-      //
-      // Same-compilation 11-byte body (single-byte ord, ord <= 127):
-      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <2*ord>
-      //   typeId-hi = $00 (small shared secondary, e.g. 0x0002).
-      //
-      // Same-compilation 12-byte body (2-byte ord, sparse / ord >= 128):
-      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <ord-byte-lo> <ord-byte-hi>
-      //   typeId-hi = $00 AND ord-byte-lo's LSB = 1. The ordinal is
-      //   decoded as <c>(W - 1) / 4</c> where W is the LE word at
-      //   +10..+11 -- the same LSB-as-continuation encoding the
-      //   BPRel-offset decoder uses for stack offsets > +/-64.
-      //
-      // Discriminator order: typeId-hi first picks RTL vs same-comp;
-      // then byte[+10]'s LSB picks single- vs 2-byte ord within
-      // same-comp.
-      if (NameLen >= 1) and (NameLen <= 64) and
-         (P + 2 + Integer(NameLen) + 11 < FSz) and
-         (ByteAt(P + 2 + NameLen)     = $8A) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         (ByteAt(P + 2 + NameLen + 9) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        var EnumTypeId: UInt32 :=
-          UInt32(ByteAt(P + 2 + NameLen + 7)) or
-          (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
-        var HiByte: Byte := ByteAt(P + 2 + NameLen + 8);
-        var Ordinal: Integer;
-        var BodyLen: Integer;
-        if HiByte <> 0 then
-        begin
-          // RTL 12-byte form: requires +10 = $00 (double-pad) and
-          // single-byte 2*ord at +11.
-          if (P + 2 + Integer(NameLen) + 12 >= FSz) or
-             (ByteAt(P + 2 + NameLen + 10) <> $00) then
-          begin
-            Inc(P);
-            Continue;
-          end;
-          Ordinal := Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
-          BodyLen := 12;
-        end
-        else
-        begin
-          var OrdByte0: Byte := ByteAt(P + 2 + NameLen + 10);
-          if (OrdByte0 and 1) = 0 then
-          begin
-            // Same-comp 11-byte form: single-byte 2*ord at +10.
-            Ordinal := Integer(OrdByte0) shr 1;
-            BodyLen := 11;
-          end
-          else
-          begin
-            // Same-comp 12-byte sparse form: 2-byte LSB-extended ord
-            // at +10..+11. Decoded as (W - 1) >> 2 per Delphi's
-            // LSB-as-continuation scheme.
-            if P + 2 + Integer(NameLen) + 12 >= FSz then
-            begin Inc(P); Continue; end;
-            var W: Word := Word(OrdByte0) or
-                           (Word(ByteAt(P + 2 + NameLen + 11)) shl 8);
-            Ordinal := (Integer(W) - 1) shr 2;
-            BodyLen := 12;
-          end;
-        end;
-        if EnumTypeId <> 0 then
-        begin
-          // For the RTL 12-byte form, the typeId IS a unique primary
-          // -- register it directly. For the same-compilation forms,
-          // the typeId is the shared secondary (typically 0x0002
-          // across sibling-unit enums); BUFFER the constant rather
-          // than writing it under the secondary, so the upcoming
-          // $2A registry entry can flush it under its TRUE primary
-          // and avoid the last-wins collision on the secondary.
-          if HiByte <> 0 then
-          begin
-            FEnumTypeIds[EnumTypeId] := True;
-            FCrossUnitEnumIds[EnumTypeId] := True;
-            FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
-          end
-          else
-          begin
-            FCrossUnitEnumIds[EnumTypeId] := True;
-            var Pe: TRsmEnumElement;
-            Pe.Name    := Name;
-            Pe.Ordinal := Ordinal;
-            PendingEnumConstants.Add(Pe);
-          end;
-          LastEnumSecondary := EnumTypeId;
-          LastEnumSecondaryPos := P;
-        end;
-        P := P + 2 + Length(Name) + BodyLen;
-        Continue;
-      end;
-    end
-    // Enum type-definition record ($03): the AUTHORITATIVE source for
-    // a (unit, type) pair's element list in declaration order.
-    //   $03 NL TypeName $01 $00 $00 $00 $00 <max-ord> $00 $00 $00 $00 $00 $00 $00
-    //     (<elem-len> <elem-name>) * (max-ord + 1)
-    //     <unit-len> <unit-name>
-    // Two units declaring the same type name produce TWO independent
-    // $03 records; the (unit, type) pair disambiguates same-name
-    // cross-unit enums that the $2A registry collapses last-wins.
-    else if Tag = ENUM_DEF_TAG then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 2) and (NameLen <= 40) and
-         (P + 2 + Integer(NameLen) + 13 < FSz) and
-         (ByteAt(P + 2 + NameLen)     = $01) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         (ByteAt(P + 2 + NameLen + 3) = $00) and
-         (ByteAt(P + 2 + NameLen + 4) = $00) and
-         (ByteAt(P + 2 + NameLen + 6) = $00) and
-         (ByteAt(P + 2 + NameLen + 7) = $00) and
-         (ByteAt(P + 2 + NameLen + 8) = $00) and
-         (ByteAt(P + 2 + NameLen + 9) = $00) and
-         (ByteAt(P + 2 + NameLen + 10) = $00) and
-         (ByteAt(P + 2 + NameLen + 11) = $00) and
-         (ByteAt(P + 2 + NameLen + 12) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        // Number of elements = max-ord + 1 (max-ord at payload byte
-        // +5 relative to the post-name position).
-        var MaxOrd: Integer := ByteAt(P + 2 + NameLen + 5);
-        var ElemCount: Integer := MaxOrd + 1;
-        // Sanity cap. Real enums rarely exceed ~256 elements; cap
-        // generously to bail on a coincidental $03 byte hit.
-        if (ElemCount < 1) or (ElemCount > 512) then
-        begin
-          Inc(P);
-          Continue;
-        end;
-        var CursorPos: NativeInt := P + 2 + NameLen + 13;
-        var Elements: IList<TRsmEnumElement> :=
-          Collections.NewPlainList<TRsmEnumElement>;
-        var ParseOk: Boolean := True;
-        for var EI: Integer := 0 to ElemCount - 1 do
-        begin
-          if CursorPos >= FSz then begin ParseOk := False; Break; end;
-          var ElemLen: Byte := ByteAt(CursorPos);
-          if (ElemLen < 1) or (ElemLen > 64) or
-             (CursorPos + 1 + ElemLen > FSz) then
-          begin ParseOk := False; Break; end;
-          var ElemName: String;
-          if not ReadIdentifier(CursorPos, ElemName) then
-          begin ParseOk := False; Break; end;
-          // Ordinal defaults to list index. The $03 record format we
-          // currently decode handles contiguous 0..N-1 enums (the
-          // common case for sibling-unit / RTL enum types). Sparse
-          // / explicit-value enums (<c>type T = (a = 1, b = 5)</c>)
-          // use a different RSM emission shape not yet decoded; the
-          // model is ready for them (Ordinal is per-element) -- only
-          // this scanner branch needs extending when a real sparse
-          // sample shows up.
-          var Elem: TRsmEnumElement;
-          Elem.Name    := ElemName;
-          Elem.Ordinal := EI;
-          Elements.Add(Elem);
-          CursorPos := CursorPos + 1 + ElemLen;
-        end;
-        if not ParseOk then
-        begin
-          Inc(P);
-          Continue;
-        end;
-        // Unit name comes right after the element list. Optional in
-        // theory but in practice always present for user enums.
-        var UnitName: String := '';
-        if CursorPos < FSz then
-        begin
-          var UnitLen: Byte := ByteAt(CursorPos);
-          if (UnitLen >= 1) and (UnitLen <= 64) and
-             (CursorPos + 1 + UnitLen <= FSz) then
-            ReadIdentifier(CursorPos, UnitName);
-        end;
-        var Def: TRsmEnumDef;
-        Def.TypeName := Name;
-        Def.UnitName := UnitName;
-        Def.Elements := Elements;
-        FEnumDefs.Add(Def);
-        // Don't try to advance past the unit name precisely -- the
-        // record's trailer varies. Single-byte advance is fine; the
-        // outer loop's $03 dispatch will skip the inner bytes harmlessly.
-      end;
-    end
-    // Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
-    // Bridge the primary to any cross-unit enum secondary that
-    // appears as a 2-byte LE slot in this $2A's body, AND flush
-    // the per-enum buffer of pending $25 constants under this
-    // primary (avoiding the last-wins collision the shared
-    // secondary id would otherwise cause).
-    else if Tag = TYPE_REGISTRY_TAG then
-    begin
-      NameLen := ByteAt(P + 1);
-      if (NameLen >= 2) and (NameLen <= 40) and
-         (P + 2 + Integer(NameLen) + 5 < FSz) and
-         (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) and
-         ReadIdentifier(P + 1, Name) then
-      begin
-        var Primary: UInt32 :=
-          UInt32(ByteAt(P + 2 + NameLen + 3)) or
-          (UInt32(ByteAt(P + 2 + NameLen + 4)) shl 8);
-        // Only the +7,+8 slot has been observed to consistently
-        // hold the secondary id in genuine enum $2A entries.
-        if (Primary <> 0) and (P + 2 + NameLen + 8 < FSz) then
-        begin
-          var SecCandidate: UInt32 :=
-            UInt32(ByteAt(P + 2 + NameLen + 7)) or
-            (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
-          if (SecCandidate <> 0) and (SecCandidate <> Primary) and
-             FCrossUnitEnumIds.ContainsKey(SecCandidate) then
-          begin
-            FEnumTypeIds[Primary] := True;
-            var AliasList: IList<UInt32>;
-            if not FEnumAliasesByPrimary.TryGetValue(Primary, AliasList) then
-            begin
-              AliasList := Collections.NewPlainList<UInt32>;
-              FEnumAliasesByPrimary[Primary] := AliasList;
-            end;
-            if AliasList.IndexOf(SecCandidate) < 0 then
-              AliasList.Add(SecCandidate);
-          end;
-        end;
-        // Flush pending $25 records (buffered since the last $2A)
-        // into FEnumConstNames keyed by THIS $2A's primary. The
-        // pending buffer is the per-enum block emitted right
-        // before this registry entry; the secondary id used to key
-        // those records would collide across sibling-unit enums
-        // (same secondary 0x0002 for all three TStatus's), but
-        // primary-keying is unique per (unit, type) and so
-        // disambiguates cleanly.
-        if (Primary <> 0) and (PendingEnumConstants.Count > 0) then
-        begin
-          for var FI: Integer := 0 to PendingEnumConstants.Count - 1 do
-          begin
-            var Fe: TRsmEnumElement := PendingEnumConstants[FI];
-            FEnumConstNames[IntToStr(Primary) + ':' + IntToStr(Fe.Ordinal)] := Fe.Name;
-          end;
-          FEnumTypeIds[Primary] := True;
-
-          // Locate the OWNING UNIT by scanning forward for the next
-          // PROC_TAG whose name contains a '.' (the unit's init
-          // proc, e.g. "DebugTarget.EnumAlpha"). The registry entry
-          // is immediately followed by the unit's standard
-          // initialisation sequence -- one or two PROC_TAGs (often
-          // including a "Finalization" stub without a dot) and
-          // then the dotted unit-init proc. A 1024-byte forward
-          // window comfortably covers the standard layout.
-          var UnitNameSparse: String := '';
-          var Q: NativeInt := P + 2 + NameLen + 5;
-          var QStop: NativeInt := Q + 1024;
-          if QStop > FSz - 2 then QStop := FSz - 2;
-          while Q < QStop do
-          begin
-            if ByteAt(Q) = PROC_TAG then
-            begin
-              var ProcNL: Byte := ByteAt(Q + 1);
-              if (ProcNL >= 2) and (ProcNL <= 64) and
-                 (Q + 2 + ProcNL <= FSz) then
-              begin
-                var ProcName: String;
-                if ReadIdentifier(Q + 1, ProcName) and
-                   ProcName.Contains('.') then
-                begin
-                  UnitNameSparse := ProcName;
-                  Break;
-                end;
-              end;
-            end;
-            Inc(Q);
-          end;
-
-          // Synthesise an EnumDef so the reader's name-suffix-
-          // based resolver can disambiguate same-name sibling-
-          // unit enums. The buffered constants carry their explicit
-          // ordinals -- the def works for sparse enums (gaps and
-          // non-zero starts) since lookup goes through
-          // TRsmEnumDef.TryFindByOrdinal.
-          if UnitNameSparse <> '' then
-          begin
-            var Def: TRsmEnumDef;
-            Def.TypeName := Name;
-            Def.UnitName := UnitNameSparse;
-            Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
-            for var GI: Integer := 0 to PendingEnumConstants.Count - 1 do
-              Def.Elements.Add(PendingEnumConstants[GI]);
-            FEnumDefs.Add(Def);
-          end;
-        end;
-        PendingEnumConstants.Clear;
-      end;
-    end
-    else if (Tag = SCOPE_END) and SeenLocalSinceProc then
-    begin
-      InProc := False;
-      SeenLocalSinceProc := False;
-      LocalIdx := 0;
     end;
     Inc(P);
   end;
