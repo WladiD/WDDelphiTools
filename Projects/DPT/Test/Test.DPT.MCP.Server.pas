@@ -109,6 +109,9 @@ type
     [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
     [Test]
+    [Ignore('Documents the Variable-typeId -> Primary bridge gap: when the variable name carries no unit-suffix hint AND multiple sibling-unit enums share an element at the variable''s ordinal, the resolver falls back to uses-order last-wins and picks the wrong unit''s constant. Verified empirically: with [Ignore] removed the test fails with "sbIdle (1)" instead of the expected "saRunning (1)". Reactivate once a principled byte-stream-based bridge replaces the name-suffix heuristic.')]
+    procedure TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2928,7 +2931,7 @@ end;
 /// </summary>
 /// <remarks>
 ///   Four variables initialised in <c>CrossUnitEnumProbe</c> at
-///   line 362:
+///   line 372:
 ///   <list type="bullet">
 ///     <item><c>GStatusAlpha</c> = <c>saRunning</c> (ord 1) -- declared
 ///       with the fully-qualified type <c>DebugTarget.EnumAlpha.TStatus</c>.</item>
@@ -2964,7 +2967,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 362);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 372);
   try
     // GStatusAlpha: TStatus from EnumAlpha (contiguous 0..2). saRunning = ord 1.
     Line := Fixture.EvalAuto('GStatusAlpha');
@@ -2988,6 +2991,59 @@ begin
     Line := Fixture.EvalAuto('GStatusUnq');
     Assert.IsTrue(Line.Contains('scWorking') and Line.Contains('(13)'),
       'GStatusUnq must format as "scWorking (13)" (uses-order last wins -> Gamma.TStatus, sparse), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Red-test for the "Variable-typeId -> Primary echter Bridge" gap.
+///   <c>GStatusToggle</c> is declared with the fully-qualified type
+///   <c>DebugTarget.EnumAlpha.TStatus</c> and initialised to
+///   <c>saRunning</c> (ord 1) -- so a correct resolution must return
+///   <c>saRunning (1)</c>. The variable's name "GStatusToggle"
+///   derives via <c>DeriveTypeHintFromVariableName</c> to the hint
+///   <c>"TStatus"</c>, but its trailing word "Toggle" matches none
+///   of the registered unit shorts (Alpha / Beta / Gamma), so the
+///   name-suffix heuristic in <c>TryResolveScopeLocalEnum</c>
+///   fails and the fallback last-wins picks the LAST <c>TStatus</c>
+///   def with an element at ord 1.
+/// </summary>
+/// <remarks>
+///   With the current implementation, the result is
+///   <c>"sbIdle (1)"</c> -- Beta's element at ord 1 (sparse
+///   1, 5, 10) -- because Beta is declared AFTER Alpha in the
+///   parsed EnumDef list. The test is [Ignore]'d to keep the
+///   suite green; it should be reactivated as the acceptance
+///   check once a principled byte-stream-based bridge from the
+///   variable's stored scope-local type id to its enum's primary
+///   replaces the name-suffix heuristic. Two structural sources
+///   remain unexplored as potential bridge anchors: (1) the
+///   <c>$1E**</c>-id flat table at large file offsets (each entry
+///   carries <c>&lt;id&gt; &lt;group-byte&gt; 0a &lt;2*ord&gt; 02 00</c>;
+///   the group byte groups multiple variable typeIds under one
+///   conceptual enum), and (2) the <c>$66</c>-prefixed type-info
+///   records that appear in the unit-bridge cluster
+///   (e.g. <c>$66 $07 "TStatus" &lt;primary-2bytes&gt; ...</c>) --
+///   neither of which is consulted by today's scanner.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 372);
+  try
+    Line := Fixture.EvalAuto('GStatusToggle');
+    Assert.IsTrue(Line.Contains('saRunning') and Line.Contains('(1)'),
+      'GStatusToggle must format as "saRunning (1)" -- the variable is ' +
+      'declared with DebugTarget.EnumAlpha.TStatus, so its actual unit ' +
+      'is Alpha regardless of the variable name lacking an "Alpha" suffix. ' +
+      'A correct resolver bridges variable typeId -> primary directly, ' +
+      'not via a name-suffix heuristic. Got: ' + Line);
   finally
     Fixture.Free;
   end;

@@ -354,6 +354,16 @@ var
   // Unqualified declaration: resolves to the LAST unit in the uses
   // clause carrying TStatus, i.e. DebugTarget.EnumGamma.TStatus.
   GStatusUnq   : TStatus = scWorking;                // sparse explicit 13 (Gamma)
+  // Bridge-gap probe. Variable name carries no unit-suffix hint
+  // ("Toggle" doesn't end-match any of EnumAlpha/EnumBeta/EnumGamma),
+  // so the name-based resolver in TRsmReader falls back to the
+  // last-declared TStatus def with a matching ordinal. The byte
+  // at the variable's VA is Alpha.saRunning (ord 1), but Beta also
+  // has an element at ord 1 (sbIdle) and is declared LATER, so
+  // the resolver returns the wrong unit's constant. This is the
+  // "Variable-typeId -> Primary echter Bridge" gap.
+  GStatusToggle: DebugTarget.EnumAlpha.TStatus =
+                   DebugTarget.EnumAlpha.saRunning;  // contiguous ord 1
 procedure CrossUnitEnumProbe;
 begin
   // Re-assign explicitly to defeat any constant folding the
@@ -363,8 +373,10 @@ begin
   GStatusBeta  := DebugTarget.EnumBeta.sbStopped;
   GStatusGamma := DebugTarget.EnumGamma.scInit;
   GStatusUnq   := scWorking;
-  Writeln('CUE ', Ord(GStatusAlpha), ' ', Ord(GStatusBeta), ' ',     // Line 362 - cross-unit-enum bp
-          Ord(GStatusGamma), ' ', Ord(GStatusUnq)); Flush(Output);
+  GStatusToggle := DebugTarget.EnumAlpha.saRunning;
+  Writeln('CUE ', Ord(GStatusAlpha), ' ', Ord(GStatusBeta), ' ',     // Line 377 - cross-unit-enum log (bp at line 372)
+          Ord(GStatusGamma), ' ', Ord(GStatusUnq), ' ',
+          Ord(GStatusToggle)); Flush(Output);
 end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
