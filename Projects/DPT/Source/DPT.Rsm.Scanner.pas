@@ -38,7 +38,8 @@ uses
   mormot.core.collections,
   mormot.core.os,
 
-  DPT.Rsm.Model;
+  DPT.Rsm.Model,
+  DPT.Rsm.EnumDecoder;
 
 type
 
@@ -70,29 +71,12 @@ type
     /// joins records against this to find the right type when the
     /// encoded type id is unreliable.
     FGlobalFileOffset: IKeyValue<String, NativeInt>;
-    /// Maps "<enumTypeId>:<ordinal>" -> enum-constant identifier name.
-    /// Populated by ScanSymbolStream from $25 records.
-    FEnumConstNames : IKeyValue<String, String>;
-    /// All RSM type ids that appear as enums (in $25 or via $2A
-    /// alias linking). The "is this an enum?" oracle.
-    FEnumTypeIds    : IKeyValue<UInt32, Boolean>;
-    /// Subset of FEnumTypeIds populated ONLY from the cross-unit $25
-    /// form. Used as the filter set when scanning $2A bodies for
-    /// secondaries; avoids false-matches with program-local enum ids
-    /// whose $2E hi byte coincidentally appears in many class bodies.
-    FCrossUnitEnumIds: IKeyValue<UInt32, Boolean>;
-    /// Maps an enum alias id (the type id used in $2A primary slot
-    /// or in a class-field record) to the LIST of canonical ids
-    /// under which (typeId, ordinal) -> name pairs might be stored
-    /// in FEnumConstNames.
-    FEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
-    /// All TRsmEnumDef records discovered via the $03 ENUM_DEF tag.
-    /// Authoritative source for "this enum has these elements in this
-    /// declaration order, declared in this unit" -- the key piece
-    /// needed to disambiguate same-name enums across sibling units.
-    /// One entry per (unit, type) pair; two units declaring TStatus
-    /// produce TWO entries, NOT one.
-    FEnumDefs    : IList<TRsmEnumDef>;
+    /// Owns the enum-related lookup tables and the cross-unit
+    /// pending-buffer state machine. Pulled out of TRsmScanner so
+    /// the $25/$03/$2A handling lives in one place; the scanner
+    /// still does the byte-level format parsing and forwards
+    /// parsed data via FEnumDecoder.Record* method calls.
+    FEnumDecoder : TRsmEnumDecoder;
     FOnPhase     : TProc<String>;
     /// Scan-loop state, valid only for the duration of
     /// <see cref="ScanSymbolStream"/>. Held as fields so the per-tag
@@ -102,22 +86,11 @@ type
     FScanSeenLocalSinceProc: Boolean;
     FScanLocalIdx          : Integer;
     FScanRegParam          : Integer;
-    /// Buffer of $25 enum-constant records seen since the last $2A
-    /// type-registry entry. The cross-unit $25 form encodes elements
-    /// with a SHARED secondary id (typically 0x0002) that collides
-    /// across sibling-unit enums; we delay writing them into
-    /// FEnumConstNames until the matching $2A surfaces a unique
-    /// primary id, then flush all buffered constants keyed by that
-    /// primary -- avoiding the last-wins collision on the secondary.
-    FPendingEnumConstants  : IList<TRsmEnumElement>;
-    /// Most recently scanned $25 cross-unit secondary id and its
-    /// file position. The Delphi RSM emits all of an enum's $25
-    /// records back-to-back, then the $2A registry entry that names
-    /// it; remembering the last $25 secondary id lets us bridge the
-    /// $2A primary to it without depending on a single fixed body-
-    /// offset slot (which differs across compile contexts).
-    FLastEnumSecondary     : UInt32;
-    FLastEnumSecondaryPos  : NativeInt;
+    function  GetEnumConstNames: IKeyValue<String, String>;
+    function  GetEnumTypeIds: IKeyValue<UInt32, Boolean>;
+    function  GetCrossUnitEnumIds: IKeyValue<UInt32, Boolean>;
+    function  GetEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
+    function  GetEnumDefs: IList<TRsmEnumDef>;
     procedure ReportPhase(const APhase: String); inline;
     function  DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
     function  HandleProcRecord(var P: NativeInt): Boolean;
@@ -205,11 +178,11 @@ type
     property ClassByName        : IKeyValue<String, Integer> read FClassByName;
     property GlobalByName       : IKeyValue<String, UInt32> read FGlobalByName;
     property GlobalFileOffset   : IKeyValue<String, NativeInt> read FGlobalFileOffset;
-    property EnumConstNames     : IKeyValue<String, String> read FEnumConstNames;
-    property EnumTypeIds        : IKeyValue<UInt32, Boolean> read FEnumTypeIds;
-    property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read FCrossUnitEnumIds;
-    property EnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>> read FEnumAliasesByPrimary;
-    property EnumDefs            : IList<TRsmEnumDef> read FEnumDefs;
+    property EnumConstNames     : IKeyValue<String, String> read GetEnumConstNames;
+    property EnumTypeIds        : IKeyValue<UInt32, Boolean> read GetEnumTypeIds;
+    property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read GetCrossUnitEnumIds;
+    property EnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>> read GetEnumAliasesByPrimary;
+    property EnumDefs            : IList<TRsmEnumDef> read GetEnumDefs;
   end;
 
 implementation
@@ -228,24 +201,46 @@ end;
 constructor TRsmScanner.Create;
 begin
   inherited Create;
-  FProcs       := Collections.NewPlainList<TRsmProc>;
-  FClasses     := Collections.NewPlainList<TRsmClassInfo>;
-  FProcByName  := Collections.NewPlainKeyValue<String, Integer>;
-  FClassByName := Collections.NewPlainKeyValue<String, Integer>;
-  FGlobalByName := Collections.NewPlainKeyValue<String, UInt32>;
+  FProcs            := Collections.NewPlainList<TRsmProc>;
+  FClasses          := Collections.NewPlainList<TRsmClassInfo>;
+  FProcByName       := Collections.NewPlainKeyValue<String, Integer>;
+  FClassByName      := Collections.NewPlainKeyValue<String, Integer>;
+  FGlobalByName     := Collections.NewPlainKeyValue<String, UInt32>;
   FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
-  FEnumConstNames := Collections.NewPlainKeyValue<String, String>;
-  FEnumTypeIds    := Collections.NewPlainKeyValue<UInt32, Boolean>;
-  FEnumAliasesByPrimary := Collections.NewPlainKeyValue<UInt32, IList<UInt32>>;
-  FCrossUnitEnumIds := Collections.NewPlainKeyValue<UInt32, Boolean>;
-  FEnumDefs        := Collections.NewPlainList<TRsmEnumDef>;
+  FEnumDecoder      := TRsmEnumDecoder.Create;
 end;
 
 destructor TRsmScanner.Destroy;
 begin
   if FOwnsMapping then
     FMapping.UnMap;
+  FEnumDecoder.Free;
   inherited;
+end;
+
+function TRsmScanner.GetEnumConstNames: IKeyValue<String, String>;
+begin
+  Result := FEnumDecoder.EnumConstNames;
+end;
+
+function TRsmScanner.GetEnumTypeIds: IKeyValue<UInt32, Boolean>;
+begin
+  Result := FEnumDecoder.EnumTypeIds;
+end;
+
+function TRsmScanner.GetCrossUnitEnumIds: IKeyValue<UInt32, Boolean>;
+begin
+  Result := FEnumDecoder.CrossUnitEnumIds;
+end;
+
+function TRsmScanner.GetEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
+begin
+  Result := FEnumDecoder.EnumAliasesByPrimary;
+end;
+
+function TRsmScanner.GetEnumDefs: IList<TRsmEnumDef>;
+begin
+  Result := FEnumDecoder.EnumDefs;
 end;
 
 procedure TRsmScanner.ReportPhase(const APhase: String);
@@ -372,11 +367,7 @@ begin
   FClassByName.Clear;
   FGlobalByName.Clear;
   FGlobalFileOffset.Clear;
-  FEnumConstNames.Clear;
-  FEnumTypeIds.Clear;
-  FCrossUnitEnumIds.Clear;
-  FEnumAliasesByPrimary.Clear;
-  FEnumDefs.Clear;
+  FEnumDecoder.Reset;
   FBuf := ABuf;
   FSz  := ASize;
   if (ABuf = nil) or (ASize < 8) then
@@ -1415,8 +1406,7 @@ begin
     // The ordinal is stored doubled (the LSB is reserved as a
     // form discriminator the same way BPRel offsets reserve it).
     var Ordinal: Integer := Integer(ByteAt(P + 2 + NameLen + 7)) shr 1;
-    FEnumTypeIds[EnumTypeId] := True;
-    FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+    FEnumDecoder.RecordProgramLocalConstant(EnumTypeId, Ordinal, Name);
     P := P + 2 + Length(Name) + 8;
     Exit(True);
   end;
@@ -1506,21 +1496,9 @@ begin
       // $2A registry entry can flush it under its TRUE primary
       // and avoid the last-wins collision on the secondary.
       if HiByte <> 0 then
-      begin
-        FEnumTypeIds[EnumTypeId] := True;
-        FCrossUnitEnumIds[EnumTypeId] := True;
-        FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
-      end
+        FEnumDecoder.RecordCrossUnitRtlConstant(EnumTypeId, Ordinal, Name, P)
       else
-      begin
-        FCrossUnitEnumIds[EnumTypeId] := True;
-        var Pe: TRsmEnumElement;
-        Pe.Name    := Name;
-        Pe.Ordinal := Ordinal;
-        FPendingEnumConstants.Add(Pe);
-      end;
-      FLastEnumSecondary := EnumTypeId;
-      FLastEnumSecondaryPos := P;
+        FEnumDecoder.RecordCrossUnitSameCompConstant(EnumTypeId, Ordinal, Name, P);
     end;
     P := P + 2 + Length(Name) + BodyLen;
     Exit(True);
@@ -1606,23 +1584,26 @@ begin
   Def.TypeName := Name;
   Def.UnitName := UnitName;
   Def.Elements := Elements;
-  FEnumDefs.Add(Def);
+  FEnumDecoder.RecordEnumDef(Def);
 end;
 
 procedure TRsmScanner.HandleTypeRegistryRecord(P: NativeInt);
 // Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
-// Bridge the primary to any cross-unit enum secondary that
-// appears as a 2-byte LE slot in this $2A's body, AND flush
-// the per-enum buffer of pending $25 constants under this
-// primary (avoiding the last-wins collision the shared
-// secondary id would otherwise cause).
+// Parses the header + secondary candidate, recovers the owning
+// unit name via a forward-scan when same-compilation $25
+// constants are pending, then hands the parsed data to
+// FEnumDecoder which performs the primary/secondary bridge,
+// pending-buffer flush, and EnumDef synthesis.
 //
 // Doesn't advance the dispatcher's P -- the outer loop's
 // single-byte advance is sufficient; subsequent bytes are
 // re-dispatched harmlessly.
 var
-  NameLen: Byte;
-  Name   : String;
+  NameLen     : Byte;
+  Name        : String;
+  Primary     : UInt32;
+  SecCandidate: UInt32;
+  UnitNameSparse: String;
 begin
   NameLen := ByteAt(P + 1);
   if (NameLen < 2) or (NameLen > 40) then Exit;
@@ -1630,56 +1611,26 @@ begin
   if (ByteAt(P + 2 + NameLen + 1) <> $00) or
      (ByteAt(P + 2 + NameLen + 2) <> $00) then Exit;
   if not ReadIdentifier(P + 1, Name) then Exit;
-  var Primary: UInt32 :=
+  Primary :=
     UInt32(ByteAt(P + 2 + NameLen + 3)) or
     (UInt32(ByteAt(P + 2 + NameLen + 4)) shl 8);
   // Only the +7,+8 slot has been observed to consistently
   // hold the secondary id in genuine enum $2A entries.
-  if (Primary <> 0) and (P + 2 + NameLen + 8 < FSz) then
-  begin
-    var SecCandidate: UInt32 :=
+  SecCandidate := 0;
+  if P + 2 + NameLen + 8 < FSz then
+    SecCandidate :=
       UInt32(ByteAt(P + 2 + NameLen + 7)) or
       (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
-    if (SecCandidate <> 0) and (SecCandidate <> Primary) and
-       FCrossUnitEnumIds.ContainsKey(SecCandidate) then
-    begin
-      FEnumTypeIds[Primary] := True;
-      var AliasList: IList<UInt32>;
-      if not FEnumAliasesByPrimary.TryGetValue(Primary, AliasList) then
-      begin
-        AliasList := Collections.NewPlainList<UInt32>;
-        FEnumAliasesByPrimary[Primary] := AliasList;
-      end;
-      if AliasList.IndexOf(SecCandidate) < 0 then
-        AliasList.Add(SecCandidate);
-    end;
-  end;
-  // Flush pending $25 records (buffered since the last $2A)
-  // into FEnumConstNames keyed by THIS $2A's primary. The
-  // pending buffer is the per-enum block emitted right
-  // before this registry entry; the secondary id used to key
-  // those records would collide across sibling-unit enums
-  // (same secondary 0x0002 for all three TStatus's), but
-  // primary-keying is unique per (unit, type) and so
-  // disambiguates cleanly.
-  if (Primary <> 0) and (FPendingEnumConstants.Count > 0) then
+  // Locate the OWNING UNIT via forward-scan only when same-comp
+  // $25 constants are actually pending; otherwise the unit name
+  // has no consumer and the 1024-byte scan would be wasted work.
+  // The registry entry is immediately followed by the unit's
+  // standard initialisation sequence -- one or two PROC_TAGs
+  // (often including a "Finalization" stub without a dot) and
+  // then the dotted unit-init proc, e.g. "DebugTarget.EnumAlpha".
+  UnitNameSparse := '';
+  if (Primary <> 0) and FEnumDecoder.HasPendingConstants then
   begin
-    for var FI: Integer := 0 to FPendingEnumConstants.Count - 1 do
-    begin
-      var Fe: TRsmEnumElement := FPendingEnumConstants[FI];
-      FEnumConstNames[IntToStr(Primary) + ':' + IntToStr(Fe.Ordinal)] := Fe.Name;
-    end;
-    FEnumTypeIds[Primary] := True;
-
-    // Locate the OWNING UNIT by scanning forward for the next
-    // PROC_TAG whose name contains a '.' (the unit's init
-    // proc, e.g. "DebugTarget.EnumAlpha"). The registry entry
-    // is immediately followed by the unit's standard
-    // initialisation sequence -- one or two PROC_TAGs (often
-    // including a "Finalization" stub without a dot) and
-    // then the dotted unit-init proc. A 1024-byte forward
-    // window comfortably covers the standard layout.
-    var UnitNameSparse: String := '';
     var Q: NativeInt := P + 2 + NameLen + 5;
     var QStop: NativeInt := Q + 1024;
     if QStop > FSz - 2 then QStop := FSz - 2;
@@ -1702,25 +1653,8 @@ begin
       end;
       Inc(Q);
     end;
-
-    // Synthesise an EnumDef so the reader's name-suffix-
-    // based resolver can disambiguate same-name sibling-
-    // unit enums. The buffered constants carry their explicit
-    // ordinals -- the def works for sparse enums (gaps and
-    // non-zero starts) since lookup goes through
-    // TRsmEnumDef.TryFindByOrdinal.
-    if UnitNameSparse <> '' then
-    begin
-      var Def: TRsmEnumDef;
-      Def.TypeName := Name;
-      Def.UnitName := UnitNameSparse;
-      Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
-      for var GI: Integer := 0 to FPendingEnumConstants.Count - 1 do
-        Def.Elements.Add(FPendingEnumConstants[GI]);
-      FEnumDefs.Add(Def);
-    end;
   end;
-  FPendingEnumConstants.Clear;
+  FEnumDecoder.RecordTypeRegistry(Primary, SecCandidate, Name, UnitNameSparse);
 end;
 
 procedure TRsmScanner.ScanSymbolStream;
@@ -1760,9 +1694,6 @@ begin
   FScanSeenLocalSinceProc := False;
   FScanLocalIdx := 0;
   FScanRegParam := 0;
-  FPendingEnumConstants := Collections.NewPlainList<TRsmEnumElement>;
-  FLastEnumSecondary := 0;
-  FLastEnumSecondaryPos := -1;
   P := 0;
   while P + 2 < FSz do
   begin
