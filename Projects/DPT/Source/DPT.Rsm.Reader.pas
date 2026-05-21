@@ -55,6 +55,17 @@ type
     /// looking up the enum named <c>T&lt;X&gt;</c> here, then
     /// formatting the value through the standard enum path.
     FTypeIdByName        : IKeyValue<String, UInt32>;
+    /// Maps a scope-local enum type id (hi-byte $1E, allocated
+    /// per-(unit, type) pair by the Delphi compiler when same-
+    /// compilation cross-unit enums are referenced) directly to an
+    /// index into <see cref="EnumDefs"/>. Two variables of the same
+    /// EnumAlpha.TStatus share the SAME scope-local type id, so a
+    /// single anchor variable whose name carries a unit-suffix hint
+    /// is enough to bridge ALL variables of that scope-local id to
+    /// the correct EnumDef -- including variables whose own name
+    /// gives no unit hint. Populated by BuildScopeLocalTypeIdBridge
+    /// during RunPostProcess.
+    FScopeLocalTypeIdToEnumDef: IKeyValue<UInt32, Integer>;
     procedure LinkMemberTypeIdsFromFormatA;
     procedure DeriveClassParents;
     /// <summary>
@@ -74,6 +85,21 @@ type
     function  GetProcs: IList<TRsmProc>;
     function  GetClasses: IList<TRsmClassInfo>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
+    /// <summary>
+    ///   Post-scan pass that walks every registered global,
+    ///   identifies those whose stored type id carries the scope-
+    ///   local enum marker ($1E hi-byte), and -- via the same
+    ///   unit-suffix matching used by
+    ///   <see cref="TryResolveScopeLocalEnum"/> -- binds each
+    ///   distinct scope-local type id to the EnumDef of the unit
+    ///   the anchor variable's name implies. Because the compiler
+    ///   reuses the same scope-local id for all variables of the
+    ///   same (unit, type) pair, a SINGLE conventionally-named
+    ///   anchor variable is enough to bridge every other variable
+    ///   sharing that type id -- even those whose own name carries
+    ///   no unit hint at all.
+    /// </summary>
+    procedure BuildScopeLocalTypeIdBridge;
     procedure RunPostProcess;
   public
     constructor Create;
@@ -220,6 +246,19 @@ type
     function  TryResolveScopeLocalEnum(const AVariableName: String;
       AOrdinal: Integer; const AExpectedType: String;
       out AName: String): Boolean;
+    /// <summary>
+    ///   Direct bridge from a variable's stored scope-local enum
+    ///   type id to an element name -- the strong-form resolver
+    ///   that doesn't depend on the variable's own name carrying a
+    ///   unit suffix. Built by
+    ///   <see cref="BuildScopeLocalTypeIdBridge"/> via at least one
+    ///   anchor variable per scope-local id. Returns False when no
+    ///   bridge entry exists for <paramref name="ATypeId"/> or the
+    ///   ordinal sits in an enum gap; callers should fall back to
+    ///   <see cref="TryResolveScopeLocalEnum"/> in that case.
+    /// </summary>
+    function  TryResolveByScopeLocalTypeId(ATypeId: UInt32;
+      AOrdinal: Integer; out AName: String): Boolean;
   end;
 
 implementation
@@ -230,8 +269,9 @@ constructor TRsmReader.Create;
 begin
   inherited Create;
   FScanner             := TRsmScanner.Create;
-  FRsmTypeIdToClassIdx := Collections.NewPlainKeyValue<UInt32, Integer>;
-  FTypeIdByName        := Collections.NewPlainKeyValue<String, UInt32>;
+  FRsmTypeIdToClassIdx       := Collections.NewPlainKeyValue<UInt32, Integer>;
+  FTypeIdByName              := Collections.NewPlainKeyValue<String, UInt32>;
+  FScopeLocalTypeIdToEnumDef := Collections.NewPlainKeyValue<UInt32, Integer>;
 end;
 
 destructor TRsmReader.Destroy;
@@ -417,6 +457,7 @@ var
 begin
   FRsmTypeIdToClassIdx.Clear;
   FTypeIdByName.Clear;
+  FScopeLocalTypeIdToEnumDef.Clear;
   if (FScanner.Buf = nil) or (FScanner.Sz < 8) then Exit;
   ReportPhase := FScanner.OnPhase;
   LinkMemberTypeIdsFromFormatA;
@@ -425,7 +466,93 @@ begin
   Report('DeriveClassParents');
   ResolveParentNamesFromTypeIds;
   Report('ResolveParentNamesFromTypeIds');
+  BuildScopeLocalTypeIdBridge;
+  Report('BuildScopeLocalTypeIdBridge');
   Report('done');
+end;
+
+procedure TRsmReader.BuildScopeLocalTypeIdBridge;
+// Strong-form bridge from scope-local type id ($1E** hi-byte) to
+// the matching TRsmEnumDef. Each (unit, type) pair has its own
+// scope-local id assigned by the compiler at consumer-unit compile
+// time, and ALL variables of that (unit, type) pair share the
+// same id. So a single anchor variable per id is enough -- one
+// whose name happens to end with the unit's trailing-short -- to
+// bind every other variable of that id to the correct EnumDef,
+// even variables whose own name carries no unit hint at all.
+//
+// Walks every (lowercased) name in GlobalByName; for ids carrying
+// the $1E marker that aren't yet bridged, re-uses the unit-suffix
+// matcher from TryResolveScopeLocalEnum's first pass to find a
+// matching def. The first bridge built for an id wins -- typically
+// the first conventionally-named global declared with that type.
+var
+  Pair    : TPair<String, UInt32>;
+  Defs    : IList<TRsmEnumDef>;
+
+  function UnitTrailingShort(const AUnitName: String): String;
+  const
+    StripPrefixes: array[0..3] of String = ('Enum', 'Module', 'Unit', 'Mod');
+  var
+    DotPos: Integer;
+    Tail  : String;
+    PI    : Integer;
+  begin
+    DotPos := AUnitName.LastIndexOf('.');
+    if DotPos >= 0 then
+      Tail := AUnitName.Substring(DotPos + 1)
+    else
+      Tail := AUnitName;
+    for PI := 0 to High(StripPrefixes) do
+      if StartsText(StripPrefixes[PI], Tail) and
+         (Length(Tail) > Length(StripPrefixes[PI])) then
+      begin
+        Tail := Copy(Tail, Length(StripPrefixes[PI]) + 1, MaxInt);
+        Break;
+      end;
+    Result := Tail;
+  end;
+
+begin
+  Defs := FScanner.EnumDefs;
+  if Defs.Count = 0 then Exit;
+  for Pair in FScanner.GlobalByName do
+  begin
+    var TypeId: UInt32 := Pair.Value;
+    if ((TypeId shr 8) and $FF) <> $1E then Continue;
+    if FScopeLocalTypeIdToEnumDef.ContainsKey(TypeId) then Continue;
+    var VarLower: String := Pair.Key; // already lowercased on insert
+    var BestIdx : Integer := -1;
+    var BestLen : Integer := 0;
+    for var I: Integer := 0 to Defs.Count - 1 do
+    begin
+      var Def: TRsmEnumDef := Defs[I];
+      var ShortName: String := UnitTrailingShort(Def.UnitName);
+      if (Length(ShortName) >= 2) and
+         VarLower.EndsWith(LowerCase(ShortName)) then
+      begin
+        if Length(ShortName) > BestLen then
+        begin
+          BestIdx := I;
+          BestLen := Length(ShortName);
+        end;
+      end;
+    end;
+    if BestIdx >= 0 then
+      FScopeLocalTypeIdToEnumDef[TypeId] := BestIdx;
+  end;
+end;
+
+function TRsmReader.TryResolveByScopeLocalTypeId(ATypeId: UInt32;
+  AOrdinal: Integer; out AName: String): Boolean;
+var
+  DefIdx: Integer;
+begin
+  AName  := '';
+  Result := False;
+  if not FScopeLocalTypeIdToEnumDef.TryGetValue(ATypeId, DefIdx) then Exit;
+  if (DefIdx < 0) or (DefIdx >= FScanner.EnumDefs.Count) then Exit;
+  Result := FScanner.EnumDefs[DefIdx].TryFindByOrdinal(AOrdinal, AName);
 end;
 
 procedure TRsmReader.LinkMemberTypeIdsFromFormatA;

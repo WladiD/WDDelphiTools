@@ -2735,12 +2735,28 @@ begin
       var ScopeOrd : Integer := 0;
       if Length(RawBytes) >= 1 then
         ScopeOrd := RawBytes[0];
-      // Derive a type-name hint from the variable name so the
-      // resolver only considers enum defs of that type. Without
-      // the hint, the last-wins fallback would pick whichever
-      // enum was parsed last (e.g. TLightStatus instead of the
-      // intended TStatus), since EVERY enum def whose element
-      // count covers the ordinal would qualify.
+      // Path A -- strong-form bridge via the variable's stored
+      // scope-local type id. RunPostProcess built a per-id map
+      // from at least one conventionally-named anchor variable
+      // per id, so any variable sharing that id resolves to the
+      // correct EnumDef regardless of whether ITS OWN name
+      // carries a unit hint. This is the principled bridge --
+      // it doesn't rely on name-suffix heuristics on the current
+      // variable name at all.
+      if FLocalsReader.TryResolveByScopeLocalTypeId(
+        GlobIdHere, ScopeOrd, ScopeName) then
+      begin
+        FLastEnumTypeId := 0;
+        AValue := Format('%s (%d)', [ScopeName, ScopeOrd]);
+        AType  := 'enum';
+        Result := True;
+        Exit;
+      end;
+      // Path B -- name-hint fallback when no anchor was found for
+      // this type id (e.g. every variable of this type has a name
+      // without a unit suffix). Derives a type-name hint from
+      // the variable name and lets TryResolveScopeLocalEnum apply
+      // its EndsWith unit-suffix matcher.
       var TypeHint: String := DeriveTypeHintFromVariableName(AName);
       if FLocalsReader.TryResolveScopeLocalEnum(
         AName, ScopeOrd, TypeHint, ScopeName) then

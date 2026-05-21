@@ -109,7 +109,6 @@ type
     [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
     [Test]
-    [Ignore('Documents the Variable-typeId -> Primary bridge gap: when the variable name carries no unit-suffix hint AND multiple sibling-unit enums share an element at the variable''s ordinal, the resolver falls back to uses-order last-wins and picks the wrong unit''s constant. Verified empirically: with [Ignore] removed the test fails with "sbIdle (1)" instead of the expected "saRunning (1)". Reactivate once a principled byte-stream-based bridge replaces the name-suffix heuristic.')]
     procedure TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
     [Test]
     procedure TestMcpBreakpointManagement;
@@ -3010,22 +3009,19 @@ end;
 ///   def with an element at ord 1.
 /// </summary>
 /// <remarks>
-///   With the current implementation, the result is
-///   <c>"sbIdle (1)"</c> -- Beta's element at ord 1 (sparse
-///   1, 5, 10) -- because Beta is declared AFTER Alpha in the
-///   parsed EnumDef list. The test is [Ignore]'d to keep the
-///   suite green; it should be reactivated as the acceptance
-///   check once a principled byte-stream-based bridge from the
-///   variable's stored scope-local type id to its enum's primary
-///   replaces the name-suffix heuristic. Two structural sources
-///   remain unexplored as potential bridge anchors: (1) the
-///   <c>$1E**</c>-id flat table at large file offsets (each entry
-///   carries <c>&lt;id&gt; &lt;group-byte&gt; 0a &lt;2*ord&gt; 02 00</c>;
-///   the group byte groups multiple variable typeIds under one
-///   conceptual enum), and (2) the <c>$66</c>-prefixed type-info
-///   records that appear in the unit-bridge cluster
-///   (e.g. <c>$66 $07 "TStatus" &lt;primary-2bytes&gt; ...</c>) --
-///   neither of which is consulted by today's scanner.
+///   Resolved via the per-typeId bridge built in
+///   <c>BuildScopeLocalTypeIdBridge</c>: <c>GStatusAlpha</c> is
+///   the conventionally-named anchor variable for scope-local
+///   type id <c>0x1E99</c> (it ends with "Alpha"), so the bridge
+///   binds that id to Alpha's EnumDef. <c>GStatusToggle</c>
+///   carries the SAME stored type id (the compiler emits one
+///   scope-local id per (unit, type) pair, not per variable),
+///   so it inherits Alpha's binding via <c>TypeId -> EnumDef</c>
+///   lookup, regardless of its own name lacking a unit suffix.
+///   The name-suffix heuristic in <see cref="TryResolveScope-
+///   LocalEnum"/> remains as a fallback (Path B) for the rare
+///   case where NO variable of a given scope-local id has a
+///   conventionally-named name.
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
 var
