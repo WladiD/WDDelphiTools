@@ -107,6 +107,9 @@ type
     [Test]
     procedure TestMcpEvaluateAutoTypeDetectionEnum;
     [Test]
+    [Ignore('Documents a known scanner gap: same-name enums from sibling units cannot be disambiguated yet. See the test body for the full investigation.')]
+    procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
+    [Test]
     procedure TestMcpBreakpointManagement;
     [Test]
     procedure TestMcpPendingBreakpoints;
@@ -2910,6 +2913,94 @@ begin
     Assert.IsTrue(Line.Contains('tpHigher') and Line.Contains('(4)'),
       'auto-detect on cross-unit enum field via name convention must ' +
       'format as "tpHigher (4)", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Three units (DebugTarget.EnumAlpha / .EnumBeta / .EnumGamma)
+///   declare the SAME type name <c>TStatus</c> with different
+///   element prefixes (sa / sb / sc). DebugTarget.dpr pulls all
+///   three into the same compile unit; the auto-detect path must
+///   pick the right unit's enum for each variable based on the
+///   variable's STORED type id, not on the name-keyed registry
+///   which collapses last-wins for shared type names.
+/// </summary>
+/// <remarks>
+///   Four variables initialised in <c>CrossUnitEnumProbe</c> at
+///   line 362:
+///   <list type="bullet">
+///     <item><c>GStatusAlpha</c> = <c>saRunning</c> (ord 1) -- declared
+///       with the fully-qualified type <c>DebugTarget.EnumAlpha.TStatus</c>.</item>
+///     <item><c>GStatusBeta</c> = <c>sbStopped</c> (ord 2) -- fully
+///       qualified to <c>DebugTarget.EnumBeta.TStatus</c>.</item>
+///     <item><c>GStatusGamma</c> = <c>scInit</c> (ord 0) -- fully
+///       qualified to <c>DebugTarget.EnumGamma.TStatus</c>.</item>
+///     <item><c>GStatusUnq</c> = <c>scWorking</c> (ord 1) -- declared
+///       with the UNQUALIFIED <c>TStatus</c>; Delphi's uses-order
+///       picks Gamma (the last unit).</item>
+///   </list>
+///
+///   *** CURRENTLY IGNORED *** -- the scanner cannot disambiguate
+///   same-name enums across sibling units yet. Empirical RSM dump
+///   from the freshly-built DebugTarget.rsm:
+///   <list type="number">
+///     <item>The compiler emits 3 separate <c>$2A</c> registry
+///       entries for "TStatus" with distinct primary ids
+///       (0x56c7 / 0xf85f / 0xe023), but the reader's
+///       <c>FTypeIdByName</c> index is keyed on the unqualified
+///       name and collapses last-wins to Gamma's 0xe023.</item>
+///     <item>Each variable carries its OWN scope-local type id
+///       (0x99 / 0x9d / 0xa1) in its <c>$20</c> record. None of
+///       these small ids resolve to any of the registered primary
+///       ids without a bridge record we don't currently parse.</item>
+///     <item>The <c>$25</c> enum-constant records for these
+///       same-compilation cross-unit enums use an 11-byte cross-
+///       unit body (versus the 12-byte body for RTL enums like
+///       TThreadPriority). The scanner's cross-unit form decoder
+///       fails the <c>+10 = $00</c> padding check, so the
+///       constants never enter <c>FEnumConstNames</c>.</item>
+///     <item>Even after fixing the 11-byte form, the secondary id
+///       <c>0x0002</c> collides across all three TStatus enums
+///       (all three $2A entries carry it at +7/+8), so
+///       <c>FCrossUnitEnumIds</c> would last-write-wins again --
+///       exactly the trap the brief warned about with
+///       <c>$0295 -&gt; wsNormal vs csNone</c> in TFW.</item>
+///   </list>
+///   Fixing this requires the multi-day scope-boundary tracking
+///   project the brief deferred: per-compile-unit keying in
+///   <c>FTypeIdByName</c> and <c>FEnumConstNames</c>, plus a
+///   bridge from the variable's scope-local type id to the right
+///   primary in its own scope. The test is preserved so the gap
+///   is auditable from code and a future implementation can
+///   reactivate it as the green-light acceptance check.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateCrossUnitEnumWithSameTypeName;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 362);
+  try
+    Line := Fixture.EvalAuto('GStatusAlpha');
+    Assert.IsTrue(Line.Contains('saRunning') and Line.Contains('(1)'),
+      'GStatusAlpha must format as "saRunning (1)" (DebugTarget.EnumAlpha.TStatus), got: ' + Line);
+
+    Line := Fixture.EvalAuto('GStatusBeta');
+    Assert.IsTrue(Line.Contains('sbStopped') and Line.Contains('(2)'),
+      'GStatusBeta must format as "sbStopped (2)" (DebugTarget.EnumBeta.TStatus), got: ' + Line);
+
+    Line := Fixture.EvalAuto('GStatusGamma');
+    Assert.IsTrue(Line.Contains('scInit') and Line.Contains('(0)'),
+      'GStatusGamma must format as "scInit (0)" (DebugTarget.EnumGamma.TStatus), got: ' + Line);
+
+    Line := Fixture.EvalAuto('GStatusUnq');
+    Assert.IsTrue(Line.Contains('scWorking') and Line.Contains('(1)'),
+      'GStatusUnq must format as "scWorking (1)" (uses-order last wins -> Gamma.TStatus), got: ' + Line);
   finally
     Fixture.Free;
   end;

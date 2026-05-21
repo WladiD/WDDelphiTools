@@ -3,7 +3,7 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils, System.Classes, Winapi.Windows;
+uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma;
 var
   GGlobalInt: Integer = Integer($87654321);
   GGlobalString: string = 'Hello Global';
@@ -333,6 +333,35 @@ begin
     Writeln('Edge ', Length(LocalBytes), ' ', LocalPoint.FX, ' ',
             LocalDouble:0:2, ' ', LocalChar);
 end;
+// Cross-unit enum collision probe. Three separately-declared
+// TStatus enums (from DebugTarget.EnumAlpha / .EnumBeta / .EnumGamma)
+// share the type name "TStatus" -- the RSM name index is
+// last-wins, so only one of them can be reached by name. Each
+// variable's stored RSM type-id is unique though, so the
+// evaluate path that goes "name -> type-id -> enum constants"
+// should still return the right unit's enum.
+var
+  GStatusAlpha : DebugTarget.EnumAlpha.TStatus =
+                   DebugTarget.EnumAlpha.saRunning;  // ord 1
+  GStatusBeta  : DebugTarget.EnumBeta.TStatus =
+                   DebugTarget.EnumBeta.sbStopped;   // ord 2
+  GStatusGamma : DebugTarget.EnumGamma.TStatus =
+                   DebugTarget.EnumGamma.scInit;     // ord 0
+  // Unqualified declaration: resolves to the LAST unit in the uses
+  // clause carrying TStatus, i.e. DebugTarget.EnumGamma.TStatus.
+  GStatusUnq   : TStatus = scWorking;                // ord 1 (Gamma)
+procedure CrossUnitEnumProbe;
+begin
+  // Re-assign explicitly to defeat any constant folding the
+  // optimizer might apply -- the breakpoint reads the .data
+  // values, which must be the four distinct ordinals above.
+  GStatusAlpha := DebugTarget.EnumAlpha.saRunning;
+  GStatusBeta  := DebugTarget.EnumBeta.sbStopped;
+  GStatusGamma := DebugTarget.EnumGamma.scInit;
+  GStatusUnq   := scWorking;
+  Writeln('CUE ', Ord(GStatusAlpha), ' ', Ord(GStatusBeta), ' ',     // Line 362 - cross-unit-enum bp
+          Ord(GStatusGamma), ' ', Ord(GStatusUnq)); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -484,6 +513,11 @@ begin
     // a live BP context with both a local enum and a record-nested
     // enum field initialised.
     EnumProbeProcedure;
+    // Reach CrossUnitEnumProbe so the cross-unit-enum test has a
+    // live BP context with the three same-name TStatus globals
+    // (each from a different unit) plus the unqualified one whose
+    // type was picked by uses-order.
+    CrossUnitEnumProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
