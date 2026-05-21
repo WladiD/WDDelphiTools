@@ -73,6 +73,7 @@ type
     procedure SetOnPhase(const AValue: TProc<String>);
     function  GetProcs: IList<TRsmProc>;
     function  GetClasses: IList<TRsmClassInfo>;
+    function  GetEnumDefs: IList<TRsmEnumDef>;
     procedure RunPostProcess;
   public
     constructor Create;
@@ -181,6 +182,44 @@ type
     procedure RecomputeProcSizes;
     property  Procs: IList<TRsmProc> read GetProcs;
     property  Classes: IList<TRsmClassInfo> read GetClasses;
+    /// <summary>
+    ///   The <c>$03</c> ENUM_DEF records the scanner extracted, in
+    ///   first-seen order. Each entry binds a (unit, type) pair to
+    ///   its ordered element list -- the authoritative source for
+    ///   disambiguating same-name enums declared in sibling units.
+    ///   Two units that both export <c>TStatus</c> produce TWO
+    ///   entries here, not one.
+    /// </summary>
+    property  EnumDefs: IList<TRsmEnumDef> read GetEnumDefs;
+    /// <summary>
+    ///   Resolves an enum-typed variable's ordinal value to the
+    ///   identifier name of the matching element, using the
+    ///   <see cref="EnumDefs"/> registry plus a name-hint heuristic
+    ///   for picking the right (unit, type) pair when the variable's
+    ///   stored type id is scope-local and does not match any of the
+    ///   registered enum primaries.
+    /// </summary>
+    /// <param name="AVariableName">
+    ///   Name of the variable being evaluated. When the variable name
+    ///   ends in a substring that matches one of the registered units'
+    ///   trailing segment (case-insensitive, e.g. "Alpha" matches
+    ///   <c>DebugTarget.EnumAlpha</c>), only that unit's enum of the
+    ///   given type name is considered -- this disambiguates sibling-
+    ///   unit enums that share the same type name. When no unit hint
+    ///   matches, all (type-name = <c>AExpectedType</c>) entries
+    ///   compete and the LAST-declared one wins (Delphi's uses-order
+    ///   "last wins" rule for unqualified type references).
+    /// </param>
+    /// <param name="AExpectedType">
+    ///   Optional type name hint (e.g. "TStatus"). When empty, every
+    ///   parsed enum def is searched -- expensive on large binaries
+    ///   and prone to false matches, so callers should supply a hint
+    ///   whenever they can derive one from the variable's RSM
+    ///   metadata.
+    /// </param>
+    function  TryResolveScopeLocalEnum(const AVariableName: String;
+      AOrdinal: Integer; const AExpectedType: String;
+      out AName: String): Boolean;
   end;
 
 implementation
@@ -219,6 +258,132 @@ end;
 function TRsmReader.GetClasses: IList<TRsmClassInfo>;
 begin
   Result := FScanner.Classes;
+end;
+
+function TRsmReader.GetEnumDefs: IList<TRsmEnumDef>;
+begin
+  Result := FScanner.EnumDefs;
+end;
+
+function TRsmReader.TryResolveScopeLocalEnum(const AVariableName: String;
+  AOrdinal: Integer; const AExpectedType: String;
+  out AName: String): Boolean;
+// Disambiguates same-name enums declared in sibling units. Walks
+// FScanner.EnumDefs (the $03 ENUM_DEF records) and picks the entry
+// whose (UnitName, TypeName) matches:
+//   1. TypeName equals AExpectedType (case-insensitive). When the
+//      caller omits the hint, every def matches and the unit-suffix
+//      filter alone has to disambiguate.
+//   2. AVariableName contains a substring of the unit's TRAILING
+//      segment (the part after the last '.'), case-insensitive.
+//      For unit "DebugTarget.EnumAlpha" the trailing segment is
+//      "EnumAlpha"; we also try the version with a common prefix
+//      stripped ("Alpha") since the user-facing convention rarely
+//      duplicates the "Enum" / "Module" / "Unit" boilerplate in
+//      variable names.
+//
+// When multiple defs match, the LAST-encountered one wins (Delphi's
+// uses-order "last wins" rule for unqualified type references). When
+// no def matches by unit hint but at least one matches by type name
+// alone, that fallback path also picks the last-encountered def.
+var
+  I       : Integer;
+  Defs    : IList<TRsmEnumDef>;
+  Def     : TRsmEnumDef;
+  Best    : Integer;
+  BestSh  : Integer;
+  LowerVar: String;
+
+  function UnitTrailingShort(const AUnitName: String): String;
+  // Returns "Alpha" for "DebugTarget.EnumAlpha", "Status" for
+  // "Tpm.Cap.UnitStatus", etc. Strips through the last '.' and a
+  // single optional common prefix ("Enum" / "Module" / "Unit") to
+  // produce the substring most likely to appear in a variable name
+  // that references this unit's types.
+  const
+    StripPrefixes: array[0..3] of String = ('Enum', 'Module', 'Unit', 'Mod');
+  var
+    DotPos : Integer;
+    Tail   : String;
+    PI     : Integer;
+  begin
+    DotPos := AUnitName.LastIndexOf('.');
+    if DotPos >= 0 then
+      Tail := AUnitName.Substring(DotPos + 1)
+    else
+      Tail := AUnitName;
+    for PI := 0 to High(StripPrefixes) do
+      if StartsText(StripPrefixes[PI], Tail) and
+         (Length(Tail) > Length(StripPrefixes[PI])) then
+      begin
+        Tail := Copy(Tail, Length(StripPrefixes[PI]) + 1, MaxInt);
+        Break;
+      end;
+    Result := Tail;
+  end;
+
+begin
+  AName  := '';
+  Result := False;
+  Defs := FScanner.EnumDefs;
+  if Defs.Count = 0 then Exit;
+  LowerVar := LowerCase(AVariableName);
+
+  // First pass: prefer entries whose unit trailing-short appears in
+  // the variable name (the strong disambiguator).
+  Best   := -1;
+  BestSh := 0;
+  for I := 0 to Defs.Count - 1 do
+  begin
+    Def := Defs[I];
+    if (AExpectedType <> '') and not SameText(Def.TypeName, AExpectedType) then
+      Continue;
+    var CandName: String;
+    if not Def.TryFindByOrdinal(AOrdinal, CandName) then
+      Continue;
+    var ShortName: String := UnitTrailingShort(Def.UnitName);
+    if (ShortName <> '') and (Length(ShortName) >= 2) and
+       LowerVar.EndsWith(LowerCase(ShortName)) then
+    begin
+      // EndsWith (not Contains) keeps the heuristic tight. The
+      // common Delphi convention is "G<TypeNameLessT><UnitTail>" for
+      // globals or "F<TypeNameLessT><UnitTail>" for fields -- the
+      // unit-trailing-short lands at the END of the identifier, not
+      // somewhere in the middle.
+      //
+      // Prefer longer matches if multiple unit shorts share a tail
+      // (e.g. "AlphaTwo" beats "Alpha" if both happen to match);
+      // on ties the last-declared wins (Delphi's "uses last wins").
+      if Length(ShortName) >= BestSh then
+      begin
+        Best   := I;
+        BestSh := Length(ShortName);
+        AName  := CandName;
+      end;
+    end;
+  end;
+  if Best >= 0 then
+  begin
+    Result := True;
+    Exit;
+  end;
+
+  // Fallback: no unit-suffix hint matched. Pick the LAST def whose
+  // type-name and ordinal range are compatible -- this matches
+  // Delphi's uses-order "last wins" for unqualified type references.
+  Best := -1;
+  for I := 0 to Defs.Count - 1 do
+  begin
+    Def := Defs[I];
+    if (AExpectedType <> '') and not SameText(Def.TypeName, AExpectedType) then
+      Continue;
+    var CandName: String;
+    if not Def.TryFindByOrdinal(AOrdinal, CandName) then
+      Continue;
+    Best  := I;
+    AName := CandName;
+  end;
+  Result := Best >= 0;
 end;
 
 procedure TRsmReader.LoadFromFile(const AExePath: String);

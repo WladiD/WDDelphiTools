@@ -185,8 +185,61 @@ type
     /// after at least one local-shaped record has been read since
     /// the most recent PROC_TAG.
     SCOPE_END        = $63;
+    /// Enum-type-definition record. Carries the complete element list
+    /// of an enumerated type in declaration order plus the owning
+    /// unit's name -- the canonical bridge from a (unit, type) pair
+    /// to the ordered element names. Layout:
+    ///   $03 <NL> <type-name>
+    ///       $01 $00 $00 $00 $00 <max-ord> $00
+    ///       $00 $00 $00 $00 $00 $00                (12-byte header)
+    ///   (<elem-len> <elem-name>) * (max-ord + 1)
+    ///   <unit-len> <unit-name>
+    /// where <max-ord> = element-count - 1.
+    ENUM_DEF_TAG     = $03;
     /// CSH7 file-header signature: 'CSH7' on disk in LE byte order.
     SigCSH7          = UInt32($37485343);
+  end;
+
+  /// <summary>
+  ///   A single enum-element entry: its identifier name plus the
+  ///   explicit ordinal value the source assigned to it. Delphi
+  ///   enums need NOT start at 0 and are not required to be
+  ///   contiguous (<c>type TFoo = (a = 1, b = 2, c = 5);</c> is a
+  ///   legal declaration), so element index in the list is NOT a
+  ///   reliable substitute for the actual ordinal -- callers must
+  ///   look up by <see cref="Ordinal"/> rather than by list index.
+  /// </summary>
+  TRsmEnumElement = record
+    Name   : String;
+    Ordinal: Integer;
+  end;
+
+  /// <summary>
+  ///   A complete enum-type definition extracted from the RSM's
+  ///   <c>$03</c> ENUM_DEF record: the type name, the owning unit's
+  ///   name, and the list of <see cref="TRsmEnumElement"/> entries
+  ///   that name the enum's constants together with each one's
+  ///   explicit ordinal value. This is the authoritative source for
+  ///   "which constant lives at which ordinal of which (unit, type)"
+  ///   -- the $25 records carry ordinals but not the canonical
+  ///   declaration order, and the $2A registry carries the primary
+  ///   type id but not the element list. Two enums that share a
+  ///   type name (because they're declared in sibling units) produce
+  ///   TWO separate entries, one per (unit, type) pair -- the name
+  ///   index alone collapses them last-wins.
+  /// </summary>
+  TRsmEnumDef = record
+    TypeName: String;
+    UnitName: String;
+    Elements: IList<TRsmEnumElement>;
+    /// <summary>
+    ///   Returns the element whose <see cref="TRsmEnumElement.Ordinal"/>
+    ///   matches <paramref name="AOrdinal"/>, or False when no
+    ///   element has that ordinal (the value is out of the enum's
+    ///   declared range OR the enum is sparse and AOrdinal sits in
+    ///   one of the gaps).
+    /// </summary>
+    function TryFindByOrdinal(AOrdinal: Integer; out AName: String): Boolean;
   end;
 
 /// <summary>
@@ -212,6 +265,25 @@ begin
   for I := 1 to Length(AStrippedTypeName) do
     if CharInSet(AStrippedTypeName[I], ['A'..'Z']) then
       Result := Result + LowerCase(AStrippedTypeName[I]);
+end;
+
+{ TRsmEnumDef }
+
+function TRsmEnumDef.TryFindByOrdinal(AOrdinal: Integer;
+  out AName: String): Boolean;
+var
+  I: Integer;
+begin
+  AName  := '';
+  Result := False;
+  if Elements = nil then Exit;
+  for I := 0 to Elements.Count - 1 do
+    if Elements[I].Ordinal = AOrdinal then
+    begin
+      AName  := Elements[I].Name;
+      Result := True;
+      Exit;
+    end;
 end;
 
 end.

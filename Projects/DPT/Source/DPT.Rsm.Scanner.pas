@@ -86,6 +86,13 @@ type
     /// under which (typeId, ordinal) -> name pairs might be stored
     /// in FEnumConstNames.
     FEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
+    /// All TRsmEnumDef records discovered via the $03 ENUM_DEF tag.
+    /// Authoritative source for "this enum has these elements in this
+    /// declaration order, declared in this unit" -- the key piece
+    /// needed to disambiguate same-name enums across sibling units.
+    /// One entry per (unit, type) pair; two units declaring TStatus
+    /// produce TWO entries, NOT one.
+    FEnumDefs    : IList<TRsmEnumDef>;
     FOnPhase     : TProc<String>;
     procedure ReportPhase(const APhase: String); inline;
     procedure ScanSymbolStream;
@@ -168,6 +175,7 @@ type
     property EnumTypeIds        : IKeyValue<UInt32, Boolean> read FEnumTypeIds;
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read FCrossUnitEnumIds;
     property EnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>> read FEnumAliasesByPrimary;
+    property EnumDefs            : IList<TRsmEnumDef> read FEnumDefs;
   end;
 
 implementation
@@ -196,6 +204,7 @@ begin
   FEnumTypeIds    := Collections.NewPlainKeyValue<UInt32, Boolean>;
   FEnumAliasesByPrimary := Collections.NewPlainKeyValue<UInt32, IList<UInt32>>;
   FCrossUnitEnumIds := Collections.NewPlainKeyValue<UInt32, Boolean>;
+  FEnumDefs        := Collections.NewPlainList<TRsmEnumDef>;
 end;
 
 destructor TRsmScanner.Destroy;
@@ -333,6 +342,7 @@ begin
   FEnumTypeIds.Clear;
   FCrossUnitEnumIds.Clear;
   FEnumAliasesByPrimary.Clear;
+  FEnumDefs.Clear;
   FBuf := ABuf;
   FSz  := ASize;
   if (ABuf = nil) or (ASize < 8) then
@@ -939,6 +949,7 @@ const
   GLOBAL_PRIM_TAG   = TRsmTag.GLOBAL_PRIM_TAG;
   ENUM_CONST_TAG    = TRsmTag.ENUM_CONST_TAG;
   TYPE_REGISTRY_TAG = TRsmTag.TYPE_REGISTRY_TAG;
+  ENUM_DEF_TAG      = TRsmTag.ENUM_DEF_TAG;
   SCOPE_END         = TRsmTag.SCOPE_END;
   AddrScanWindow    = 32;
 var
@@ -1365,15 +1376,24 @@ begin
          (ByteAt(P + 2 + NameLen + 2) = $00) and
          ReadIdentifier(P + 1, Name) then
       begin
-        // Two-byte vs single-byte type id. Enum / set / structured-
-        // typed globals carry a 2-byte id with $2E or $2F in the hi
-        // slot (e.g. $2E75 for TLightStatus); plain primitives have
-        // a single byte ($02 = Integer, $04 = string, ...).
+        // Two-byte vs single-byte type id. Structured-typed globals
+        // carry a 2-byte id where the hi byte is a "kind" marker:
+        //   $2E -- program-local enum primary (e.g. $2E75 = TLightStatus)
+        //   $2F -- some Win64 set types
+        //   $1E -- scope-local enum alias for same-compilation cross-
+        //          unit enums (e.g. TStatus from sibling units). The
+        //          lo byte is sequentially allocated per scope, and
+        //          the bridge from this alias to the enum's primary
+        //          lives in the $03 ENUM_DEF + $63 $65 UNIT_BRIDGE
+        //          record pair, not in this $27 record.
+        // Plain primitives have a single byte ($02 = Integer,
+        // $04 = string, ...) with whatever byte follows as the start
+        // of the 4-byte VA.
         var PrimId: UInt32;
         var HiByte: Byte := 0;
         if P + 2 + Integer(NameLen) + 4 < FSz then
           HiByte := ByteAt(P + 2 + NameLen + 4);
-        if (HiByte = $2E) or (HiByte = $2F) then
+        if (HiByte = $2E) or (HiByte = $2F) or (HiByte = $1E) then
           PrimId := UInt32(ByteAt(P + 2 + NameLen + 3)) or
                     (UInt32(HiByte) shl 8)
         else
@@ -1409,31 +1429,167 @@ begin
         P := P + 2 + Length(Name) + 8;
         Continue;
       end;
-      // Cross-unit form (12-byte body).
+      // Cross-unit form -- two body variants depending on whether the
+      // enum's primary id is "real cross-unit" (a separately-compiled
+      // RTL/VCL type like TThreadPriority with primary 0x0441) or
+      // "same-compilation cross-unit" (a user type declared in a
+      // sibling source file, e.g. TStatus from DebugTarget.EnumAlpha).
+      // The two variants share the first 9 bytes and differ only in
+      // padding before the 2*ordinal byte.
+      //
+      // 12-byte body (real cross-unit, e.g. TThreadPriority):
+      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> <typeId-hi>
+      //                 $00 $00 <2*ord>
+      //   The typeId-hi byte is non-zero (real cross-unit id range).
+      //
+      // 11-byte body (same-compilation cross-unit, e.g. TStatus@Alpha):
+      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <2*ord>
+      //   The typeId-hi byte is $00 (small secondary id, e.g. 0x0002
+      //   shared across sibling units' enums). Discriminate from the
+      //   12-byte form via the typeId-hi byte: $00 -> 11-byte form,
+      //   non-zero -> 12-byte form.
       if (NameLen >= 1) and (NameLen <= 64) and
-         (P + 2 + Integer(NameLen) + 12 < FSz) and
+         (P + 2 + Integer(NameLen) + 11 < FSz) and
          (ByteAt(P + 2 + NameLen)     = $8A) and
          (ByteAt(P + 2 + NameLen + 1) = $00) and
          (ByteAt(P + 2 + NameLen + 2) = $00) and
          (ByteAt(P + 2 + NameLen + 9) = $00) and
-         (ByteAt(P + 2 + NameLen + 10) = $00) and
          ReadIdentifier(P + 1, Name) then
       begin
         var EnumTypeId: UInt32 :=
           UInt32(ByteAt(P + 2 + NameLen + 7)) or
           (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
-        var Ordinal: Integer :=
-          Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
+        var HiByte: Byte := ByteAt(P + 2 + NameLen + 8);
+        var Ordinal: Integer;
+        var BodyLen: Integer;
+        if HiByte = 0 then
+        begin
+          // 11-byte body: 2*ord at +10, no second pad.
+          Ordinal := Integer(ByteAt(P + 2 + NameLen + 10)) shr 1;
+          BodyLen := 11;
+        end
+        else
+        begin
+          // 12-byte body: requires the +10 byte to also be $00 pad
+          // and the 2*ord at +11.
+          if (P + 2 + Integer(NameLen) + 12 >= FSz) or
+             (ByteAt(P + 2 + NameLen + 10) <> $00) then
+          begin
+            Inc(P);
+            Continue;
+          end;
+          Ordinal := Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
+          BodyLen := 12;
+        end;
         if EnumTypeId <> 0 then
         begin
-          FEnumTypeIds[EnumTypeId] := True;
+          // For the 12-byte form, the typeId is a real cross-unit
+          // primary that uniquely identifies an enum -- mark it as
+          // such directly. For the 11-byte form, the typeId is a
+          // small shared secondary (typically 0x0002 across many
+          // sibling-unit enums) and is NOT enum-identifying on its
+          // own: only the corresponding $2A entry's primary is, so
+          // record the secondary in FCrossUnitEnumIds only.
+          if BodyLen = 12 then
+            FEnumTypeIds[EnumTypeId] := True;
           FCrossUnitEnumIds[EnumTypeId] := True;
           FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
           LastEnumSecondary := EnumTypeId;
           LastEnumSecondaryPos := P;
         end;
-        P := P + 2 + Length(Name) + 12;
+        P := P + 2 + Length(Name) + BodyLen;
         Continue;
+      end;
+    end
+    // Enum type-definition record ($03): the AUTHORITATIVE source for
+    // a (unit, type) pair's element list in declaration order.
+    //   $03 NL TypeName $01 $00 $00 $00 $00 <max-ord> $00 $00 $00 $00 $00 $00 $00
+    //     (<elem-len> <elem-name>) * (max-ord + 1)
+    //     <unit-len> <unit-name>
+    // Two units declaring the same type name produce TWO independent
+    // $03 records; the (unit, type) pair disambiguates same-name
+    // cross-unit enums that the $2A registry collapses last-wins.
+    else if Tag = ENUM_DEF_TAG then
+    begin
+      NameLen := ByteAt(P + 1);
+      if (NameLen >= 2) and (NameLen <= 40) and
+         (P + 2 + Integer(NameLen) + 13 < FSz) and
+         (ByteAt(P + 2 + NameLen)     = $01) and
+         (ByteAt(P + 2 + NameLen + 1) = $00) and
+         (ByteAt(P + 2 + NameLen + 2) = $00) and
+         (ByteAt(P + 2 + NameLen + 3) = $00) and
+         (ByteAt(P + 2 + NameLen + 4) = $00) and
+         (ByteAt(P + 2 + NameLen + 6) = $00) and
+         (ByteAt(P + 2 + NameLen + 7) = $00) and
+         (ByteAt(P + 2 + NameLen + 8) = $00) and
+         (ByteAt(P + 2 + NameLen + 9) = $00) and
+         (ByteAt(P + 2 + NameLen + 10) = $00) and
+         (ByteAt(P + 2 + NameLen + 11) = $00) and
+         (ByteAt(P + 2 + NameLen + 12) = $00) and
+         ReadIdentifier(P + 1, Name) then
+      begin
+        // Number of elements = max-ord + 1 (max-ord at payload byte
+        // +5 relative to the post-name position).
+        var MaxOrd: Integer := ByteAt(P + 2 + NameLen + 5);
+        var ElemCount: Integer := MaxOrd + 1;
+        // Sanity cap. Real enums rarely exceed ~256 elements; cap
+        // generously to bail on a coincidental $03 byte hit.
+        if (ElemCount < 1) or (ElemCount > 512) then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        var CursorPos: NativeInt := P + 2 + NameLen + 13;
+        var Elements: IList<TRsmEnumElement> :=
+          Collections.NewPlainList<TRsmEnumElement>;
+        var ParseOk: Boolean := True;
+        for var EI: Integer := 0 to ElemCount - 1 do
+        begin
+          if CursorPos >= FSz then begin ParseOk := False; Break; end;
+          var ElemLen: Byte := ByteAt(CursorPos);
+          if (ElemLen < 1) or (ElemLen > 64) or
+             (CursorPos + 1 + ElemLen > FSz) then
+          begin ParseOk := False; Break; end;
+          var ElemName: String;
+          if not ReadIdentifier(CursorPos, ElemName) then
+          begin ParseOk := False; Break; end;
+          // Ordinal defaults to list index. The $03 record format we
+          // currently decode handles contiguous 0..N-1 enums (the
+          // common case for sibling-unit / RTL enum types). Sparse
+          // / explicit-value enums (<c>type T = (a = 1, b = 5)</c>)
+          // use a different RSM emission shape not yet decoded; the
+          // model is ready for them (Ordinal is per-element) -- only
+          // this scanner branch needs extending when a real sparse
+          // sample shows up.
+          var Elem: TRsmEnumElement;
+          Elem.Name    := ElemName;
+          Elem.Ordinal := EI;
+          Elements.Add(Elem);
+          CursorPos := CursorPos + 1 + ElemLen;
+        end;
+        if not ParseOk then
+        begin
+          Inc(P);
+          Continue;
+        end;
+        // Unit name comes right after the element list. Optional in
+        // theory but in practice always present for user enums.
+        var UnitName: String := '';
+        if CursorPos < FSz then
+        begin
+          var UnitLen: Byte := ByteAt(CursorPos);
+          if (UnitLen >= 1) and (UnitLen <= 64) and
+             (CursorPos + 1 + UnitLen <= FSz) then
+            ReadIdentifier(CursorPos, UnitName);
+        end;
+        var Def: TRsmEnumDef;
+        Def.TypeName := Name;
+        Def.UnitName := UnitName;
+        Def.Elements := Elements;
+        FEnumDefs.Add(Def);
+        // Don't try to advance past the unit name precisely -- the
+        // record's trailer varies. Single-byte advance is fine; the
+        // outer loop's $03 dispatch will skip the inner bytes harmlessly.
       end;
     end
     // Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).

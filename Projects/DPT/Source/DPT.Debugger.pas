@@ -271,6 +271,17 @@ type
     /// returns the pre-rendered <c>"name (ord)"</c> string.
     function  TryNameBasedEnumLookup(const AName: String;
       const ARawBytes: TBytes; out AFormatted: String): Boolean;
+    /// <summary>
+    ///   Derives the most likely Delphi enum-type name from a
+    ///   variable identifier. Strips a leading 'G' or 'F' prefix
+    ///   when followed by an uppercase letter (Delphi global /
+    ///   field conventions), strips the TRAILING camelCase word
+    ///   (the unit-scope suffix used to disambiguate same-name
+    ///   types across sibling units, e.g. "GStatusAlpha" -> trim
+    ///   "Alpha" -> "Status"), then prepends "T". Returns the
+    ///   empty string when no plausible type name can be derived.
+    /// </summary>
+    function  DeriveTypeHintFromVariableName(const AName: String): String;
     /// Builds the hint message returned via <c>EvaluateVariable</c>'s
     /// <c>AHint</c> out parameter when auto-detection found nothing.
     /// The MCP layer surfaces this so the caller learns WHICH
@@ -2703,6 +2714,46 @@ begin
     end;
   end;
 
+  // Scope-local enum resolver: same-compilation cross-unit enums
+  // (e.g. <c>TStatus</c> declared in three sibling units pulled
+  // into one program) carry a scope-local type alias in their $20
+  // record's payload with hi-byte $1E -- a marker the name index
+  // can't disambiguate. The $03 ENUM_DEF records the scanner
+  // parsed give us the complete (unit, type, [elements]) tuples
+  // needed to pick the right unit's enum based on the variable
+  // name's trailing unit-suffix convention.
+  //
+  // Only fire for non-local globals where the registry type id
+  // carries the scope-local marker ($1E hi byte). Other paths
+  // already cover regular enums and primitives.
+  if (AType = '') and (not IsLocal) and Assigned(FLocalsReader) then
+  begin
+    var GlobIdHere: UInt32 := FLocalsReader.FindGlobalTypeIdx(AName);
+    if ((GlobIdHere shr 8) and $FF) = $1E then
+    begin
+      var ScopeName: String := '';
+      var ScopeOrd : Integer := 0;
+      if Length(RawBytes) >= 1 then
+        ScopeOrd := RawBytes[0];
+      // Derive a type-name hint from the variable name so the
+      // resolver only considers enum defs of that type. Without
+      // the hint, the last-wins fallback would pick whichever
+      // enum was parsed last (e.g. TLightStatus instead of the
+      // intended TStatus), since EVERY enum def whose element
+      // count covers the ordinal would qualify.
+      var TypeHint: String := DeriveTypeHintFromVariableName(AName);
+      if FLocalsReader.TryResolveScopeLocalEnum(
+        AName, ScopeOrd, TypeHint, ScopeName) then
+      begin
+        FLastEnumTypeId := 0;
+        AValue := Format('%s (%d)', [ScopeName, ScopeOrd]);
+        AType  := 'enum';
+        Result := True;
+        Exit;
+      end;
+    end;
+  end;
+
   // Record-terminal fallback: when auto-detection finds no scalar
   // formatter but the whole name resolves to a record-typed global
   // (or a record-typed local), surface the record's type name and
@@ -2757,6 +2808,48 @@ begin
     Result := Format(
       '%s could not be auto-typed (no RSM type metadata for this field). ' +
       'Try one of: type=object, type=int, type=int64, type=string.', [AName]);
+end;
+
+function TDebugger.DeriveTypeHintFromVariableName(const AName: String): String;
+// Heuristic: "GStatusAlpha" -> "TStatus", "FThreadPriority" ->
+// "TThreadPriority", "GMyVar" -> "TMyVar". Returns the empty
+// string when the input is too short to plausibly carry both a
+// type-name root and a unit-suffix segment.
+var
+  Stripped : String;
+  Terminal : String;
+  DotPos   : Integer;
+  I        : Integer;
+  LastUpper: Integer;
+begin
+  Result := '';
+  Terminal := AName;
+  DotPos := Terminal.LastIndexOf('.');
+  if DotPos >= 0 then
+    Terminal := Terminal.Substring(DotPos + 1);
+  Stripped := Terminal;
+  // Strip a leading G or F if followed by an uppercase letter.
+  if (Length(Stripped) > 1) and
+     ((Stripped[1] = 'G') or (Stripped[1] = 'F')) and
+     CharInSet(Stripped[2], ['A'..'Z']) then
+    Stripped := Copy(Stripped, 2, MaxInt);
+  // Strip the trailing camelCase word: find the LAST uppercase
+  // letter and chop from there. This isolates the type-name root
+  // from the unit-suffix that Delphi-convention variable names use
+  // to disambiguate same-named types across sibling units. Only
+  // strip when the leading character is ALSO uppercase (otherwise
+  // we'd erase the entire identifier).
+  LastUpper := -1;
+  for I := Length(Stripped) downto 2 do
+    if CharInSet(Stripped[I], ['A'..'Z']) then
+    begin
+      LastUpper := I;
+      Break;
+    end;
+  if (LastUpper > 1) and (Length(Stripped) - LastUpper >= 1) then
+    Stripped := Copy(Stripped, 1, LastUpper - 1);
+  if (Length(Stripped) >= 2) and CharInSet(Stripped[1], ['A'..'Z']) then
+    Result := 'T' + Stripped;
 end;
 
 function TDebugger.TryNameBasedEnumLookup(const AName: String;
