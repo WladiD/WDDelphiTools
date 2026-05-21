@@ -340,16 +340,20 @@ end;
 // variable's stored RSM type-id is unique though, so the
 // evaluate path that goes "name -> type-id -> enum constants"
 // should still return the right unit's enum.
+//
+// Alpha is contiguous (0..2); Beta and Gamma are sparse with
+// explicit ordinal values, so the byte at the variable's VA
+// equals the element's EXPLICIT ordinal -- not its list index.
 var
   GStatusAlpha : DebugTarget.EnumAlpha.TStatus =
-                   DebugTarget.EnumAlpha.saRunning;  // ord 1
+                   DebugTarget.EnumAlpha.saRunning;  // contiguous ord 1
   GStatusBeta  : DebugTarget.EnumBeta.TStatus =
-                   DebugTarget.EnumBeta.sbStopped;   // ord 2
+                   DebugTarget.EnumBeta.sbStopped;   // sparse explicit 10
   GStatusGamma : DebugTarget.EnumGamma.TStatus =
-                   DebugTarget.EnumGamma.scInit;     // ord 0
+                   DebugTarget.EnumGamma.scInit;     // sparse explicit 7
   // Unqualified declaration: resolves to the LAST unit in the uses
   // clause carrying TStatus, i.e. DebugTarget.EnumGamma.TStatus.
-  GStatusUnq   : TStatus = scWorking;                // ord 1 (Gamma)
+  GStatusUnq   : TStatus = scWorking;                // sparse explicit 13 (Gamma)
 procedure CrossUnitEnumProbe;
 begin
   // Re-assign explicitly to defeat any constant folding the

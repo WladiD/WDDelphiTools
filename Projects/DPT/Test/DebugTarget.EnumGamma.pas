@@ -9,7 +9,11 @@ unit DebugTarget.EnumGamma;
 interface
 
 type
-  TStatus = (scInit, scWorking, scComplete);
+  // Sparse declaration with WIDER gaps than EnumBeta to keep the
+  // two sparse fixtures distinguishable in the byte stream when
+  // reverse-engineering the $03 ENUM_DEF emission for non-
+  // contiguous enums.
+  TStatus = (scInit = 7, scWorking = 13, scComplete = 100);
 
 implementation
 

@@ -7,7 +7,10 @@ unit DebugTarget.EnumBeta;
 interface
 
 type
-  TStatus = (sbIdle, sbActive, sbStopped);
+  // Sparse declaration: explicit ordinal values with gaps. Used to
+  // exercise the RSM scanner's $03 ENUM_DEF handling for the
+  // non-contiguous case.
+  TStatus = (sbIdle = 1, sbActive = 5, sbStopped = 10);
 
 implementation
 

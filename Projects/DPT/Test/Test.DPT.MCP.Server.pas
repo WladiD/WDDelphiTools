@@ -2966,21 +2966,28 @@ begin
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
     ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 362);
   try
+    // GStatusAlpha: TStatus from EnumAlpha (contiguous 0..2). saRunning = ord 1.
     Line := Fixture.EvalAuto('GStatusAlpha');
     Assert.IsTrue(Line.Contains('saRunning') and Line.Contains('(1)'),
-      'GStatusAlpha must format as "saRunning (1)" (DebugTarget.EnumAlpha.TStatus), got: ' + Line);
+      'GStatusAlpha must format as "saRunning (1)" (DebugTarget.EnumAlpha.TStatus, contiguous), got: ' + Line);
 
+    // GStatusBeta: TStatus from EnumBeta declared sparse
+    // (sbIdle = 1, sbActive = 5, sbStopped = 10). sbStopped's explicit ordinal is 10.
     Line := Fixture.EvalAuto('GStatusBeta');
-    Assert.IsTrue(Line.Contains('sbStopped') and Line.Contains('(2)'),
-      'GStatusBeta must format as "sbStopped (2)" (DebugTarget.EnumBeta.TStatus), got: ' + Line);
+    Assert.IsTrue(Line.Contains('sbStopped') and Line.Contains('(10)'),
+      'GStatusBeta must format as "sbStopped (10)" (DebugTarget.EnumBeta.TStatus, sparse), got: ' + Line);
 
+    // GStatusGamma: TStatus from EnumGamma sparse
+    // (scInit = 7, scWorking = 13, scComplete = 100). scInit's explicit ordinal is 7.
     Line := Fixture.EvalAuto('GStatusGamma');
-    Assert.IsTrue(Line.Contains('scInit') and Line.Contains('(0)'),
-      'GStatusGamma must format as "scInit (0)" (DebugTarget.EnumGamma.TStatus), got: ' + Line);
+    Assert.IsTrue(Line.Contains('scInit') and Line.Contains('(7)'),
+      'GStatusGamma must format as "scInit (7)" (DebugTarget.EnumGamma.TStatus, sparse), got: ' + Line);
 
+    // GStatusUnq: unqualified TStatus picks Gamma via uses-order
+    // last-wins. scWorking's explicit ordinal in Gamma is 13.
     Line := Fixture.EvalAuto('GStatusUnq');
-    Assert.IsTrue(Line.Contains('scWorking') and Line.Contains('(1)'),
-      'GStatusUnq must format as "scWorking (1)" (uses-order last wins -> Gamma.TStatus), got: ' + Line);
+    Assert.IsTrue(Line.Contains('scWorking') and Line.Contains('(13)'),
+      'GStatusUnq must format as "scWorking (13)" (uses-order last wins -> Gamma.TStatus, sparse), got: ' + Line);
   finally
     Fixture.Free;
   end;

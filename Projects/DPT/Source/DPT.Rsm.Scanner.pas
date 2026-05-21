@@ -974,6 +974,14 @@ var
   /// record ($20 / $21 / $22) since the last PROC_TAG, which
   /// puts SCOPE_END detection back on solid ground.
   SeenLocalSinceProc: Boolean;
+  /// Buffer of $25 enum-constant records seen since the last $2A
+  /// type-registry entry. The cross-unit $25 form encodes elements
+  /// with a SHARED secondary id (typically 0x0002) that collides
+  /// across sibling-unit enums; we delay writing them into
+  /// FEnumConstNames until the matching $2A surfaces a unique
+  /// primary id, then flush all buffered constants keyed by that
+  /// primary -- avoiding the last-wins collision on the secondary.
+  PendingEnumConstants: IList<TRsmEnumElement>;
 
   function FindProcByName(const AName: String): Integer;
   begin
@@ -1088,6 +1096,7 @@ begin
   SeenLocalSinceProc := False;
   LocalIdx := 0;
   RegParam := 0;
+  PendingEnumConstants := Collections.NewPlainList<TRsmEnumElement>;
   P := 0;
   // Tracks the most recently scanned $25 cross-unit enum-constant
   // record. The Delphi RSM emits all of an enum's $25 records
@@ -1429,25 +1438,36 @@ begin
         P := P + 2 + Length(Name) + 8;
         Continue;
       end;
-      // Cross-unit form -- two body variants depending on whether the
-      // enum's primary id is "real cross-unit" (a separately-compiled
-      // RTL/VCL type like TThreadPriority with primary 0x0441) or
-      // "same-compilation cross-unit" (a user type declared in a
-      // sibling source file, e.g. TStatus from DebugTarget.EnumAlpha).
-      // The two variants share the first 9 bytes and differ only in
-      // padding before the 2*ordinal byte.
+      // Cross-unit form -- three body variants depending on whether
+      // the enum's primary id is "real cross-unit" (a separately-
+      // compiled RTL/VCL type like TThreadPriority with primary
+      // 0x0441) or "same-compilation cross-unit" (a user type
+      // declared in a sibling source file, e.g. TStatus from
+      // DebugTarget.EnumAlpha) -- and, within the latter family,
+      // whether the element's explicit ordinal value fits in a
+      // single byte or needs Delphi's LSB-discriminated 2-byte
+      // encoding (Delphi enums may carry arbitrary explicit ordinal
+      // assignments, e.g. <c>(a = 1, b = 100)</c>).
       //
-      // 12-byte body (real cross-unit, e.g. TThreadPriority):
+      // RTL 12-byte body (e.g. TThreadPriority):
       //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> <typeId-hi>
       //                 $00 $00 <2*ord>
-      //   The typeId-hi byte is non-zero (real cross-unit id range).
+      //   typeId-hi != $00 (real cross-unit id, e.g. $04 for TThreadPriority).
       //
-      // 11-byte body (same-compilation cross-unit, e.g. TStatus@Alpha):
+      // Same-compilation 11-byte body (single-byte ord, ord <= 127):
       //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <2*ord>
-      //   The typeId-hi byte is $00 (small secondary id, e.g. 0x0002
-      //   shared across sibling units' enums). Discriminate from the
-      //   12-byte form via the typeId-hi byte: $00 -> 11-byte form,
-      //   non-zero -> 12-byte form.
+      //   typeId-hi = $00 (small shared secondary, e.g. 0x0002).
+      //
+      // Same-compilation 12-byte body (2-byte ord, sparse / ord >= 128):
+      //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <ord-byte-lo> <ord-byte-hi>
+      //   typeId-hi = $00 AND ord-byte-lo's LSB = 1. The ordinal is
+      //   decoded as <c>(W - 1) / 4</c> where W is the LE word at
+      //   +10..+11 -- the same LSB-as-continuation encoding the
+      //   BPRel-offset decoder uses for stack offsets > +/-64.
+      //
+      // Discriminator order: typeId-hi first picks RTL vs same-comp;
+      // then byte[+10]'s LSB picks single- vs 2-byte ord within
+      // same-comp.
       if (NameLen >= 1) and (NameLen <= 64) and
          (P + 2 + Integer(NameLen) + 11 < FSz) and
          (ByteAt(P + 2 + NameLen)     = $8A) and
@@ -1462,16 +1482,10 @@ begin
         var HiByte: Byte := ByteAt(P + 2 + NameLen + 8);
         var Ordinal: Integer;
         var BodyLen: Integer;
-        if HiByte = 0 then
+        if HiByte <> 0 then
         begin
-          // 11-byte body: 2*ord at +10, no second pad.
-          Ordinal := Integer(ByteAt(P + 2 + NameLen + 10)) shr 1;
-          BodyLen := 11;
-        end
-        else
-        begin
-          // 12-byte body: requires the +10 byte to also be $00 pad
-          // and the 2*ord at +11.
+          // RTL 12-byte form: requires +10 = $00 (double-pad) and
+          // single-byte 2*ord at +11.
           if (P + 2 + Integer(NameLen) + 12 >= FSz) or
              (ByteAt(P + 2 + NameLen + 10) <> $00) then
           begin
@@ -1480,20 +1494,52 @@ begin
           end;
           Ordinal := Integer(ByteAt(P + 2 + NameLen + 11)) shr 1;
           BodyLen := 12;
+        end
+        else
+        begin
+          var OrdByte0: Byte := ByteAt(P + 2 + NameLen + 10);
+          if (OrdByte0 and 1) = 0 then
+          begin
+            // Same-comp 11-byte form: single-byte 2*ord at +10.
+            Ordinal := Integer(OrdByte0) shr 1;
+            BodyLen := 11;
+          end
+          else
+          begin
+            // Same-comp 12-byte sparse form: 2-byte LSB-extended ord
+            // at +10..+11. Decoded as (W - 1) >> 2 per Delphi's
+            // LSB-as-continuation scheme.
+            if P + 2 + Integer(NameLen) + 12 >= FSz then
+            begin Inc(P); Continue; end;
+            var W: Word := Word(OrdByte0) or
+                           (Word(ByteAt(P + 2 + NameLen + 11)) shl 8);
+            Ordinal := (Integer(W) - 1) shr 2;
+            BodyLen := 12;
+          end;
         end;
         if EnumTypeId <> 0 then
         begin
-          // For the 12-byte form, the typeId is a real cross-unit
-          // primary that uniquely identifies an enum -- mark it as
-          // such directly. For the 11-byte form, the typeId is a
-          // small shared secondary (typically 0x0002 across many
-          // sibling-unit enums) and is NOT enum-identifying on its
-          // own: only the corresponding $2A entry's primary is, so
-          // record the secondary in FCrossUnitEnumIds only.
-          if BodyLen = 12 then
+          // For the RTL 12-byte form, the typeId IS a unique primary
+          // -- register it directly. For the same-compilation forms,
+          // the typeId is the shared secondary (typically 0x0002
+          // across sibling-unit enums); BUFFER the constant rather
+          // than writing it under the secondary, so the upcoming
+          // $2A registry entry can flush it under its TRUE primary
+          // and avoid the last-wins collision on the secondary.
+          if HiByte <> 0 then
+          begin
             FEnumTypeIds[EnumTypeId] := True;
-          FCrossUnitEnumIds[EnumTypeId] := True;
-          FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+            FCrossUnitEnumIds[EnumTypeId] := True;
+            FEnumConstNames[IntToStr(EnumTypeId) + ':' + IntToStr(Ordinal)] := Name;
+          end
+          else
+          begin
+            FCrossUnitEnumIds[EnumTypeId] := True;
+            var Pe: TRsmEnumElement;
+            Pe.Name    := Name;
+            Pe.Ordinal := Ordinal;
+            PendingEnumConstants.Add(Pe);
+          end;
           LastEnumSecondary := EnumTypeId;
           LastEnumSecondaryPos := P;
         end;
@@ -1594,14 +1640,18 @@ begin
     end
     // Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
     // Bridge the primary to any cross-unit enum secondary that
-    // appears as a 2-byte LE slot in this $2A's body.
+    // appears as a 2-byte LE slot in this $2A's body, AND flush
+    // the per-enum buffer of pending $25 constants under this
+    // primary (avoiding the last-wins collision the shared
+    // secondary id would otherwise cause).
     else if Tag = TYPE_REGISTRY_TAG then
     begin
       NameLen := ByteAt(P + 1);
       if (NameLen >= 2) and (NameLen <= 40) and
          (P + 2 + Integer(NameLen) + 5 < FSz) and
          (ByteAt(P + 2 + NameLen + 1) = $00) and
-         (ByteAt(P + 2 + NameLen + 2) = $00) then
+         (ByteAt(P + 2 + NameLen + 2) = $00) and
+         ReadIdentifier(P + 1, Name) then
       begin
         var Primary: UInt32 :=
           UInt32(ByteAt(P + 2 + NameLen + 3)) or
@@ -1627,6 +1677,73 @@ begin
               AliasList.Add(SecCandidate);
           end;
         end;
+        // Flush pending $25 records (buffered since the last $2A)
+        // into FEnumConstNames keyed by THIS $2A's primary. The
+        // pending buffer is the per-enum block emitted right
+        // before this registry entry; the secondary id used to key
+        // those records would collide across sibling-unit enums
+        // (same secondary 0x0002 for all three TStatus's), but
+        // primary-keying is unique per (unit, type) and so
+        // disambiguates cleanly.
+        if (Primary <> 0) and (PendingEnumConstants.Count > 0) then
+        begin
+          for var FI: Integer := 0 to PendingEnumConstants.Count - 1 do
+          begin
+            var Fe: TRsmEnumElement := PendingEnumConstants[FI];
+            FEnumConstNames[IntToStr(Primary) + ':' + IntToStr(Fe.Ordinal)] := Fe.Name;
+          end;
+          FEnumTypeIds[Primary] := True;
+
+          // Locate the OWNING UNIT by scanning forward for the next
+          // PROC_TAG whose name contains a '.' (the unit's init
+          // proc, e.g. "DebugTarget.EnumAlpha"). The registry entry
+          // is immediately followed by the unit's standard
+          // initialisation sequence -- one or two PROC_TAGs (often
+          // including a "Finalization" stub without a dot) and
+          // then the dotted unit-init proc. A 1024-byte forward
+          // window comfortably covers the standard layout.
+          var UnitNameSparse: String := '';
+          var Q: NativeInt := P + 2 + NameLen + 5;
+          var QStop: NativeInt := Q + 1024;
+          if QStop > FSz - 2 then QStop := FSz - 2;
+          while Q < QStop do
+          begin
+            if ByteAt(Q) = PROC_TAG then
+            begin
+              var ProcNL: Byte := ByteAt(Q + 1);
+              if (ProcNL >= 2) and (ProcNL <= 64) and
+                 (Q + 2 + ProcNL <= FSz) then
+              begin
+                var ProcName: String;
+                if ReadIdentifier(Q + 1, ProcName) and
+                   ProcName.Contains('.') then
+                begin
+                  UnitNameSparse := ProcName;
+                  Break;
+                end;
+              end;
+            end;
+            Inc(Q);
+          end;
+
+          // Synthesise an EnumDef so the reader's name-suffix-
+          // based resolver can disambiguate same-name sibling-
+          // unit enums. The buffered constants carry their explicit
+          // ordinals -- the def works for sparse enums (gaps and
+          // non-zero starts) since lookup goes through
+          // TRsmEnumDef.TryFindByOrdinal.
+          if UnitNameSparse <> '' then
+          begin
+            var Def: TRsmEnumDef;
+            Def.TypeName := Name;
+            Def.UnitName := UnitNameSparse;
+            Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
+            for var GI: Integer := 0 to PendingEnumConstants.Count - 1 do
+              Def.Elements.Add(PendingEnumConstants[GI]);
+            FEnumDefs.Add(Def);
+          end;
+        end;
+        PendingEnumConstants.Clear;
       end;
     end
     else if (Tag = SCOPE_END) and SeenLocalSinceProc then
