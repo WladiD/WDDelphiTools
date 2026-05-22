@@ -107,6 +107,10 @@ type
     [Test]
     procedure TestMcpEvaluateAutoTypeDetectionEnum;
     [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionEnumOnLocalRecord;
+    [Test]
+    procedure TestMcpEvaluateAutoTypeDetectionEnumInVariantCase;
+    [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
     [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
@@ -2914,6 +2918,87 @@ begin
     Assert.IsTrue(Line.Contains('tpHigher') and Line.Contains('(4)'),
       'auto-detect on cross-unit enum field via name convention must ' +
       'format as "tpHigher (4)", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Positive regression coverage for enum-typed terminal fields
+///   reached via a LOCAL record (the global-record case is covered
+///   by <see cref="TestMcpEvaluateAutoTypeDetectionEnum"/>). Both a
+///   plain <c>TEnumHostRec</c> and a <c>packed record</c> variant
+///   are probed with <c>FLight = lsRed</c> (ordinal 0 -- the first
+///   enum element) so a future regression in
+///   <c>AutoDetectFormatterName</c>'s enum routing for ordinal 0
+///   trips here. The companion test
+///   <see cref="TestMcpEvaluateAutoTypeDetectionEnumInVariantCase"/>
+///   covers the variant-case nested-record path.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionEnumOnLocalRecord;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 281);
+  try
+    Line := Fixture.EvalAuto('LocalEnumRec.FLight');
+    Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
+      'auto-detect on enum field of LOCAL record (ordinal 0) must format ' +
+      'as "lsRed (0)", got: ' + Line);
+
+    Line := Fixture.EvalAuto('LocalEnumRecPacked.FLight');
+    Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
+      'auto-detect on enum field of LOCAL packed record (ordinal 0) must ' +
+      'format as "lsRed (0)", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Regression coverage for the dotted-walk's record-local
+///   priming: a LOCAL of a record type with a nested record in a
+///   variant case must walk through the variant-case overlay's
+///   declared offset. Mirrors the TFW shape where
+///   <c>UserKonsOutlook.SyncStatus</c> is an enum field on a
+///   packed record sitting in a variant case
+///   <c>5: (Outlook: TUserKonsOutlook)</c> of <c>TUserKons</c>.
+/// </summary>
+/// <remarks>
+///   The reproducer in <c>DebugTarget</c> uses
+///   <c>TEnumVariantHost</c>:
+///   <code>
+///     TEnumVariantHost = packed record
+///       FTag: Integer;
+///       case Integer of
+///         0: (FFlag1: Boolean);
+///         5: (FInner: TEnumHostRec);
+///     end;
+///   </code>
+///   The probe sets <c>LocalVariantHost.FInner.FLight := lsRed</c>
+///   (ordinal 0). Before the dotted-walk priming was extended to
+///   handle local record types via <c>FindStructByTypeIdx</c>, the
+///   first hop tried class semantics on <c>LocalVariantHost</c>
+///   and returned <c>"&lt;unknown&gt; (&lt;garbage&gt;)"</c>.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateAutoTypeDetectionEnumInVariantCase;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 281);
+  try
+    Line := Fixture.EvalAuto('LocalVariantHost.FInner.FLight');
+    Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
+      'auto-detect on enum field of variant-case nested record ' +
+      '(ordinal 0) must format as "lsRed (0)", got: ' + Line);
   finally
     Fixture.Free;
   end;

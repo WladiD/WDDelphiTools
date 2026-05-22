@@ -257,7 +257,7 @@ type
   TEnumHostRec = record
     FLight  : TLightStatus;
     FFlag   : Integer;
-  end;
+  end; TEnumHostRecPacked = packed record FLight: TLightStatus; FFlag: Integer; end; TEnumVariantHost = packed record FTag: Integer; case Integer of 0: (FFlag1: Boolean); 5: (FInner: TEnumHostRec); end;
 type
   // Class holding a cross-unit enum-typed field whose name follows
   // the Delphi convention <c>F&lt;TypeName-without-T&gt;</c>. With
@@ -272,15 +272,15 @@ var
   GGlobalThPriHost: TThPriHost;
 procedure EnumProbeProcedure;
 var
-  LocalLight : TLightStatus;
+  LocalLight : TLightStatus; LocalEnumRec : TEnumHostRec; LocalEnumRecPacked : TEnumHostRecPacked; LocalVariantHost : TEnumVariantHost;
 begin
   LocalLight := lsYellow;
-  GGlobalEnumRec.FLight := lsRed;
+  GGlobalEnumRec.FLight := lsRed; LocalEnumRec.FLight := lsRed; LocalEnumRecPacked.FLight := lsRed; LocalVariantHost.FInner.FLight := lsRed;
   GGlobalEnumRec.FFlag  := Integer($EEEEEEEE);
   GGlobalThPriHost.FThreadPriority := tpHigher;
   Writeln('EnumProbe ', Ord(LocalLight), ' ',                           // Line 281 - enum bp here
           Ord(GGlobalLight), ' ', Ord(GGlobalEnumRec.FLight), ' ',
-          Ord(GGlobalThPriHost.FThreadPriority)); Flush(Output);
+          Ord(GGlobalThPriHost.FThreadPriority), ' ', Ord(LocalEnumRec.FLight), ' ', Ord(LocalEnumRecPacked.FLight), ' ', Ord(LocalVariantHost.FInner.FLight)); Flush(Output);
 end;
 procedure OpenArrayStringProcedure(const AItems: array of string);
 var
