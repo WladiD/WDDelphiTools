@@ -355,6 +355,25 @@ begin
                   (ByteAt(After + 7) = $01) then
             Member.PrimitiveTypeId :=
               UInt16(ByteAt(After + 3)) or
+              (UInt16(ByteAt(After + 4)) shl 8)
+          // Same shape as the BodyLen>=10 branch above, but with
+          // a TWO-byte separator between the field's type id and
+          // the "$9C $01" marker (marker at +7..+8 instead of
+          // +6..+7). The compiler emits this longer separator
+          // when the field's byte offset within the record
+          // doesn't fit in the shorter form (observed for fields
+          // at record offsets >= 256: CalendarID at 259,
+          // SyncDirection at 771, etc). Without this branch the
+          // linker leaves Member.PrimitiveTypeId at 0 for every
+          // enum/string field past a 256-byte boundary, which
+          // sends the evaluator's auto-detect chain into the
+          // name-based fallback -- the source of the TFW
+          // UserKonsOutlook.SyncDirection misroute.
+          else if (BodyLen >= 11) and
+                  (ByteAt(After + 7) = $9C) and
+                  (ByteAt(After + 8) = $01) then
+            Member.PrimitiveTypeId :=
+              UInt16(ByteAt(After + 3)) or
               (UInt16(ByteAt(After + 4)) shl 8);
         end;
         FClasses[ParentIdx].Members[M] := Member;

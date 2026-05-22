@@ -111,10 +111,8 @@ type
     [Test]
     procedure TestMcpEvaluateAutoTypeDetectionEnumInVariantCase;
     [Test]
-    [Ignore('Reproduces the TFW UserKonsOutlook.SyncDirection misroute. After a large unstructured field (CalendarID array) the Format-A linker stops populating Member.PrimitiveTypeId for subsequent fields, so AutoDetectFormatterName Paths 1/2 don''t fire. The name-based fallback derives T+"SyncDirection"="TSyncDirection" (the red-herring enum anchored by GSyncDirectionAnchor), finds it registered, and returns its ord-1 constant "sdBeta" instead of the field''s actual TFieldStatusKind constant "fskDraft (1)". Reactivate once auto-detect consults the field''s declared type (via FindStructByTypeIdx on the Member''s TypeIdx, or by extending Format-A linking past the array-of-byte gap) before the name-based heuristic.')]
     procedure TestMcpEvaluateEnumNameClashPicksWrongType;
     [Test]
-    [Ignore('Reproduces the TFW UserKonsOutlook.SyncStatus failure. Same Format-A-linker truncation as the SyncDirection sibling, but the field name "SyncStatus" has no T+Name match in the registry (no TSyncStatus enum exists in DebugTarget). Name-based fallback bails, every auto-detect path falls through, and the evaluator returns the "no RSM type metadata" hint instead of "fukActive (1)". Reactivate together with the SyncDirection sibling once the linker reaches past the gap.')]
     procedure TestMcpEvaluateEnumWithoutNameMatchFails;
     [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
@@ -3011,25 +3009,26 @@ begin
 end;
 
 /// <summary>
-///   Red test reproducing the TFW <c>UserKonsOutlook.SyncDirection</c>
-///   misroute. The field is named <c>Status</c> -- not
-///   <c>FStatus</c> -- so auto-detect's name-based fallback strips
-///   no prefix and derives <c>"T" + "Status" = "TStatus"</c>.
-///   <c>TStatus</c> IS registered in <c>DebugTarget</c> (cross-unit
-///   aliased to one of the EnumAlpha/Beta/Gamma TStatus types via
-///   <c>GStatusAlpha/Beta/Gamma</c> above), so the lookup succeeds
-///   -- but with the WRONG enum's ordinal-1 constant
-///   (<c>saRunning</c>, <c>scWorking</c>, etc.) instead of the
-///   field's actual <c>TFieldStatusKind</c> constant
-///   <c>fskDraft (1)</c>.
+///   Regression coverage for the TFW
+///   <c>UserKonsOutlook.SyncDirection</c> misroute. The field
+///   <c>SyncDirection : TFieldStatusKind</c> sits at record offset
+///   771 -- well past the 256-byte boundary where the compiler
+///   switches the <c>$2C</c> field record's body shape to a
+///   two-byte separator between the field's type id and the
+///   <c>$9C $01</c> reference marker. Until the Format-A linker
+///   learned the long-separator shape, fields past that boundary
+///   arrived with <c>Member.PrimitiveTypeId = 0</c>; auto-detect
+///   then fell through to the name-based fallback and resolved
+///   <c>T+"SyncDirection" = "TSyncDirection"</c> (a red-herring
+///   enum anchored by <c>GSyncDirectionAnchor</c>), returning the
+///   wrong enum's <c>sdBeta (1)</c> instead of <c>fskDraft (1)</c>.
 /// </summary>
 /// <remarks>
-///   The dotted-walk reads byte 0 = 1 correctly (verified by the
-///   <c>type=int</c> variant of this test); the bug is purely in
-///   enum selection. A fix should consult the field's declared
-///   type via the structural lookup (<c>FindStructByTypeIdx</c> /
-///   <c>FindClassIdxByRsmTypeId</c>) before falling back to the
-///   name-based heuristic.
+///   With the long-separator branch in place, the field's
+///   <c>PrimitiveTypeId</c> carries the real
+///   <c>TFieldStatusKind</c> id and Path 1 of
+///   <c>AutoDetectFormatterName</c> resolves directly to the
+///   correct constant.
 /// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateEnumNameClashPicksWrongType;
 var
@@ -3053,24 +3052,18 @@ begin
 end;
 
 /// <summary>
-///   Red test reproducing the TFW <c>UserKonsOutlook.SyncStatus</c>
-///   failure. The field name <c>Whatever</c> has no <c>T+Name</c>
-///   match in the type registry, AND its actual enum type
-///   (<c>TFieldUnregKind</c>) wasn't linked to the field via the
-///   Format-A linker (records-of-enums aren't covered today).
-///   Auto-detect falls through every path and the evaluator returns
-///   the "no RSM type metadata" hint instead of
-///   <c>fukActive (1)</c>.
+///   Regression coverage for the TFW
+///   <c>UserKonsOutlook.SyncStatus</c> failure. Same long-separator
+///   shape as the <c>SyncDirection</c> sibling, but the field
+///   name <c>SyncStatus</c> has no <c>T+Name</c> match in the
+///   registry (<c>TSyncStatus</c> is intentionally absent). Before
+///   the linker fix, this would fall through every auto-detect
+///   path and end at the "no RSM type metadata" hint; with the
+///   long-separator branch in place, the field's
+///   <c>TFieldUnregKind</c> id reaches
+///   <c>AutoDetectFormatterName</c> Path 1 directly and the
+///   formatter returns <c>fukActive (1)</c>.
 /// </summary>
-/// <remarks>
-///   A fix should populate <c>Member.PrimitiveTypeId</c> for
-///   enum-typed record fields during Format-A linking, or extend
-///   <c>AutoDetectFormatterName</c> to ask
-///   <c>FindStructByTypeIdx</c> /
-///   <c>FindClassIdxByRsmTypeId</c> for the enum behind the
-///   Member's <c>TypeIdx</c> before bailing to the name-based
-///   heuristic.
-/// </remarks>
 procedure TMcpServerTests.TestMcpEvaluateEnumWithoutNameMatchFails;
 var
   Fixture: TMcpEvalFixture;
