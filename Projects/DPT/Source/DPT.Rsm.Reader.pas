@@ -27,7 +27,10 @@ uses
 
   DPT.Rsm.Model,
   DPT.Rsm.Scanner,
-  DPT.Rsm.FormatALinker;
+  DPT.Rsm.FormatALinker,
+  DPT.Rsm.ClassParentDeriver,
+  DPT.Rsm.CrossUnitParentResolver,
+  DPT.Rsm.ScopeLocalEnumBridge;
 
 type
 
@@ -73,15 +76,19 @@ type
     /// scanner's Format-B (offset-only) field walk; both encodings
     /// sit in the same byte stream and together give full member-
     /// name + member-type information.
-    FFormatALinker       : TRsmFormatALinker;
-    procedure DeriveClassParents;
-    procedure ResolveParentNamesFromTypeIds;
+    FFormatALinker            : TRsmFormatALinker;
+    /// Derives class -> parent links from instance-layout heuristic.
+    FClassParentDeriver       : TRsmClassParentDeriver;
+    /// Cross-unit inheritance fallback (resolves ParentRawId via the
+    /// FormatA type-id map).
+    FCrossUnitParentResolver  : TRsmCrossUnitParentResolver;
+    /// Strong-form bridge from scope-local enum type ids to EnumDef.
+    FScopeLocalEnumBridge     : TRsmScopeLocalEnumBridge;
     function  GetOnPhase: TProc<String>;
     procedure SetOnPhase(const AValue: TProc<String>);
     function  GetProcs: IList<TRsmProc>;
     function  GetClasses: IList<TRsmClassInfo>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
-    procedure BuildScopeLocalTypeIdBridge;
     procedure RunPostProcess;
   public
     constructor Create;
@@ -150,10 +157,18 @@ begin
   FFormatALinker             := TRsmFormatALinker.Create(
     FScanner.Classes, FScanner.ClassByName,
     FRsmTypeIdToClassIdx, FTypeIdByName);
+  FClassParentDeriver        := TRsmClassParentDeriver.Create(FScanner.Classes);
+  FCrossUnitParentResolver   := TRsmCrossUnitParentResolver.Create(
+    FScanner.Classes, FRsmTypeIdToClassIdx);
+  FScopeLocalEnumBridge      := TRsmScopeLocalEnumBridge.Create(
+    FScanner.GlobalByName, FScanner.EnumDefs, FScopeLocalTypeIdToEnumDef);
 end;
 
 destructor TRsmReader.Destroy;
 begin
+  FScopeLocalEnumBridge.Free;
+  FCrossUnitParentResolver.Free;
+  FClassParentDeriver.Free;
   FFormatALinker.Free;
   FScanner.Free;
   inherited;
@@ -367,99 +382,13 @@ begin
   ReportPhase := FScanner.OnPhase;
   FFormatALinker.Run(FScanner.Buf, FScanner.Sz);
   Report('LinkMemberTypeIdsFromFormatA');
-  DeriveClassParents;
+  FClassParentDeriver.Run;
   Report('DeriveClassParents');
-  ResolveParentNamesFromTypeIds;
+  FCrossUnitParentResolver.Run;
   Report('ResolveParentNamesFromTypeIds');
-  BuildScopeLocalTypeIdBridge;
+  FScopeLocalEnumBridge.Run;
   Report('BuildScopeLocalTypeIdBridge');
   Report('done');
-end;
-
-/// <summary>
-///   Post-scan pass that walks every registered global,
-///   identifies those whose stored type id carries the scope-
-///   local enum marker ($1E hi-byte), and -- via the same
-///   unit-suffix matching used by
-///   <see cref="TryResolveScopeLocalEnum"/> -- binds each
-///   distinct scope-local type id to the EnumDef of the unit
-///   the anchor variable's name implies. Because the compiler
-///   reuses the same scope-local id for all variables of the
-///   same (unit, type) pair, a SINGLE conventionally-named
-///   anchor variable is enough to bridge every other variable
-///   sharing that type id -- even those whose own name carries
-///   no unit hint at all.
-/// </summary>
-procedure TRsmReader.BuildScopeLocalTypeIdBridge;
-// Strong-form bridge from scope-local type id ($1E** hi-byte) to
-// the matching TRsmEnumDef. Each (unit, type) pair has its own
-// scope-local id assigned by the compiler at consumer-unit compile
-// time, and ALL variables of that (unit, type) pair share the
-// same id. So a single anchor variable per id is enough -- one
-// whose name happens to end with the unit's trailing-short -- to
-// bind every other variable of that id to the correct EnumDef,
-// even variables whose own name carries no unit hint at all.
-//
-// Walks every (lowercased) name in GlobalByName; for ids carrying
-// the $1E marker that aren't yet bridged, re-uses the unit-suffix
-// matcher from TryResolveScopeLocalEnum's first pass to find a
-// matching def. The first bridge built for an id wins -- typically
-// the first conventionally-named global declared with that type.
-var
-  Pair    : TPair<String, UInt32>;
-  Defs    : IList<TRsmEnumDef>;
-
-  function UnitTrailingShort(const AUnitName: String): String;
-  const
-    StripPrefixes: array[0..3] of String = ('Enum', 'Module', 'Unit', 'Mod');
-  var
-    DotPos: Integer;
-    Tail  : String;
-    PI    : Integer;
-  begin
-    DotPos := AUnitName.LastIndexOf('.');
-    if DotPos >= 0 then
-      Tail := AUnitName.Substring(DotPos + 1)
-    else
-      Tail := AUnitName;
-    for PI := 0 to High(StripPrefixes) do
-      if StartsText(StripPrefixes[PI], Tail) and
-         (Length(Tail) > Length(StripPrefixes[PI])) then
-      begin
-        Tail := Copy(Tail, Length(StripPrefixes[PI]) + 1, MaxInt);
-        Break;
-      end;
-    Result := Tail;
-  end;
-
-begin
-  Defs := FScanner.EnumDefs;
-  if Defs.Count = 0 then Exit;
-  for Pair in FScanner.GlobalByName do
-  begin
-    var TypeId: UInt32 := Pair.Value;
-    if ((TypeId shr 8) and $FF) <> $1E then Continue;
-    if FScopeLocalTypeIdToEnumDef.ContainsKey(TypeId) then Continue;
-    var VarLower: String := Pair.Key; // already lowercased on insert
-    var BestIdx : Integer := -1;
-    var BestLen : Integer := 0;
-    for var I: Integer := 0 to Defs.Count - 1 do
-    begin
-      var Def: TRsmEnumDef := Defs[I];
-      var ShortName: String := UnitTrailingShort(Def.UnitName);
-      if (Length(ShortName) >= 2) and
-         VarLower.EndsWith(LowerCase(ShortName)) then
-      begin
-        if Length(ShortName) > BestLen then
-        begin
-          BestIdx := I;
-          BestLen := Length(ShortName);
-        end;
-      end;
-    end;
-    if BestIdx >= 0 then
-      FScopeLocalTypeIdToEnumDef[TypeId] := BestIdx;
-  end;
 end;
 
 /// <summary>
@@ -483,202 +412,6 @@ begin
   if not FScopeLocalTypeIdToEnumDef.TryGetValue(ATypeId, DefIdx) then Exit;
   if (DefIdx < 0) or (DefIdx >= FScanner.EnumDefs.Count) then Exit;
   Result := FScanner.EnumDefs[DefIdx].TryFindByOrdinal(AOrdinal, AName);
-end;
-
-/// <summary>
-///   Resolve <c>ParentName</c> for every class that has a
-///   non-zero <c>ParentRawId</c> and is still missing a parent
-///   after <c>DeriveClassParents</c>. The raw id was captured
-///   from the two bytes immediately preceding the class-name
-///   length byte; it is meaningful only after the type registry
-///   (<c>FRsmTypeIdToClassIdx</c>) has been populated by
-///   <c>LinkMemberTypeIdsFromFormatA</c>, which is why this
-///   pass runs after both DiscoverAndParseAllStructs and
-///   LinkMemberTypeIdsFromFormatA.
-/// </summary>
-procedure TRsmReader.ResolveParentNamesFromTypeIds;
-// Cross-unit inheritance the offset-matching heuristic cannot
-// bridge: e.g. a user class declared in DebugTarget inheriting
-// from System.Classes.TComponent. The RSM emits a 16-bit type-id
-// in the two bytes immediately preceding the class-name length
-// byte for such cross-unit parents; same-unit inheritance leaves
-// those bytes zero and is handled by DeriveClassParents instead.
-//
-// We capture that raw id during class discovery (into
-// ParentRawId), then resolve it here once the type registry
-// (FRsmTypeIdToClassIdx) has been built by
-// LinkMemberTypeIdsFromFormatA. Classes whose ParentName was
-// already filled in by DeriveClassParents are left alone -- the
-// offset heuristic is reliable for in-file chains and we treat
-// the type-id pass as a fallback that only fills gaps.
-var
-  I, ClsIdx: Integer;
-  Info     : TRsmClassInfo;
-  FClasses : IList<TRsmClassInfo>;
-begin
-  FClasses := FScanner.Classes;
-  for I := 0 to FClasses.Count - 1 do
-  begin
-    Info := FClasses[I];
-    if Info.Kind <> skClass then Continue;
-    if Info.ParentName <> '' then Continue;
-    if Info.ParentRawId = 0 then Continue;
-    if not FRsmTypeIdToClassIdx.TryGetValue(Info.ParentRawId, ClsIdx) then
-      Continue;
-    if (ClsIdx < 0) or (ClsIdx >= FClasses.Count) or (ClsIdx = I) then
-      Continue;
-    Info.ParentName := FClasses[ClsIdx].Name;
-    FClasses[I] := Info;
-  end;
-end;
-
-procedure TRsmReader.DeriveClassParents;
-// The RSM symbol stream does not expose an explicit class -> parent
-// reference in any form we have identified. The compiler instead bakes
-// inheritance into the instance LAYOUT: a class C inheriting from P
-// starts its own fields at offset (P's instance size), with the VMT
-// pointer taking the very first slot. We exploit this layout to
-// reconstruct the hierarchy: for each class C, find the class P whose
-// own-fields end exactly at C's first own field offset, and call that
-// P the parent of C.
-//
-// The heuristic does the right thing for class layouts where each
-// candidate parent has a distinct instance size (the common case for
-// hand-written Delphi code, where sibling classes rarely happen to
-// reach the same byte-exact instance boundary). Where two candidates
-// collide -- e.g. two unrelated classes that both end at offset $18
-// for a child to "choose between" -- we conservatively leave
-// ParentName empty, since picking wrong would hide inherited fields
-// behind a foreign type. Records (skRecord) are skipped: Delphi
-// records cannot inherit, so the offset-matching test wouldn't carry
-// meaning for them.
-const
-  WIN64_PTR_SIZE = 8;
-  WIN32_PTR_SIZE = 4;
-var
-  I, J       : Integer;
-  Info       : TRsmClassInfo;
-  PtrSize    : UInt32;
-  FirstOffs  : array of UInt32;
-  LastEnds   : array of UInt32;
-  Kinds      : array of TRsmStructKind;
-  Cand, Match: Integer;
-  FClasses   : IList<TRsmClassInfo>;
-
-  function InstanceSize(AInfo: TRsmClassInfo; AFirstOff, ALastOff: UInt32): UInt32;
-  var
-    K       : Integer;
-    PrevOff : UInt32;
-    LastGap : UInt32;
-  begin
-    // Walk members in offset order to estimate the last field's
-    // byte width from the gap to the next, falling back to one
-    // pointer for the trailing field whose size we cannot infer
-    // from a successor.
-    if AInfo.Members.Count = 0 then Exit(AFirstOff);
-    PrevOff := AFirstOff;
-    LastGap := PtrSize;
-    for K := 0 to AInfo.Members.Count - 1 do
-    begin
-      if AInfo.Members[K].Offset > PrevOff then
-        LastGap := AInfo.Members[K].Offset - PrevOff;
-      PrevOff := AInfo.Members[K].Offset;
-    end;
-    Result := ALastOff + LastGap;
-  end;
-
-begin
-  FClasses := FScanner.Classes;
-  if FClasses.Count = 0 then Exit;
-
-  // Detect pointer size from the smallest first-field offset across
-  // all class-kind entries. A 16-byte aligned proc-only binary still
-  // gives us a sane fallback to 8 (Win64) because that's the modern
-  // Delphi default.
-  PtrSize := WIN64_PTR_SIZE;
-  for I := 0 to FClasses.Count - 1 do
-  begin
-    Info := FClasses[I];
-    if (Info.Kind <> skClass) or (Info.Members.Count = 0) then Continue;
-    if Info.Members[0].Offset = WIN32_PTR_SIZE then
-    begin
-      PtrSize := WIN32_PTR_SIZE;
-      Break;
-    end;
-  end;
-
-  // Cache the small per-class fields the inner parent-matching loop
-  // needs into plain arrays. Indexing into an array of byte-wide
-  // enums is a single load and replaces a full TRsmClassInfo copy
-  // (Name + ParentName strings + Members IList, three refcount
-  // atomic ops per access).
-  SetLength(FirstOffs, FClasses.Count);
-  SetLength(LastEnds, FClasses.Count);
-  SetLength(Kinds, FClasses.Count);
-  for I := 0 to FClasses.Count - 1 do
-  begin
-    Info := FClasses[I];
-    Kinds[I] := Info.Kind;
-    FirstOffs[I] := 0;
-    LastEnds[I]  := 0;
-    if Info.Kind <> skClass then Continue;
-    if Info.Members.Count = 0 then Continue;
-    FirstOffs[I] := Info.Members[0].Offset;
-    for J := 1 to Info.Members.Count - 1 do
-      if Info.Members[J].Offset < FirstOffs[I] then
-        FirstOffs[I] := Info.Members[J].Offset;
-    LastEnds[I] := 0;
-    for J := 0 to Info.Members.Count - 1 do
-      if Info.Members[J].Offset > LastEnds[I] then
-        LastEnds[I] := Info.Members[J].Offset;
-    LastEnds[I] := InstanceSize(Info, FirstOffs[I], LastEnds[I]);
-  end;
-
-  for I := 0 to FClasses.Count - 1 do
-  begin
-    if Kinds[I] <> skClass then Continue;
-    if FirstOffs[I] <= PtrSize then Continue;
-    Match := -1;
-    // Walk candidates from I-1 downto 0 so the first hit is the
-    // latest-declared class whose instance ends exactly where I's
-    // own fields start.
-    for Cand := I - 1 downto 0 do
-    begin
-      if Kinds[Cand] <> skClass then Continue;
-      if LastEnds[Cand] = FirstOffs[I] then
-      begin
-        Match := Cand;
-        Break;
-      end;
-    end;
-    // Tolerance fallback: when no candidate's LastEnds matches
-    // FirstOffs[I] exactly, an RTL ancestor like TComponent is the
-    // typical reason -- accept the closest preceding match within
-    // 16 bytes (tiebreaker: latest-declared).
-    if Match < 0 then
-    begin
-      var BestGap: UInt32 := 17;
-      for Cand := I - 1 downto 0 do
-      begin
-        if Kinds[Cand] <> skClass then Continue;
-        if LastEnds[Cand] = 0 then Continue;
-        if LastEnds[Cand] > FirstOffs[I] then Continue;
-        var Gap: UInt32 := FirstOffs[I] - LastEnds[Cand];
-        if Gap < BestGap then
-        begin
-          BestGap := Gap;
-          Match := Cand;
-        end;
-      end;
-      if BestGap > 16 then Match := -1;
-    end;
-    if Match >= 0 then
-    begin
-      Info := FClasses[I];
-      Info.ParentName := FClasses[Match].Name;
-      FClasses[I] := Info;
-    end;
-  end;
 end;
 
 /// <summary>
