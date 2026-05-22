@@ -378,6 +378,58 @@ begin
           Ord(GStatusGamma), ' ', Ord(GStatusUnq), ' ',
           Ord(GStatusToggle)); Flush(Output);
 end;
+// Repro for the auto-detect bugs we observed on TFW
+// UserKonsOutlook. After a large unstructured field (CalendarID)
+// the Format-A linker stops populating Member.PrimitiveTypeId for
+// subsequent fields, so auto-detect can't reach the field's
+// declared enum type via the structural path. Two failure shapes
+// emerge depending on whether the field name happens to match an
+// unrelated registered enum:
+//
+//   * SyncDirection -- T+"SyncDirection" = "TSyncDirection",
+//     which IS registered (the dedicated red-herring enum below
+//     anchored by GSyncDirectionAnchor). Name-based fallback
+//     succeeds and returns "sdBeta (1)" -- the wrong enum's
+//     constant -- instead of the field's actual type's
+//     "fskDraft (1)". Mirrors UserKonsOutlook.SyncDirection.
+//   * SyncStatus -- T+"SyncStatus" = "TSyncStatus" is NOT
+//     registered, name-based fallback bails, and the evaluator
+//     ends with the "no RSM type metadata" hint instead of
+//     "fukActive (1)". Mirrors UserKonsOutlook.SyncStatus.
+type
+  // Red-herring enums anchored with a direct $25 record so
+  // TryGetEnumConstantName succeeds. Constants use unique
+  // prefixes so wrong-enum results are distinguishable from
+  // right-enum results in the test assertion.
+  TSyncDirection   = (sdAlpha, sdBeta, sdGamma);
+  // Field's ACTUAL types. The name doesn't follow the
+  // F<TypeNameNoT> convention, and the linker doesn't carry
+  // their type id onto the Member after CalendarID's array gap.
+  TFieldStatusKind = (fskHidden, fskDraft, fskPublished);
+  TFieldUnregKind  = (fukIdle, fukActive, fukHalted);
+  TFieldStatusHost = packed record
+    AllowSync      : Boolean;
+    ForceFirstSync : Boolean;
+    SyncReminder   : Boolean;
+    CalendarName   : string[255];
+    CalendarID     : array[1..512] of Byte;
+    SyncDirection  : TFieldStatusKind;
+    SyncStatus     : TFieldUnregKind;
+    Filler         : array[0..254] of Byte;
+  end;
+var
+  GFieldHost           : TFieldStatusHost;
+  // Anchors TSyncDirection in the $2A / $25 registry so the
+  // name-based fallback can find it for the misleading match.
+  GSyncDirectionAnchor : TSyncDirection;
+procedure NameClashEnumProbe;
+begin
+  GFieldHost.SyncDirection := fskDraft;     // ord 1 of TFieldStatusKind
+  GFieldHost.SyncStatus    := fukActive;    // ord 1 of TFieldUnregKind
+  GSyncDirectionAnchor     := sdAlpha;      // anchor for TSyncDirection
+  Writeln('NameClash ', Ord(GFieldHost.SyncDirection), ' ',                  // Line 430 - name-clash bp here
+          Ord(GFieldHost.SyncStatus), ' ', Ord(GSyncDirectionAnchor)); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -534,6 +586,11 @@ begin
     // (each from a different unit) plus the unqualified one whose
     // type was picked by uses-order.
     CrossUnitEnumProbe;
+    // Reach NameClashEnumProbe so the misleading-name-fallback test
+    // can hit the BP with both Status (clashes with registered
+    // TStatus) and Whatever (no T+Name match anywhere) initialised
+    // to ordinal 1 of their respective real types.
+    NameClashEnumProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked

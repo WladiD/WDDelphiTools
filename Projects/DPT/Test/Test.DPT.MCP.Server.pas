@@ -111,6 +111,12 @@ type
     [Test]
     procedure TestMcpEvaluateAutoTypeDetectionEnumInVariantCase;
     [Test]
+    [Ignore('Reproduces the TFW UserKonsOutlook.SyncDirection misroute. After a large unstructured field (CalendarID array) the Format-A linker stops populating Member.PrimitiveTypeId for subsequent fields, so AutoDetectFormatterName Paths 1/2 don''t fire. The name-based fallback derives T+"SyncDirection"="TSyncDirection" (the red-herring enum anchored by GSyncDirectionAnchor), finds it registered, and returns its ord-1 constant "sdBeta" instead of the field''s actual TFieldStatusKind constant "fskDraft (1)". Reactivate once auto-detect consults the field''s declared type (via FindStructByTypeIdx on the Member''s TypeIdx, or by extending Format-A linking past the array-of-byte gap) before the name-based heuristic.')]
+    procedure TestMcpEvaluateEnumNameClashPicksWrongType;
+    [Test]
+    [Ignore('Reproduces the TFW UserKonsOutlook.SyncStatus failure. Same Format-A-linker truncation as the SyncDirection sibling, but the field name "SyncStatus" has no T+Name match in the registry (no TSyncStatus enum exists in DebugTarget). Name-based fallback bails, every auto-detect path falls through, and the evaluator returns the "no RSM type metadata" hint instead of "fukActive (1)". Reactivate together with the SyncDirection sibling once the linker reaches past the gap.')]
+    procedure TestMcpEvaluateEnumWithoutNameMatchFails;
+    [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithSameTypeName;
     [Test]
     procedure TestMcpEvaluateCrossUnitEnumWithoutUnitSuffixHint;
@@ -2999,6 +3005,88 @@ begin
     Assert.IsTrue(Line.Contains('lsRed') and Line.Contains('(0)'),
       'auto-detect on enum field of variant-case nested record ' +
       '(ordinal 0) must format as "lsRed (0)", got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Red test reproducing the TFW <c>UserKonsOutlook.SyncDirection</c>
+///   misroute. The field is named <c>Status</c> -- not
+///   <c>FStatus</c> -- so auto-detect's name-based fallback strips
+///   no prefix and derives <c>"T" + "Status" = "TStatus"</c>.
+///   <c>TStatus</c> IS registered in <c>DebugTarget</c> (cross-unit
+///   aliased to one of the EnumAlpha/Beta/Gamma TStatus types via
+///   <c>GStatusAlpha/Beta/Gamma</c> above), so the lookup succeeds
+///   -- but with the WRONG enum's ordinal-1 constant
+///   (<c>saRunning</c>, <c>scWorking</c>, etc.) instead of the
+///   field's actual <c>TFieldStatusKind</c> constant
+///   <c>fskDraft (1)</c>.
+/// </summary>
+/// <remarks>
+///   The dotted-walk reads byte 0 = 1 correctly (verified by the
+///   <c>type=int</c> variant of this test); the bug is purely in
+///   enum selection. A fix should consult the field's declared
+///   type via the structural lookup (<c>FindStructByTypeIdx</c> /
+///   <c>FindClassIdxByRsmTypeId</c>) before falling back to the
+///   name-based heuristic.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateEnumNameClashPicksWrongType;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 430);
+  try
+    Line := Fixture.EvalAuto('GFieldHost.SyncDirection');
+    Assert.IsTrue(Line.Contains('fskDraft') and Line.Contains('(1)'),
+      'auto-detect on enum-typed record field whose name clashes ' +
+      'with a registered foreign enum (TSyncDirection) must format ' +
+      'as "fskDraft (1)" -- the field''s ACTUAL TFieldStatusKind ' +
+      'constant, not TSyncDirection''s "sdBeta" -- got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Red test reproducing the TFW <c>UserKonsOutlook.SyncStatus</c>
+///   failure. The field name <c>Whatever</c> has no <c>T+Name</c>
+///   match in the type registry, AND its actual enum type
+///   (<c>TFieldUnregKind</c>) wasn't linked to the field via the
+///   Format-A linker (records-of-enums aren't covered today).
+///   Auto-detect falls through every path and the evaluator returns
+///   the "no RSM type metadata" hint instead of
+///   <c>fukActive (1)</c>.
+/// </summary>
+/// <remarks>
+///   A fix should populate <c>Member.PrimitiveTypeId</c> for
+///   enum-typed record fields during Format-A linking, or extend
+///   <c>AutoDetectFormatterName</c> to ask
+///   <c>FindStructByTypeIdx</c> /
+///   <c>FindClassIdxByRsmTypeId</c> for the enum behind the
+///   Member's <c>TypeIdx</c> before bailing to the name-based
+///   heuristic.
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateEnumWithoutNameMatchFails;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 430);
+  try
+    Line := Fixture.EvalAuto('GFieldHost.SyncStatus');
+    Assert.IsTrue(Line.Contains('fukActive') and Line.Contains('(1)'),
+      'auto-detect on enum-typed record field whose name has no ' +
+      'T+Name match (TSyncStatus is NOT registered) must still ' +
+      'format as "fukActive (1)" via the field''s declared ' +
+      'TFieldUnregKind type, got: ' + Line);
   finally
     Fixture.Free;
   end;
