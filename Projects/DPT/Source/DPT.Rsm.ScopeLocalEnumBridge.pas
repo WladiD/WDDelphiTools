@@ -6,15 +6,6 @@
 
 unit DPT.Rsm.ScopeLocalEnumBridge;
 
-// Strong-form bridge from scope-local enum type ids ($1E** hi-byte) to
-// their owning <see cref="TRsmEnumDef"/>. Each (unit, type) pair has
-// its own scope-local id assigned by the compiler at consumer-unit
-// compile time, and ALL variables of that (unit, type) pair share the
-// same id. So a single anchor variable per id is enough -- one whose
-// name happens to end with the unit's trailing-short -- to bind every
-// other variable of that id to the correct EnumDef, even variables
-// whose own name carries no unit hint at all.
-
 interface
 
 uses
@@ -29,11 +20,18 @@ uses
 type
 
   /// <summary>
-  ///   Post-process pass that walks every registered global, picks the
-  ///   ones whose stored type id carries the scope-local enum marker
-  ///   ($1E hi-byte), and -- via unit-suffix matching against the
-  ///   parsed <c>EnumDefs</c> -- binds each distinct scope-local id to
-  ///   the EnumDef of the unit the anchor variable's name implies.
+  ///   Post-process pass ("strong-form" bridge) that walks every
+  ///   registered global, picks the ones whose stored type id carries
+  ///   the scope-local enum marker ($1E hi-byte), and -- via unit-
+  ///   suffix matching against the parsed <c>EnumDefs</c> -- binds
+  ///   each distinct scope-local id to the EnumDef of the unit the
+  ///   anchor variable's name implies. Each (unit, type) pair has
+  ///   its own scope-local id assigned by the compiler at consumer-
+  ///   unit compile time, and ALL variables of that (unit, type) pair
+  ///   share the same id, so a single anchor variable per id is
+  ///   enough to bind every other variable of that id to the correct
+  ///   EnumDef -- even variables whose own name carries no unit hint
+  ///   at all.
   /// </summary>
   TRsmScopeLocalEnumBridge = class
   private
@@ -46,14 +44,6 @@ type
       AGlobalByName             : IKeyValue<String, UInt32>;
       AEnumDefs                 : IList<TRsmEnumDef>;
       AScopeLocalTypeIdToEnumDef: IKeyValue<UInt32, Integer>);
-
-    /// <summary>
-    ///   Walks every (lowercased) name in <c>GlobalByName</c>; for ids
-    ///   carrying the $1E marker that aren't yet bridged, uses the
-    ///   unit-suffix matcher to find a matching def. The first bridge
-    ///   built for an id wins -- typically the first conventionally-
-    ///   named global declared with that type.
-    /// </summary>
     procedure Run;
   end;
 
@@ -96,6 +86,13 @@ begin
   Result := Tail;
 end;
 
+/// <summary>
+///   Walks every (lowercased) name in <c>GlobalByName</c>; for ids
+///   carrying the $1E marker that aren't yet bridged, uses the
+///   unit-suffix matcher to find a matching def. The first bridge
+///   built for an id wins -- typically the first conventionally-
+///   named global declared with that type.
+/// </summary>
 procedure TRsmScopeLocalEnumBridge.Run;
 var
   Pair: TPair<String, UInt32>;

@@ -6,14 +6,6 @@
 
 unit DPT.Rsm.ClassParentDeriver;
 
-// Derive class -> parent relationships from instance LAYOUT. The RSM
-// symbol stream does not expose an explicit class -> parent reference
-// in any form we have identified; the compiler instead bakes
-// inheritance into the layout (a class C inheriting from P starts its
-// own fields at offset (P's instance size), with the VMT pointer
-// taking the very first slot). We exploit this to reconstruct the
-// hierarchy.
-
 interface
 
 uses
@@ -25,10 +17,15 @@ type
 
   /// <summary>
   ///   Post-process pass that fills <c>ParentName</c> on every class
-  ///   whose parent can be derived from the instance layout heuristic
-  ///   (own-field-end-of-P matches own-field-start-of-C). Conservative:
-  ///   on ambiguity leaves ParentName empty so a later type-id-based
-  ///   pass can fill it without contradicting this one.
+  ///   whose parent can be derived from instance LAYOUT. The RSM
+  ///   symbol stream does not expose an explicit class -> parent
+  ///   reference in any form we have identified; the compiler instead
+  ///   bakes inheritance into the layout (a class C inheriting from P
+  ///   starts its own fields at offset (P's instance size), with the
+  ///   VMT pointer taking the very first slot), and the heuristic
+  ///   matches own-field-end-of-P against own-field-start-of-C.
+  ///   Conservative: on ambiguity leaves ParentName empty so a later
+  ///   type-id-based pass can fill it without contradicting this one.
   /// </summary>
   TRsmClassParentDeriver = class
   private
@@ -36,13 +33,6 @@ type
   public
     constructor Create(AClasses: IList<TRsmClassInfo>);
 
-    /// <summary>
-    ///   Reconstruct the class hierarchy by matching each class's
-    ///   first own-field offset against any preceding class's
-    ///   instance size. Records (skRecord) are skipped: Delphi
-    ///   records cannot inherit, so the offset-matching test
-    ///   wouldn't carry meaning for them.
-    /// </summary>
     procedure Run;
   end;
 
@@ -56,26 +46,23 @@ begin
   FClasses := AClasses;
 end;
 
+/// <summary>
+///   Reconstruct the class hierarchy by matching each class's first
+///   own-field offset against any preceding class's instance size:
+///   for each class C, find the class P whose own-fields end exactly
+///   at C's first own field offset, and call that P the parent of C.
+///   The heuristic does the right thing for layouts where each
+///   candidate parent has a distinct instance size (the common case
+///   for hand-written Delphi code, where sibling classes rarely
+///   happen to reach the same byte-exact instance boundary). Where
+///   two candidates collide -- e.g. two unrelated classes that both
+///   end at offset $18 for a child to "choose between" -- ParentName
+///   is left empty, since picking wrong would hide inherited fields
+///   behind a foreign type. Records (skRecord) are skipped: Delphi
+///   records cannot inherit, so the offset-matching test wouldn't
+///   carry meaning for them.
+/// </summary>
 procedure TRsmClassParentDeriver.Run;
-// The RSM symbol stream does not expose an explicit class -> parent
-// reference in any form we have identified. The compiler instead bakes
-// inheritance into the instance LAYOUT: a class C inheriting from P
-// starts its own fields at offset (P's instance size), with the VMT
-// pointer taking the very first slot. We exploit this layout to
-// reconstruct the hierarchy: for each class C, find the class P whose
-// own-fields end exactly at C's first own field offset, and call that
-// P the parent of C.
-//
-// The heuristic does the right thing for class layouts where each
-// candidate parent has a distinct instance size (the common case for
-// hand-written Delphi code, where sibling classes rarely happen to
-// reach the same byte-exact instance boundary). Where two candidates
-// collide -- e.g. two unrelated classes that both end at offset $18
-// for a child to "choose between" -- we conservatively leave
-// ParentName empty, since picking wrong would hide inherited fields
-// behind a foreign type. Records (skRecord) are skipped: Delphi
-// records cannot inherit, so the offset-matching test wouldn't carry
-// meaning for them.
 const
   WIN64_PTR_SIZE = 8;
   WIN32_PTR_SIZE = 4;
