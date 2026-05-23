@@ -62,6 +62,26 @@ type
       /// earlier linear scan turned PruneSpuriousMembers into the single
       /// biggest hot spot, blowing past 30 seconds for 800MB+ files.
       FConfirmed          : IKeyValue<String, Boolean>;
+      /// Sorted byte offsets of every skRecord's $0E name marker
+      /// + parallel array of Classes indices. Used by the
+      /// build-map walker to translate a $0E sentinel position
+      /// back to a class index in O(log N).
+      FRecordOffsets      : TArray<UInt32>;
+      FOffsetToClsIdx     : TArray<Integer>;
+      /// Per-block ownership bridge: each $2C block's starting
+      /// byte offset paired with the FClasses index of the
+      /// record that owns the block's fields. Built by
+      /// <see cref="BuildBlockOwnerIndex"/> by pairing each unit's
+      /// contiguous $2C field-blocks with its $0E record
+      /// declarations in source-declaration order. A linear /
+      /// binary lookup over <c>FBlockStarts</c> resolves any
+      /// $2C record's owner without needing the unit-local
+      /// parent id at all, which is what the TFW
+      /// UserKonsOutlook fields need (their unit-local ids
+      /// collide across other units, so a global id->record
+      /// map would last-wins to the wrong class).
+      FBlockStarts        : TArray<UInt32>;
+      FBlockOwners        : TArray<Integer>;
     function  ByteAt(AOffset: NativeInt): Byte; inline;
     function  ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean; inline;
     function  RawIdKey(const ARaw: TRawId): UInt32; inline;
@@ -70,6 +90,10 @@ type
     function  IsConfirmed(AClsIdx: Integer; const AFieldName: String): Boolean;
     function  FindClassIdxByName(const AName: String): Integer;
     function  FindClassIdxForRawId(const ARaw: TRawId): Integer;
+    procedure BuildRecordOffsetIndex;
+    function  FindRecordAtOffset(AOffset: NativeInt): Integer;
+    procedure BuildBlockOwnerIndex;
+    function  FindBlockOwnerAt(AOffset: UInt32): Integer;
     procedure ScanTypeRegistry;
     procedure LinkFieldsFromFormatA;
     procedure PruneSpuriousMembers;
@@ -158,6 +182,278 @@ begin
   if not FRsmTypeIdToClassIdx.TryGetValue(RawIdKey(ARaw), Result) then
     Result := -1;
 end;
+
+procedure TRsmFormatALinker.BuildRecordOffsetIndex;
+var
+  I, N, J: Integer;
+begin
+  N := 0;
+  SetLength(FRecordOffsets,  FClasses.Count);
+  SetLength(FOffsetToClsIdx, FClasses.Count);
+  for I := 0 to FClasses.Count - 1 do
+    if FClasses[I].Kind = skRecord then
+    begin
+      FRecordOffsets[N]  := FClasses[I].TypeIdx;
+      FOffsetToClsIdx[N] := I;
+      Inc(N);
+    end;
+  SetLength(FRecordOffsets,  N);
+  SetLength(FOffsetToClsIdx, N);
+  // Insertion sort -- the structural discoverer adds records in
+  // byte-stream order so the input is virtually always already
+  // sorted; the loop costs O(N) in the common path.
+  for I := 1 to N - 1 do
+  begin
+    if FRecordOffsets[I] >= FRecordOffsets[I - 1] then Continue;
+    var Off: UInt32  := FRecordOffsets[I];
+    var Cls: Integer := FOffsetToClsIdx[I];
+    J := I - 1;
+    while (J >= 0) and (FRecordOffsets[J] > Off) do
+    begin
+      FRecordOffsets[J + 1]  := FRecordOffsets[J];
+      FOffsetToClsIdx[J + 1] := FOffsetToClsIdx[J];
+      Dec(J);
+    end;
+    FRecordOffsets[J + 1]  := Off;
+    FOffsetToClsIdx[J + 1] := Cls;
+  end;
+end;
+
+function TRsmFormatALinker.FindRecordAtOffset(AOffset: NativeInt): Integer;
+// Returns the FClasses index whose record name marker sits at the
+// supplied byte offset, or -1 if no record starts there.
+var
+  Lo, Hi, Mid: Integer;
+begin
+  Result := -1;
+  Lo := 0;
+  Hi := Length(FRecordOffsets) - 1;
+  while Lo <= Hi do
+  begin
+    Mid := (Lo + Hi) shr 1;
+    if FRecordOffsets[Mid] = UInt32(AOffset) then
+      Exit(FOffsetToClsIdx[Mid]);
+    if FRecordOffsets[Mid] < UInt32(AOffset) then
+      Lo := Mid + 1
+    else
+      Hi := Mid - 1;
+  end;
+end;
+
+procedure TRsmFormatALinker.BuildBlockOwnerIndex;
+// Single pass over the RSM that pairs each $2C block's start
+// offset with the FClasses index of the owning record. The
+// Delphi compiler emits a unit's contents in this order:
+//
+//   1. All $2C field-record blocks for the unit's records,
+//      grouped by parent local id, in source declaration order.
+//   2. The unit's type table (enum defs, pointer types, etc.).
+//   3. All $0E record name markers for the unit's records, in
+//      the same source declaration order.
+//
+// So within a single unit, the i-th $2C block in the byte
+// stream maps to the i-th $0E record we see after the block
+// stream ends. A new $2C block (no $FF prefix) after $0E
+// records have started means we crossed into the next unit;
+// flush the pending pairings and start fresh.
+//
+// We record (BlockStartOffset, OwningClassIdx) for each
+// successfully paired block, then sort by offset so the linker
+// can binary-search the block any $2C record belongs to
+// without needing the unit-local parent id at all -- which
+// matters because those local ids collide across units (TFW's
+// "$44" is TUserKonsOutlook in one unit and a totally different
+// class elsewhere; a global LocalId->ClassIdx map last-wins to
+// the wrong record).
+const
+  STATE_NEUTRAL = 0;
+  STATE_FIELDS  = 1;
+  STATE_RECORDS = 2;
+var
+  P             : NativeInt;
+  BlockStarts   : IList<UInt32>;
+  RecordClsIdxs : IList<Integer>;
+  AllStarts     : IList<UInt32>;
+  AllOwners     : IList<Integer>;
+  LastLocalId   : Integer;
+  State         : Integer;
+  I, J          : Integer;
+
+  procedure FlushPairings;
+  var
+    Lim, K: Integer;
+  begin
+    Lim := BlockStarts.Count;
+    if RecordClsIdxs.Count < Lim then Lim := RecordClsIdxs.Count;
+    for K := 0 to Lim - 1 do
+    begin
+      AllStarts.Add(BlockStarts[K]);
+      AllOwners.Add(RecordClsIdxs[K]);
+    end;
+    BlockStarts.Clear;
+    RecordClsIdxs.Clear;
+    LastLocalId := -1;
+  end;
+
+begin
+  FBlockStarts := nil;
+  FBlockOwners := nil;
+  if (FBuf = nil) or (FSz < 16) then Exit;
+  BlockStarts   := Collections.NewPlainList<UInt32>;
+  RecordClsIdxs := Collections.NewPlainList<Integer>;
+  AllStarts     := Collections.NewPlainList<UInt32>;
+  AllOwners     := Collections.NewPlainList<Integer>;
+  LastLocalId := -1;
+  State := STATE_NEUTRAL;
+  P := 1;
+  while P + 32 < FSz do
+  begin
+    var B: Byte := ByteAt(P);
+    if (B = $2C) and (ByteAt(P - 1) <> $FF) then
+    begin
+      // Candidate new $2C block start. Validate with the same
+      // payload-prefix + terminator filter the main linker uses
+      // so binary noise that incidentally contains a $2C byte
+      // doesn't poison the pairing.
+      var NL: Integer := ByteAt(P + 1);
+      if (NL < 2) or (NL > 40) or (P + 2 + NL + 12 >= FSz) then
+      begin
+        Inc(P);
+        Continue;
+      end;
+      var After: Integer := P + 2 + NL;
+      if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
+         (ByteAt(After + 2) <> $00) then
+      begin
+        Inc(P);
+        Continue;
+      end;
+      var EndOff: Integer := -1;
+      for I := After + 5 to After + 30 do
+      begin
+        if I + 5 >= FSz then Break;
+        if (ByteAt(I) = $07) and (ByteAt(I + 1) = $00) and
+           (ByteAt(I + 2) = $00) and (ByteAt(I + 3) = $08) then
+        begin
+          EndOff := I;
+          Break;
+        end;
+      end;
+      if EndOff < 0 then
+      begin
+        Inc(P);
+        Continue;
+      end;
+      var Lo: Byte := ByteAt(EndOff + 4);
+      var Hi: Byte := ByteAt(EndOff + 5);
+      // Only the narrow encoding (Hi==$FF as next-record
+      // continuation marker, parent id is just the byte Lo)
+      // needs the block-owner fallback. The wide encoding's
+      // parent id is in the $2A registry and the linker's
+      // primary path handles it; tracking it here would
+      // pollute the block-by-block pairing with class-typed
+      // blocks (DebugTarget) whose ids overlap with our
+      // narrow id space.
+      if Hi <> $FF then
+      begin
+        P := EndOff + 6;
+        Continue;
+      end;
+      var LocalId: Integer := Lo;
+      if LocalId <> LastLocalId then
+      begin
+        // New block. If we'd been collecting $0E records, the
+        // new block crosses into the next unit; pair what we
+        // have and reset.
+        if State = STATE_RECORDS then FlushPairings;
+        BlockStarts.Add(UInt32(P));
+        LastLocalId := LocalId;
+        State := STATE_FIELDS;
+      end;
+      P := EndOff + 6;
+      Continue;
+    end;
+    if B = $0E then
+    begin
+      // TRsmClassInfo.TypeIdx stores the NAME-LENGTH byte
+      // position (one past the $0E sentinel itself, where the
+      // discoverer parses the identifier from). Match that by
+      // probing P+1 instead of P.
+      var ClsIdx: Integer := FindRecordAtOffset(P + 1);
+      // Only pair records that ACTUALLY have fields in the
+      // structural view. Records without fields (or with only
+      // managed-type filler) produce no $2C block, so counting
+      // them here would skew the pairing -- every empty record
+      // we accumulate steals a slot from a real one.
+      if (ClsIdx >= 0) and (FClasses[ClsIdx].Members.Count > 0) then
+      begin
+        RecordClsIdxs.Add(ClsIdx);
+        State := STATE_RECORDS;
+        var NL: Integer := ByteAt(P + 1);
+        if (NL > 0) and (P + 2 + NL < FSz) then
+          P := P + 2 + NL
+        else
+          Inc(P);
+        Continue;
+      end;
+    end;
+    Inc(P);
+  end;
+  FlushPairings;
+  // Materialise the parallel sorted arrays. AllStarts is built
+  // in byte-stream order so it's already sorted in the common
+  // path; insertion sort handles any out-of-order entries (which
+  // shouldn't happen but the cost is O(N) when sorted).
+  SetLength(FBlockStarts, AllStarts.Count);
+  SetLength(FBlockOwners, AllStarts.Count);
+  for I := 0 to AllStarts.Count - 1 do
+  begin
+    FBlockStarts[I] := AllStarts[I];
+    FBlockOwners[I] := AllOwners[I];
+  end;
+  for I := 1 to Length(FBlockStarts) - 1 do
+  begin
+    if FBlockStarts[I] >= FBlockStarts[I - 1] then Continue;
+    var Off: UInt32  := FBlockStarts[I];
+    var Cls: Integer := FBlockOwners[I];
+    J := I - 1;
+    while (J >= 0) and (FBlockStarts[J] > Off) do
+    begin
+      FBlockStarts[J + 1] := FBlockStarts[J];
+      FBlockOwners[J + 1] := FBlockOwners[J];
+      Dec(J);
+    end;
+    FBlockStarts[J + 1] := Off;
+    FBlockOwners[J + 1] := Cls;
+  end;
+end;
+
+function TRsmFormatALinker.FindBlockOwnerAt(AOffset: UInt32): Integer;
+// Binary search for the largest BlockStart <= AOffset. Returns
+// the parallel BlockOwner. -1 if no block contains this offset
+// (offset is before the first block, or no blocks were paired).
+var
+  Lo, Hi, Mid, Best: Integer;
+begin
+  Result := -1;
+  Lo := 0;
+  Hi := Length(FBlockStarts) - 1;
+  Best := -1;
+  while Lo <= Hi do
+  begin
+    Mid := (Lo + Hi) shr 1;
+    if FBlockStarts[Mid] <= AOffset then
+    begin
+      Best := Mid;
+      Lo := Mid + 1;
+    end
+    else
+      Hi := Mid - 1;
+  end;
+  if Best >= 0 then
+    Result := FBlockOwners[Best];
+end;
+
 
 procedure TRsmFormatALinker.ScanTypeRegistry;
 var
@@ -300,13 +596,38 @@ begin
       Inc(P);
       Continue;
     end;
-    ParentId.Lo := ByteAt(EndOff + 4);
-    ParentId.Hi := ByteAt(EndOff + 5);
-    ParentIdx := FindClassIdxForRawId(ParentId);
+    // Resolve the owning class/record. Two paths, tried in
+    // order:
+    //   1. $2A registry id (Wide encoding only). This is the
+    //      common DebugTarget case and the cross-unit-resolvable
+    //      case where the parent id ended up in the global
+    //      registry. The 1-byte form (Hi=$FF) skips this because
+    //      $FF would be misread as a high byte, mapping to a
+    //      bogus class on a registry hit.
+    //   2. Byte-stream block-owner index. Built by pairing each
+    //      unit's contiguous $2C field-blocks with its $0E
+    //      record name markers in source-declaration order;
+    //      handles the TFW UserKonsOutlook case where the unit-
+    //      local parent id ($44, $48, ...) collides with other
+    //      units' classes in the registry and the registry
+    //      lookup would return the wrong record.
+    var ParentLoB: Byte := ByteAt(EndOff + 4);
+    var ParentHiB: Byte := ByteAt(EndOff + 5);
+    ParentIdx := -1;
+    if ParentHiB <> $FF then
+    begin
+      ParentId.Lo := ParentLoB;
+      ParentId.Hi := ParentHiB;
+      ParentIdx := FindClassIdxForRawId(ParentId);
+    end;
     if ParentIdx < 0 then
     begin
-      Inc(P);
-      Continue;
+      ParentIdx := FindBlockOwnerAt(UInt32(TagOff));
+      if ParentIdx < 0 then
+      begin
+        Inc(P);
+        Continue;
+      end;
     end;
     // Find the member by name in the parent class and resolve
     // its TypeIdx via the field-type-id. Also record that this
@@ -428,6 +749,8 @@ begin
   if (FBuf = nil) or (FSz < 8) then Exit;
   FConfirmed := Collections.NewPlainKeyValue<String, Boolean>;
   ScanTypeRegistry;
+  BuildRecordOffsetIndex;
+  BuildBlockOwnerIndex;
   LinkFieldsFromFormatA;
   PruneSpuriousMembers;
 end;
