@@ -61,6 +61,19 @@ type
     [Test]
     procedure TestCrossUnitEnumIdRegistered32;
 
+    /// Pins the finding for the $2A "KindFlag" byte at body offset +0
+    /// (RSM format reference, gap 6.6). It is NOT a type-kind
+    /// discriminator: classes, records and enums each appear with
+    /// MULTIPLE flag values across the file. What it does carry is a
+    /// body-shape selector -- Flag=$00 marks a "narrow" entry whose
+    /// payload after the primary id is a single $00 pad byte;
+    /// Flag=$20 marks a "wide" entry whose payload at +5..+8 is a
+    /// non-zero 4-byte block (the secondary candidate the existing
+    /// scanner already reads at +7,+8 for enum-bridging). This test
+    /// captures both shapes against the DebugTarget fixture.
+    [Test]
+    procedure Test2ATypeRegistryFlagIsBodyShapeNotKind32;
+
     {$IFDEF CPUX64}
     /// Win64 sanity. Same as TestProcsCollected32 but on the Win64
     /// fixture; structures are encoded differently (Win64 trailer
@@ -237,6 +250,136 @@ begin
     Assert.IsTrue(FoundCross, 'tpHigher not registered as an enum constant');
     Assert.IsTrue(S.CrossUnitEnumIds.Count > 0,
       'CrossUnitEnumIds empty -- $25 $8A-prefix form not detected');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.Test2ATypeRegistryFlagIsBodyShapeNotKind32;
+// Pins the body-shape vs. kind finding for the $2A entry byte at +0.
+// We locate the registry entries for three DebugTarget-declared
+// program-local types whose primary id hi byte is $2E:
+//
+//   TInner        - class  - expected Flag=$20 (wide body)
+//   TLightStatus  - enum   - expected Flag=$00 (narrow body)
+//   TEnumHostRec  - record - expected Flag=$00 (narrow body)
+//
+// The (class -> $20) and (enum -> $00) pair alone refutes any kind
+// hypothesis: an enum and a record share the same Flag, and a class
+// uses a different Flag than the same-kind-as-record TEnumHostRec.
+// We also assert the shape correlate: Flag=$00 entries have body[5]
+// == $00 (single pad byte before the next record); Flag=$20 entries
+// have body[5] != $00 (the secondary-candidate / typeinfo-ref slot
+// starts there).
+type
+  TFound = record
+    Pos  : NativeInt;
+    Flag : Byte;
+    B5   : Byte;
+    PriHi: Byte;
+  end;
+var
+  S       : TRsmScanner;
+  Hits    : IKeyValue<String, TFound>;
+
+  function TryFindRegistryEntry(const AName: String;
+    out AFound: TFound): Boolean;
+  var
+    P, EndPos: NativeInt;
+    NL       : Byte;
+    Name     : String;
+    PriHi    : Byte;
+  begin
+    Result := False;
+    EndPos := S.Sz - 12;
+    P := 4;
+    while P < EndPos do
+    begin
+      if S.ByteAt(P) = TRsmTag.TYPE_REGISTRY_TAG then
+      begin
+        NL := S.ByteAt(P + 1);
+        if (NL = Length(AName)) and
+           (P + 2 + NL + 10 < S.Sz) and
+           (S.ByteAt(P + 2) = Byte(Ord('T'))) and
+           (S.ByteAt(P + 2 + NL + 1) = $00) and
+           (S.ByteAt(P + 2 + NL + 2) = $00) and
+           S.ReadIdentifier(P + 1, Name) and
+           SameText(Name, AName) then
+        begin
+          PriHi := S.ByteAt(P + 2 + NL + 4);
+          // Filter to the program-local cluster: hi byte $2E. Any
+          // false-positive $2A bytes scattered earlier in the file
+          // won't carry $2E in this slot, so we skip them.
+          if PriHi = $2E then
+          begin
+            AFound.Pos   := P;
+            AFound.Flag  := S.ByteAt(P + 2 + NL + 0);
+            AFound.B5    := S.ByteAt(P + 2 + NL + 5);
+            AFound.PriHi := PriHi;
+            Exit(True);
+          end;
+        end;
+      end;
+      Inc(P);
+    end;
+  end;
+
+  procedure Expect(const AName: String);
+  var
+    F: TFound;
+  begin
+    Assert.IsTrue(TryFindRegistryEntry(AName, F),
+      AName + ' has no $2A registry entry with PriHi=$2E');
+    Hits[AName] := F;
+  end;
+
+var
+  ClassEntry, EnumEntry, RecordEntry: TFound;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty -- need DebugTarget.rsm');
+
+    Hits := Collections.NewPlainKeyValue<String, TFound>;
+    Expect('TInner');
+    Expect('TLightStatus');
+    Expect('TEnumHostRec');
+
+    ClassEntry  := Hits['TInner'];
+    EnumEntry   := Hits['TLightStatus'];
+    RecordEntry := Hits['TEnumHostRec'];
+
+    // The decoded finding: enum and class disagree on Flag, but
+    // enum and record AGREE. So Flag does NOT mark the type kind.
+    Assert.AreNotEqual<Byte>(ClassEntry.Flag, EnumEntry.Flag,
+      'class TInner and enum TLightStatus share the same Flag -- ' +
+      'no longer disprovable as a kind discriminator');
+    Assert.AreEqual<Byte>(EnumEntry.Flag, RecordEntry.Flag,
+      'enum TLightStatus and record TEnumHostRec disagree on Flag -- ' +
+      'kind-hypothesis would have required them to agree (both not ' +
+      'class) -- need to revisit finding');
+
+    // Pinned values for DebugTarget (program-local cluster). If the
+    // linker changes its emission shape these will trip and the
+    // doc/§4.8 needs revisiting.
+    Assert.AreEqual<Byte>($20, ClassEntry.Flag,
+      'TInner Flag drifted from $20');
+    Assert.AreEqual<Byte>($00, EnumEntry.Flag,
+      'TLightStatus Flag drifted from $00');
+    Assert.AreEqual<Byte>($00, RecordEntry.Flag,
+      'TEnumHostRec Flag drifted from $00');
+
+    // Body-shape correlate: Flag=$00 entries have a single $00 pad
+    // byte at body[5]; Flag=$20 entries open the wide payload at
+    // body[5] with a non-zero byte (a secondary candidate the
+    // existing scanner already reads at +7,+8).
+    Assert.AreNotEqual<Byte>($00, ClassEntry.B5,
+      'TInner is a wide-body entry but body[5] is $00');
+    Assert.AreEqual<Byte>($00, EnumEntry.B5,
+      'TLightStatus is a narrow-body entry but body[5] is non-zero');
+    Assert.AreEqual<Byte>($00, RecordEntry.B5,
+      'TEnumHostRec is a narrow-body entry but body[5] is non-zero');
   finally
     S.Free;
   end;

@@ -997,11 +997,14 @@ begin
 end;
 
 procedure TRsmScanner.HandleTypeRegistryRecord(P: NativeInt);
-// Type-registry entry ($2A NL Name <flag> $00 $00 <primary-id>).
-// Parses the header + secondary candidate, recovers the owning
-// unit name via a forward-scan when same-compilation $25
-// constants are pending, then hands the parsed data to
-// FEnumDecoder which performs the primary/secondary bridge,
+// Type-registry entry ($2A NL Name <body-flag> $00 $00 <primary-id>
+// [<payload>]). The body-flag byte at +0 selects the body shape (NOT
+// the type kind -- see Test.DPT.Rsm.Scanner.
+// Test2ATypeRegistryFlagIsBodyShapeNotKind32 and §4.8 of
+// DPT.Rsm.Format.md). Parses the header + secondary candidate,
+// recovers the owning unit name via a forward-scan when
+// same-compilation $25 constants are pending, then hands the parsed
+// data to FEnumDecoder which performs the primary/secondary bridge,
 // pending-buffer flush, and EnumDef synthesis.
 //
 // Doesn't advance the dispatcher's P -- the outer loop's

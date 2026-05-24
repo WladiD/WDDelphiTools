@@ -466,16 +466,45 @@ one).
 ### 4.8 `$2A` TYPE_REGISTRY_TAG — type-registry entry
 
 ```
-$2A  <NL: u8>  <Name>  <KindFlag: u8>  $00 $00  <primary-lo>  <primary-hi>  $00 $00  <sec-lo?>  <sec-hi?>
+$2A  <NL: u8>  <Name>  <BodyFlag: u8>  $00 $00  <primary-lo>  <primary-hi>  <payload? (variable)>
 ```
 
 `NL` ∈ `[2, 40]`. The `$00 $00` at +1, +2 after the name is the only
-hard anchor; the `KindFlag` at +0 varies per registry entry and is not
-constrained.
+hard anchor; the **`BodyFlag` byte at +0 is a body-shape selector**,
+NOT a kind discriminator. Observed values within DebugTarget's
+program-local registry cluster:
 
-The primary 2-byte id sits at +3, +4. A secondary candidate at +7, +8
-is also read (only valid when the entry pertains to a same-compilation
-enum that the $25 buffer has primed via `RecordCrossUnitSameCompConstant`).
+* **`$00` — narrow body**: the entire payload after the primary id is
+  a single `$00` pad byte at +5; the next record (`$2A` again, or any
+  other tag) starts immediately at +6. Both program-local enums
+  (`TLightStatus`, `TSyncDirection`, ...) and "lightweight" records
+  (`TPoint3D`, `TNarrowInts`, `TFloats`, `TEnumHostRec`,
+  `TFieldStatusHost`, ...) use this form. The bytes the existing
+  scanner reads from +7, +8 as `SecCandidate` for these entries
+  belong to the next record — see §5.1 for why this is harmless.
+* **`$20` — wide body**: at +5 begins a non-zero 4-byte block (LE
+  word at +5/+6 + LE word at +7/+8) whose meaning is only partially
+  understood. All program-local classes
+  (`TInner`/`TDerived`/`TDeepDerived`/`TClassFieldHost`/...) and a
+  subset of records (`TPoint2D`, `TRect2D`, `TPair`, `TMixedRec`,
+  `TWhdrHeader`, `TWithHeader`, `TPrimitives`, ...) use this form.
+  The word at +7/+8 is what the scanner reads as `SecCandidate`; for
+  the wide form it carries a legitimate value (often `$04DB` in
+  DebugTarget), but only enum-bridge consumers gated by
+  `FCrossUnitEnumIds` end up using it (see §6.6 for the remaining
+  uncertainty).
+* **`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`** — observed on cross-unit
+  RTL entries (`TObject`, `TGUID`, `TVisibilityClass`, `TThreadID`,
+  ...); body shape is undocumented. See §6.6.
+
+The kind hypothesis ("flag distinguishes class vs. record vs. enum
+vs. primitive") is **refuted**: classes and records both appear under
+`$20`, while enums and records both appear under `$00`. The pinning
+test
+[Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)
+fixes this finding against DebugTarget.
+
+The primary 2-byte id sits at +3, +4.
 
 Crucially, the registry entry can be parsed **even when it isn't an
 enum** — class names and record names also register here, populating
@@ -821,15 +850,34 @@ stores `ARecordPos` (the byte offset of the record) but does not
 expose the RVA to any resolver. Whether the RVA serves a meaningful
 purpose (linker fixup target?) is unknown.
 
-### 6.6 `$2A` type-registry `KindFlag` byte (`UNCERTAIN`)
+### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 
 [Scanner.pas:1016-1025](DPT.Rsm.Scanner.pas#L1016-L1025) — the byte
-immediately after the registry name (before the `$00 $00` anchor)
-varies across entries. The scanner deliberately doesn't constrain it
-because the meaning isn't known. Some values likely distinguish enum
-vs. class vs. record vs. primitive registry entries; the linker side
-already routes by name (`StartsWith('T')`) but a `KindFlag` decoder
-would let the resolver classify types more directly.
+at body offset +0 was previously called `KindFlag` and hypothesised to
+discriminate class / record / enum / primitive. That hypothesis is
+**refuted**: in DebugTarget's program-local cluster classes and
+records share `$20`, while enums and records share `$00` (see §4.8
+for the full taxonomy and
+[Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)
+for the pinning test). What remains open:
+
+1. **Wide-body payload meaning (`$20`)**: the 4 bytes at +5..+8 are a
+   non-zero block that climbs monotonically across consecutive entries
+   in DebugTarget — `$87 $2F $DB $04` for `TInner`, `$C7 $40 $DB $04`
+   for `TDerived`, ... The trailing `$04 $DB` suggests a segmented
+   reference (segment `$04DB`, offset varying); we have no decoder
+   that consumes any of this yet beyond the enum-bridge use of the
+   word at +7/+8.
+2. **Which records get `$20` vs. `$00`**: both `TPoint2D` and
+   `TPoint3D` are integer-only records yet pick different flags
+   (`$20` and `$00` respectively). The discriminator is not obviously
+   "has managed fields" or "has variant cases" — likely a Delphi RTTI
+   emission decision driven by class membership / `{$M+}` scope, but
+   the linker rule isn't pinned down.
+3. **Cross-unit RTL values (`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`)**:
+   observed on `TObject`, `TGUID`, `TVisibilityClass`, etc.; body
+   shapes are not characterised and no concrete sample has been
+   broken open.
 
 ### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
 

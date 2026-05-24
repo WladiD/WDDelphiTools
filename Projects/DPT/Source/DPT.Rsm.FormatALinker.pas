@@ -479,12 +479,14 @@ begin
     Skip := ByteScanIndex(PByteArray(FBuf + P), FSz - P - 12, TRsmTag.TYPE_REGISTRY_TAG);
     if Skip < 0 then Break;
     Inc(P, Skip);
-    // The byte directly after the name (a "kind" flag) varies
-    // across registry entries, so we don't constrain it. The
-    // two bytes after that ARE reliably $00 $00 across every
-    // entry observed in DebugTarget.rsm and TFW.rsm, which
-    // keeps the false-positive rate near zero on incidental $2A
-    // bytes in the file.
+    // The byte directly after the name is a body-shape selector
+    // (NOT a kind discriminator; see Test.DPT.Rsm.Scanner.
+    // Test2ATypeRegistryFlagIsBodyShapeNotKind32 and §4.8 of
+    // DPT.Rsm.Format.md). It varies, so we don't constrain it.
+    // The two bytes after that ARE reliably $00 $00 across every
+    // entry observed in DebugTarget.rsm and TFW.rsm, which keeps
+    // the false-positive rate near zero on incidental $2A bytes
+    // in the file.
     NL := ByteAt(P + 1);
     if (NL >= 2) and (NL <= 40) and
        (P + 2 + NL + 5 < FSz) and
