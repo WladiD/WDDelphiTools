@@ -130,17 +130,58 @@ new shape, fix a misparse, or change the meaning of a captured field:
 - Run the tests before declaring the work done. The fixture binaries
   must be rebuilt with `-V -VR` for the .rsm sidecar to exist;
   `TestRsmFilePresent` is the guard.
-- **Always build + run via the project's batch files**, not raw
-  `msbuild` + `Test.DptDebugger.exe`. The batches drive the same
-  RECENT-based build host the user uses, so any failure you see is
-  the failure they will see:
+- **Always build via the project's batch files**, not raw
+  `msbuild`. The batches drive the same RECENT-based build host the
+  user uses, so any failure you see is the failure they will see:
     * [Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat](../../../Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat)
-      — builds + runs **both Win32 and Win64** in sequence. Use this
-      after a fixture change (`DebugTarget.dpr`), after any
-      `DPT.Rsm.*.pas` change, or before committing.
+      — builds + runs **both Win32 and Win64** in sequence. Use as
+      the final pre-commit check.
+    * [Projects/DPT/Test/_Test.DptDebugger.Build.bat](../../../Projects/DPT/Test/_Test.DptDebugger.Build.bat)
+      — builds both platforms but does NOT run. Use when iterating
+      on a single test (see "Running a single test" below) so each
+      iteration is "build, then run only the one test".
     * [Projects/DPT/Test/_Test.DPT.BuildAndRun.bat](../../../Projects/DPT/Test/_Test.DPT.BuildAndRun.bat)
       — Win32-only build+run of the broader `Test.DPT.dproj`. Faster
       iteration loop when you know the change is platform-agnostic.
+
+### Running a single test (DUnitX filtering)
+
+DUnitX accepts a name filter via `--run:<value>` and an alternative
+file-based form `--runlist:<file>`. The trick is the matcher uses
+the **full unit-qualified name**, including the `Test.` prefix the
+unit declarations carry. Three usable forms:
+
+1. **Exact test FQN** —
+   `--run:Test.DPT.Rsm.Scanner.TRsmScannerTests.TestProcsCollected32`
+   Runs that single test. Note the **leading `Test.`** is mandatory;
+   the unit is `Test.DPT.Rsm.Scanner`, not `DPT.Rsm.Scanner`. This
+   was the trap that made me think `--run` was broken.
+2. **Fixture prefix** —
+   `--run:Test.DPT.Rsm.Scanner.TRsmScannerTests`
+   Runs every test in that fixture (matched via `StartsText` against
+   each test's fixture full-name).
+3. **Comma-separated list** —
+   `--run:Test.DPT.Rsm.Scanner.TRsmScannerTests.TestX,Test.DPT.Rsm.Scanner.TRsmScannerTests.TestY`
+   Combines multiple exact / prefix entries. Wrap in double quotes
+   in cmd to keep the comma intact.
+4. **File-based** — `--runlist:<file>` reads one name per line and
+   applies the same parser. Useful when the filter list is large or
+   when shell quoting becomes painful.
+
+Always pair with `--consolemode:Quiet --exit:Continue` for compact
+output in iteration loops. Source of truth for the matcher: the
+`TNameFilter.Match` method in
+`C:\Program Files (x86)\Embarcadero\Studio\37.0\source\DunitX\DUnitX.Filters.pas`.
+
+Iteration workflow:
+
+```
+_Test.DptDebugger.Build.bat
+Win32\Debug\Test.DptDebugger.exe --run:Test.DPT.Rsm.Scanner.TRsmScannerTests.TestFoo --consolemode:Quiet --exit:Continue
+```
+
+Once the targeted test passes, run the full `_Test.DptDebugger.BuildAndRun.bat`
+to confirm no other test regressed before committing.
 
 If you cannot create a meaningful test (e.g. the fixture lacks a
 suitable Delphi construct), extend `DebugTarget.dpr` to add the
@@ -257,11 +298,12 @@ the data back as a normal file.
 * Keep the validator filters loose at first, then tighten when you
   see the false-positive density. Real type registry entries cluster
   in a specific file region; isolated hits elsewhere are noise.
-* Don't try to use DUnitX's `--run` filter to execute just the
-  diagnostic — it doesn't work in this codebase (it reports
-  `Tests Found: 0`). Run the full suite via
-  `_Test.DptDebugger.BuildAndRun.bat`; the diagnostic writes its
-  file as a side effect during the normal pass.
+* The fastest iteration on the diagnostic itself is the single-test
+  loop documented in "Running a single test" above — build once via
+  `_Test.DptDebugger.Build.bat`, then re-run the diagnostic in
+  isolation via `--run:Test.<unit>.<fixture>.<TestName>`. Earlier
+  notes that claimed `--run` was broken were wrong; the trap was the
+  missing `Test.` unit-name prefix.
 
 After running, read the dump file with the `Read` tool (or `Grep` /
 `awk` for filtering). Looking at the data is what produces the
