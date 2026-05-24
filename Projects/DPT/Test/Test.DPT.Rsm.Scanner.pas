@@ -24,6 +24,7 @@ type
   TRsmScannerTests = class
   private
     function ResolveExePath(AUse64Bit: Boolean): String;
+    procedure DoTestGlobalVADecodedFromGlobalRecord(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -73,6 +74,19 @@ type
     /// captures both shapes against the DebugTarget fixture.
     [Test]
     procedure Test2ATypeRegistryFlagIsBodyShapeNotKind32;
+
+    /// Pins the $27 / $20 module-global VA decoding (RSM format
+    /// gap §6.8 closed). The 4-byte slot after the type id encodes
+    /// (Value shl 4) | $07, same scheme as $28 PROC_TAG. On Win32
+    /// the decoded Value is the absolute VA (image base already
+    /// included); on Win64 it is the RVA relative to image base
+    /// $140000000. Compares against ground truth from the .map
+    /// file for both $27 (primitive: GGlobalInt) and $20
+    /// (structured: GFieldHost) forms.
+    [Test]
+    procedure TestGlobalVADecodedFromGlobalRecord32;
+    [Test]
+    procedure TestGlobalVADecodedFromGlobalRecord64;
 
     /// Pins the actual sparse-ordinal enum encoding (RSM format §6.1).
     /// The original "different $03 emission shape" hypothesis is
@@ -396,6 +410,79 @@ begin
   finally
     S.Free;
   end;
+end;
+
+procedure TRsmScannerTests.DoTestGlobalVADecodedFromGlobalRecord(
+  AUse64Bit: Boolean);
+// Pins the $27 / $20 module-global VA decoding for both forms.
+// Ground truth is the .map file:
+//   Win32: image base $00400000, .data $004E2000, .bss $004E7000.
+//   Win64: image base $140000000, .data $140153000, .bss $140176000.
+// The scanner exposes the decoded value as the absolute VA on
+// Win32 (image base already included) and the RVA-from-image-base
+// on Win64; both extracted as (DWORD shr 4) from the 4-byte slot.
+var
+  S            : TRsmScanner;
+  ExpectedInt  : UInt32;  // GGlobalInt  ($27, Integer primitive)
+  ExpectedLight: UInt32;  // GGlobalLight ($27, TLightStatus enum, 2-byte id)
+  ExpectedField: UInt32;  // GFieldHost  ($20, TFieldStatusHost record)
+  Va           : UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    if AUse64Bit then
+    begin
+      // .map entries (segment:offset) + segment start (RVA):
+      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $153000
+      //   GGlobalLight 0002:00021FCC
+      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $176000
+      ExpectedInt   := $00153000 + $00021EC4;  // $174EC4
+      ExpectedLight := $00153000 + $00021FCC;  // $174FCC
+      ExpectedField := $00176000 + $0000C710;  // $182710
+    end
+    else
+    begin
+      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E2000
+      //   GGlobalLight 0003:00003BDC
+      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E7000
+      ExpectedInt   := $004E2000 + $00003BD4;  // $004E5BD4
+      ExpectedLight := $004E2000 + $00003BDC;  // $004E5BDC
+      ExpectedField := $004E7000 + $000068D0;  // $004ED8D0
+    end;
+
+    Assert.IsTrue(S.GlobalVa.TryGetValue('gglobalint', Va),
+      'GGlobalInt VA not decoded');
+    Assert.AreEqual<UInt32>(ExpectedInt, Va,
+      'GGlobalInt VA mismatch vs .map');
+
+    Assert.IsTrue(S.GlobalVa.TryGetValue('ggloballight', Va),
+      'GGlobalLight VA not decoded');
+    Assert.AreEqual<UInt32>(ExpectedLight, Va,
+      'GGlobalLight VA mismatch vs .map');
+
+    Assert.IsTrue(S.GlobalByName.ContainsKey('gfieldhost'),
+      'GFieldHost not even registered by name -- $20 module-global ' +
+      'handler did not run, likely due to FScanInProc still being True');
+    Assert.IsTrue(S.GlobalVa.TryGetValue('gfieldhost', Va),
+      'GFieldHost VA not decoded ($20 module-global form)');
+    Assert.AreEqual<UInt32>(ExpectedField, Va,
+      'GFieldHost VA mismatch vs .map');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestGlobalVADecodedFromGlobalRecord32;
+begin
+  DoTestGlobalVADecodedFromGlobalRecord(False);
+end;
+
+procedure TRsmScannerTests.TestGlobalVADecodedFromGlobalRecord64;
+begin
+  DoTestGlobalVADecodedFromGlobalRecord(True);
 end;
 
 procedure TRsmScannerTests.TestSparseEnumResolvesViaEnumConstNames32;

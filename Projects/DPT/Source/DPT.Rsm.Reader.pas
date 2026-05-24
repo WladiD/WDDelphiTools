@@ -101,6 +101,7 @@ type
     function  FindProcByName(const AName: String): Integer;
     function  FindClassByName(const AName: String): Integer;
     function  FindGlobalTypeIdx(const AName: String): UInt32;
+    function  TryGetGlobalVa(const AName: String; out AVa: UInt32): Boolean;
     function  FindClassIdxByRsmTypeId(ARsmId: UInt32): Integer;
     function  IsEnumTypeId(ATypeId: UInt32): Boolean;
     function  FindTypeIdByName(const AName: String): UInt32;
@@ -468,6 +469,22 @@ function TRsmReader.FindGlobalTypeIdx(const AName: String): UInt32;
 begin
   if not FScanner.GlobalByName.TryGetValue(LowerCase(AName), Result) then
     Result := 0;
+end;
+
+/// <summary>
+///   Returns True with the decoded 4-byte VA slot recovered from
+///   the module-global's $27 / $20 record. Platform semantics:
+///   on Win32 this is the absolute VA (image base $00400000 already
+///   included); on Win64 this is the RVA relative to image base
+///   $140000000. Caller knows the platform via the loaded EXE and
+///   applies the offset accordingly. Returns False when the global
+///   was not registered or its VA slot did not carry the expected
+///   $07 low-nibble tag.
+/// </summary>
+function TRsmReader.TryGetGlobalVa(const AName: String;
+  out AVa: UInt32): Boolean;
+begin
+  Result := FScanner.GlobalVa.TryGetValue(LowerCase(AName), AVa);
 end;
 
 /// <summary>

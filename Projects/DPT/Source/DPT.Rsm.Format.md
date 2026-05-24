@@ -319,30 +319,47 @@ module-level variable in every code path.
 #### Module-global form (when `FScanInProc` is False)
 
 ```
-$20  <NL: u8>  <Name>  ?? $00 $00  <id-lo>  <id-hi>
+$20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
 Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:715-737](DPT.Rsm.Scanner.pas#L715-L737)). `NL` ∈ `[1, 40]`.
-The two zero bytes at +1, +2 (after the name) are the validation anchor.
-The 2-byte id is read at +3, +4.
+([Scanner.pas:731-770](DPT.Rsm.Scanner.pas#L731-L770)). `NL` ∈ `[1, 40]`.
+The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
+the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
+shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
+forms — see §4.5 for the decode and platform semantics. Stored in
+`FGlobalVa[lower(name)]` when the `$07` low-nibble tag is present.
 
-Side effects: writes `FGlobalByName[lower(name)] := id` and
-`FGlobalFileOffset[lower(name)] := P`.
+Side effects: writes `FGlobalByName[lower(name)] := id`,
+`FGlobalFileOffset[lower(name)] := P`, and (when the VA slot tag
+matches) `FGlobalVa[lower(name)] := decoded value`.
+
+**Dispatcher routing caveat**: `HandleModuleGlobalLocalTagRecord` is
+only reached when `FScanInProc` is False. In practice, module-global
+records often appear inside what the scanner still believes is a proc
+scope (because the previous `$63 SCOPE_END` was suppressed by the
+`FScanSeenLocalSinceProc` guard). `HandleLocalRecord` then runs over
+the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
+stack-local record ever carries) and publishes both the type id and
+the decoded VA into the global maps as a fallback. See
+[Scanner.pas:719-748](DPT.Rsm.Scanner.pas#L719-L748).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
 ```
-$27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <4-byte VA?>
+$27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
 Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:739-789](DPT.Rsm.Scanner.pas#L739-L789)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:792-846](DPT.Rsm.Scanner.pas#L792-L846)). `NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
 hi byte at +4 is one of `$2E`, `$2F`, `$1E`, the id is 2 bytes; else it
-is the single byte at +3.
+is the single byte at +3. The VA slot's start position depends:
+
+* 1-byte primitive id → VA at +4..+7
+* 2-byte structured id → VA at +5..+8
 
 The `$1E` case is the **scope-local enum alias**: same-compilation
 cross-unit enums (e.g. `TStatus` declared in three sibling units) get a
@@ -353,14 +370,36 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:743-753](DPT.Rsm.Scanner.pas#L743-L753) explains
+comment at [Scanner.pas:746-756](DPT.Rsm.Scanner.pas#L746-L756) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
 
-The 4-byte VA following the type id is referenced in the comment but
-**not parsed** by the current code (we only advance `P` past it). See
-[Scanner.pas:787](DPT.Rsm.Scanner.pas#L787).
+#### VA slot encoding
+
+The 4-byte VA slot is encoded as a single LE DWORD:
+
+```
+DWORD = (Value shl 4) or $07
+```
+
+The `$07` low nibble is the same validation tag the Win32
+`$28 PROC_TAG` form uses (see §4.1). The decoded `Value` (`DWORD shr 4`)
+is platform-specific:
+
+| Platform | `Value` is                                          | Recover absolute VA via |
+|----------|-----------------------------------------------------|-------------------------|
+| Win32    | Absolute VA (image base $00400000 already included) | `Value` (no math)       |
+| Win64    | RVA relative to the image base ($140000000)         | `$140000000 + Value`    |
+
+Pinned by
+[Test.DPT.Rsm.Scanner.TestGlobalVADecodedFromGlobalRecord32/64](../Test/Test.DPT.Rsm.Scanner.pas)
+against `DebugTarget.map` ground truth (`GGlobalInt` 1-byte id,
+`GGlobalLight` 2-byte id, `GFieldHost` $20 module-global form). The
+decoded value is published via `FGlobalVa[lower(name)]` on the scanner
+and surfaced through `TRsmReader.TryGetGlobalVa`. The 4 bytes are
+stored only when the `$07` tag is present; coincidental matches whose
+low nibble differs are skipped silently.
 
 ### 4.6 `$25` ENUM_CONST_TAG — single enum element
 
@@ -903,14 +942,6 @@ forward-declaration / cross-reference records with no embedded address.
 There may be address payloads in those forms that the current decoder
 discards.
 
-### 6.8 `$27` global VA (`unused`)
-
-[Scanner.pas:740, 787](DPT.Rsm.Scanner.pas#L740-L787) — the 4-byte VA
-following the type id is referenced in the record header documentation
-but the decoder advances past it without parsing. Surfacing it would
-let the debugger jump from a global name directly to its `.bss` /
-`.data` VA without consulting the `.map` file.
-
 ### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`GAP`, under investigation)
 
 [Test.DPT.Rsm.Reader.pas:231-486](../Test/Test.DPT.Rsm.Reader.pas#L231-L486)
@@ -1006,6 +1037,7 @@ uniformly without nil checks.
 | `ClassByName`                        | `TRsmStructDiscoverer.Run`        | lower(name)                             | `Classes` index                |
 | `GlobalByName`                       | `$20` outside proc + `$27`        | lower(name)                             | 2-byte RSM type id             |
 | `GlobalFileOffset`                   | same as above                     | lower(name)                             | byte offset of the `$20`/`$27` record |
+| `GlobalVa`                           | `$20`/`$27` VA-slot decoder       | lower(name)                             | absolute VA (Win32) or RVA-from-image-base (Win64) |
 | `EnumConstNames`                     | `$25` handlers + `$2A` flush      | `"<typeId>:<ordinal>"`                  | enum-constant identifier name  |
 | `EnumTypeIds`                        | `$25` handlers + `$2A` flush      | 2-byte type id                          | True                           |
 | `CrossUnitEnumIds`                   | cross-unit `$25` forms            | 2-byte secondary id                     | True                           |

@@ -73,6 +73,19 @@ type
     /// joins records against this to find the right type when the
     /// encoded type id is unreliable.
     FGlobalFileOffset: IKeyValue<String, NativeInt>;
+    /// Module-level variables: name -> 32-bit decoded VA recovered
+    /// from the 4-byte slot that follows the type id in $27 and $20
+    /// (module-global form) records. The slot's wire encoding is
+    /// (Value shl 4) or $07 -- same scheme as the $28 PROC Win32
+    /// address. The Value's platform-specific meaning:
+    /// * **Win32**: absolute VA (image base $00400000 already
+    ///   included; RVA-from-image-base = Value - $00400000).
+    /// * **Win64**: RVA relative to the image base ($140000000 by
+    ///   convention); absolute VA = $140000000 + Value.
+    /// Only populated when the slot's low nibble is the expected
+    /// $07 tag; absent for records where the VA cannot be
+    /// recovered.
+    FGlobalVa        : IKeyValue<String, UInt32>;
     /// Owns the enum-related lookup tables and the cross-unit
     /// pending-buffer state machine. Pulled out of TRsmScanner so
     /// the $25/$03/$2A handling lives in one place; the scanner
@@ -180,6 +193,7 @@ type
     property ClassByName        : IKeyValue<String, Integer> read FClassByName;
     property GlobalByName       : IKeyValue<String, UInt32> read FGlobalByName;
     property GlobalFileOffset   : IKeyValue<String, NativeInt> read FGlobalFileOffset;
+    property GlobalVa           : IKeyValue<String, UInt32> read FGlobalVa;
     property EnumConstNames     : IKeyValue<String, String> read GetEnumConstNames;
     property EnumTypeIds        : IKeyValue<UInt32, Boolean> read GetEnumTypeIds;
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read GetCrossUnitEnumIds;
@@ -209,6 +223,7 @@ begin
   FClassByName      := Collections.NewPlainKeyValue<String, Integer>;
   FGlobalByName     := Collections.NewPlainKeyValue<String, UInt32>;
   FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
+  FGlobalVa         := Collections.NewPlainKeyValue<String, UInt32>;
   FEnumDecoder      := TRsmEnumDecoder.Create;
   FStructDiscoverer := TRsmStructDiscoverer.Create(FClasses, FClassByName);
 end;
@@ -320,6 +335,7 @@ begin
   FClassByName.Clear;
   FGlobalByName.Clear;
   FGlobalFileOffset.Clear;
+  FGlobalVa.Clear;
   FEnumDecoder.Reset;
   FBuf := ABuf;
   FSz  := ASize;
@@ -707,6 +723,24 @@ begin
     FGlobalByName[LowerCase(Name)] :=
       UInt32(GLo) or (UInt32(GHi) shl 8);
     FGlobalFileOffset[LowerCase(Name)] := P;
+    // When the body opens with the distinctive $66 $00 $00 anchor
+    // (a real module-global record the dispatcher mis-routed to us
+    // because FScanInProc was still True), the 4-byte VA slot at
+    // +5..+8 carries (Value shl 4) | $07 -- see §4.4/§4.5 of
+    // DPT.Rsm.Format.md. Decode it only when the anchor + low-
+    // nibble tag both line up; stack-locals never carry this pair.
+    if (P + 2 + Integer(NameLen) + 8 < FSz) and
+       (ByteAt(P + 2 + NameLen)     = $66) and
+       (ByteAt(P + 2 + NameLen + 1) = $00) and
+       (ByteAt(P + 2 + NameLen + 2) = $00) then
+    begin
+      var VaByte0: Byte := ByteAt(P + 2 + NameLen + 5);
+      if (VaByte0 and $0F) = $07 then
+      begin
+        var VaDword: UInt32 := DwordAt(P + 2 + NameLen + 5);
+        FGlobalVa[LowerCase(Name)] := VaDword shr 4;
+      end;
+    end;
   end;
   P := P + 2 + Length(Name);
   Result := True;
@@ -732,6 +766,19 @@ begin
   var Hi: Byte := ByteAt(P + 2 + NameLen + 4);
   FGlobalByName[LowerCase(Name)] := UInt32(Lo) or (UInt32(Hi) shl 8);
   FGlobalFileOffset[LowerCase(Name)] := P;
+  // Module-global $20 form carries the same 4-byte (Value shl 4) | $07
+  // VA slot the $27 GLOBAL_PRIM record uses; the slot sits right
+  // after the 2-byte type id (NameEnd+5..+8). Decode only when the
+  // low nibble matches the expected $07 tag.
+  if P + 2 + Integer(NameLen) + 8 < FSz then
+  begin
+    var VaByte0: Byte := ByteAt(P + 2 + NameLen + 5);
+    if (VaByte0 and $0F) = $07 then
+    begin
+      var VaDword: UInt32 := DwordAt(P + 2 + NameLen + 5);
+      FGlobalVa[LowerCase(Name)] := VaDword shr 4;
+    end;
+  end;
   P := P + 2 + Length(Name) + 5;
   Result := True;
 end;
@@ -784,6 +831,23 @@ begin
     PrimId := ByteAt(P + 2 + NameLen + 3);
   FGlobalByName[LowerCase(Name)] := PrimId;
   FGlobalFileOffset[LowerCase(Name)] := P;
+  // 4-byte VA slot: starts at the byte after the type id (offset +4
+  // for 1-byte ids, +5 for 2-byte structured ids). Encoded as
+  // (Value shl 4) or $07; decode only when the low nibble matches.
+  var VaOffset: Integer;
+  if (HiByte = $2E) or (HiByte = $2F) or (HiByte = $1E) then
+    VaOffset := 5
+  else
+    VaOffset := 4;
+  if P + 2 + Integer(NameLen) + VaOffset + 3 < FSz then
+  begin
+    var VaByte0: Byte := ByteAt(P + 2 + NameLen + VaOffset);
+    if (VaByte0 and $0F) = $07 then
+    begin
+      var VaDword: UInt32 := DwordAt(P + 2 + NameLen + VaOffset);
+      FGlobalVa[LowerCase(Name)] := VaDword shr 4;
+    end;
+  end;
   P := P + 2 + Length(Name) + 4;
   Result := True;
 end;
