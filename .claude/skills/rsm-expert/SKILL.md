@@ -144,6 +144,16 @@ new shape, fix a misparse, or change the meaning of a captured field:
       — Win32-only build+run of the broader `Test.DPT.dproj`. Faster
       iteration loop when you know the change is platform-agnostic.
 
+  Output binaries (referenced below as `<TestExe32>` / `<TestExe64>`):
+    * Win32: [Projects/DPT/Test/Win32/Debug/Test.DptDebugger.exe](../../../Projects/DPT/Test/Win32/Debug/Test.DptDebugger.exe)
+    * Win64: [Projects/DPT/Test/Win64/Debug/Test.DptDebugger.exe](../../../Projects/DPT/Test/Win64/Debug/Test.DptDebugger.exe)
+    * The matching `Test.DPT.dproj` build also produces
+      `Win32/Debug/Test.DPT.exe` and `Win64/Debug/Test.DPT.exe`.
+  Both directories are gitignored, so any side-effect files (the
+  diagnostic dumps documented below, the `.map` / `.rsm` sidecars,
+  the `DebugTarget.exe` fixture) live alongside the test exes
+  without ending up in commits.
+
 ### Running a single test (DUnitX filtering)
 
 DUnitX accepts a name filter via `--run:<value>` and an alternative
@@ -176,9 +186,14 @@ output in iteration loops. Source of truth for the matcher: the
 Iteration workflow:
 
 ```
-_Test.DptDebugger.Build.bat
-Win32\Debug\Test.DptDebugger.exe --run:Test.DPT.Rsm.Scanner.TRsmScannerTests.TestFoo --consolemode:Quiet --exit:Continue
+Projects\DPT\Test\_Test.DptDebugger.Build.bat
+Projects\DPT\Test\Win32\Debug\Test.DptDebugger.exe ^
+    --run:Test.DPT.Rsm.Scanner.TRsmScannerTests.TestFoo ^
+    --consolemode:Quiet --exit:Continue
 ```
+
+Same for Win64: substitute `Win64\Debug\Test.DptDebugger.exe` for
+the second line.
 
 Once the targeted test passes, run the full `_Test.DptDebugger.BuildAndRun.bat`
 to confirm no other test regressed before committing.
