@@ -130,6 +130,17 @@ new shape, fix a misparse, or change the meaning of a captured field:
 - Run the tests before declaring the work done. The fixture binaries
   must be rebuilt with `-V -VR` for the .rsm sidecar to exist;
   `TestRsmFilePresent` is the guard.
+- **Always build + run via the project's batch files**, not raw
+  `msbuild` + `Test.DptDebugger.exe`. The batches drive the same
+  RECENT-based build host the user uses, so any failure you see is
+  the failure they will see:
+    * [Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat](../../../Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat)
+      — builds + runs **both Win32 and Win64** in sequence. Use this
+      after a fixture change (`DebugTarget.dpr`), after any
+      `DPT.Rsm.*.pas` change, or before committing.
+    * [Projects/DPT/Test/_Test.DPT.BuildAndRun.bat](../../../Projects/DPT/Test/_Test.DPT.BuildAndRun.bat)
+      — Win32-only build+run of the broader `Test.DPT.dproj`. Faster
+      iteration loop when you know the change is platform-agnostic.
 
 If you cannot create a meaningful test (e.g. the fixture lacks a
 suitable Delphi construct), extend `DebugTarget.dpr` to add the

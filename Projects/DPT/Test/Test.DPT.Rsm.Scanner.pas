@@ -74,6 +74,18 @@ type
     [Test]
     procedure Test2ATypeRegistryFlagIsBodyShapeNotKind32;
 
+    /// Pins the actual sparse-ordinal enum encoding (RSM format §6.1).
+    /// The original "different $03 emission shape" hypothesis is
+    /// REFUTED: the linker emits NO $03 ENUM_DEF record at all for
+    /// sparse enums. The per-element ordinals come through the
+    /// existing $25 program-local channel and decode correctly today
+    /// (seAlpha=1, seBeta=5, seGamma=11 for TSparseEnum). The
+    /// consequence is that <c>EnumDefs</c> does not list TSparseEnum;
+    /// callers must use <c>TryGetEnumConstantName</c> or another
+    /// resolver path that doesn't rely on the EnumDef list.
+    [Test]
+    procedure TestSparseEnumResolvesViaEnumConstNames32;
+
     {$IFDEF CPUX64}
     /// Win64 sanity. Same as TestProcsCollected32 but on the Win64
     /// fixture; structures are encoded differently (Win64 trailer
@@ -91,6 +103,7 @@ type
 implementation
 
 uses
+  System.Classes,
   System.IOUtils,
   System.SysUtils,
 
@@ -380,6 +393,86 @@ begin
       'TLightStatus is a narrow-body entry but body[5] is non-zero');
     Assert.AreEqual<Byte>($00, RecordEntry.B5,
       'TEnumHostRec is a narrow-body entry but body[5] is non-zero');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestSparseEnumResolvesViaEnumConstNames32;
+// Pins the sparse-ordinal enum decoding. DebugTarget declares
+// TSparseEnum = (seAlpha = 1, seBeta = 5, seGamma = 11). The linker
+// does NOT emit a $03 ENUM_DEF record for this enum (verified by
+// walking the byte stream below). The $25 program-local channel
+// however emits each constant with its explicit ordinal, so
+// EnumConstNames carries seAlpha=1, seBeta=5, seGamma=11 -- the
+// resolver layer that consumes typeId:ord lookups already works.
+var
+  S       : TRsmScanner;
+  HasDef  : Boolean;
+  HitVals : array[1..11] of String;
+
+  function FindEnumDefByName(const AName: String): Boolean;
+  var
+    P, EndPos: NativeInt;
+    NL       : Byte;
+    Name     : String;
+  begin
+    Result := False;
+    EndPos := S.Sz - 16;
+    P := 4;
+    while P < EndPos do
+    begin
+      if (S.ByteAt(P) = TRsmTag.ENUM_DEF_TAG) and
+         (S.ByteAt(P + 1) = Length(AName)) then
+      begin
+        NL := S.ByteAt(P + 1);
+        if (NL >= 2) and (NL <= 40) and (P + 2 + NL < S.Sz) and
+           S.ReadIdentifier(P + 1, Name) and
+           SameText(Name, AName) then
+          Exit(True);
+      end;
+      Inc(P);
+    end;
+  end;
+
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty -- need DebugTarget.rsm');
+
+    // (a) Sparse enums get NO $03 ENUM_DEF record.
+    HasDef := FindEnumDefByName('TSparseEnum');
+    Assert.IsFalse(HasDef,
+      'Linker emitted a $03 ENUM_DEF for TSparseEnum -- §6.1 ' +
+      'finding needs revisiting; sparse enums were previously ' +
+      'observed to be absent from the $03 channel');
+
+    // (b) But the $25 channel DID emit one constant per element
+    // with the explicit ordinal as the value. We can't predict
+    // TSparseEnum's typeId statically (linker-assigned), so iterate
+    // EnumConstNames and pick out the ordinals by the constant name.
+    for var I := 1 to 11 do HitVals[I] := '';
+    for var Pair in S.EnumConstNames do
+    begin
+      var ColonPos := Pos(':', Pair.Key);
+      if ColonPos = 0 then Continue;
+      var OrdinalStr := Copy(Pair.Key, ColonPos + 1, MaxInt);
+      var Ord: Integer;
+      if not TryStrToInt(OrdinalStr, Ord) then Continue;
+      if (Ord < 1) or (Ord > 11) then Continue;
+      if SameText(Pair.Value, 'seAlpha') or
+         SameText(Pair.Value, 'seBeta')  or
+         SameText(Pair.Value, 'seGamma') then
+        HitVals[Ord] := Pair.Value;
+    end;
+
+    Assert.AreEqual('seAlpha', HitVals[1],
+      'seAlpha did not surface at ordinal 1');
+    Assert.AreEqual('seBeta', HitVals[5],
+      'seBeta did not surface at ordinal 5');
+    Assert.AreEqual('seGamma', HitVals[11],
+      'seGamma did not surface at ordinal 11');
   finally
     S.Free;
   end;

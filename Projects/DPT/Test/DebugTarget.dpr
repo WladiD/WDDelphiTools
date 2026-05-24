@@ -430,6 +430,21 @@ begin
   Writeln('NameClash ', Ord(GFieldHost.SyncDirection), ' ',                  // Line 430 - name-clash bp here
           Ord(GFieldHost.SyncStatus), ' ', Ord(GSyncDirectionAnchor)); Flush(Output);
 end;
+// Sparse / explicit-value enum. The current $03 ENUM_DEF decoder
+// assigns sequential ordinals 0..N-1 (see RSM format gap §6.1); this
+// fixture forces the linker to emit a shape that carries the
+// explicit values 1, 5, 11 so the decoded ordinals can be pinned.
+// Placed AFTER all BP markers (line 430 was the last) so adding it
+// does not shift existing BP line numbers.
+type
+  TSparseEnum = (seAlpha = 1, seBeta = 5, seGamma = 11);
+var
+  GGlobalSparse : TSparseEnum;
+procedure SparseEnumProbe;
+begin
+  GGlobalSparse := seGamma;
+  Writeln('SparseProbe ', Ord(GGlobalSparse)); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -591,6 +606,7 @@ begin
     // TStatus) and Whatever (no T+Name match anywhere) initialised
     // to ordinal 1 of their respective real types.
     NameClashEnumProbe;
+    SparseEnumProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked

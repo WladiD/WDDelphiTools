@@ -452,12 +452,19 @@ fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
 
-Element ordinals default to **sequential `0..N-1`**. The code comment
-at [Scanner.pas:968-975](DPT.Rsm.Scanner.pas#L968-L975) acknowledges that
-**sparse / explicit-value enums** (`type T = (a = 1, b = 5)`) likely
-use a different `$03` emission shape that is **not yet decoded**:
-`Elem.Ordinal := EI` ignores the actual stored ordinal. This is one of
-the documented gaps — see §6.
+Element ordinals default to **sequential `0..N-1`**. Sparse /
+explicit-value enums (`type T = (a = 1, b = 5)`) skip the `$03`
+channel entirely — the linker does **not** emit an `ENUM_DEF` record
+for them at all (verified by
+[Test.DPT.Rsm.Scanner.TestSparseEnumResolvesViaEnumConstNames32](../Test/Test.DPT.Rsm.Scanner.pas)
+against `TSparseEnum = (seAlpha = 1, seBeta = 5, seGamma = 11)`).
+Per-element ordinals for sparse enums arrive through the `$25` channel
+instead, where the program-local form's `body[7] >> 1` already
+recovers the explicit ordinal. The consequence is that
+`TRsmReader.EnumDefs` does NOT list sparse enums; consumers that walk
+the element list directly will miss them, while those that look up by
+`(typeId, ordinal)` via `TryGetEnumConstantName` keep working. See
+§6.1 for the residual implication.
 
 The decoded record is appended to `FEnumDefs` (i.e. two sibling units
 declaring the same `TStatus` produce two `TRsmEnumDef` entries, not
@@ -804,14 +811,22 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 Each item here is anchored to the code location that flags it.
 
-### 6.1 Sparse / explicit-value enums in `$03` ENUM_DEF (`GAP`)
+### 6.1 Sparse / explicit-value enums absent from `EnumDefs` (`unused`)
 
-[Scanner.pas:968-975](DPT.Rsm.Scanner.pas#L968-L975) — `$03` element
-ordinals are hard-coded to sequential `0..N-1`. Enums declared as
-`type T = (a = 1, b = 5)` use a different emission shape that isn't
-yet decoded; the current code stores `Elem.Ordinal := EI` regardless,
-and `TRsmEnumElement.Ordinal` is per-element-ready in the model so
-extending this is a localised change once a sparse example is in hand.
+[Scanner.pas:968-975](DPT.Rsm.Scanner.pas#L968-L975) and §4.7 above —
+the "different `$03` emission shape" hypothesis is **refuted**: the
+linker emits NO `$03 ENUM_DEF` record at all for sparse / explicit-
+value enums like `TSparseEnum = (seAlpha = 1, seBeta = 5, seGamma =
+11)` (pinned by
+[Test.DPT.Rsm.Scanner.TestSparseEnumResolvesViaEnumConstNames32](../Test/Test.DPT.Rsm.Scanner.pas)).
+The `$25` channel carries each element with its explicit ordinal so
+`EnumConstNames["<typeId>:<ord>"] -> name` works correctly, but
+`TRsmReader.EnumDefs` will not list sparse enums. Consumers that
+walk the element list (e.g. to enumerate every value of an enum)
+silently miss sparse types. A synthetic `EnumDef` could be built from
+the buffered `$25` records the way the same-comp cross-unit case does
+(see §5.1), keyed by the `$2A` registry name; the scanner already has
+all the pieces, only the synthesis step is missing.
 
 ### 6.2 Win64 proc-address VAs above 2 MB (`UNCERTAIN`)
 

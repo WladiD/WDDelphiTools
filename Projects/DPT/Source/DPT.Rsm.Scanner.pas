@@ -965,14 +965,15 @@ begin
        (CursorPos + 1 + ElemLen > FSz) then Exit;
     var ElemName: String;
     if not ReadIdentifier(CursorPos, ElemName) then Exit;
-    // Ordinal defaults to list index. The $03 record format we
-    // currently decode handles contiguous 0..N-1 enums (the
-    // common case for sibling-unit / RTL enum types). Sparse
-    // / explicit-value enums (<c>type T = (a = 1, b = 5)</c>)
-    // use a different RSM emission shape not yet decoded; the
-    // model is ready for them (Ordinal is per-element) -- only
-    // this scanner branch needs extending when a real sparse
-    // sample shows up.
+    // Ordinal defaults to list index. The $03 record format is
+    // only emitted by the linker for contiguous 0..N-1 enums --
+    // sparse / explicit-value enums (<c>type T = (a = 1, b = 5)</c>)
+    // skip the $03 channel entirely (see DebugTarget.dpr's
+    // TSparseEnum + Test.DPT.Rsm.Scanner.
+    // TestSparseEnumResolvesViaEnumConstNames32, plus §4.7/§6.1
+    // of DPT.Rsm.Format.md). For sparse enums the per-element
+    // ordinals come through the $25 channel and EnumDefs simply
+    // doesn't list them.
     var Elem: TRsmEnumElement;
     Elem.Name    := ElemName;
     Elem.Ordinal := EI;
