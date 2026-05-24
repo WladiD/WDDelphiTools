@@ -453,6 +453,7 @@ end;
 // a structural anchor.
 type
   TNoFPrefixHost = class
+  protected
     PlainInt   : Integer;
     PlainLabel : string;
   end;

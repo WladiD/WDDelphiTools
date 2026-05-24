@@ -207,24 +207,32 @@ begin
       Continue;
     end;
     // Structural anchor: every real class-field record is followed
-    // immediately by a 4-byte typeinfo prefix `$02 $00 <last-flag>
-    // $00` where last-flag is $00 or $02. This anchor is far more
-    // selective than the previous Name[1]='F' heuristic and admits
-    // classes whose fields don't follow the conventional F-prefix
-    // (e.g. DebugTarget's TNoFPrefixHost.PlainInt / .PlainLabel, or
+    // immediately by a 4-byte typeinfo prefix `$02 $00 <section-flag>
+    // $00`. The third byte is a section/visibility marker observed in
+    // three values:
+    //   $00 = terminal record in the field section (last field, or
+    //         last field before a section break)
+    //   $01 = protected next-field marker (TNoFPrefixHost.PlainInt
+    //         declared `protected` produces `$02 $00 $01 $00`)
+    //   $02 = published / default-published next-field marker
+    //         (FBase*/FDerived* fields produce `$02 $00 $02 $00`)
+    // The full taxonomy of bit-flags is not yet mapped; treating the
+    // marker as "any of $00/$01/$02" admits all currently observed
+    // visibilities without losing selectivity (the surrounding bytes
+    // 0/1/3 stay pinned).
+    //
+    // This anchor is far more selective than the previous Name[1]='F'
+    // heuristic and admits classes whose fields don't follow the
+    // conventional F-prefix (e.g. DebugTarget's TNoFPrefixHost, or
     // real-world TFW-style CamelCase fields). The 6-byte anchor the
     // forward record-field walker uses (RsmIsValidFieldTypeinfoPrefix)
-    // would be even more selective but breaks on the terminal field
-    // of a class that declares methods (e.g. TDerived.FDerivedLabel),
-    // where byte +4 of the typeinfo is non-zero. The shorter 4-byte
-    // anchor covers every observed shape: non-terminal `$02 $00 $02
-    // $00`, terminal-without-methods `$02 $00 $00 $00`, terminal-
-    // with-methods `$02 $00 $00 $00` (the divergence sits past +3).
+    // would be tighter but breaks on the terminal field of a class
+    // that declares methods (e.g. TDerived.FDerivedLabel), where
+    // byte +4 of the typeinfo is non-zero.
     if (P + 4 + 1 + NameLen + 3 >= FSz) or
        (ByteAt(P + 4 + 1 + NameLen)     <> $02) or
        (ByteAt(P + 4 + 1 + NameLen + 1) <> $00) or
-       ((ByteAt(P + 4 + 1 + NameLen + 2) <> $00) and
-        (ByteAt(P + 4 + 1 + NameLen + 2) <> $02)) or
+       (ByteAt(P + 4 + 1 + NameLen + 2) > $02) or
        (ByteAt(P + 4 + 1 + NameLen + 3) <> $00) then
     begin
       Inc(P);

@@ -759,7 +759,7 @@ For **classes**, the field walker is **backward**, not forward —
 record has the shape:
 
 ```
-<DWORD field-offset>  <NL: u8>  <field-name>  $02 $00 <last-flag> $00  <pad..>
+<DWORD field-offset>  <NL: u8>  <field-name>  $02 $00 <section-flag> $00  <pad..>
 ```
 
 The DWORD must satisfy `1 <= Off <= $FFFF`: high two bytes zero, and
@@ -769,18 +769,28 @@ sit at offset 0). The backward window is bounded by `ScanWindow =
 (`AMinStartOff`) to prevent cross-class leakage.
 
 **Structural anchor**: the 4 bytes immediately after `<field-name>`
-must form `$02 $00 <last-flag> $00` where `last-flag ∈ {$00, $02}`.
-This is the same anchor's leading 4 bytes that the forward record-
-field walker validates via `RsmIsValidFieldTypeinfoPrefix` (which
-checks 6 bytes). The shorter 4-byte form is used here because the
-terminal field of a class that declares methods carries non-zero data
-at byte +4 of its typeinfo (e.g. `TDerived.FDerivedLabel` ends with
-`02 00 00 00 01 00 BC 00 ...`); a strict 6-byte check would drop those
-fields. The 4-byte anchor plus the `Off > 0` floor proved sufficient
-on the DebugTarget + TFW corpus to filter every phantom match (the
-known case being the `<00 00 00 00> 04 Self <typeinfo>` byte sequence
-that every method-bearing class emits via its implicit `Self`
-register-var record). See
+must form `$02 $00 <section-flag> $00` where `section-flag ∈ {$00,
+$01, $02}`. Byte +2 acts as a section / visibility marker:
+
+| Value | Meaning (observed)                                              |
+|-------|-----------------------------------------------------------------|
+| $00   | Terminal record (last field, or last field before section end) |
+| $01   | `protected` next-field marker (`TNoFPrefixHost.PlainInt` form)  |
+| $02   | `published` / default-published next-field marker (F-prefix)    |
+
+Whether the marker encodes additional bit-flags (private, strict
+private, strict protected) is not yet fully mapped — see §6.x if a
+new visibility surfaces. This is the same anchor's leading 4 bytes
+that the forward record-field walker validates via
+`RsmIsValidFieldTypeinfoPrefix` (which checks 6 bytes). The shorter
+4-byte form is used here because the terminal field of a class that
+declares methods carries non-zero data at byte +4 of its typeinfo
+(e.g. `TDerived.FDerivedLabel` ends with `02 00 00 00 01 00 BC 00 ...`);
+a strict 6-byte check would drop those fields. The 4-byte anchor plus
+the `Off > 0` floor proved sufficient on the DebugTarget + TFW corpus
+to filter every phantom match (the known case being the
+`<00 00 00 00> 04 Self <typeinfo>` byte sequence that every method-
+bearing class emits via its implicit `Self` register-var record). See
 [StructDiscoverer.pas:209-232](DPT.Rsm.StructDiscoverer.pas#L209-L232)
 for the implementation and
 [Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
