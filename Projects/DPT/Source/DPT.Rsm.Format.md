@@ -502,8 +502,11 @@ instead, where the program-local form's `body[7] >> 1` already
 recovers the explicit ordinal. The consequence is that
 `TRsmReader.EnumDefs` does NOT list sparse enums; consumers that walk
 the element list directly will miss them, while those that look up by
-`(typeId, ordinal)` via `TryGetEnumConstantName` keep working. See
-§6.1 for the residual implication.
+`(typeId, ordinal)` via `TryGetEnumConstantName` keep working. A
+synthetic `EnumDef` could be built from the buffered `$25` records
+the way the same-comp cross-unit case does (see §5.1) — the scanner
+already has all the pieces, only the synthesis step is missing —
+but that is a design choice, not a format gap.
 
 The decoded record is appended to `FEnumDefs` (i.e. two sibling units
 declaring the same `TStatus` produce two `TRsmEnumDef` entries, not
@@ -849,23 +852,6 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 ## 6. Identified gaps and uncertainties
 
 Each item here is anchored to the code location that flags it.
-
-### 6.1 Sparse / explicit-value enums absent from `EnumDefs` (`unused`)
-
-[Scanner.pas:968-975](DPT.Rsm.Scanner.pas#L968-L975) and §4.7 above —
-the "different `$03` emission shape" hypothesis is **refuted**: the
-linker emits NO `$03 ENUM_DEF` record at all for sparse / explicit-
-value enums like `TSparseEnum = (seAlpha = 1, seBeta = 5, seGamma =
-11)` (pinned by
-[Test.DPT.Rsm.Scanner.TestSparseEnumResolvesViaEnumConstNames32](../Test/Test.DPT.Rsm.Scanner.pas)).
-The `$25` channel carries each element with its explicit ordinal so
-`EnumConstNames["<typeId>:<ord>"] -> name` works correctly, but
-`TRsmReader.EnumDefs` will not list sparse enums. Consumers that
-walk the element list (e.g. to enumerate every value of an enum)
-silently miss sparse types. A synthetic `EnumDef` could be built from
-the buffered `$25` records the way the same-comp cross-unit case does
-(see §5.1), keyed by the `$2A` registry name; the scanner already has
-all the pieces, only the synthesis step is missing.
 
 ### 6.2 Win64 proc-address VAs above 2 MB (`UNCERTAIN`)
 

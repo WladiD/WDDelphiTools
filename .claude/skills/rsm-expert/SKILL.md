@@ -102,9 +102,29 @@ Tag with `GAP` when the format itself is undecoded, `UNCERTAIN` when
 the current code makes a guess that mostly works but isn't grounded,
 and `unused` when state is captured but no resolver reads it.
 
-When you close a gap, **remove the entry** from §6 and add the newly
-decoded shape to the relevant §4 subsection. Never silently drop a
-section — note the closure in your reply.
+A §6 entry is **closed** in any of these cases:
+
+1. The shape was decoded (most common case — new bytes parsed, new
+   collection populated, new test pinning concrete values).
+2. The hypothesis behind the entry was **refuted** — the gap was
+   based on a wrong premise, and once you've shown it's wrong there's
+   nothing left to decode (e.g. "sparse enums use a different `$03`
+   shape" → linker actually emits no `$03` for them at all; `$25`
+   already carries the data).
+3. The residual concern is a **design choice** rather than a missing
+   decode (e.g. a synthetic record could be built but the existing
+   API is intentionally narrow). Document the choice in §4 and the
+   entry no longer belongs in §6.
+
+In all three cases: **remove the §6 entry entirely**, move the
+relevant explanation into the appropriate §4 subsection (so a reader
+finding the format reference still learns the answer), and never
+leave a "(`unused`) — still kind of a gap" stub behind. The §6 list
+must stay tight: only actually-open questions live there.
+
+Never silently drop a section — note the closure in your reply (the
+commit message + the end-of-turn summary), so the user knows the §6
+list shrank.
 
 ### 4. Every finding gets a unit test
 
