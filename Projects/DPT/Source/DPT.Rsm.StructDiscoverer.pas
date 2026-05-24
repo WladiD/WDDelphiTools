@@ -352,25 +352,28 @@ begin
   PStart := ARecordNameOff + 1 + NL + 4;
 
   // The header between the size DWORD and the first field tag has
-  // a variable layout (count, flags, padding) we don't fully
-  // understand, so locate the first field tag heuristically: scan
-  // forward up to a bounded window for the first $02 byte that
-  // looks like a complete field record. "Looks like" is now a
-  // STRUCTURAL anchor rather than a name-character heuristic:
-  // the 6 bytes after the field name must form the documented
-  // field-typeinfo prefix
+  // a SIMPLE shape (now mapped in DPT.Rsm.Format.md §4.13: byte 0 =
+  // managed-field count, byte 5+N*K = declared field count, header
+  // length = 17 + N*8 on Win32 / 25 + N*16 on Win64) and an
+  // ELABORATE shape observed only on TFW's TAppCaps (see §6.4)
+  // where ~500 bytes of nested sub-record header sit between the
+  // record-name size DWORD and the first $02 field tag.
+  //
+  // Rather than branch on shape, we locate the first field tag
+  // heuristically -- scan forward up to a bounded window for the
+  // first $02 byte that looks like a complete field record. "Looks
+  // like" is a STRUCTURAL anchor: the 6 bytes after the field name
+  // must form the documented field-typeinfo prefix
   //     $02 $00 <last-flag> $00 $00 $00          (last-flag in {$00, $02})
   // which is far more selective than any first-character rule
   // could be, and DOES NOT depend on Delphi house style (so
   // records whose fields don't start with 'F' -- TFW's
   // TAppCaps.DbKindName, TMdt.Id, ... -- get parsed correctly).
-  // 4 KB scan window. TAppCaps in TFW puts its first $02-field
-  // record ~500 bytes past the name (a variant-record case list
-  // / nested sub-record headers fill that gap), so the older
-  // 64-byte window dropped large interface-scope records
-  // entirely. 4 KB is well above anything we've seen in practice
-  // and the strict typeinfo-prefix anchor (above) keeps the
-  // false-positive rate at zero across the gap.
+  // 4 KB scan window covers TAppCaps's expanded header; the simple
+  // shape resolves on the very first iteration. The strict
+  // typeinfo-prefix anchor keeps the false-positive rate at zero
+  // across the gap, so the scan-then-anchor combination is both
+  // simpler and at least as robust as a shape-branched decoder.
   FoundFirst := False;
   P := PStart;
   PScan := PStart + 4096;

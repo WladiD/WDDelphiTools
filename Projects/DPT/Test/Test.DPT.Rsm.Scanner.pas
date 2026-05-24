@@ -26,6 +26,7 @@ type
     function ResolveExePath(AUse64Bit: Boolean): String;
     procedure DoTestGlobalVADecodedFromGlobalRecord(AUse64Bit: Boolean);
     procedure DoTestNonFPrefixClassFieldsDiscovered(AUse64Bit: Boolean);
+    procedure DoTestSimpleRecordHeaderFieldCount(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -100,6 +101,21 @@ type
     procedure TestNonFPrefixClassFieldsDiscovered32;
     [Test]
     procedure TestNonFPrefixClassFieldsDiscovered64;
+
+    /// Pins the simple-shape record header (RSM format §4.13 / §6.4
+    /// closure). The bytes between a record-name's size DWORD and the
+    /// first $02 field tag follow:
+    ///   byte 0       : managed-field count (N)
+    ///   ...padding   : platform-specific
+    ///   byte 5+N*K   : declared field count
+    /// with K=8 on Win32 and K=16 on Win64. For each DebugTarget
+    /// simple record (no nested sub-record headers), both quantities
+    /// must match expectations. The elaborate TAppCaps-style shape is
+    /// out of scope (see §6.4).
+    [Test]
+    procedure TestSimpleRecordHeaderFieldCount32;
+    [Test]
+    procedure TestSimpleRecordHeaderFieldCount64;
 
     /// Pins the actual sparse-ordinal enum encoding (RSM format §6.1).
     /// The original "different $03 emission shape" hypothesis is
@@ -590,6 +606,112 @@ begin
   end;
 end;
 
+
+procedure TRsmScannerTests.TestSimpleRecordHeaderFieldCount32;
+begin
+  DoTestSimpleRecordHeaderFieldCount(False);
+end;
+
+procedure TRsmScannerTests.TestSimpleRecordHeaderFieldCount64;
+begin
+  DoTestSimpleRecordHeaderFieldCount(True);
+end;
+
+procedure TRsmScannerTests.DoTestSimpleRecordHeaderFieldCount(
+  AUse64Bit: Boolean);
+// Locks in the simple-shape record header decoding: byte 0 = managed
+// count (N), byte (5 + N * K) = declared field count (K=8/16 per
+// platform). For each fixture record we know N and FC from the source
+// declaration; the test reads the bytes directly from the .rsm and
+// asserts both quantities. This is a doc-only closure -- the walker
+// keeps its 4 KB scan as a safety net for the elaborate TAppCaps-style
+// shape (§6.4) -- so the test reaches into S.ByteAt to verify the
+// header bytes without depending on any walker behaviour.
+type
+  TExpectation = record
+    Name        : String;
+    ManagedCount: Byte;
+    FieldCount  : Byte;
+  end;
+const
+  Expectations: array[0..13] of TExpectation = (
+    (Name: 'TPoint2D';         ManagedCount: 0; FieldCount: 2),
+    (Name: 'TRect2D';          ManagedCount: 0; FieldCount: 2),
+    (Name: 'TPoint3D';         ManagedCount: 0; FieldCount: 3),
+    (Name: 'TWhdrHeader';      ManagedCount: 0; FieldCount: 2),
+    (Name: 'TNarrowInts';      ManagedCount: 0; FieldCount: 5),
+    (Name: 'TFloats';          ManagedCount: 0; FieldCount: 3),
+    (Name: 'TEnumHostRec';     ManagedCount: 0; FieldCount: 2),
+    (Name: 'TVariantSlot';     ManagedCount: 0; FieldCount: 6),
+    (Name: 'TFieldStatusHost'; ManagedCount: 0; FieldCount: 8),
+    (Name: 'TEnumVariantHost'; ManagedCount: 0; FieldCount: 3),
+    (Name: 'TPair';            ManagedCount: 1; FieldCount: 2),
+    (Name: 'TMixedRec';        ManagedCount: 1; FieldCount: 3),
+    (Name: 'TWithHeader';      ManagedCount: 1; FieldCount: 4),
+    (Name: 'TPrimitives';      ManagedCount: 2; FieldCount: 5)
+  );
+var
+  S          : TRsmScanner;
+  K          : Integer;
+  I, J, P    : NativeInt;
+  NL         : Byte;
+  Name       : String;
+  PStart     : NativeInt;
+  ManagedByte: Byte;
+  FCByte     : Byte;
+  Exp        : TExpectation;
+  Found      : Boolean;
+begin
+  if AUse64Bit then
+    K := 16
+  else
+    K := 8;
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty -- need DebugTarget.rsm');
+
+    for I := 0 to High(Expectations) do
+    begin
+      Exp := Expectations[I];
+      Found := False;
+      // Walk the byte stream for the $0E record sentinel followed by
+      // a length-prefixed name that matches Exp.Name. Take the first
+      // hit -- the linker emits the canonical record-name record only
+      // once.
+      P := 1;
+      while P < S.Sz - 8 do
+      begin
+        if (S.ByteAt(P - 1) = $0E) then
+        begin
+          NL := S.ByteAt(P);
+          if (NL = Length(Exp.Name)) and
+             (P + 1 + NL + 4 < S.Sz) and
+             S.ReadIdentifier(P, Name) and
+             SameText(Name, Exp.Name) then
+          begin
+            PStart := P + 1 + NL + 4;
+            ManagedByte := S.ByteAt(PStart);
+            J := PStart + 5 + NativeInt(ManagedByte) * K;
+            if J >= S.Sz then Break;
+            FCByte := S.ByteAt(J);
+            Assert.AreEqual<Byte>(Exp.ManagedCount, ManagedByte,
+              Exp.Name + ': header byte 0 (managed count) mismatch');
+            Assert.AreEqual<Byte>(Exp.FieldCount, FCByte,
+              Exp.Name + ': header byte (5 + N*K) (field count) mismatch');
+            Found := True;
+            Break;
+          end;
+        end;
+        Inc(P);
+      end;
+      Assert.IsTrue(Found,
+        Exp.Name + ': no $0E-anchored record-name record found in RSM');
+    end;
+  finally
+    S.Free;
+  end;
+end;
 
 procedure TRsmScannerTests.TestSparseEnumResolvesViaEnumConstNames32;
 // Pins the sparse-ordinal enum decoding. DebugTarget declares

@@ -739,18 +739,59 @@ record is encoded as:
 
 The walker uses the byte at `TypeinfoEnd + 4` as the layout selector:
 `$02` → Win32, anything else → Win64. See
-[StructDiscoverer.pas:420-435](DPT.Rsm.StructDiscoverer.pas#L420-L435).
+[StructDiscoverer.pas:423-438](DPT.Rsm.StructDiscoverer.pas#L423-L438).
 
 Field 0's offset is hard-coded to 0; subsequent offsets come from each
 prior field's next-offset DWORD.
 
 **First-field locator**: the bytes between the record-name and the
-first field tag have a variable-length header (size DWORD, count,
-flags, padding) whose shape is **not fully understood** — the walker
-scans up to 4 KB forward for the first `$02` byte that satisfies
-`IsValidFieldTypeinfoPrefix`. The 4 KB window covers TFW's `TAppCaps`,
-which has ~500 bytes of variant-record case-list / nested sub-record
-header between the name and the first field.
+first field tag form a header whose **simple (base) shape is now
+mapped** (see below). For records with nested sub-record headers
+(observed only on TFW's `TAppCaps`, where ~500 bytes of expanded
+header sit between the name and the first field) the simple-shape
+decoder doesn't apply, so the walker still scans up to 4 KB forward
+for the first `$02` byte that satisfies `IsValidFieldTypeinfoPrefix`.
+The 4 KB window remains as a safety net; the strict typeinfo anchor
+keeps the false-positive rate at zero across the gap. See §6.4 for
+the elaborate-header remnant.
+
+**Simple-shape record header** (covers every DebugTarget record and
+the vast majority of TFW records). Starting at `RecordNameOff + 1 +
+NL + 4` (right after the record-name's size DWORD):
+
+```
+byte 0          : managed-field count (N)
+                  = number of fields that carry RTTI managed payload
+                    (string / dynarray / interface / Variant / WideString)
+bytes 1..(K-1)  : zero pad
+bytes K..(K+N*W-1) : per managed field — N entries of width W
+byte (K+N*W)    : zero separator
+byte (K+N*W+1)  : zero
+byte (K+N*W+1+1) : field count (number of declared fields)
+trailing pad    : zero bytes to the end of the header
+```
+
+Platform-specific constants:
+
+| Platform | K (leading pad block) | W (bytes per managed entry) | Trailing pad | Header total length |
+|----------|----------------------|------------------------------|--------------|---------------------|
+| Win32    | 5                    | 8 (4-byte offset + 4-byte typeinfo placeholder, always zero in observed corpus) | 11 | `17 + N * 8`  |
+| Win64    | 5                    | 16 (4-byte offset + 12-byte typeinfo placeholder, always zero in observed corpus) | 19 | `25 + N * 16` |
+
+(For `N = 0`, the K leading pad and the per-entry block collapse so
+the field-count byte sits at position 5, with the trailing zero pad
+running to byte 16 / 24. The simple shape's "managed entry" lists the
+byte offsets of fields the GC must visit when the record is finalised
+— see `TPair.FLabel` at off 4 / 8, `TPrimitives.{FAnsi,FWide}` at
+off 0,4 / 0,8 etc.)
+
+The field-count byte is the most useful piece for sanity-checking the
+forward walker's output: if `Discoverer.Members.Count` disagrees with
+the header's declared field count, a field record was missed or an
+extra phantom was admitted. The walker currently doesn't enforce this
+cross-check; the lock-in is in
+[Test.DPT.Rsm.Scanner.TestSimpleRecordHeaderFieldCount32/64](../Test/Test.DPT.Rsm.Scanner.pas)
+which reads the header bytes directly.
 
 ### 4.14 Format-B field record (for classes, between fields and class trailer)
 
@@ -885,14 +926,21 @@ higher VA bits in bytes 3/4, but the encoding isn't reverse-engineered
 yet. Symptoms when wrong: `SegmentOffset = 0` on procs whose RVA falls
 outside the decoded window.
 
-### 6.4 Variable-length header before record's first field (`UNCERTAIN`)
+### 6.4 Elaborate record header (TAppCaps-style nested sub-record shape) (`UNCERTAIN`)
 
-[StructDiscoverer.pas:346-365](DPT.Rsm.StructDiscoverer.pas#L346-L365)
-— the header between the record-name's size DWORD and the first
-`$02` field tag has a variable layout (count, flags, padding) that
-isn't fully understood. The walker scans up to 4 KB forward for the
-first `$02` byte satisfying the structural anchor; the 4 KB window has
-been sufficient in practice but isn't grounded in a decoded shape.
+[StructDiscoverer.pas:354-396](DPT.Rsm.StructDiscoverer.pas#L354-L396)
+— the **simple** record header shape (covers every DebugTarget record
+and the bulk of TFW records) is now mapped in §4.13. What remains
+**uncertain** is the **elaborate** shape produced when a record
+carries a nested sub-record header — observed on TFW's `TAppCaps`,
+where ~500 bytes of expanded header sit between the record-name size
+DWORD and the first `$02` field tag. The 4 KB scan window in the
+walker is the safety net for this case; the strict typeinfo anchor
+keeps the false-positive rate at zero across the gap. Whether the
+elaborate shape is a recursive embedding of the simple shape, a
+variant-case dispatch table, or something else entirely is not yet
+broken open — no high-leverage symptom drives the cost of decoding it,
+since the scan + anchor combination handles every observed case.
 
 ### 6.5 `$25` cross-unit RTL form's 4-byte RVA (`UNCERTAIN / unused`)
 
@@ -988,7 +1036,7 @@ RTL hierarchies.
 
 ### 6.13 Field byte width for terminal fields (`UNCERTAIN`)
 
-[StructDiscoverer.pas:454-457](DPT.Rsm.StructDiscoverer.pas#L454-L457)
+[StructDiscoverer.pas:457-460](DPT.Rsm.StructDiscoverer.pas#L457-L460)
 and [278-281](DPT.Rsm.StructDiscoverer.pas#L278-L281) — the last
 member of a record / class has `Size := 0` because its byte width
 cannot be derived from a successor offset. The evaluator falls back
