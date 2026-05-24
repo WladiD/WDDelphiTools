@@ -739,7 +739,7 @@ record is encoded as:
 
 The walker uses the byte at `TypeinfoEnd + 4` as the layout selector:
 `$02` → Win32, anything else → Win64. See
-[StructDiscoverer.pas:399-413](DPT.Rsm.StructDiscoverer.pas#L399-L413).
+[StructDiscoverer.pas:420-435](DPT.Rsm.StructDiscoverer.pas#L420-L435).
 
 Field 0's offset is hard-coded to 0; subsequent offsets come from each
 prior field's next-offset DWORD.
@@ -756,30 +756,43 @@ header between the name and the first field.
 
 For **classes**, the field walker is **backward**, not forward —
 `TRsmStructDiscoverer.ScanFieldsBackwardFromClassName`. Each field
-record has the simpler shape:
+record has the shape:
 
 ```
-<DWORD field-offset>  <NL: u8>  <field-name starting with 'F'>
+<DWORD field-offset>  <NL: u8>  <field-name>  $02 $00 <last-flag> $00  <pad..>
 ```
 
-The DWORD must satisfy `Off <= $FFFF` (high two bytes zero). The
-backward window is bounded by `ScanWindow = 64 KB` upward but capped at
-the previous class's anchor (`AMinStartOff`) to prevent cross-class
-leakage.
+The DWORD must satisfy `1 <= Off <= $FFFF`: high two bytes zero, and
+`Off = 0` is reserved for the VMT pointer (no real class field can
+sit at offset 0). The backward window is bounded by `ScanWindow =
+64 KB` upward but capped at the previous class's anchor
+(`AMinStartOff`) to prevent cross-class leakage.
 
-**Heuristic guard**: the field name's first character **must be `F`**
-([StructDiscoverer.pas:202-210](DPT.Rsm.StructDiscoverer.pas#L202-L210)).
-This rules out non-field length-prefixed strings within the scan window
-but means **non-F-prefixed class fields are dropped here** (TFW's
-`TAppCaps.DbKindName` etc. are records, which use the structural-anchor
-forward walker without this rule). Some classes in real-world binaries
-that use non-F prefixes for fields will get their fields missed —
-documented as a known limitation.
+**Structural anchor**: the 4 bytes immediately after `<field-name>`
+must form `$02 $00 <last-flag> $00` where `last-flag ∈ {$00, $02}`.
+This is the same anchor's leading 4 bytes that the forward record-
+field walker validates via `RsmIsValidFieldTypeinfoPrefix` (which
+checks 6 bytes). The shorter 4-byte form is used here because the
+terminal field of a class that declares methods carries non-zero data
+at byte +4 of its typeinfo (e.g. `TDerived.FDerivedLabel` ends with
+`02 00 00 00 01 00 BC 00 ...`); a strict 6-byte check would drop those
+fields. The 4-byte anchor plus the `Off > 0` floor proved sufficient
+on the DebugTarget + TFW corpus to filter every phantom match (the
+known case being the `<00 00 00 00> 04 Self <typeinfo>` byte sequence
+that every method-bearing class emits via its implicit `Self`
+register-var record). See
+[StructDiscoverer.pas:209-232](DPT.Rsm.StructDiscoverer.pas#L209-L232)
+for the implementation and
+[Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
+for the cross-platform pinning test (TNoFPrefixHost surfaces non-F
+fields, TDerived/TClassFieldHost keep their terminal fields, no class
+acquires a phantom `Self`).
 
 The backward walker tends to **over-collect** (the window is wide and
-matches every `<DWORD-off> <namelen> <F-name>` triple), so the Format-A
-linker's `PruneSpuriousMembers` runs as a post-process to drop members
-that the `$2C` records never confirmed (see §4.9 and
+matches every `<DWORD-off> <namelen> <name>` triple that passes the
+4-byte anchor), so the Format-A linker's `PruneSpuriousMembers` runs
+as a post-process to drop members that the `$2C` records never
+confirmed (see §4.9 and
 [FormatALinker.pas:711-746](DPT.Rsm.FormatALinker.pas#L711-L746)).
 
 ---
@@ -862,20 +875,9 @@ higher VA bits in bytes 3/4, but the encoding isn't reverse-engineered
 yet. Symptoms when wrong: `SegmentOffset = 0` on procs whose RVA falls
 outside the decoded window.
 
-### 6.3 Non-F-prefixed class fields (`GAP`)
-
-[StructDiscoverer.pas:202-210](DPT.Rsm.StructDiscoverer.pas#L202-L210)
-— the **class** field walker (backward window) requires the field name
-to start with `F`. Records use the structural-anchor forward walker and
-are unaffected, but classes whose source convention uses different
-prefixes will have their fields missed. The structural anchor used by
-records (`$02 $00 <last-flag> $00 $00 $00`) presumably applies to
-class fields too, but the surrounding byte stream is different enough
-that the existing forward walker isn't a drop-in replacement.
-
 ### 6.4 Variable-length header before record's first field (`UNCERTAIN`)
 
-[StructDiscoverer.pas:324-343](DPT.Rsm.StructDiscoverer.pas#L324-L343)
+[StructDiscoverer.pas:346-365](DPT.Rsm.StructDiscoverer.pas#L346-L365)
 — the header between the record-name's size DWORD and the first
 `$02` field tag has a variable layout (count, flags, padding) that
 isn't fully understood. The walker scans up to 4 KB forward for the
@@ -976,8 +978,8 @@ RTL hierarchies.
 
 ### 6.13 Field byte width for terminal fields (`UNCERTAIN`)
 
-[StructDiscoverer.pas:432-435](DPT.Rsm.StructDiscoverer.pas#L432-L435)
-and [256-259](DPT.Rsm.StructDiscoverer.pas#L256-L259) — the last
+[StructDiscoverer.pas:454-457](DPT.Rsm.StructDiscoverer.pas#L454-L457)
+and [278-281](DPT.Rsm.StructDiscoverer.pas#L278-L281) — the last
 member of a record / class has `Size := 0` because its byte width
 cannot be derived from a successor offset. The evaluator falls back
 to the user-requested type's width in that case; whether the byte

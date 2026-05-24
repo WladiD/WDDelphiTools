@@ -445,6 +445,27 @@ begin
   GGlobalSparse := seGamma;
   Writeln('SparseProbe ', Ord(GGlobalSparse)); Flush(Output);
 end;
+// Class whose fields do NOT follow the conventional F-prefix
+// naming (PlainInt instead of FPlainInt etc.). The current backward
+// class-field walker rejects these via a hard `Name[1] = 'F'` guard
+// (RSM format §6.3); this fixture forces the linker to emit a class
+// definition the walker will miss until the guard is replaced with
+// a structural anchor.
+type
+  TNoFPrefixHost = class
+    PlainInt   : Integer;
+    PlainLabel : string;
+  end;
+var
+  GGlobalNoFPrefix : TNoFPrefixHost;
+procedure NoFPrefixProbe;
+begin
+  GGlobalNoFPrefix := TNoFPrefixHost.Create;
+  GGlobalNoFPrefix.PlainInt   := Integer($BADCAFE0);
+  GGlobalNoFPrefix.PlainLabel := 'no-F-prefix';
+  Writeln('NoFPrefixProbe ', GGlobalNoFPrefix.PlainInt, ' ',
+          GGlobalNoFPrefix.PlainLabel); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -607,6 +628,7 @@ begin
     // to ordinal 1 of their respective real types.
     NameClashEnumProbe;
     SparseEnumProbe;
+    NoFPrefixProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked

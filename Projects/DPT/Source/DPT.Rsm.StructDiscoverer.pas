@@ -183,7 +183,14 @@ begin
   while (P + 5 < AClassNameOff) and (Count < MaxFields) do
   begin
     Off := DwordAt(P);
-    if Off > $FFFF then
+    // Off = 0 is reserved for the VMT pointer (offset 0..3 / 0..7
+    // depending on platform); real class fields always sit past
+    // it. Skip Off = 0 to avoid the false-positive that fires on
+    // an incidental "<4 zero bytes> 04 Self <typeinfo-anchor>"
+    // sequence emitted near every method-bearing class (the
+    // $21 REGVAR record for the method's implicit Self parameter
+    // sits in the backward window after the class trailer).
+    if (Off > $FFFF) or (Off = 0) then
     begin
       Inc(P);
       Continue;
@@ -199,11 +206,26 @@ begin
       Inc(P);
       Continue;
     end;
-    // Heuristic guard: a real Delphi field name starts with 'F'
-    // by convention. This rules out non-field length-prefixed
-    // strings (e.g. unit names, class-trailer text fragments)
-    // that happen to sit within the scan window.
-    if (Length(Name) < 1) or (Name[1] <> 'F') then
+    // Structural anchor: every real class-field record is followed
+    // immediately by a 4-byte typeinfo prefix `$02 $00 <last-flag>
+    // $00` where last-flag is $00 or $02. This anchor is far more
+    // selective than the previous Name[1]='F' heuristic and admits
+    // classes whose fields don't follow the conventional F-prefix
+    // (e.g. DebugTarget's TNoFPrefixHost.PlainInt / .PlainLabel, or
+    // real-world TFW-style CamelCase fields). The 6-byte anchor the
+    // forward record-field walker uses (RsmIsValidFieldTypeinfoPrefix)
+    // would be even more selective but breaks on the terminal field
+    // of a class that declares methods (e.g. TDerived.FDerivedLabel),
+    // where byte +4 of the typeinfo is non-zero. The shorter 4-byte
+    // anchor covers every observed shape: non-terminal `$02 $00 $02
+    // $00`, terminal-without-methods `$02 $00 $00 $00`, terminal-
+    // with-methods `$02 $00 $00 $00` (the divergence sits past +3).
+    if (P + 4 + 1 + NameLen + 3 >= FSz) or
+       (ByteAt(P + 4 + 1 + NameLen)     <> $02) or
+       (ByteAt(P + 4 + 1 + NameLen + 1) <> $00) or
+       ((ByteAt(P + 4 + 1 + NameLen + 2) <> $00) and
+        (ByteAt(P + 4 + 1 + NameLen + 2) <> $02)) or
+       (ByteAt(P + 4 + 1 + NameLen + 3) <> $00) then
     begin
       Inc(P);
       Continue;

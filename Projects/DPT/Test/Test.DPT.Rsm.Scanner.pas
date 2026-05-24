@@ -25,6 +25,7 @@ type
   private
     function ResolveExePath(AUse64Bit: Boolean): String;
     procedure DoTestGlobalVADecodedFromGlobalRecord(AUse64Bit: Boolean);
+    procedure DoTestNonFPrefixClassFieldsDiscovered(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -87,6 +88,18 @@ type
     procedure TestGlobalVADecodedFromGlobalRecord32;
     [Test]
     procedure TestGlobalVADecodedFromGlobalRecord64;
+
+    /// Pins the non-F-prefixed class-field decoding (RSM format
+    /// §6.3 closed). The backward class-field walker no longer
+    /// uses the Name[1]='F' heuristic; it now anchors on the
+    /// 4-byte typeinfo prefix `$02 $00 <last-flag> $00` immediately
+    /// after the field name. DebugTarget's TNoFPrefixHost class
+    /// declares PlainInt + PlainLabel (no F-prefix). After scanning,
+    /// both fields must surface in Classes[TNoFPrefixHost].Members.
+    [Test]
+    procedure TestNonFPrefixClassFieldsDiscovered32;
+    [Test]
+    procedure TestNonFPrefixClassFieldsDiscovered64;
 
     /// Pins the actual sparse-ordinal enum encoding (RSM format §6.1).
     /// The original "different $03 emission shape" hypothesis is
@@ -484,6 +497,99 @@ procedure TRsmScannerTests.TestGlobalVADecodedFromGlobalRecord64;
 begin
   DoTestGlobalVADecodedFromGlobalRecord(True);
 end;
+
+procedure TRsmScannerTests.TestNonFPrefixClassFieldsDiscovered32;
+begin
+  DoTestNonFPrefixClassFieldsDiscovered(False);
+end;
+
+procedure TRsmScannerTests.TestNonFPrefixClassFieldsDiscovered64;
+begin
+  DoTestNonFPrefixClassFieldsDiscovered(True);
+end;
+
+procedure TRsmScannerTests.DoTestNonFPrefixClassFieldsDiscovered(
+  AUse64Bit: Boolean);
+// Pins the non-F-prefixed class-field decode for both platforms.
+// After the structural-anchor swap (DPT.Rsm.StructDiscoverer:
+// 4-byte typeinfo prefix + Off > 0 floor), DebugTarget's
+// TNoFPrefixHost class must surface both its non-F-prefixed
+// fields. The previous F-prefix heuristic dropped them silently;
+// the regression guard for the broader change is also exercised
+// here by asserting TDerived / TClassFieldHost keep their
+// terminal fields (FDerivedLabel, FHostRtlList) which broke
+// during the investigation when the anchor was too strict.
+var
+  S      : TRsmScanner;
+  HostIdx: Integer;
+  DerIdx : Integer;
+  CFHIdx : Integer;
+
+  function HasMember(AInfoIdx: Integer; const AName: String): Boolean;
+  var
+    I: Integer;
+  begin
+    Result := False;
+    if AInfoIdx < 0 then Exit;
+    for I := 0 to S.Classes[AInfoIdx].Members.Count - 1 do
+      if SameText(S.Classes[AInfoIdx].Members[I].Name, AName) then
+        Exit(True);
+  end;
+
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    if not S.ClassByName.TryGetValue('tnofprefixhost', HostIdx) then
+      HostIdx := -1;
+    if not S.ClassByName.TryGetValue('tderived', DerIdx) then
+      DerIdx := -1;
+    if not S.ClassByName.TryGetValue('tclassfieldhost', CFHIdx) then
+      CFHIdx := -1;
+
+    Assert.IsTrue(HostIdx >= 0,
+      'TNoFPrefixHost not discovered -- StructDiscoverer.Run missed ' +
+      'the class anchor entirely');
+
+    // Non-F fields the new structural anchor brings in:
+    Assert.IsTrue(HasMember(HostIdx, 'PlainInt'),
+      'TNoFPrefixHost.PlainInt not discovered -- 4-byte anchor ' +
+      'check failed for the first non-F class field');
+    Assert.IsTrue(HasMember(HostIdx, 'PlainLabel'),
+      'TNoFPrefixHost.PlainLabel not discovered -- terminal non-F ' +
+      'field lost despite the anchor accepting the broader pattern');
+
+    // Phantom-Self regression guard: the previous F-prefix check
+    // implicitly rejected "Self" because of the leading 'F'. The new
+    // 4-byte anchor accepts arbitrary names, so the explicit Off>0
+    // floor is what now keeps phantom <DWORD-off=0> 04 Self ... bytes
+    // (emitted by every method's $21 REGVAR record) from leaking in.
+    Assert.IsFalse(HasMember(HostIdx, 'Self'),
+      'TNoFPrefixHost has a phantom "Self" member -- Off>0 floor ' +
+      'regressed');
+    if DerIdx >= 0 then
+      Assert.IsFalse(HasMember(DerIdx, 'Self'),
+        'TDerived has a phantom "Self" member');
+
+    // Terminal-field-in-class-with-methods regression guard. These
+    // failed under the strict 6-byte anchor (byte +4 carries
+    // method-related data, not $00); the looser 4-byte anchor fixes
+    // them while still rejecting random matches.
+    if DerIdx >= 0 then
+      Assert.IsTrue(HasMember(DerIdx, 'FDerivedLabel'),
+        'TDerived.FDerivedLabel regressed -- terminal field of ' +
+        'method-bearing class must still surface');
+    if CFHIdx >= 0 then
+      Assert.IsTrue(HasMember(CFHIdx, 'FHostRtlList'),
+        'TClassFieldHost.FHostRtlList regressed -- terminal RTL-' +
+        'typed field of method-bearing class must still surface');
+  finally
+    S.Free;
+  end;
+end;
+
 
 procedure TRsmScannerTests.TestSparseEnumResolvesViaEnumConstNames32;
 // Pins the sparse-ordinal enum decoding. DebugTarget declares
