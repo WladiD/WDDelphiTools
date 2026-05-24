@@ -147,6 +147,33 @@ suitable Delphi construct), extend `DebugTarget.dpr` to add the
 construct, rebuild, and only then assert. Document the fixture
 addition in the test's docstring so future readers see why it's there.
 
+### Extending `DebugTarget.dpr`: breakpoint-line discipline
+
+The `.dpr` file is also the debugger fixture: several test suites
+reference specific source lines as hard-coded breakpoint targets.
+
+* `Test.DPT.Debugger.pas` has `LocalsBreakpointLine = 45`.
+* `Test.DPT.MCP.Server.pas` hard-codes lines like `15`, `19`, `45`
+  inside JSON payloads (`"line": 45`).
+* Inside the `.dpr` itself, every BP target is marked with a
+  `// Line N - <description> bp here` comment. Current markers sit
+  at lines `45`, `209`, `217`, `231`, `241`, `250`, `281`, `377`,
+  `430`.
+
+**Before any insertion**, run
+`Grep("bp here|Line \\d+ -", path="Projects/DPT/Test/DebugTarget.dpr")`
+to refresh the marker list. **Always append the new construct AFTER
+the last marker** (currently line 430) — inserting earlier shifts the
+markers and silently breaks the breakpoint tests. If the construct
+needs to live next to existing types (because of ordering
+dependencies), introduce it as a new `type ... var ...` block
+*after* the last `procedure ... end;` of the BP-bearing region rather
+than amending the upper-file type block.
+
+When in doubt, run `_Test.DptDebugger.BuildAndRun.bat` after the
+edit — a shifted BP marker will surface as a missed-breakpoint
+failure, not a silent skip.
+
 ---
 
 ## Standard workflow
@@ -182,9 +209,10 @@ A typical session: the user reports a misparse, or the doc lists a
    preferable to `TFW.rsm` (large, real-world). When only `TFW.rsm`
    has a sample, add the construct to `DebugTarget.dpr` so future
    investigations have a small repro.
-2. **Hex-dump the region**. Use `TestRsmStartsWithCsh7Magic` as the
-   template for byte-level reads. Print 32-64 bytes before and after
-   the tag of interest with ASCII trailing.
+2. **Hex-dump the region** (the *diagnostic test*, see below). Use
+   `TestRsmStartsWithCsh7Magic` as the template for byte-level reads.
+   Print 32-64 bytes before and after the tag of interest with ASCII
+   trailing.
 3. **Identify the structural anchor**. RSM records have no length
    field, so every handler relies on a constant byte pattern (`$66
    $00 $00`, `$0A $00 $00`, `$8A $00 $00`, `$01 $00 $00 $00 $00`,
@@ -206,6 +234,80 @@ A typical session: the user reports a misparse, or the doc lists a
    ```
 
    Then explain field-by-field with byte offsets.
+
+### The diagnostic → pin → cleanup pattern
+
+Reverse engineering follows a stable three-stage shape. Every step
+has a different *kind* of test in the source tree, and the
+transitions between them are the part that's easy to skip.
+
+#### Stage 1 — Diagnostic test (broad, exploratory, file-output)
+
+The diagnostic is a `[Test]` whose job is to make the byte stream
+*legible*: it walks broad areas, classifies what it finds, and writes
+the result to a `.tsv` / `.txt` next to the fixture so you can read
+the data back as a normal file.
+
+* Place it in `Test.DPT.Rsm.Scanner.pas` next to the eventual pin.
+* Output path: `ExtractFilePath(ResolveExePath(False)) +
+  'rsm-<topic>-dump.tsv'`. The `Win32/` / `Win64/` fixture dirs are
+  gitignored (no tracked files there), so dumps land out-of-tree.
+* End with `Assert.Pass('Wrote ... to ' + Path)` so the test always
+  passes; the artefact is the file, not the assertion.
+* Keep the validator filters loose at first, then tighten when you
+  see the false-positive density. Real type registry entries cluster
+  in a specific file region; isolated hits elsewhere are noise.
+* Don't try to use DUnitX's `--run` filter to execute just the
+  diagnostic — it doesn't work in this codebase (it reports
+  `Tests Found: 0`). Run the full suite via
+  `_Test.DptDebugger.BuildAndRun.bat`; the diagnostic writes its
+  file as a side effect during the normal pass.
+
+After running, read the dump file with the `Read` tool (or `Grep` /
+`awk` for filtering). Looking at the data is what produces the
+finding — the diagnostic is just the lens.
+
+#### Stage 2 — Pin test (narrow, concrete, no file output)
+
+Once the dump reveals the pattern, *replace* the diagnostic with a
+pinning test that asserts the concrete values you observed against
+named fixture types. The pin is what survives in the repo.
+
+* Same `[Test]` namespace and file, often a rename of the diagnostic
+  (`TestDiagnose<X>` → `Test<X>FindingPinned`).
+* No more file I/O — the dump path is gone, only `Assert.AreEqual` /
+  `Assert.IsTrue` against bytes / counts / decoded values remain.
+* Pin the *minimum* set of fixtures that disambiguates the finding
+  (e.g. one class + one enum + one record for the `$2A` body-flag
+  decoding), not every type you saw.
+* The pin's docstring states the refuted/confirmed hypothesis and
+  links back to the doc section. Future-you reads the pin to
+  remember *what* was decoded; the doc section explains *why*.
+
+#### Stage 3 — Cleanup (manual, mandatory)
+
+The diagnostic's dump files are not test artefacts — they have to
+be removed by hand before commit.
+
+* `rm -f Projects/DPT/Test/Win32/rsm-<topic>-dump.tsv` (and Win64
+  equivalent if you ran both).
+* Verify with `git status --short Projects/DPT/Test/` — only your
+  source files (`.pas`, `.md`, `.dpr`) should appear; nothing under
+  `Win32/` / `Win64/` should be staged or tracked.
+* If the dump path is mentioned anywhere in the doc as part of an
+  example, replace it with the test name instead — the file no
+  longer exists.
+
+#### Worked examples in the current branch
+
+* `$2A` body-flag investigation: diagnostic walked every $2A entry
+  starting with `T` into a `.tsv`, then pinned via
+  `Test2ATypeRegistryFlagIsBodyShapeNotKind32` (commit `bf070fd`).
+* Sparse-enum investigation: diagnostic dumped `$03` candidates and
+  the matching `$25` entries; pin became
+  `TestSparseEnumResolvesViaEnumConstNames32` (commit `a9d6361`).
+  Both commits show the diagnostic-then-pin transition as a single
+  changeset.
 
 ---
 
