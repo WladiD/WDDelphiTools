@@ -23,7 +23,7 @@ known to be missing.
   `$37485343`, i.e. the ASCII string `CSH7`. Anything else makes
   `TRsmScanner.LoadFromBuffer` early-exit without populating any
   collection. See [DPT.Rsm.Model.pas:200](DPT.Rsm.Model.pas#L200) and
-  [DPT.Rsm.Scanner.pas:328](DPT.Rsm.Scanner.pas#L328).
+  [DPT.Rsm.Scanner.pas:344](DPT.Rsm.Scanner.pas#L344).
 * **Not BER / ASN.1**: despite carrying tagged records, RSM has **no
   Tag-Length-Value framing**. There is no length octet after the tag;
   the body length is encoded structurally (per-tag fixed shapes,
@@ -112,7 +112,7 @@ acts as a kind discriminator:
 
 Several scanner branches use the hi byte to decide between a 1-byte
 primitive id and a 2-byte structured id; in
-[DPT.Rsm.Scanner.pas:560-566](DPT.Rsm.Scanner.pas#L560-L566) for
+[DPT.Rsm.Scanner.pas:576-581](DPT.Rsm.Scanner.pas#L576-L581) for
 example, `Hi == $2E` or `Hi == $2F` selects the 2-byte read, anything
 else falls back to the 1-byte read.
 
@@ -130,9 +130,9 @@ following byte extends it into a 16-bit word and the recovered value is
 some sparse ordinals). This shows up in:
 
 * `TRsmScanner.HandleLocalRecord` BPRel-offset decoder
-  ([DPT.Rsm.Scanner.pas:651-665](DPT.Rsm.Scanner.pas#L651-L665))
+  ([DPT.Rsm.Scanner.pas:667-681](DPT.Rsm.Scanner.pas#L667-L681))
 * `TRsmScanner.HandleEnumConstantRecord` sparse-ordinal form
-  ([DPT.Rsm.Scanner.pas:885-896](DPT.Rsm.Scanner.pas#L885-L896))
+  ([DPT.Rsm.Scanner.pas:906-915](DPT.Rsm.Scanner.pas#L906-L915))
 
 ---
 
@@ -183,7 +183,7 @@ the `$ActRec` closure suffix.
 
 The address payload after the name is **variable-length** and is
 decoded by `DecodeProcAddrPayload`
-([DPT.Rsm.Scanner.pas:342-456](DPT.Rsm.Scanner.pas#L342-L456)). Dispatch
+([DPT.Rsm.Scanner.pas:358-472](DPT.Rsm.Scanner.pas#L358-L472)). Dispatch
 happens on the byte at `name+0`:
 
 | Sub-tag | Decoder        | Notes                                                                       |
@@ -193,7 +193,7 @@ happens on the byte at `name+0`:
 | `$41`   | `TryWin32(name+4)` only                    | Method-record extended form found in large binaries (`41 02 10 00` header) |
 | `$80`, `$00`, ... | None              | Forward declaration / cross-reference, no embedded address                  |
 
-**Win32 address encoding** (`TryWin32`, [line 375-397](DPT.Rsm.Scanner.pas#L375-L397)):
+**Win32 address encoding** (`TryWin32`, [line 391-413](DPT.Rsm.Scanner.pas#L391-L413)):
 
 ```
 4 bytes: DWORD = (VA shl 4) or $07
@@ -203,7 +203,7 @@ The low nibble of byte 0 must be `$07`. The recovered RVA is
 `(DWORD >> 4) - $401000` (`$400000` image base + `$1000` `.text` RVA).
 Sanity range: `(0, $10000000)` — i.e. up to 256 MB of code.
 
-**Win64 address encoding** (`TryWin64`, [line 399-425](DPT.Rsm.Scanner.pas#L399-L425)):
+**Win64 address encoding** (`TryWin64`, [line 415-441](DPT.Rsm.Scanner.pas#L415-L441)):
 
 ```
 byte 0: (byte0 and $7F) must be $03         // encoding-kind tag
@@ -221,7 +221,7 @@ The recovered VA is masked to 21 bits (`$1FFFFF`), so the encoding caps
 out at ~2 MB of code per binary for the bits-0..2 alone. **UNCERTAIN /
 GAP**: larger binaries would have to draw additional high VA bits from
 bytes 3/4, which the current decoder ignores. The comment at
-[line 363-373](DPT.Rsm.Scanner.pas#L363-L373) acknowledges this.
+[line 373-389](DPT.Rsm.Scanner.pas#L373-L389) acknowledges this.
 
 **Duplicate-name handling**: the first `$28` for a name creates the proc
 with whatever `Decoded` address (possibly 0). A later `$28` with the
@@ -249,7 +249,7 @@ After consuming the param body the scanner peeks the next 2 bytes; if
 they start with `$20 $21` (a hidden high-index sub-record), it
 increments `FScanRegParam` once more so subsequent parameters retain
 correct register indices. See
-[DPT.Rsm.Scanner.pas:578-583](DPT.Rsm.Scanner.pas#L578-L583).
+[DPT.Rsm.Scanner.pas:594-598](DPT.Rsm.Scanner.pas#L594-L598).
 
 Stored as `TRsmLocal` with `Kind = lkRegister`, `RegParamIdx =
 FScanRegParam`.
@@ -275,7 +275,7 @@ $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 ```
 
 Decoded by `HandleLocalRecord`
-([DPT.Rsm.Scanner.pas:627-713](DPT.Rsm.Scanner.pas#L627-L713)). The
+([DPT.Rsm.Scanner.pas:643-747](DPT.Rsm.Scanner.pas#L643-L747)). The
 payload starts at `P + 2 + NL`. Two main shapes:
 
 **Shape A — structured-type id with BPRel offset:**
@@ -312,7 +312,7 @@ common Delphi types) may still hit the fallback on unfamiliar binaries.
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
-([Scanner.pas:703-710](DPT.Rsm.Scanner.pas#L703-L710)), because the
+([Scanner.pas:719-744](DPT.Rsm.Scanner.pas#L719-L744)), because the
 `FScanInProc` gate cannot reliably distinguish a stack local from a
 module-level variable in every code path.
 
@@ -323,7 +323,7 @@ $20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
 Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:731-770](DPT.Rsm.Scanner.pas#L731-L770)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:749-784](DPT.Rsm.Scanner.pas#L749-L784)). `NL` ∈ `[1, 40]`.
 The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
 the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
 shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
@@ -342,7 +342,7 @@ scope (because the previous `$63 SCOPE_END` was suppressed by the
 the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
 stack-local record ever carries) and publishes both the type id and
 the decoded VA into the global maps as a fallback. See
-[Scanner.pas:719-748](DPT.Rsm.Scanner.pas#L719-L748).
+[Scanner.pas:726-743](DPT.Rsm.Scanner.pas#L726-L743).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
@@ -351,7 +351,7 @@ $27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
 Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:792-846](DPT.Rsm.Scanner.pas#L792-L846)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:786-853](DPT.Rsm.Scanner.pas#L786-L853)). `NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
@@ -370,7 +370,7 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:746-756](DPT.Rsm.Scanner.pas#L746-L756) explains
+comment at [Scanner.pas:789-799](DPT.Rsm.Scanner.pas#L789-L799) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
@@ -486,7 +486,7 @@ byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
 The unit name follows immediately after the last element.
 
 **The dispatcher does NOT advance `P` past the body** (see comment at
-[Scanner.pas:920-928](DPT.Rsm.Scanner.pas#L920-L928)). The single-byte
+[Scanner.pas:991-993](DPT.Rsm.Scanner.pas#L991-L993)). The single-byte
 fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
@@ -567,7 +567,7 @@ pending): the scanner walks up to 1024 bytes forward looking for a
 proc; its identifier IS the owning unit's name. This is the only known
 way to recover the `(unit, type)` pair for synthesized `EnumDef`s in
 the same-comp case. See
-[Scanner.pas:1033-1066](DPT.Rsm.Scanner.pas#L1033-L1066).
+[Scanner.pas:1101-1133](DPT.Rsm.Scanner.pas#L1101-L1133).
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
@@ -625,7 +625,7 @@ Two encodings are observed:
 
 `BodyLen = EndOff - After` (i.e. distance from the anchor to the
 terminator). The linker discriminates four body shapes
-([FormatALinker.pas:648-704](DPT.Rsm.FormatALinker.pas#L648-L704)):
+([FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700)):
 
 | Body shape           | Description                                                                          |
 |----------------------|--------------------------------------------------------------------------------------|
@@ -646,7 +646,7 @@ Format-B over-collection from the backward window scan.
 
 A single byte. Closes the active proc scope **only when**
 `FScanSeenLocalSinceProc` is True
-([Scanner.pas:1136-1142](DPT.Rsm.Scanner.pas#L1136-L1142)). The guard
+([Scanner.pas:1204-1210](DPT.Rsm.Scanner.pas#L1204-L1210)). The guard
 prevents incidental `$63` bytes in the proc's address payload (the
 `$A0` sub-form's payload is ~18 bytes of arbitrary data that routinely
 contains `$63`) from prematurely closing the scope before
@@ -780,7 +780,7 @@ The backward walker tends to **over-collect** (the window is wide and
 matches every `<DWORD-off> <namelen> <F-name>` triple), so the Format-A
 linker's `PruneSpuriousMembers` runs as a post-process to drop members
 that the `$2C` records never confirmed (see §4.9 and
-[FormatALinker.pas:709-743](DPT.Rsm.FormatALinker.pas#L709-L743)).
+[FormatALinker.pas:711-746](DPT.Rsm.FormatALinker.pas#L711-L746)).
 
 ---
 
@@ -855,7 +855,7 @@ Each item here is anchored to the code location that flags it.
 
 ### 6.2 Win64 proc-address VAs above 2 MB (`UNCERTAIN`)
 
-[Scanner.pas:363-373](DPT.Rsm.Scanner.pas#L363-L373) — the current
+[Scanner.pas:373-389](DPT.Rsm.Scanner.pas#L373-L389) — the current
 Win64 decoder only uses bytes 0..2 for the VA bits, capping recoverable
 RVAs at 21 bits (`$1FFFFF` ≈ 2 MB). Larger binaries presumably carry
 higher VA bits in bytes 3/4, but the encoding isn't reverse-engineered
@@ -892,7 +892,7 @@ purpose (linker fixup target?) is unknown.
 
 ### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 
-[Scanner.pas:1016-1025](DPT.Rsm.Scanner.pas#L1016-L1025) — the byte
+[Scanner.pas:1064-1077](DPT.Rsm.Scanner.pas#L1064-L1077) — the byte
 at body offset +0 was previously called `KindFlag` and hypothesised to
 discriminate class / record / enum / primitive. That hypothesis is
 **refuted**: in DebugTarget's program-local cluster classes and
@@ -921,30 +921,34 @@ for the pinning test). What remains open:
 
 ### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
 
-[Scanner.pas:444-455](DPT.Rsm.Scanner.pas#L444-L455) — the proc-record
+[Scanner.pas:446-471](DPT.Rsm.Scanner.pas#L446-L471) — the proc-record
 sub-tag byte at `name+0` is dispatched for `$20`, `$A0`, `$41`.
 Other observed values (`$80`, `$00`, ...) are treated as
 forward-declaration / cross-reference records with no embedded address.
 There may be address payloads in those forms that the current decoder
 discards.
 
-### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`GAP`, under investigation)
+### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`GAP`)
 
-[Test.DPT.Rsm.Reader.pas:231-486](../Test/Test.DPT.Rsm.Reader.pas#L231-L486)
-— the `DiagnoseTfwFieldIdBindings` test scans `TFW.rsm` for `$03
-ENUM_DEF` records of `TUserKonsOutlookDirection` and
-`TUserKonsOutlookSyncStatus`, then searches for the FieldIds observed
-on the corresponding `$2C` field records (`$0D2A` for
-`SyncDirection`, `$1D2C` for `SyncStatus`). The investigation is open:
-the current Format-A linker uses the `$9C $01` body-shape rules to
-recover a `PrimitiveTypeId` for enum-typed fields, but pairing the
-field's id with the `EnumDef` it points at (so the resolver knows
-**which** enum to format the ordinal against) is not yet wired up for
-the wide cross-unit case in TFW.
+Observed in TFW: `TUserKonsOutlook.SyncDirection` evaluates to
+`sdSync (0)` instead of the correct `ukodBidirektional (0)` because
+the resolver can't pair the field's id (`$0D2A` for `SyncDirection`,
+`$1D2C` for `SyncStatus`) with the matching `EnumDef`. The current
+Format-A linker uses the `$9C $01` body-shape rules in
+[FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700) to
+recover a `PrimitiveTypeId` for enum-typed fields, but those FieldIds
+live in a separate id space from the `$2A` registry's primary ids, so
+no direct lookup bridges them to the right `TRsmEnumDef`. Earlier
+diagnostic tests against TFW were reverted once it became clear that
+neither name-based fallback nor byte-stream-proximity pairing was a
+reliable bridge — the encoding of the FieldId → primary linkage
+hasn't been reverse-engineered. Resolving this requires a fresh
+attempt with a different angle (e.g. a `$4C`-like binding record
+within or near the `$2C` block, or a separate registry table).
 
 ### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
 
-[FormatALinker.pas:614-631](DPT.Rsm.FormatALinker.pas#L614-L631) —
+[FormatALinker.pas:616-633](DPT.Rsm.FormatALinker.pas#L616-L633) —
 when `parent-hi == $FF`, the parent id is treated as a unit-local byte
 and resolved via the block-owner index. This is sufficient for the
 TFW `UserKonsOutlook*` corpus but may miss edge cases (block-owner
@@ -953,7 +957,7 @@ the same order as the `$2C` field blocks). The pairing is heuristic.
 
 ### 6.11 `TRsmEnumDecoder.FLastSecondary` (`unused`)
 
-[EnumDecoder.pas:71-78](DPT.Rsm.EnumDecoder.pas#L71-L78) — the most
+[EnumDecoder.pas:70-78](DPT.Rsm.EnumDecoder.pas#L70-L78) — the most
 recently scanned `$25` secondary id and its file position are recorded
 on every cross-unit constant but never consumed. Comment notes "set-only;
 reserved for future use by resolvers that want to reason about
@@ -961,7 +965,7 @@ per-$25-region locality". Not a gap so much as latent state.
 
 ### 6.12 `TStrings → TPersistent → TObject` inheritance chain (`GAP`)
 
-[Test.DPT.Rsm.LocalsReader.pas:686-738](../Test/Test.DPT.Rsm.LocalsReader.pas#L686-L738)
+[Test.DPT.Rsm.LocalsReader.pas:709-738](../Test/Test.DPT.Rsm.LocalsReader.pas#L709-L738)
 — `DoTestNonComponentRtlInheritance` documents that `TStringList.FCount`
 resolves (own field) but `TStringList.FUpdateCount via TStrings` does
 NOT, because the RSM emits `TStrings`'s field records in a region that
