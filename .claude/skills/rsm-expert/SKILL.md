@@ -399,10 +399,27 @@ event. After the change:
 4. If the change closed a gap, remove the §6 entry.
 5. If the change introduced new heuristic windows / sub-forms, add a
    §6 entry describing what is still unknown.
+6. **Drift-check every line range the doc cites into the file you
+   changed.** Format.md is full of `[Scanner.pas:N-M]
+   (DPT.Rsm.Scanner.pas#L_N-L_M)` references. Inserting code anywhere
+   above a cited range shifts every range below it — green tests are
+   no proof the refs still point at the right thing. Workflow:
+   - `Grep("\\.pas:\\d+", path="Projects/DPT/Source/DPT.Rsm.Format.md", -n=true)`
+     to list every ref into the changed file.
+   - For each ref, read the cited range with the `Read` tool and
+     verify it still contains the content the surrounding doc claims.
+     Don't trust an Explore agent to do this in bulk — the agent
+     readily marks "near enough" hits as ✓ and you only catch the
+     drift when re-reading the actual code. (Background: a single
+     audit pass on this branch found 21 Scanner.pas refs drifted by
+     16-68 lines; agent had flagged most as OK.)
+   - Patch the refs in the same commit as the code change so
+     reviewers see one coherent diff.
 
 The doc is **not optional documentation**, it is part of the unit's
-public contract. A code change without a doc update is incomplete
-work, the same way a code change without a test is.
+public contract. A code change without a doc update — including a
+line-range drift fix — is incomplete work, the same way a code
+change without a test is.
 
 ---
 
