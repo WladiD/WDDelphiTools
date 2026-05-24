@@ -779,10 +779,10 @@ $01, $02}`. Byte +2 acts as a section / visibility marker:
 | $02   | `published` / default-published next-field marker (F-prefix)    |
 
 Whether the marker encodes additional bit-flags (private, strict
-private, strict protected) is not yet fully mapped — see §6.x if a
-new visibility surfaces. This is the same anchor's leading 4 bytes
-that the forward record-field walker validates via
-`RsmIsValidFieldTypeinfoPrefix` (which checks 6 bytes). The shorter
+private, strict protected) is not yet fully mapped — see §6.14. This
+is the same anchor's leading 4 bytes that the forward record-field
+walker validates via `RsmIsValidFieldTypeinfoPrefix` (which checks 6
+bytes). The shorter
 4-byte form is used here because the terminal field of a class that
 declares methods carries non-zero data at byte +4 of its typeinfo
 (e.g. `TDerived.FDerivedLabel` ends with `02 00 00 00 01 00 BC 00 ...`);
@@ -791,7 +791,7 @@ the `Off > 0` floor proved sufficient on the DebugTarget + TFW corpus
 to filter every phantom match (the known case being the
 `<00 00 00 00> 04 Self <typeinfo>` byte sequence that every method-
 bearing class emits via its implicit `Self` register-var record). See
-[StructDiscoverer.pas:209-232](DPT.Rsm.StructDiscoverer.pas#L209-L232)
+[StructDiscoverer.pas:209-240](DPT.Rsm.StructDiscoverer.pas#L209-L240)
 for the implementation and
 [Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
 for the cross-platform pinning test (TNoFPrefixHost surfaces non-F
@@ -995,6 +995,22 @@ cannot be derived from a successor offset. The evaluator falls back
 to the user-requested type's width in that case; whether the byte
 width is recoverable from elsewhere in the field's typeinfo prefix is
 not known.
+
+### 6.14 Class-field anchor byte +2 — visibility/section taxonomy (`UNCERTAIN`)
+
+[StructDiscoverer.pas:209-240](DPT.Rsm.StructDiscoverer.pas#L209-L240)
+— the structural anchor `$02 $00 <flag> $00` carries a section /
+visibility marker in byte +2. Three values are observed in the
+DebugTarget corpus: `$00` (terminal), `$01` (`protected` next-field),
+`$02` (`published` / default-published next-field). What `private`,
+`strict private`, `strict protected`, and `public` produce is **not
+yet mapped** — the current fixture covers only the three observed
+values; the walker accepts any value in `[$00..$02]` and would reject
+a fourth value as a phantom. If a future fixture exposes a new
+visibility, extend `TNoFPrefixHost` to carry each variant and tighten
+the predicate. See §4.14 for the marker table and
+[Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
+for the current pin.
 
 ---
 
