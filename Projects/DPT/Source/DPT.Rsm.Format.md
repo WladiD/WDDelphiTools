@@ -23,7 +23,7 @@ known to be missing.
   `$37485343`, i.e. the ASCII string `CSH7`. Anything else makes
   `TRsmScanner.LoadFromBuffer` early-exit without populating any
   collection. See [DPT.Rsm.Model.pas:200](DPT.Rsm.Model.pas#L200) and
-  [DPT.Rsm.Scanner.pas:344](DPT.Rsm.Scanner.pas#L344).
+  [DPT.Rsm.Scanner.pas:415](DPT.Rsm.Scanner.pas#L415).
 * **Not BER / ASN.1**: despite carrying tagged records, RSM has **no
   Tag-Length-Value framing**. There is no length octet after the tag;
   the body length is encoded structurally (per-tag fixed shapes,
@@ -112,7 +112,7 @@ acts as a kind discriminator:
 
 Several scanner branches use the hi byte to decide between a 1-byte
 primitive id and a 2-byte structured id; in
-[DPT.Rsm.Scanner.pas:709-714](DPT.Rsm.Scanner.pas#L709-L714) for
+[DPT.Rsm.Scanner.pas:721-726](DPT.Rsm.Scanner.pas#L721-L726) for
 example, `Hi == $2E` or `Hi == $2F` selects the 2-byte read, anything
 else falls back to the 1-byte read.
 
@@ -130,9 +130,9 @@ following byte extends it into a 16-bit word and the recovered value is
 some sparse ordinals). This shows up in:
 
 * `TRsmScanner.HandleLocalRecord` BPRel-offset decoder
-  ([DPT.Rsm.Scanner.pas:801-815](DPT.Rsm.Scanner.pas#L801-L815))
+  ([DPT.Rsm.Scanner.pas:813-827](DPT.Rsm.Scanner.pas#L813-L827))
 * `TRsmScanner.HandleEnumConstantRecord` sparse-ordinal form
-  ([DPT.Rsm.Scanner.pas:1040-1049](DPT.Rsm.Scanner.pas#L1040-L1049))
+  ([DPT.Rsm.Scanner.pas:1052-1061](DPT.Rsm.Scanner.pas#L1052-L1061))
 
 ---
 
@@ -183,7 +183,7 @@ the `$ActRec` closure suffix.
 
 The address payload after the name is **variable-length** and is
 decoded by `DecodeProcAddrPayload`
-([DPT.Rsm.Scanner.pas:417-605](DPT.Rsm.Scanner.pas#L417-L605)). Dispatch
+([DPT.Rsm.Scanner.pas:429-617](DPT.Rsm.Scanner.pas#L429-L617)). Dispatch
 happens on the byte at `name+0`:
 
 | Sub-tag | Decoder (Win32 / Win64)                                | Notes                                                                       |
@@ -200,7 +200,7 @@ scanner is loaded via `LoadFromBytes` / `LoadFromBuffer` (no .exe to
 inspect) the flag stays at its caller-supplied value (default
 `False`).
 
-**Win32 address encoding** (`TryWin32`, [Scanner.pas:466-488](DPT.Rsm.Scanner.pas#L466-L488)):
+**Win32 address encoding** (`TryWin32`, [Scanner.pas:478-500](DPT.Rsm.Scanner.pas#L478-L500)):
 
 ```
 4 bytes: DWORD = (VA shl 4) or $07
@@ -210,7 +210,7 @@ The low nibble of byte 0 must be `$07`. The recovered RVA is
 `(DWORD >> 4) - $401000` (`$400000` image base + `$1000` `.text` RVA).
 Sanity range: `(0, $10000000)` — i.e. up to 256 MB of code.
 
-**Win64 `$20` address encoding** (`TryWin64`, [Scanner.pas:539-566](DPT.Rsm.Scanner.pas#L539-L566)):
+**Win64 `$20` address encoding** (`TryWin64`, [Scanner.pas:551-578](DPT.Rsm.Scanner.pas#L551-L578)):
 
 ```
 byte 0: (byte0 and $7F) must be $03         // encoding-kind tag
@@ -227,7 +227,7 @@ code per binary. Small Win64 binaries (e.g. DebugTarget at ~1.3 MB)
 fit; larger binaries route through `$A0` instead and don't hit this
 ceiling.
 
-**Win64 `$A0` address encoding** (`TryWin64A0`, [Scanner.pas:490-537](DPT.Rsm.Scanner.pas#L490-L537), §6.2 + §6.7 closures):
+**Win64 `$A0` address encoding** (`TryWin64A0`, [Scanner.pas:502-549](DPT.Rsm.Scanner.pas#L502-L549), §6.2 + §6.7 closures):
 
 Same 4-byte LE wire format as Win32 (`(VA shl 4) or $07`) but the
 encoder stores only the **lower 32 bits** of VA -- the Win64 image
@@ -278,7 +278,7 @@ After consuming the param body the scanner peeks the next 2 bytes; if
 they start with `$20 $21` (a hidden high-index sub-record), it
 increments `FScanRegParam` once more so subsequent parameters retain
 correct register indices. See
-[DPT.Rsm.Scanner.pas:728-732](DPT.Rsm.Scanner.pas#L728-L732).
+[DPT.Rsm.Scanner.pas:740-744](DPT.Rsm.Scanner.pas#L740-L744).
 
 Stored as `TRsmLocal` with `Kind = lkRegister`, `RegParamIdx =
 FScanRegParam`.
@@ -304,7 +304,7 @@ $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 ```
 
 Decoded by `HandleLocalRecord`
-([DPT.Rsm.Scanner.pas:777-881](DPT.Rsm.Scanner.pas#L777-L881)). The
+([DPT.Rsm.Scanner.pas:789-893](DPT.Rsm.Scanner.pas#L789-L893)). The
 payload starts at `P + 2 + NL`. Two main shapes:
 
 **Shape A — structured-type id with BPRel offset:**
@@ -341,7 +341,7 @@ common Delphi types) may still hit the fallback on unfamiliar binaries.
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
-([Scanner.pas:853-878](DPT.Rsm.Scanner.pas#L853-L878)), because the
+([Scanner.pas:865-890](DPT.Rsm.Scanner.pas#L865-L890)), because the
 `FScanInProc` gate cannot reliably distinguish a stack local from a
 module-level variable in every code path.
 
@@ -352,7 +352,7 @@ $20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
 Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:883-918](DPT.Rsm.Scanner.pas#L883-L918)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:895-930](DPT.Rsm.Scanner.pas#L895-L930)). `NL` ∈ `[1, 40]`.
 The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
 the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
 shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
@@ -371,7 +371,7 @@ scope (because the previous `$63 SCOPE_END` was suppressed by the
 the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
 stack-local record ever carries) and publishes both the type id and
 the decoded VA into the global maps as a fallback. See
-[Scanner.pas:860-877](DPT.Rsm.Scanner.pas#L860-L877).
+[Scanner.pas:872-889](DPT.Rsm.Scanner.pas#L872-L889).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
@@ -380,7 +380,7 @@ $27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
 Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:920-987](DPT.Rsm.Scanner.pas#L920-L987)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:932-999](DPT.Rsm.Scanner.pas#L932-L999)). `NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
@@ -399,7 +399,7 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:923-933](DPT.Rsm.Scanner.pas#L923-L933) explains
+comment at [Scanner.pas:935-945](DPT.Rsm.Scanner.pas#L935-L945) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
@@ -528,7 +528,7 @@ byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
 The unit name follows immediately after the last element.
 
 **The dispatcher does NOT advance `P` past the body** (see comment at
-[Scanner.pas:1125-1127](DPT.Rsm.Scanner.pas#L1125-L1127)). The single-byte
+[Scanner.pas:1137-1139](DPT.Rsm.Scanner.pas#L1137-L1139)). The single-byte
 fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
@@ -621,19 +621,29 @@ pending): the scanner walks up to 1024 bytes forward looking for a
 proc; its identifier IS the owning unit's name. This is the only known
 way to recover the `(unit, type)` pair for synthesized `EnumDef`s in
 the same-comp case. See
-[Scanner.pas:1235-1267](DPT.Rsm.Scanner.pas#L1235-L1267).
+[Scanner.pas:1247-1285](DPT.Rsm.Scanner.pas#L1247-L1285).
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
 
-`TRsmEnumDecoder.RecordTypeRegistry` then runs three jobs:
+`TRsmEnumDecoder.RecordTypeRegistry` then runs four jobs:
 
 1. Bridge `primary → secondary` alias list — but only when the
    secondary candidate has been seen in a prior cross-unit `$25` record
-   (filter via `FCrossUnitEnumIds`).
-2. Flush every pending same-comp $25 constant under the primary id, so
+   with the **exact same 2-byte secondary id** (filter via
+   `FCrossUnitEnumIds`).
+2. **Append a `(SecondaryLow, Primary, $2A file offset)` entry to
+   `FLowByteEnumRefs`** when the secondary's LOW byte was seen by any
+   prior same-comp $25 record (looser filter via `FCrossUnitLowBytes`).
+   The $2A side routinely carries a HI byte the $25 side didn't (e.g.
+   $25 registers `$002A`, the matching $2A surfaces `$072A`), so the
+   exact-2-byte filter in job 1 rejects most same-comp cross-unit enums;
+   this looser bridge captures them and the `$2C` field linker uses it
+   via `FindNearestPrimaryByLowByte` to resolve enum-typed field bodies
+   to their owning-unit primary (see §4.9).
+3. Flush every pending same-comp $25 constant under the primary id, so
    `FEnumConstNames[primary:ordinal] := name`.
-3. Synthesise an `EnumDef` from the pending buffer when the forward-scan
+4. Synthesise an `EnumDef` from the pending buffer when the forward-scan
    recovered an owning unit name.
 
 ### 4.9 `$2C` Format-A field record (no separate `TRsmTag` constant)
@@ -671,7 +681,7 @@ Two encodings are observed:
   linker falls back to a **block-owner index** that pairs each $2C
   block's start offset with the owning record found via the source-
   declaration order in the same unit. See `BuildBlockOwnerIndex` in
-  [DPT.Rsm.FormatALinker.pas:243-429](DPT.Rsm.FormatALinker.pas#L243-L429).
+  [DPT.Rsm.FormatALinker.pas:254-440](DPT.Rsm.FormatALinker.pas#L254-L440).
   This bridge is critical for the TFW corpus where unit-local id `$44`
   is `TUserKonsOutlook` in one unit and an unrelated class in another.
 
@@ -679,15 +689,15 @@ Two encodings are observed:
 
 `BodyLen = EndOff - After` (i.e. distance from the anchor to the
 terminator). The linker discriminates four body shapes
-([FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700)):
+([FormatALinker.pas:672-741](DPT.Rsm.FormatALinker.pas#L672-L741)):
 
 | Body shape           | Description                                                                          |
 |----------------------|--------------------------------------------------------------------------------------|
 | `BodyLen == 14`      | Numeric primitive (Integer, Word, Byte, Int64, UnicodeString, Single, Double, Extended). `PrimitiveTypeId` = 2 bytes at `EndOff - 5`. |
 | `BodyLen == 15`      | Numeric primitive with extra leading byte (Boolean, Currency, ...). Same recovery rule. |
 | `BodyLen == 9` + `$9C $01` at `After+5..+6` | Managed reference primitive (AnsiString, WideString, ShortString). `PrimitiveTypeId` = 2 bytes at `After+3..+4`. |
-| `BodyLen >= 10` + `$9C $01` at `After+6..+7` | Enum-typed field. `PrimitiveTypeId` = 2 bytes at `After+3..+4`. |
-| `BodyLen >= 11` + `$9C $01` at `After+7..+8` | Enum-typed field at parent offset ≥ 256 (two-byte separator). Same recovery rule. |
+| `BodyLen >= 10` + `$9C $01` at `After+6..+7` | Enum-typed field (compact form). See enum bridge below. |
+| `BodyLen >= 11` + `$9C $01` at `After+7..+8` | Enum-typed field at parent offset ≥ 256 (extra separator). See enum bridge below. |
 
 When the `FieldId` resolves to a known class/record (via
 `FindClassIdxForRawId`), `Member.TypeIdx` is set to the discovered
@@ -696,11 +706,53 @@ through one of the body-shape rules above. **Members not confirmed by
 any Format-A record are pruned by `PruneSpuriousMembers`** to remove
 Format-B over-collection from the backward window scan.
 
+#### Enum-typed field bridge (LOW-byte + nearest-offset)
+
+For the two enum-typed body shapes above, the linker checks
+`byte(After+5) = $0C` (the same-compilation cross-unit marker — the
+two-byte-offset separator the compiler emits for these fields). When
+the marker matches, the body's byte `After+3` carries only the **LOW
+byte of the secondary enum id** (NOT a 2-byte primary). The linker
+then calls
+`TRsmEnumDecoder.FindNearestPrimaryByLowByte(low, TagOff, primary)`
+which looks up the LOW byte in `FLowByteEnumRefs` (populated by §4.8
+job 2 above) and picks the entry with the smallest
+`|TagOff - RegistryOffset|`. The nearest-offset rule is a per-unit
+selector by construction: same-unit `$2A` enum entries sit within tens
+of KB of the field block, cross-unit entries with the same LOW byte
+sit megabytes away. `Member.PrimitiveTypeId` is set to the resolved
+primary.
+
+When the `$0C` marker is absent (program-local enums, cross-unit RTL
+enums whose typeId IS the primary, non-enum primitives that happen to
+hit the BodyLen>=10 path), the linker falls back to the original
+2-byte read of `After+3..+4`. This preserves historical behaviour for
+everything except the same-comp cross-unit enum-typed field case
+that §6.9 round-4 isolated.
+
+Sample (`TUserKonsOutlook.SyncDirection` in TFW.rsm, TagOff `$A8E6C35`):
+
+```
+$2C body: 00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08
+                   ^^ +3 = LOW byte $2A
+                      ^^ +4 = per-record slot index (ignored)
+                         ^^ +5 = $0C marker (same-comp cross-unit)
+                            ^^^^^ +6..+7 = $9C $01 enum reference
+
+FindNearestPrimaryByLowByte($2A, $A8E6C35, primary):
+  scans FLowByteEnumRefs[$2A] (1399 entries in TFW), nearest is
+  TUserKonsOutlookDirection's $2A at $A8E658B (distance ~$6AA),
+  returns primary $7B7F. PrimitiveTypeId := $7B7F.
+```
+
+The pin lives at
+[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwEnumTypedFieldResolvesToPrimary](../Test/Test.DPT.Rsm.Tfw.pas).
+
 ### 4.10 `$63` SCOPE_END
 
 A single byte. Closes the active proc scope **only when**
 `FScanSeenLocalSinceProc` is True
-([Scanner.pas:1338-1344](DPT.Rsm.Scanner.pas#L1338-L1344)). The guard
+([Scanner.pas:1356-1362](DPT.Rsm.Scanner.pas#L1356-L1362)). The guard
 prevents incidental `$63` bytes in the proc's address payload (the
 `$A0` sub-form's payload is ~18 bytes of arbitrary data that routinely
 contains `$63`) from prematurely closing the scope before
@@ -906,7 +958,7 @@ matches every `<DWORD-off> <namelen> <name>` triple that passes the
 4-byte anchor), so the Format-A linker's `PruneSpuriousMembers` runs
 as a post-process to drop members that the `$2C` records never
 confirmed (see §4.9 and
-[FormatALinker.pas:711-746](DPT.Rsm.FormatALinker.pas#L711-L746)).
+[FormatALinker.pas:752-786](DPT.Rsm.FormatALinker.pas#L752-L786)).
 
 ---
 
@@ -981,7 +1033,7 @@ Each item here is anchored to the code location that flags it.
 
 ### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 
-[Scanner.pas:1198-1211](DPT.Rsm.Scanner.pas#L1198-L1211) — the byte
+[Scanner.pas:1210-1223](DPT.Rsm.Scanner.pas#L1210-L1223) — the byte
 at body offset +0 is a body-shape selector, NOT a kind discriminator
 (see §4.8 + pinning test
 [Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)).
@@ -1008,7 +1060,7 @@ open:
 
 ### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
 
-[Scanner.pas:584-604](DPT.Rsm.Scanner.pas#L584-L604) — the proc-record
+[Scanner.pas:596-616](DPT.Rsm.Scanner.pas#L596-L616) — the proc-record
 sub-tag byte at `name+0` is dispatched for `$20`, `$A0`, `$41`.
 Other observed values (`$80`, `$00`, ...) are treated as
 forward-declaration / cross-reference records with no embedded address.
@@ -1024,193 +1076,9 @@ against three TFW.Win64 probes -- TStringList.Add, TObject.Create,
 System.SysUtils.IntToStr -- whose .map RVAs all sit below 2 MB and
 previously decoded to 0.)
 
-### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`PARTIALLY-RESOLVED`)
-
-Observed in TFW: `TUserKonsOutlook.SyncDirection` evaluates to
-`sdSync (0)` instead of the correct `ukodBidirektional (0)` because
-the resolver can't pair the field with the matching `EnumDef`. The
-current Format-A linker uses the `$9C $01` body-shape rules in
-[FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700) to
-recover a `PrimitiveTypeId` for enum-typed fields by reading a
-**two-byte word** from body+3..+4. **Round-4 RE proved that read is
-the bug**: byte +3 is the enum's secondary-id LOW byte (matching
-the `$25` `$8A`-form constants and the `$2A` SecCandidate's low
-byte); byte +4 is the per-record sequential field-slot index
-(unrelated). Reading them as a 2-byte word fabricates a non-existent
-"FieldId" that matches no registry entry.
-
-**Investigation snapshot (TFW.exe Win32):**
-
-```
-$2C SyncDirection body:   00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08
-                                      ^^^^^ +3..+4 (FieldId $0D2A)
-                                            ^^ +5 = $0C (NOT "enum kind" -- it is
-                                                          the two-byte-offset
-                                                          separator the linker
-                                                          emits when the field's
-                                                          record-offset >= 256;
-                                                          §6.9 round-3 finding)
-                                               ^^^^^ +6..+7 = $9C $01 marker
-                                                     ^^^^^ +8..+9 ($02C9 -- per-record
-                                                                   sequential
-                                                                   field-slot index,
-                                                                   not an enum id)
-
-$25 ukodBidirektional:    8A 00 00 F8 24 73 A4 2A 00 00 00
-                                      ^^^^^^^^^^^ linker-token (§4.6.2)
-                                                  ^^^^^ typeId $002A (shared secondary,
-                                                                      hi=0)
-                                                        ^^ ord-byte (0)
-
-$2A TUserKonsOutlookDirection:  A8 00 00 7F 7B 75 11 2A 07 96 9E 1C
-                                ^^ BodyFlag $A8 (cross-unit RTL, §6.6.2)
-                                         ^^^^^ +3..+4 primary id $7B7F
-```
-
-Three id-space candidates surface (FieldId `$0D2A`, $2C-body
-`$02C9`, $25-secondary `$002A`, $2A-primary `$7B7F`) and none
-directly equals another. The encoding of the FieldId → primary
-linkage isn't a proximity-based byte rewrite or any of the simple
-transforms tested.
-
-**Second-round investigation (deeper RE pass, all dead ends):**
-
-* The `$2C` body's `+8..+9` word is **not** an enum-id slot at all
-  — it's a per-record sequential field-slot index that increments
-  by 4 across the field records of one parent record (across
-  TUserKonsOutlook's 12 fields the word counts `$02B5, $02B9,
-  $02BD, …, $02E1`). Refutes one of the original "is this the
-  hidden primary id?" hypotheses.
-* No `(FieldId, PrimaryId)` byte adjacency anywhere in the file
-  for either probe (searched both `2A 0D 7F 7B` and `7F 7B 2A 0D`
-  → 0 hits; same for the SyncStatus pair). Rules out a flat
-  inline binding.
-* No co-located `(FieldId, PrimaryId)` pair within ±4 KB of any
-  unit anchor (i.e. no record carrying both ids near each other).
-  Rules out a "binding record adjacent to either anchor".
-* The `$2A` enum body bytes after the primary id (`+5..+8`) are
-  the §6.6.1 RTTI pointer, not the FieldId.
-* The two enum-typed `$2C` field bodies (SyncDirection,
-  SyncStatus) are **byte-identical** except for their FieldId
-  itself — no discriminator beyond that hints at the binding.
-
-**Third-round investigation (two more refutations):**
-
-* The `$63 $45 ...` trailer blocks the round-2 snapshot flagged as
-  the "closest-shape lead" are **per-record headers**, one fixed-
-  length (~25-byte) block per record in the unit. Survey of the
-  TUserKons unit window (4 records, 4 blocks at `$A8E6A9E`,
-  `$A8E6B08`, `$A8E6B8D`, `$A8E6D0F`) shows the byte at +7 carries
-  the parent-record id (matches the immediately following `$2C`
-  field block's parent-id). None of the four blocks contains any
-  FieldId or enum-primary byte pair. Refutes "binding table in
-  the trailer".
-* The **same-unit positional fallback** (Nth enum-typed `$2C` ↔
-  Nth enum's `$2A` in unit declaration order) is structurally
-  impossible: the TUserKons unit has 11 `$2A` enum entries but
-  only 2 enum-typed `$2C` fields. Counts can't align. Even with
-  generous filtering, SyncDirection (the 0th enum-typed `$2C` in
-  the unit) would pair with TUserKonsTyp (the 0th enum `$2A`),
-  which is wrong -- TUserKonsTyp is referenced by a different
-  field elsewhere. Refutes the round-2 heuristic recommendation.
-
-**Fourth-round breakthrough** (the `$25 $8A`-form back-walk paid off):
-
-The bridge is **secondary-id-LOW byte equality** across three
-record families. For SyncDirection:
-
-```
-$25 ukodBidirektional body @ $A8E6433:
-   8A 00 00 F8 24 73 A4 2A 00 00 00
-                           ^^^^^ +7..+8 = $25 secondary id $002A
-                                          (typeId-lo = $2A, hi = $00)
-                            ^^ LOW byte $2A
-
-$2A TUserKonsOutlookDirection body @ $A8E658B:
-   A8 00 00 7F 7B 75 11 2A 07 96 9E 1C
-                        ^^^^^ +7..+8 = SecCandidate $072A
-                                       (low byte $2A matches!)
-                         ^^ LOW byte $2A
-
-$2C SyncDirection body @ $A8E6C44 (after name):
-   00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08 44 FF
-            ^^ +3 = secondary-LO byte $2A
-               ^^ +4 = per-record field-slot index $0D (unrelated)
-```
-
-All three records share secondary-LO `$2A`. Same pattern for
-`SyncStatus` (LOW `$2C` across $2C-body-+3 / $2A-SecCandidate-low /
-$25-typeId-lo). The disambiguation when multiple enums share a
-LOW byte falls out of the existing `$0E` block-owner resolution
-(§6.10) — the field's owning class lives in a specific unit, and
-within that unit only one `$2A` enum entry typically carries each
-secondary-LO value.
-
-**Bonus finding (not yet documented in §4)**: a previously-
-undocumented DCU symbol catalog ships in TFW.rsm at offsets like
-`$25C692E3`, `$32576500`. Structure:
-
-```
-$63 $65  <NL>  <UnitName>            // unit header
-$66      <NL>  <TypeName>      <4-byte type-id>
-$67      <NL>  <ConstantName>  <4-byte constant-id>
-…
-```
-
-For `TUserKonsOutlookDirection`, the `$66` entry's 4-byte id is
-`$11757B7F` — low 2 bytes `$7B7F` match the `$2A` primary id.
-For `ukodBidirektional`, the `$67` id is `$A47324F8` — exactly
-the §4.6.2 "linker-token" (which §6.5 closed as opaque). The
-catalog is the actual source of those tokens (name-keyed export
-table). The catalog is a richer (name-keyed, fully-qualified)
-bridge alternative; the LOW-byte rule above is cheaper and
-suffices for §6.9 closure. Catalog deserves its own §4
-subsection in a future pass.
-
-**Implementation path** for the next session: in
-`LinkFieldsFromFormatA`, when the `$2C` body shape indicates an
-enum-typed field (BodyLen=14, `$9C $01` marker at +6..+7 OR
-+7..+8 for large-offset records), read byte +3 alone as a
-secondary-LO. Cross-reference with the existing
-`FCrossUnitEnumIds` / `FEnumAliasesByPrimary` tables in
-`TRsmEnumDecoder` — the existing $2A→$25 bridge already populates
-those. The LOW-byte match plus **same-unit gating** (block-owner
-index, §6.10) produces the PrimaryId, which the existing
-resolvers then consume normally.
-
-Pin probes: `TFW!TUserKonsOutlook.SyncDirection → ukodBidirektional`
-and `TFW!TUserKonsOutlook.SyncStatus → uksoUninitialised` (or
-whatever the first uksto* member is). Both end-to-end against
-.map ground truth.
-
-**Round 5 implementation attempt (reverted)**: a simpler global
-LOW-byte → primary map (added to `TRsmEnumDecoder` and consumed
-by `TRsmFormatALinker`) was tried and reverted. Both first-wins
-and last-wins collision policies returned the WRONG primary for
-SyncDirection:
-* last-wins gave `$BC2C` (some later same-comp enum that also
-  has secondary-LOW `$2A`),
-* first-wins gave `$FFF6` (a different same-comp enum declared
-  earlier in the binary).
-TFW has at least 3 same-comp cross-unit enums whose
-secondary-LOW byte equals `$2A`; without unit-scoping, the
-global map collapses them onto whichever entry the iteration
-order picks. **Same-unit gating via the §6.10 block-owner index
-is mandatory** for clean closure -- the LOW byte alone is too
-narrow a key in a large corpus.
-
-**Status**: encoding RE **complete** (round 4); minimal global
-implementation **insufficient** for TFW-class corpora (round 5);
-production fix requires per-unit scoping. The Reader currently
-falls through to `FindBestRecordForGlobalAndField`'s
-name-proximity heuristic, which mis-routes the TFW
-`SyncDirection`/`SyncStatus` example. Closure deferred to a
-session that wires the block-owner index into the EnumDecoder /
-FormatALinker bridge.
-
 ### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
 
-[FormatALinker.pas:616-633](DPT.Rsm.FormatALinker.pas#L616-L633) —
+[FormatALinker.pas:627-644](DPT.Rsm.FormatALinker.pas#L627-L644) —
 when `parent-hi == $FF`, the parent id is treated as a unit-local byte
 and resolved via the block-owner index. This is sufficient for the
 TFW `UserKonsOutlook*` corpus but may miss edge cases (block-owner
@@ -1245,8 +1113,9 @@ cross-class leakage that previously corrupted `FirstOffs` /
 1. Have the Format-A linker *create* a new member when it sees a
    `$2C` record naming a field whose parent class has the field
    missing. The `$2C` body would need to carry a usable byte
-   offset for the new member's `Offset`; whether it does is part
-   of §6.9's still-open RE.
+   offset for the new member's `Offset`; the `$2C` body shape is
+   documented in §4.9 (no obvious offset field beyond the parent
+   record local id).
 2. Run a second backward scan when the parent class has been
    resolved (so the chain walker reaches an empty parent), with a
    tighter shape filter that rejects bytes belonging to the

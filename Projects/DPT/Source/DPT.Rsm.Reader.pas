@@ -164,7 +164,8 @@ begin
   FScopeLocalTypeIdToEnumDef := Collections.NewPlainKeyValue<UInt32, Integer>;
   FFormatALinker             := TRsmFormatALinker.Create(
     FScanner.Classes, FScanner.ClassByName,
-    FRsmTypeIdToClassIdx, FTypeIdByName);
+    FRsmTypeIdToClassIdx, FTypeIdByName,
+    FScanner.EnumDecoder);
   FClassParentDeriver        := TRsmClassParentDeriver.Create(FScanner.Classes);
   FCrossUnitParentResolver   := TRsmCrossUnitParentResolver.Create(
     FScanner.Classes, FRsmTypeIdToClassIdx);

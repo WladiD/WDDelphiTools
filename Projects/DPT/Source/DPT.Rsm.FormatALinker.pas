@@ -29,6 +29,7 @@ uses
   mormot.core.base,
   mormot.core.collections,
 
+  DPT.Rsm.EnumDecoder,
   DPT.Rsm.Model;
 
 type
@@ -82,6 +83,13 @@ type
       /// map would last-wins to the wrong class).
       FBlockStarts        : TArray<UInt32>;
       FBlockOwners        : TArray<Integer>;
+      /// Reference to the scanner-owned enum decoder. Used by the
+      /// §6.9 FieldId -&gt; Enum bridge in <c>LinkFieldsFromFormatA</c>:
+      /// enum-typed $2C field bodies (marker $0C immediately before
+      /// the "$9C $01" reference) carry only the secondary id's
+      /// LOW byte at +3, so we ask the decoder to resolve the
+      /// matching primary via the nearest-$2A-offset rule.
+      FEnumDecoder        : TRsmEnumDecoder;
     function  ByteAt(AOffset: NativeInt): Byte; inline;
     function  ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean; inline;
     function  RawIdKey(const ARaw: TRawId): UInt32; inline;
@@ -102,7 +110,8 @@ type
       AClasses             : IList<TRsmClassInfo>;
       AClassByName         : IKeyValue<String, Integer>;
       ARsmTypeIdToClassIdx : IKeyValue<UInt32, Integer>;
-      ATypeIdByName        : IKeyValue<String, UInt32>);
+      ATypeIdByName        : IKeyValue<String, UInt32>;
+      AEnumDecoder         : TRsmEnumDecoder);
 
     /// <summary>
     ///   Run the three Format-A passes (type-registry scan, field
@@ -125,13 +134,15 @@ constructor TRsmFormatALinker.Create(
   AClasses             : IList<TRsmClassInfo>;
   AClassByName         : IKeyValue<String, Integer>;
   ARsmTypeIdToClassIdx : IKeyValue<UInt32, Integer>;
-  ATypeIdByName        : IKeyValue<String, UInt32>);
+  ATypeIdByName        : IKeyValue<String, UInt32>;
+  AEnumDecoder         : TRsmEnumDecoder);
 begin
   inherited Create;
   FClasses             := AClasses;
   FClassByName         := AClassByName;
   FRsmTypeIdToClassIdx := ARsmTypeIdToClassIdx;
   FTypeIdByName        := ATypeIdByName;
+  FEnumDecoder         := AEnumDecoder;
 end;
 
 function TRsmFormatALinker.ByteAt(AOffset: NativeInt): Byte;
@@ -673,12 +684,29 @@ begin
           // between the type id and the "$9C $01" reference
           // marker (so the marker sits at +6..+7 instead of
           // +5..+6).
+          //
+          // §6.9 closure: when byte +5 = $0C the field is a same-
+          // compilation cross-unit enum and byte +3 carries only
+          // the secondary id's LOW byte (not a 2-byte primary).
+          // Resolve via the EnumDecoder's nearest-$2A-offset rule;
+          // fall through to the 2-byte read when no $2A entry with
+          // that LOW byte exists (cross-unit RTL enums, program-
+          // local enums, non-enum primitives all keep their
+          // historical behaviour).
           else if (BodyLen >= 10) and
                   (ByteAt(After + 6) = $9C) and
                   (ByteAt(After + 7) = $01) then
-            Member.PrimitiveTypeId :=
-              UInt16(ByteAt(After + 3)) or
-              (UInt16(ByteAt(After + 4)) shl 8)
+          begin
+            var ResolvedPrim: UInt32;
+            if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
+               FEnumDecoder.FindNearestPrimaryByLowByte(
+                 ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
+              Member.PrimitiveTypeId := UInt16(ResolvedPrim)
+            else
+              Member.PrimitiveTypeId :=
+                UInt16(ByteAt(After + 3)) or
+                (UInt16(ByteAt(After + 4)) shl 8);
+          end
           // Same shape as the BodyLen>=10 branch above, but with
           // a TWO-byte separator between the field's type id and
           // the "$9C $01" marker (marker at +7..+8 instead of
@@ -692,12 +720,25 @@ begin
           // sends the evaluator's auto-detect chain into the
           // name-based fallback -- the source of the TFW
           // UserKonsOutlook.SyncDirection misroute.
+          //
+          // §6.9 closure: the same-comp $0C marker sits at +5
+          // in this longer-separator form too (the same byte
+          // position as the +5 branch above); the LOW byte at
+          // +3 unchanged. Same nearest-offset bridge.
           else if (BodyLen >= 11) and
                   (ByteAt(After + 7) = $9C) and
                   (ByteAt(After + 8) = $01) then
-            Member.PrimitiveTypeId :=
-              UInt16(ByteAt(After + 3)) or
-              (UInt16(ByteAt(After + 4)) shl 8);
+          begin
+            var ResolvedPrim: UInt32;
+            if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
+               FEnumDecoder.FindNearestPrimaryByLowByte(
+                 ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
+              Member.PrimitiveTypeId := UInt16(ResolvedPrim)
+            else
+              Member.PrimitiveTypeId :=
+                UInt16(ByteAt(After + 3)) or
+                (UInt16(ByteAt(After + 4)) shl 8);
+          end;
         end;
         FClasses[ParentIdx].Members[M] := Member;
         ConfirmedAdd(ParentIdx, Name);

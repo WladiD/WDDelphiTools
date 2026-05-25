@@ -123,6 +123,7 @@ type
     function  GetCrossUnitEnumIds: IKeyValue<UInt32, Boolean>;
     function  GetEnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
+    function  GetEnumDecoder: TRsmEnumDecoder;
     procedure ReportPhase(const APhase: String); inline;
     function  DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
     function  HandleProcRecord(var P: NativeInt): Boolean;
@@ -214,6 +215,12 @@ type
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read GetCrossUnitEnumIds;
     property EnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>> read GetEnumAliasesByPrimary;
     property EnumDefs            : IList<TRsmEnumDef> read GetEnumDefs;
+    /// Direct access to the enum-decoder instance. Exposed so the
+    /// Format-A linker can call <c>FindNearestPrimaryByLowByte</c>
+    /// during §6.9 enum-typed $2C field linking; the existing
+    /// per-collection getters return read-only views, but the
+    /// nearest-offset lookup is a method, not a collection.
+    property EnumDecoder         : TRsmEnumDecoder read GetEnumDecoder;
   end;
 
 implementation
@@ -275,6 +282,11 @@ end;
 function TRsmScanner.GetEnumDefs: IList<TRsmEnumDef>;
 begin
   Result := FEnumDecoder.EnumDefs;
+end;
+
+function TRsmScanner.GetEnumDecoder: TRsmEnumDecoder;
+begin
+  Result := FEnumDecoder;
 end;
 
 procedure TRsmScanner.ReportPhase(const APhase: String);
@@ -1264,7 +1276,13 @@ begin
       Inc(Q);
     end;
   end;
-  FEnumDecoder.RecordTypeRegistry(Primary, SecCandidate, Name, UnitNameSparse);
+  // Pass P (the $2A tag's file offset) so the EnumDecoder can
+  // record it alongside the primary id for the §6.9 nearest-offset
+  // bridge. The cast to UInt32 truncates on the (currently
+  // hypothetical) >4 GB-buffer case; RSM sidecars even on TFW-class
+  // binaries land at ~1 GB, so the upper bits are unused.
+  FEnumDecoder.RecordTypeRegistry(Primary, SecCandidate, Name,
+    UnitNameSparse, UInt32(P));
 end;
 
 procedure TRsmScanner.ScanSymbolStream;

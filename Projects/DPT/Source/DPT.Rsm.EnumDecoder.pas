@@ -30,6 +30,32 @@ uses
 type
 
   /// <summary>
+  ///   Per-$2A bridge record used by the FieldId -> Enum closure
+  ///   (§6.9). When a $2A type-registry entry surfaces a same-
+  ///   compilation cross-unit enum (i.e. the existing primary -&gt;
+  ///   secondary alias bridge fires), we record (SecondaryLow,
+  ///   Primary, file offset of the $2A tag). The $2C field linker
+  ///   later picks the matching entry by LOW-byte equality with
+  ///   <c>argmin(|TagOff - RegistryOffset|)</c>: same-unit enums sit
+  ///   within tens of KB of the field block, cross-unit enums with
+  ///   the same LOW byte sit megabytes away, so the nearest-offset
+  ///   tie-break is a per-unit selector by construction.
+  /// </summary>
+  TRsmLowByteEnumRef = record
+    /// LOW byte of the cross-unit secondary id ($2A body's
+    /// SecCandidate-lo, identical to the $25 typeId-lo). The
+    /// $2C body's byte +3 carries the same LOW byte; the linker
+    /// keys on this for an O(1) bucket lookup.
+    SecondaryLow  : Byte;
+    /// The $2A entry's primary id (the typeId for the cross-unit
+    /// enum, e.g. $7B7F for TUserKonsOutlookDirection).
+    Primary       : UInt32;
+    /// Byte offset of the $2A tag within the RSM buffer. Used as
+    /// the proximity key for the nearest-offset tie-break.
+    RegistryOffset: UInt32;
+  end;
+
+  /// <summary>
   ///   State machine that turns parsed RSM enum records into the
   ///   lookup tables the reader consumes. Owns six containers and
   ///   the per-enum pending-constant buffer.
@@ -67,6 +93,27 @@ type
     /// primary id, then flush all buffered constants keyed by that
     /// primary -- avoiding the last-wins collision on the secondary.
     FPendingConstants    : IList<TRsmEnumElement>;
+    /// LOW-byte bucketed map of per-$2A same-compilation enum entries
+    /// (§6.9 bridge). Populated by RecordTypeRegistry whenever the
+    /// primary -&gt; secondary alias bridge fires. The $2C field
+    /// linker consumes this via FindNearestPrimaryByLowByte to bind
+    /// enum-typed fields whose body carries only the secondary's
+    /// LOW byte (the round-4 RE finding). A per-unit-correct result
+    /// falls out of the file-offset nearest-neighbour rule: see the
+    /// TRsmLowByteEnumRef docstring.
+    FLowByteEnumRefs     : IKeyValue<Byte, IList<TRsmLowByteEnumRef>>;
+    /// LOW bytes of every secondary id registered by a same-
+    /// compilation cross-unit $25 record. Looser key than
+    /// FCrossUnitEnumIds (which requires the full 2-byte secondary
+    /// to match exactly). The round-4 §6.9 finding is that the
+    /// $2A side carries the secondary HI byte that the $25 side
+    /// doesn't ($25 records LOW byte $2A as $002A; the matching
+    /// $2A entry carries SecCandidate $072A), so the exact-match
+    /// filter rejects the bridge we need. Populated alongside
+    /// FCrossUnitEnumIds in RecordCrossUnitSameCompConstant and
+    /// consumed by RecordTypeRegistry to decide whether to add an
+    /// entry to FLowByteEnumRefs.
+    FCrossUnitLowBytes   : IKeyValue<Byte, Boolean>;
   public
     constructor Create;
 
@@ -127,9 +174,28 @@ type
     ///       knowable.</item>
     ///   </list>
     ///   Clears the pending buffer regardless.
+    ///   <para>
+    ///     <paramref name="ARegistryOffset"/> is the byte offset of
+    ///     the $2A tag within the RSM buffer. It is recorded into
+    ///     <see cref="LowByteEnumRefs"/> alongside the primary so the
+    ///     §6.9 FieldId -&gt; Enum bridge can resolve enum-typed
+    ///     fields by nearest-offset (per-unit) proximity.
+    ///   </para>
     /// </summary>
     procedure RecordTypeRegistry(APrimary, ASecCandidate: UInt32;
-      const ATypeName, AUnitNameSparse: String);
+      const ATypeName, AUnitNameSparse: String;
+      ARegistryOffset: UInt32);
+
+    /// <summary>
+    ///   §6.9 FieldId -&gt; Enum bridge: for the given secondary LOW
+    ///   byte (from a $2C enum-typed field body at +3), find the
+    ///   matching same-compilation $2A entry by nearest-offset.
+    ///   Returns True and the primary id in <paramref name="APrimary"/>
+    ///   when at least one entry with that LOW byte exists; False
+    ///   otherwise (caller falls back to its existing 2-byte read).
+    /// </summary>
+    function FindNearestPrimaryByLowByte(ALow: Byte; ATagOffset: UInt32;
+      out APrimary: UInt32): Boolean;
 
     /// <summary>
     ///   True when at least one same-compilation $25 record has
@@ -146,6 +212,13 @@ type
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read FCrossUnitEnumIds;
     property EnumAliasesByPrimary: IKeyValue<UInt32, IList<UInt32>> read FEnumAliasesByPrimary;
     property EnumDefs           : IList<TRsmEnumDef> read FEnumDefs;
+    /// LOW-byte bucketed view of every same-compilation $2A entry
+    /// the bridge has registered. Exposed read-only so the
+    /// FormatALinker can resolve enum-typed $2C field bodies (§6.9)
+    /// without going through the FindNearestPrimaryByLowByte
+    /// method (kept around for direct testing too).
+    property LowByteEnumRefs    : IKeyValue<Byte, IList<TRsmLowByteEnumRef>>
+      read FLowByteEnumRefs;
   end;
 
 implementation
@@ -161,6 +234,8 @@ begin
   FEnumAliasesByPrimary := Collections.NewPlainKeyValue<UInt32, IList<UInt32>>;
   FEnumDefs             := Collections.NewPlainList<TRsmEnumDef>;
   FPendingConstants     := Collections.NewPlainList<TRsmEnumElement>;
+  FLowByteEnumRefs      := Collections.NewPlainKeyValue<Byte, IList<TRsmLowByteEnumRef>>;
+  FCrossUnitLowBytes    := Collections.NewPlainKeyValue<Byte, Boolean>;
 end;
 
 procedure TRsmEnumDecoder.Reset;
@@ -171,6 +246,8 @@ begin
   FEnumAliasesByPrimary.Clear;
   FEnumDefs.Clear;
   FPendingConstants.Clear;
+  FLowByteEnumRefs.Clear;
+  FCrossUnitLowBytes.Clear;
 end;
 
 procedure TRsmEnumDecoder.RecordProgramLocalConstant(ATypeId: UInt32;
@@ -194,6 +271,12 @@ var
   Pe: TRsmEnumElement;
 begin
   FCrossUnitEnumIds[ASecId] := True;
+  // §6.9 round-4: also record just the LOW byte. The matching $2A
+  // SecCandidate carries the same LOW byte but a different HI byte
+  // (e.g. $25 registers $002A, $2A surfaces $072A), so the exact-
+  // 2-byte match used by the existing primary->secondary alias
+  // bridge isn't enough to capture the field-binding case.
+  FCrossUnitLowBytes[Byte(ASecId and $FF)] := True;
   Pe.Name    := AName;
   Pe.Ordinal := AOrdinal;
   FPendingConstants.Add(Pe);
@@ -210,12 +293,14 @@ begin
 end;
 
 procedure TRsmEnumDecoder.RecordTypeRegistry(APrimary, ASecCandidate: UInt32;
-  const ATypeName, AUnitNameSparse: String);
+  const ATypeName, AUnitNameSparse: String; ARegistryOffset: UInt32);
 var
   AliasList: IList<UInt32>;
   FI       : Integer;
   Fe       : TRsmEnumElement;
   Def      : TRsmEnumDef;
+  RefList  : IList<TRsmLowByteEnumRef>;
+  RefEntry : TRsmLowByteEnumRef;
 begin
   // Bridge: primary -> secondary alias-list, but only when the
   // secondary has appeared in a prior cross-unit $25 record.
@@ -233,6 +318,34 @@ begin
     end;
     if AliasList.IndexOf(ASecCandidate) < 0 then
       AliasList.Add(ASecCandidate);
+  end;
+  // §6.9 FieldId -> Enum bridge (round 6). Looser key than the
+  // exact-2-byte alias bridge above: append (LOW byte, primary,
+  // file offset) whenever the SecCandidate's LOW byte was seen
+  // in any prior same-compilation $25 record. The $2A side
+  // routinely carries SecCandidate with a non-zero HI byte
+  // (e.g. $072A) that the $25 side never produced (it registered
+  // $002A), so the exact-match filter rejected most same-comp
+  // cross-unit enums and the round-5 attempt left the bucket
+  // critically under-populated. The $2C linker resolves an
+  // enum-typed field's primary by matching the body's byte +3
+  // against this bucket and picking the entry with the nearest
+  // RegistryOffset -- same-unit $2A entries sit within tens of
+  // KB of the field block, cross-unit entries with the same LOW
+  // byte sit megabytes away.
+  if (APrimary <> 0) and (ASecCandidate <> 0) and
+     (ASecCandidate <> APrimary) and
+     FCrossUnitLowBytes.ContainsKey(Byte(ASecCandidate and $FF)) then
+  begin
+    RefEntry.SecondaryLow   := Byte(ASecCandidate and $FF);
+    RefEntry.Primary        := APrimary;
+    RefEntry.RegistryOffset := ARegistryOffset;
+    if not FLowByteEnumRefs.TryGetValue(RefEntry.SecondaryLow, RefList) then
+    begin
+      RefList := Collections.NewPlainList<TRsmLowByteEnumRef>;
+      FLowByteEnumRefs[RefEntry.SecondaryLow] := RefList;
+    end;
+    RefList.Add(RefEntry);
   end;
   // Flush pending same-compilation $25 records under THIS $2A's
   // primary. The pending buffer is the per-enum block emitted
@@ -266,6 +379,42 @@ begin
     end;
   end;
   FPendingConstants.Clear;
+end;
+
+function TRsmEnumDecoder.FindNearestPrimaryByLowByte(ALow: Byte;
+  ATagOffset: UInt32; out APrimary: UInt32): Boolean;
+var
+  RefList: IList<TRsmLowByteEnumRef>;
+  I      : Integer;
+  Ref    : TRsmLowByteEnumRef;
+  Best   : UInt32;
+  BestVal: UInt32;
+  Cur    : UInt32;
+begin
+  Result := False;
+  APrimary := 0;
+  if not FLowByteEnumRefs.TryGetValue(ALow, RefList) then Exit;
+  if RefList.Count = 0 then Exit;
+  // argmin( |ATagOffset - RegistryOffset| ). Unsigned subtraction
+  // both ways and a min-pick avoids the signed-overflow trap when
+  // file offsets approach $80000000.
+  Best := 0;
+  BestVal := High(UInt32);
+  for I := 0 to RefList.Count - 1 do
+  begin
+    Ref := RefList[I];
+    if ATagOffset >= Ref.RegistryOffset then
+      Cur := ATagOffset - Ref.RegistryOffset
+    else
+      Cur := Ref.RegistryOffset - ATagOffset;
+    if Cur < BestVal then
+    begin
+      BestVal := Cur;
+      Best := Ref.Primary;
+    end;
+  end;
+  APrimary := Best;
+  Result := True;
 end;
 
 end.

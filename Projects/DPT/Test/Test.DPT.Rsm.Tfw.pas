@@ -158,6 +158,35 @@ type
     [Test]
     procedure TestTfwSimpleRecordHeaderCoversTfwRecords;
 
+    /// <summary>
+    ///   §6.9 PIN: enum-typed $2C field bodies that match the
+    ///   same-compilation cross-unit shape ($0C marker before the
+    ///   "$9C $01" reference) must resolve their PrimitiveTypeId
+    ///   to the OWNING-unit's primary via the EnumDecoder's
+    ///   nearest-$2A-offset bridge -- NOT to the bogus 2-byte word
+    ///   read of body bytes +3..+4 (which fabricates a non-
+    ///   existent FieldId from the secondary-LOW byte and the per-
+    ///   record slot index). TUserKonsOutlook.SyncDirection is the
+    ///   canonical probe: its $2A primary is $7B7F (= 31615) for
+    ///   TUserKonsOutlookDirection, and ukodBidirektional is the
+    ///   ordinal-0 member.
+    /// </summary>
+    /// <remarks>
+    ///   Round 5 of §6.9 tried a naive global LOW-byte map and
+    ///   collapsed three same-LOW-byte enums onto one entry,
+    ///   producing the wrong primary for SyncDirection. Round 6
+    ///   adds the (LowByte, Primary, $2A file offset) triplet to
+    ///   the bridge and picks the entry by argmin(|TagOff -
+    ///   $2A_offset|); same-unit $2A entries are ~1.7 KB away
+    ///   from the field, other same-LOW-byte enums sit megabytes
+    ///   away, so the nearest-offset rule is a per-unit selector
+    ///   by construction. A regression that drops the per-unit
+    ///   scoping trips here as a wrong PrimitiveTypeId on
+    ///   SyncDirection.
+    /// </remarks>
+    [Test]
+    procedure TestTfwEnumTypedFieldResolvesToPrimary;
+
     {$IFDEF CPUX64}
     /// <summary>
     ///   Pin test for §6.7 (Win64 $A0 byte-7 = $03 sub-form).
@@ -751,6 +780,102 @@ begin
              'phantom $02 inside the header.',
         [Probes[I], FoundFieldName,
          FReader.Classes[ClassIdx].Members[0].Name]));
+  end;
+end;
+
+procedure TRsmTfwTests.TestTfwEnumTypedFieldResolvesToPrimary;
+// §6.9 PIN. See class-level docstring above for the round 6
+// closure rationale.
+const
+  // The probe the round-4 RE pinpointed. Expected primary id is
+  // read from the $2A body's bytes +3..+4 (little-endian word):
+  //   TUserKonsOutlookDirection @ $A8E658B -> primary $7B7F
+  ExpectedSyncDirectionPrimary: UInt16 = $7B7F;
+var
+  ClsIdx   : Integer;
+  Info     : TRsmClassInfo;
+  M        : Integer;
+  Member   : TRsmClassMember;
+  Found    : Boolean;
+  SyncStat : TRsmClassMember;
+  HasSyncSt: Boolean;
+begin
+  if ShouldSkip then Exit;
+
+  ClsIdx := FReader.FindClassByName('TUserKonsOutlook');
+  Assert.IsTrue(ClsIdx >= 0,
+    'TUserKonsOutlook must be discovered as a class -- structural ' +
+    'anchor regressed?');
+  Info := FReader.Classes[ClsIdx];
+
+  // Diagnostic: print every member's PrimitiveTypeId so a future
+  // regression has the round-6 baseline values in the runner log.
+  Writeln(Format('  §6.9: TUserKonsOutlook members=%d', [Info.Members.Count]));
+  for M := 0 to Info.Members.Count - 1 do
+  begin
+    Member := Info.Members[M];
+    Writeln(Format('    [%d] %-24s off=%d typeIdx=0x%x prim=0x%x',
+      [M, Member.Name, Member.Offset, Member.TypeIdx,
+       Integer(Member.PrimitiveTypeId)]));
+  end;
+
+  Found := False;
+  Member := Default(TRsmClassMember);
+  HasSyncSt := False;
+  SyncStat := Default(TRsmClassMember);
+  for M := 0 to Info.Members.Count - 1 do
+  begin
+    if SameText(Info.Members[M].Name, 'SyncDirection') then
+    begin
+      Member := Info.Members[M];
+      Found := True;
+    end
+    else if SameText(Info.Members[M].Name, 'SyncStatus') then
+    begin
+      SyncStat := Info.Members[M];
+      HasSyncSt := True;
+    end;
+  end;
+  Assert.IsTrue(Found,
+    'TUserKonsOutlook.SyncDirection must be present in Members -- ' +
+    '§6.3 / structural-anchor regressed?');
+
+  // Core pin: PrimitiveTypeId must equal the cross-unit enum's
+  // PRIMARY ($7B7F), not the bogus 2-byte word read of the body's
+  // FieldId slot (the round-5 mis-routes gave $E5FF / $FFF6 here,
+  // the original 2-byte read gave $0D2A which doesn't match any
+  // real type).
+  Assert.AreEqual(UInt32(ExpectedSyncDirectionPrimary), UInt32(Member.PrimitiveTypeId),
+    Format('SyncDirection.PrimitiveTypeId must be $%x ' +
+           '(TUserKonsOutlookDirection''s primary) after the §6.9 ' +
+           'nearest-$2A-offset bridge fired. Got $%x -- either the ' +
+           'bridge didn''t fire (still reading the body''s +3..+4 ' +
+           'word as a 2-byte primary), or the per-unit scoping ' +
+           'collapsed onto a wrong same-LOW-byte enum.',
+      [Integer(ExpectedSyncDirectionPrimary),
+       Integer(Member.PrimitiveTypeId)]));
+
+  // SyncStatus parallel probe: the second enum-typed field in
+  // TUserKonsOutlook (TUserKonsOutlookSyncStatus, $2A body near
+  // $A8E65BC per §6.9 doc). The pre-round-6 2-byte read produced
+  // $0D2C (the spurious FieldId). After the bridge: a non-zero
+  // primary that the EnumDecoder accepted. Without ground truth
+  // for the exact primary we only assert non-zero AND not equal
+  // to the FieldId-fabrication value -- a regression that
+  // re-routes the resolver to the 2-byte read would trip both
+  // arms here.
+  if HasSyncSt then
+  begin
+    Assert.IsTrue(SyncStat.PrimitiveTypeId <> 0,
+      'SyncStatus.PrimitiveTypeId must be non-zero after the §6.9 ' +
+      'bridge resolves it. Zero means neither the bridge nor the ' +
+      '2-byte-read fallback produced an id (corrupt body?).');
+    Assert.AreNotEqual(UInt32($0D2C), UInt32(SyncStat.PrimitiveTypeId),
+      'SyncStatus.PrimitiveTypeId must not equal $0D2C (the pre-' +
+      'round-6 2-byte-read fabrication of the FieldId from the ' +
+      'body''s +3..+4 word). Hitting $0D2C means the bridge regressed.');
+    Writeln(Format('  §6.9: SyncStatus.PrimitiveTypeId=$%x (bridge-resolved)',
+      [Integer(SyncStat.PrimitiveTypeId)]));
   end;
 end;
 
