@@ -1235,23 +1235,65 @@ SyncDirection` would exercise
 [Debugger.pas:3057-3063](DPT.Rsm.Debugger.pas#L3057-L3063) (path 1:
 `AMember.PrimitiveTypeId`), bypassing the `$21`-record path entirely.
 
-**Remaining closure work** (this entry stays `GAP` until either is
-landed):
+**Round-2 RE pass (May 26)**: four hypotheses for where the bridge
+might live were tested empirically against DebugTarget.rsm and
+ruled out:
 
-1. Identify the binary-internal record that bridges the `$0671`
-   alias to TThreadPriority's primary `$3370`. Candidates not yet
-   ruled out:
-   - A second `$2A` entry whose body references both `$0671` and
-     `$3370` via the `$9C $1x` alias marker (§4.8 `$08`/`$A8` body
-     shapes already show this marker, just not for this pair).
-   - A dedicated proc-scope import table emitted alongside the
-     proc record that the scanner currently walks past.
-   - A 4-byte form of the alias: `$0671` LO half + the bytes at
-     payload +5..+6 (`$FC $63`) might form a `$63FC0671` linker
-     token similar to the §6.5 cross-unit-RTL `$25`-body token —
-     but `$63` collides with SCOPE_END so this would require
-     pushing the disambiguation logic further.
-2. Pin via
+1. **The alias's own `$2A` record body** — `TWordArray` ($2A primary
+   `$0671`) body at offset 75654 contains the cross-unit-RTL alias
+   marker `$9C $11 89 2C F1 27` plus `$FF $2A` cross-refs to
+   `PByteArray`/`TByteArray`/`PWordArray`. None of these is
+   TThreadPriority's primary `$3370`. Refuted.
+2. **A second `$2A` entry that bridges `$0671 ↔ $3370`** — a
+   full-file scan for `$2A` records whose primary is `$0671` finds
+   exactly ONE (TWordArray). A scan for `$2A` records whose body
+   contains the bytes `70 33` (`$3370` LE) finds only
+   `TThreadProcedure` and `TThreadPriority` itself. No bridging
+   pair exists. Refuted.
+3. **A `$63 $65` UNIT_BRIDGE record near the param** — the apparent
+   `$63 $65` matches in DebugTarget.rsm are false positives (the
+   bytes are `'c' 'e'` at the end of names like "Process").
+   Refuted as a record-tag scheme.
+4. **Spatial co-location** — neither `71 06` (the alias) nor
+   `41 04` (TThreadPriority's `$25` enum-constant secondary
+   `$0441`) appears within ±2 KB of either tpHigher's `$25` record
+   nor AStatusPriority's `$21` record. The bridge is not local.
+
+Per-binary stability of the alias for *classes* is confirmed by
+counting `Self`-named `$21` records: 92 distinct (Hi, Lo) pairs with
+Hi ∉ {$2E, $2F}; the most common is `$05A5` (21 hits — a common RTL
+class method), `$0699` (16), `$053D` (15). Each per-binary alias is
+stable across all methods of the same class. But for the singleton
+case (`TThreadPriority` appears as a param exactly once in
+DebugTarget), the alias `$0671` is unique to that one occurrence —
+which means there's no occurrence-count signal we can use to
+distinguish "alias of a unique RTL type" from "primary of an
+unrelated registry entry".
+
+**Remaining closure work** (this entry stays `GAP` until landed):
+
+1. **The most likely undecoded mechanism** — given the negative
+   findings above, the bridge is probably emitted as a record kind
+   the scanner currently walks past entirely. Two unexplored
+   candidates:
+   - The `$26` / `$27` / `$03` records emitted alongside the
+     unit-init proc sequence. `$03` is partly decoded as
+     ENUM_DEF, but its full payload (especially the trailing
+     bytes after the documented `(unit, type)` pair) hasn't been
+     mapped.
+   - The `$28 PROC_TAG` record's PROLOGUE bytes (between the proc
+     name and the first `$21`/`$22` param record): for
+     `TouchRegEnumParam` we observed
+     `28 ... 07 7F DC 04 E8 02 00 11 2E 00` — the `11 2E` looks
+     like a structured-type id `$2E11`, possibly the proc's own
+     signature type that lists its param types.
+2. **Fallback workaround if the byte-level bridge isn't found**:
+   parse the `.map` file's procedure-signature line (which carries
+   the human-readable declaration `KonsCommonLoad(AKonsCommonTyp:
+   TKonsCommonTyp; ...)` and map declared param names → declared
+   type names → enum constants via the existing $25-decoded
+   registry.
+3. **Pin** via
    [Test.DPT.Rsm.Scanner.TestRegisterParamEnumTypeIdResolvesToPrimary32](../Test/Test.DPT.Rsm.Scanner.pas)
    (does not exist yet): assert that
    `Reader.ResolveRegParamAlias($0671)` returns the primary `$3370`
