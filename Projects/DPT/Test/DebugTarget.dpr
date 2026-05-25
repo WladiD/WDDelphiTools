@@ -452,18 +452,56 @@ end;
 // definition the walker will miss until the guard is replaced with
 // a structural anchor.
 type
+  // Per-visibility sections so §6.14 can pin the anchor's byte +2
+  // marker for every Delphi visibility (private, strict private,
+  // protected, strict protected, public, published). Each section
+  // carries exactly one field so the per-field anchor byte +2 is
+  // unambiguously associated with the section's visibility. The
+  // names are deliberately non-F-prefixed so the §6.3 structural-
+  // anchor walker still has to find them (no name-shape shortcut).
   TNoFPrefixHost = class
+  private
+    PrivateInt        : Integer;
+  strict private
+    StrictPrivateInt  : Integer;
   protected
-    PlainInt   : Integer;
-    PlainLabel : string;
+    PlainInt          : Integer;
+    PlainLabel        : string;
+  strict protected
+    StrictProtectedInt: Integer;
+  public
+    PublicInt         : Integer;
+    procedure TouchStrict;
+  published
+    // Delphi `published` accepts only class/interface fields (E2217),
+    // so we use a class-typed field here.  The mere act of a non-
+    // empty `published` section flips the class into {$M+} mode (the
+    // Delphi compiler emits W1055 to that effect), so the linker
+    // would treat earlier sections' fields as RTTI-eligible too.
+    PublishedObj      : TObject;
   end;
+
+procedure TNoFPrefixHost.TouchStrict;
+begin
+  StrictPrivateInt   := Integer($BADCAFE4);
+  StrictProtectedInt := Integer($BADCAFE5);
+  PlainInt           := PlainInt + StrictPrivateInt + StrictProtectedInt;
+end;
+
 var
   GGlobalNoFPrefix : TNoFPrefixHost;
 procedure NoFPrefixProbe;
 begin
   GGlobalNoFPrefix := TNoFPrefixHost.Create;
-  GGlobalNoFPrefix.PlainInt   := Integer($BADCAFE0);
-  GGlobalNoFPrefix.PlainLabel := 'no-F-prefix';
+  GGlobalNoFPrefix.PrivateInt         := Integer($BADCAFE1);
+  GGlobalNoFPrefix.PlainInt           := Integer($BADCAFE0);
+  GGlobalNoFPrefix.PlainLabel         := 'no-F-prefix';
+  GGlobalNoFPrefix.PublicInt          := Integer($BADCAFE2);
+  GGlobalNoFPrefix.PublishedObj       := TObject.Create;
+  GGlobalNoFPrefix.TouchStrict;
+  GGlobalNoFPrefix.PlainInt           := GGlobalNoFPrefix.PlainInt +
+    GGlobalNoFPrefix.PrivateInt +
+    GGlobalNoFPrefix.PublicInt;
   Writeln('NoFPrefixProbe ', GGlobalNoFPrefix.PlainInt, ' ',
           GGlobalNoFPrefix.PlainLabel); Flush(Output);
 end;

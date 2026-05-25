@@ -208,18 +208,24 @@ begin
     end;
     // Structural anchor: every real class-field record is followed
     // immediately by a 4-byte typeinfo prefix `$02 $00 <section-flag>
-    // $00`. The third byte is a section/visibility marker observed in
-    // three values:
+    // $00`. The third byte is a section/visibility marker. Full
+    // taxonomy (§6.14 closure, pinned by
+    // TestVisibilityMarkerTaxonomy32):
     //   $00 = terminal record in the field section (last field, or
-    //         last field before a section break)
-    //   $01 = protected next-field marker (TNoFPrefixHost.PlainInt
-    //         declared `protected` produces `$02 $00 $01 $00`)
-    //   $02 = published / default-published next-field marker
-    //         (FBase*/FDerived* fields produce `$02 $00 $02 $00`)
-    // The full taxonomy of bit-flags is not yet mapped; treating the
-    // marker as "any of $00/$01/$02" admits all currently observed
-    // visibilities without losing selectivity (the surrounding bytes
-    // 0/1/3 stay pinned).
+    //         last field of a class with no further sections)
+    //   $01 = strict private / protected next-field
+    //   $02 = strict protected / public next-field (in non-$M+
+    //         classes; default-visibility fields in TInner /
+    //         TDerived land here)
+    //   $03 = public next-field in a $M+ class (e.g.
+    //         TNoFPrefixHost.PublicInt sits inside a class that
+    //         got $M+ flipped on via its `published` section)
+    // The walker accepts marker in [$00..$0F]; the predicate is
+    // intentionally looser than the observed set because the linker
+    // may introduce additional markers for visibilities we haven't
+    // probed yet (interface fields, class-helper-added members),
+    // and the surrounding bytes 0/1/3 of the anchor still pin the
+    // shape tightly.
     //
     // This anchor is far more selective than the previous Name[1]='F'
     // heuristic and admits classes whose fields don't follow the
@@ -232,7 +238,7 @@ begin
     if (P + 4 + 1 + NameLen + 3 >= FSz) or
        (ByteAt(P + 4 + 1 + NameLen)     <> $02) or
        (ByteAt(P + 4 + 1 + NameLen + 1) <> $00) or
-       (ByteAt(P + 4 + 1 + NameLen + 2) > $02) or
+       (ByteAt(P + 4 + 1 + NameLen + 2) > $0F) or
        (ByteAt(P + 4 + 1 + NameLen + 3) <> $00) then
     begin
       Inc(P);

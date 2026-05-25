@@ -118,6 +118,18 @@ type
     procedure TestSimpleRecordHeaderFieldCount64;
 
     /// <summary>
+    ///   Pin test for §6.14 closure -- the class-field anchor byte +2
+    ///   visibility/section marker taxonomy. Verifies that all seven
+    ///   TNoFPrefixHost fields (one per visibility section: private,
+    ///   strict private, protected×2, strict protected, public,
+    ///   published) are discovered after the walker predicate widened
+    ///   from `[$00..$02]` to `[$00..$0F]`, and pins the observed
+    ///   marker values for each section against the byte stream.
+    /// </summary>
+    [Test]
+    procedure TestVisibilityMarkerTaxonomy32;
+
+    /// <summary>
     ///   Pin test for §6.13 closure -- the terminal field of a
     ///   record now reports a non-zero Size, derived from the
     ///   record's total byte size (4-byte DWORD between the
@@ -749,6 +761,120 @@ begin
       end;
       Assert.IsTrue(Found,
         Exp.Name + ': no $0E-anchored record-name record found in RSM');
+    end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestVisibilityMarkerTaxonomy32;
+// §6.14 PIN. TNoFPrefixHost in DebugTarget declares one field per
+// visibility section (private, strict private, protected×2, strict
+// protected, public, published). All seven fields must appear in
+// the discovered members list after the walker predicate widened
+// from [$00..$02] to [$00..$0F]. The marker byte +2 of each field's
+// anchor is also pinned against the observed taxonomy so a future
+// Delphi linker change that re-numbers visibilities surfaces here
+// as a regression.
+type
+  TProbe = record
+    Name           : String;
+    ExpectedMarker : Byte;  // anchor byte +2
+    SectionKind    : String; // documentation only
+  end;
+const
+  Probes: array[0..6] of TProbe = (
+    (Name: 'PrivateInt';         ExpectedMarker: $00; SectionKind: 'private'),
+    (Name: 'StrictPrivateInt';   ExpectedMarker: $01; SectionKind: 'strict private'),
+    (Name: 'PlainInt';           ExpectedMarker: $01; SectionKind: 'protected'),
+    (Name: 'PlainLabel';         ExpectedMarker: $01; SectionKind: 'protected (last in section)'),
+    (Name: 'StrictProtectedInt'; ExpectedMarker: $02; SectionKind: 'strict protected'),
+    (Name: 'PublicInt';          ExpectedMarker: $03; SectionKind: 'public ($M+ class)'),
+    (Name: 'PublishedObj';       ExpectedMarker: $00; SectionKind: 'published (terminal)'));
+var
+  S       : TRsmScanner;
+  ClassIdx: Integer;
+  Members : IList<TRsmClassMember>;
+  I, M    : Integer;
+  Has     : Boolean;
+
+  function ProbeMarkerInByteStream(const AName: String;
+    var AMarker: Byte): Boolean;
+  // Walk the byte stream for the structural pattern
+  //   <DWORD-off> <NL> <name> $02 $00 <marker> $00
+  // and return the marker byte. Used to assert the on-wire byte +2
+  // matches the discovered member's section, independently of the
+  // walker's internal logic.
+  var
+    P, EndP, NL: NativeInt;
+    FoundName  : String;
+    Off        : UInt32;
+  begin
+    Result := False;
+    NL := Length(AName);
+    EndP := S.Sz - NL - 8;
+    P := 5;
+    while P < EndP do
+    begin
+      if (S.ByteAt(P) = NL) and
+         (P + 1 + NL + 3 < S.Sz) and
+         (S.ByteAt(P + 1 + NL)     = $02) and
+         (S.ByteAt(P + 1 + NL + 1) = $00) and
+         (S.ByteAt(P + 1 + NL + 3) = $00) then
+      begin
+        Off := UInt32(S.ByteAt(P - 4)) or
+               (UInt32(S.ByteAt(P - 3)) shl 8) or
+               (UInt32(S.ByteAt(P - 2)) shl 16) or
+               (UInt32(S.ByteAt(P - 1)) shl 24);
+        if (Off > 0) and (Off <= $FFFF) and
+           S.ReadIdentifier(P, FoundName) and
+           SameText(FoundName, AName) then
+        begin
+          AMarker := S.ByteAt(P + 1 + NL + 2);
+          Exit(True);
+        end;
+      end;
+      Inc(P);
+    end;
+  end;
+
+var
+  ActualMarker: Byte;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    Assert.IsTrue(S.ClassByName.TryGetValue('tnofprefixhost', ClassIdx),
+      'TNoFPrefixHost not discovered -- general structural-anchor ' +
+      'discovery regressed');
+    Members := S.Classes[ClassIdx].Members;
+
+    for I := Low(Probes) to High(Probes) do
+    begin
+      Has := False;
+      for M := 0 to Members.Count - 1 do
+        if SameText(Members[M].Name, Probes[I].Name) then
+        begin
+          Has := True;
+          Break;
+        end;
+      Assert.IsTrue(Has,
+        Format('Probe %s (%s) not in TNoFPrefixHost.Members -- the ' +
+               'walker predicate likely rejected a marker the §6.14 ' +
+               'closure widened in.',
+          [Probes[I].Name, Probes[I].SectionKind]));
+
+      Assert.IsTrue(ProbeMarkerInByteStream(Probes[I].Name, ActualMarker),
+        Format('Probe %s field-record not found in byte stream',
+          [Probes[I].Name]));
+      Assert.AreEqual<Byte>(Probes[I].ExpectedMarker, ActualMarker,
+        Format('Probe %s (%s) marker mismatch: expected $%.2X, got $%.2X. ' +
+               'A change here means the Delphi linker re-numbered ' +
+               'visibility encodings; update the §6.14 taxonomy.',
+          [Probes[I].Name, Probes[I].SectionKind,
+           Probes[I].ExpectedMarker, ActualMarker]));
     end;
   finally
     S.Free;

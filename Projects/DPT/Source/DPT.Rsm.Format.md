@@ -866,17 +866,23 @@ sit at offset 0). The backward window is bounded by `ScanWindow =
 (`AMinStartOff`) to prevent cross-class leakage.
 
 **Structural anchor**: the 4 bytes immediately after `<field-name>`
-must form `$02 $00 <section-flag> $00` where `section-flag ∈ {$00,
-$01, $02}`. Byte +2 acts as a section / visibility marker:
+must form `$02 $00 <section-flag> $00`. Byte +2 acts as a section /
+visibility marker (§6.14 closure, pinned by
+`TestVisibilityMarkerTaxonomy32` against a TNoFPrefixHost fixture
+that declares one field per visibility section):
 
-| Value | Meaning (observed)                                              |
-|-------|-----------------------------------------------------------------|
-| $00   | Terminal record (last field, or last field before section end) |
-| $01   | `protected` next-field marker (`TNoFPrefixHost.PlainInt` form)  |
-| $02   | `published` / default-published next-field marker (F-prefix)    |
+| Value | Visibility section of this field                                                       |
+|-------|----------------------------------------------------------------------------------------|
+| $00   | Terminal record (last field of class) OR private field                                 |
+| $01   | strict private / protected                                                              |
+| $02   | strict protected / public (in non-$M+ classes; the linker collapses both into $02)     |
+| $03   | public (in $M+ classes only -- a `published` section anywhere in the class flips $M+)  |
 
-Whether the marker encodes additional bit-flags (private, strict
-private, strict protected) is not yet fully mapped — see §6.14. This
+The walker predicate accepts `byte+2 in [$00..$0F]` -- looser than
+the observed set so future visibility additions (interface fields,
+class-helper-added members, ...) surface as discovered phantoms
+rather than as silently dropped fields. The surrounding bytes 0/1/3
+of the anchor still pin the shape tightly. This
 is the same anchor's leading 4 bytes that the forward record-field
 walker validates via `RsmIsValidFieldTypeinfoPrefix` (which checks 6
 bytes). The shorter
@@ -888,7 +894,7 @@ the `Off > 0` floor proved sufficient on the DebugTarget + TFW corpus
 to filter every phantom match (the known case being the
 `<00 00 00 00> 04 Self <typeinfo>` byte sequence that every method-
 bearing class emits via its implicit `Self` register-var record). See
-[StructDiscoverer.pas:209-240](DPT.Rsm.StructDiscoverer.pas#L209-L240)
+[StructDiscoverer.pas:209-246](DPT.Rsm.StructDiscoverer.pas#L209-L246)
 for the implementation and
 [Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
 for the cross-platform pinning test (TNoFPrefixHost surfaces non-F
@@ -1127,7 +1133,7 @@ that the existing cap doesn't bite.
 
 ### 6.13 Terminal class field byte width (`UNCERTAIN`)
 
-[StructDiscoverer.pas:278-281](DPT.Rsm.StructDiscoverer.pas#L278-L281)
+[StructDiscoverer.pas:284-287](DPT.Rsm.StructDiscoverer.pas#L284-L287)
 — class members use the backward field walker, whose terminal
 member's byte width cannot be derived from a successor offset.
 Classes don't carry an obvious "instance size" the way records do
@@ -1138,22 +1144,6 @@ The evaluator falls back to the user-requested type's width for
 class terminal fields; whether an equivalent total-size field
 exists in the class trailer or anywhere else in the byte stream
 has not been investigated.
-
-### 6.14 Class-field anchor byte +2 — visibility/section taxonomy (`UNCERTAIN`)
-
-[StructDiscoverer.pas:209-240](DPT.Rsm.StructDiscoverer.pas#L209-L240)
-— the structural anchor `$02 $00 <flag> $00` carries a section /
-visibility marker in byte +2. Three values are observed in the
-DebugTarget corpus: `$00` (terminal), `$01` (`protected` next-field),
-`$02` (`published` / default-published next-field). What `private`,
-`strict private`, `strict protected`, and `public` produce is **not
-yet mapped** — the current fixture covers only the three observed
-values; the walker accepts any value in `[$00..$02]` and would reject
-a fourth value as a phantom. If a future fixture exposes a new
-visibility, extend `TNoFPrefixHost` to carry each variant and tighten
-the predicate. See §4.14 for the marker table and
-[Test.DPT.Rsm.Scanner.TestNonFPrefixClassFieldsDiscovered32/64](../Test/Test.DPT.Rsm.Scanner.pas)
-for the current pin.
 
 ---
 
