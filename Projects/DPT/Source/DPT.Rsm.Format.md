@@ -1012,6 +1012,35 @@ reader. Consequence: the terminal class field's `Size` stays 0 and
 the evaluator falls back to the user-requested type's width. This
 covers every concrete evaluation path the debugger needs.
 
+**Inheritance visibility for loosely-packed RTL hierarchies** (design
+limitation, §6.12 closure). The `AMinStartOff` cap is the load-bearing
+defence against cross-class leakage on tightly-packed sibling pairs
+(`TDerived → TDeepDerived`) where loosening the cap re-introduces
+`FirstOffs` / `DeriveClassParents` corruption. The trade-off: a parent
+class whose field records sit *before* the cap (i.e. before the
+parent's own class anchor on the byte stream's previous-class side)
+never gets its `Members` populated by discovery, and the Format-A
+`$2C` pass updates existing members but does not synthesise missing
+ones. Symptom: dotted evaluations into non-TComponent RTL hierarchies
+(`TStringList.FUpdateCount` via `TStrings`, `TStream` subclasses,
+`TList<T>` subclasses with non-TComponent ancestry) lose inherited-
+field visibility, while TComponent-rooted hierarchies — which happen
+to be packed tightly enough that the cap doesn't bite — resolve fully.
+Pinned by
+[Test.DPT.Rsm.LocalsReader.DoTestNonComponentRtlInheritance](../Test/Test.DPT.Rsm.LocalsReader.pas#L708-L737),
+which asserts the own-field positive (`TStringList.FCount`) and
+documents the inherited-field gap. Closure paths that have been
+considered but not implemented (each carries non-trivial regression
+risk against the leakage defence): (a) `$2C`-driven member synthesis
+with an offset taken from the `$2C` body; (b) a second backward scan
+gated on the parent class being resolved-but-empty, using a tighter
+shape filter; (c) `$25`-region locality matching analogous to the
+discarded `FLastSecondary` experiment (§6.11). The gap is left open
+as an accepted limitation rather than a `GAP` because every
+investigated closure path either (i) over-collects on the
+DebugTarget tight-pair fixtures, or (ii) requires a field-offset
+source that the `$2C` body shape does not currently carry.
+
 ---
 
 ## 5. Cross-record state machines
@@ -1105,51 +1134,6 @@ type of another record/class (§4.8 table). What remains open:
   — knowing that won't make the Reader more useful, but the body
   shapes might still carry consumable data the current decoder
   walks past.
-
-### 6.12 `TStrings → TPersistent → TObject` inheritance chain (`GAP`)
-
-[Test.DPT.Rsm.LocalsReader.pas:709-738](../Test/Test.DPT.Rsm.LocalsReader.pas#L709-L738)
-— `DoTestNonComponentRtlInheritance` documents that `TStringList.FCount`
-resolves (own field) but `TStringList.FUpdateCount via TStrings` does
-NOT.
-
-**Mechanism**: `ScanFieldsBackwardFromClassName(AClassNameOff,
-AMinStartOff)` walks 64 KB backward from each class's anchor looking
-for `<DWORD-off> <NL> <name>` triples, capped at the previous
-discovered class's anchor (`AMinStartOff`). For TStrings the field
-records sit BEFORE that cap, so the scan never reaches them and
-`Reader.Classes[TStringsIdx].Members` ends up empty. The Format-A
-linker's `$2C` pass would happily *update* an existing member with
-its `PrimitiveTypeId` but doesn't currently *add* new members it
-didn't see in discovery, so the empty list stays empty all the way
-through `FindClassMember`'s chain walker -- the chain reaches
-TStrings but finds no member to match.
-
-**Why the cap is there**: relaxing it would re-introduce the
-cross-class leakage that previously corrupted `FirstOffs` /
-`DeriveClassParents` on closely-packed pairs like
-`TDerived → TDeepDerived`. Any fix must be at least as selective.
-
-**Possible closure paths** (none investigated end-to-end):
-1. Have the Format-A linker *create* a new member when it sees a
-   `$2C` record naming a field whose parent class has the field
-   missing. The `$2C` body would need to carry a usable byte
-   offset for the new member's `Offset`; the `$2C` body shape is
-   documented in §4.9 (no obvious offset field beyond the parent
-   record local id).
-2. Run a second backward scan when the parent class has been
-   resolved (so the chain walker reaches an empty parent), with a
-   tighter shape filter that rejects bytes belonging to the
-   intervening capped class.
-3. Match $25-region locality (the same logic that was tested with
-   `FLastSecondary` and dropped in §6.11) to associate
-   declaration-order field clusters with their owning class.
-
-Symptom impact: dotted evaluations into non-TComponent RTL
-hierarchies (TStringList, TStream, TList&lt;T&gt; subclasses with
-non-TComponent ancestry) lose visibility into inherited fields.
-TComponent-rooted hierarchies happen to be packed tightly enough
-that the existing cap doesn't bite.
 
 ---
 

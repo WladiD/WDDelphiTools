@@ -692,13 +692,18 @@ end;
 ///     <item><c>TStringList.FCount</c> (an own field) resolves --
 ///       the leaf class's field-scan window is wide enough.</item>
 ///   </list>
-///   Does NOT yet assert
+///   Does NOT assert
 ///   <c>TStringList.FUpdateCount via TStrings</c>: the RSM emits
 ///   <c>TStrings</c>'s field records in a region the per-class
 ///   backward scan cannot currently reach (the records sit BEFORE
 ///   the previous discovered class's anchor, which the
 ///   AMinStartOff cap excludes to prevent cross-class leakage).
-///   That gap is the next work item for non-TComponent hierarchies.
+///   Closed as a documented design limitation in
+///   <c>DPT.Rsm.Format.md</c> §4.14 -- the cap is load-bearing
+///   against cross-class leakage on tightly-packed sibling pairs,
+///   and every investigated relaxation either over-collects on
+///   DebugTarget fixtures or requires an offset source the $2C
+///   body shape does not carry.
 /// </summary>
 procedure TRsmReaderLegacyTests.DoTestNonComponentRtlInheritance(
   AUse64Bit: Boolean);
