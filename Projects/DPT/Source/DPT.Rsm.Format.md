@@ -625,9 +625,38 @@ program-local registry cluster:
   `SecCandidate` for the enum bridge; it's the high half of the
   RTTI-pointer DWORD and carries a legitimate value only because
   the address ends up in the `$04xxxxxx` window in DebugTarget.
-* **`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`** — observed on cross-unit
-  RTL entries (`TObject`, `TGUID`, `TVisibilityClass`, `TThreadID`,
-  ...); body shape is undocumented. See §6.6.
+* **`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`** — **cross-unit RTL body
+  shapes** (§6.6 closure). All six carry the same 5-byte header
+  (`<flag> $00 $00 <primary-lo> <primary-hi>`) the existing scanner
+  reads, followed by a per-shape body. Empirically pinned against
+  102,243 `$2A` entries in TFW.rsm with the distribution `$00`: 39,797 ·
+  `$20`: 3,390 · `$A8`: 27,570 · `$88`: 21,177 · `$80`: 9,856 · `$98`:
+  306 · `$B8`: 118 · `$08`: 29.
+
+  | Flag | Type family                                                                                  | Body content (after the 5-byte header)                                                                                                                                                                                                                                       |
+  |------|----------------------------------------------------------------------------------------------|----|
+  | `$08` | Array helper types only (`TByteArray`, `TWordArray` — 2 distinct names, 29 hits)             | `$9C $11 <2-byte ref>` then a `$FF $2A <NL> <Name>` sibling cross-reference (e.g. `PByteArray`). Fixed ~13-byte body.                                                                                                                                                        |
+  | `$80` | Primitive aliases (`WideChar`, `LongInt`, `LongWord`, `NativeInt`, `Int16`, `UTF8Char`, ...) | Two sub-shapes: ~38% extend with `$9C $13 <2-byte ref>` (alias to a registered primitive); ~44% are bare 9-byte name-alias headers immediately followed by the next `$2A` record.                                                                                            |
+  | `$88` | Heavier primitive aliases (`Real`, `Real48`, `Extended80`, `Openstring`, `Text`, `PFixedInt`, `TVisibilityClass`, `TDispatchMessage`) | Same family as `$80` plus extra payload — typically `$9C $13 <2-byte ref> $08 $08` (primitive-with-extra) or `$08 $50 <NL> <C-decorated-name> $00`. Body length clusters at 9, 10, 19, 20.                                                                       |
+  | `$98` | WinAPI typed handles (`HANDLE_PTR`, `HCOLORSPACE`, `HGLRC`, `HDESK`, `HSTR`, `HTASK`)         | Very uniform: `$F6 $FF $81 $02 <primary> <secondary> $9C $12 <2-byte ref> $2A $13 <same ref>`, with the body carrying the Pascal-to-C mangled `B p<n>H<NAME>` handle decoration. Body length 18-27.                                                                          |
+  | `$A8` | Densest flag: core primitives + all RTL classes + structural records (`Boolean`, `Char`, `Integer`, `TObject`, `TGUID`, `TPersistent`, `TStrings`, `TComponent`, `TInterfaceEntry`, `TMethod`, `Pointer`, ...) | Fixed 12-byte prefix `<flag> $00 $00 <prim4> <2-byte sec> $01 $04`; ~65% extend past 32 bytes with `$9C $13 <2-byte ref> $08 ...` followed by C-equivalent name strings or sub-records (`$A0`, `$26`, `$42` markers all appear). |
+  | `$B8` | Typed aliases with cross-references (`TFontName`, `TAlphaColor`, `TImageIndex`, `HWND`, `HHOOK`, `TScrollStyle`)                          | Same 12-byte `... $01 $04` prefix as `$A8`, then `$9C $12 <2-byte ref> $08 <len>` followed by an `$FF $2A <NL> <Name>` cross-reference to a related type.                                                                                                                      |
+
+  The 4 bytes at +3..+6 in all six forms show uniform-nibble
+  distribution — they are NOT the `(VA shl 4) | $07` RTTI-pointer
+  encoding the `$20` form uses, but an opaque DCU-internal symbol
+  token (no usable VA). The `$9C $1x <2-byte ref>` sub-marker that
+  most bodies carry is a type-alias to another registered name —
+  redundant with the `FRsmTypeIdToClassIdx` lookups the Reader gets
+  for free via the primary id. The `$FF $2A`-prefixed cross-references
+  re-point at already-registered siblings. **Net Reader value: zero**
+  — every name that matters is also registered as its own `$2A`
+  entry, and the only field that isn't redundant (the 4-byte token at
+  +3..+6) is not resolvable to anything the debugger needs without an
+  additional reverse-engineering pass into DCU-internal symbol tables.
+  The decoder walks past these bodies via the single-byte fallback
+  and the resulting state is complete for every observed evaluation
+  path.
 
 The kind hypothesis ("flag distinguishes class vs. record vs. enum
 vs. primitive") is **refuted**: classes and records both appear under
@@ -1110,30 +1139,10 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-Each item here is anchored to the code location that flags it.
-
-### 6.6 `$2A` type-registry body-flag — cross-unit RTL forms (`UNCERTAIN`)
-
-[Scanner.pas:1210-1223](DPT.Rsm.Scanner.pas#L1210-L1223) — the byte
-at body offset +0 is a body-shape selector, NOT a kind discriminator
-(see §4.8 + pinning test
-[Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)).
-Sub-points §6.6.1 (wide-body payload meaning) and §6.6.2 (`$20`
-vs `$00` discriminator for records) are **closed** — the wide-body
-bytes are an RTTI-pointer (§4.1 / §4.8), and records get `$20` iff
-they have a managed field or are referenced as a non-variant field
-type of another record/class (§4.8 table). What remains open:
-
-* **Cross-unit RTL flag values (`$08`, `$80`, `$88`, `$98`, `$A8`,
-  `$B8`)**: observed on `TObject`, `TGUID`, `TVisibilityClass`,
-  `TThreadID`, etc.; body shapes are not characterised and no
-  concrete sample has been broken open. The cross-unit RTL forms
-  sit in the source-imported portion of the RSM (System.Classes,
-  System.SysUtils, ...) so the discriminator is presumably "which
-  DCU-internal RTTI-emission policy applied at the source unit"
-  — knowing that won't make the Reader more useful, but the body
-  shapes might still carry consumable data the current decoder
-  walks past.
+No open gaps remain. Every previously-tagged `GAP` / `UNCERTAIN`
+item has been either decoded into §4 / §5 or closed as a documented
+design choice. See the git history of this file for the closure
+audit trail.
 
 ---
 
