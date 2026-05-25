@@ -505,6 +505,17 @@ begin
   Writeln('NoFPrefixProbe ', GGlobalNoFPrefix.PlainInt, ' ',
           GGlobalNoFPrefix.PlainLabel); Flush(Output);
 end;
+// Register-passed enum parameter probe (§6.15). Forces the linker to
+// emit a $21-PARAM record whose payload encodes a same-unit enum's
+// type id. The scanner's HandleParamRecord currently reads only the
+// LOW byte unless Hi is $2E/$2F -- this proc exercises the
+// non-$2E/$2F path so the bug surfaces.
+procedure TouchRegEnumParam(AStatusLight: TLightStatus;
+                            AStatusPriority: TThreadPriority);
+begin
+  Writeln('RegEnum ', Ord(AStatusLight), ' ',                          // Line 516 - register-enum-param bp here
+          Ord(AStatusPriority)); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -668,6 +679,10 @@ begin
     NameClashEnumProbe;
     SparseEnumProbe;
     NoFPrefixProbe;
+    // Reach TouchRegEnumParam with two enum-typed values live in the
+    // first two register parameter slots. Drives the §6.15 register-
+    // passed enum parameter auto-detect pin.
+    TouchRegEnumParam(lsYellow, tpHigher);
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked

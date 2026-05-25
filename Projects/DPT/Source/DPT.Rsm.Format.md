@@ -1139,10 +1139,103 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-No open gaps remain. Every previously-tagged `GAP` / `UNCERTAIN`
-item has been either decoded into §4 / §5 or closed as a documented
-design choice. See the git history of this file for the closure
-audit trail.
+Each item here is anchored to the code location that flags it.
+
+### 6.15 Cross-unit RTL enum type-id encoding in `$21` REGVAR records (`GAP`)
+
+[Scanner.pas:715-727](DPT.Rsm.Scanner.pas#L715-L727) +
+[Scanner.pas:765-777](DPT.Rsm.Scanner.pas#L765-L777) — `HandleParamRecord`
+and `HandleRegVarRecord` gate the 2-byte type-id read on `Hi ∈ {$2E,
+$2F}` and fall back to a 1-byte read otherwise. This gate is too
+narrow: cross-unit RTL enum parameters (e.g. `TThreadPriority` from
+`System.Classes`) are emitted with a Hi byte the gate doesn't accept,
+so the scanner truncates the type id to 1 byte and the resulting value
+collides with whatever foreign type happens to be registered at the
+truncated id. Live evaluate then mis-labels the parameter.
+
+**Concrete repro** (`DebugTarget.exe`, BP at
+[DebugTarget.dpr:516](../Test/DebugTarget.dpr#L516)
+inside `procedure TouchRegEnumParam(AStatusLight: TLightStatus;
+AStatusPriority: TThreadPriority)`):
+
+| Parameter        | Source enum     | Origin           | `$21` payload after `$66 $00 $00`        | `evaluate` w/o type |
+|------------------|-----------------|------------------|------------------------------------------|---------------------|
+| `AStatusLight`   | TLightStatus    | program-local    | `81 2E FE 21 0F` — Hi=$2E, TypeIdx=$2E81 | `enum: lsYellow (1)` ✓ |
+| `AStatusPriority`| TThreadPriority | cross-unit (RTL) | `71 06 FC 63 27` — Hi=$06, **truncated** | "no RSM type metadata for this field" ✗ |
+
+In TFW.exe the same shape mis-resolves to a random registered record
+(`KonsCommonLoad(AKonsCommonTyp: TKonsCommonTyp)` → auto-detect
+returns `record TSatz33`).
+
+**Why the gate isn't a one-line fix**: a global enumeration of all Hi
+bytes appearing at the `$66 $00 $00` anchor in
+DebugTarget.rsm shows **42 distinct values** (`$00, $02, $03, ...
+$2E, ..., $F4, $F6, $F8, $FA, $FC, $FE`). Some of these are 1-byte
+primitive type ids genuinely encoded as `<lo=$02> <Hi=anything>` (the
+trailing byte being either record-tag padding or part of another
+field), others are the high byte of a 2-byte type id. Without a
+structural disambiguator the gate cannot be widened safely:
+
+* The global-record handler at
+  [Scanner.pas:972-986](DPT.Rsm.Scanner.pas#L972-L986) gets away with
+  a 3-value gate (`{$2E, $2F, $1E}`) because a wrong gate decision
+  only shifts the *VA offset* (1-byte vs 2-byte), and the resulting
+  type-id mis-read is rarely visible because globals are usually
+  primitives. Param records have NO VA slot, so the gate decision
+  affects only the type-id read — and there the failure surfaces in
+  every cross-unit-RTL-enum dotted evaluate.
+* The stack-local handler at
+  [Scanner.pas:808-853](DPT.Rsm.Scanner.pas#L808-L853) DOES use a
+  structural disambiguator: it inspects byte +5 (and +6) and accepts
+  the 1-byte read only when the byte at +5/+6 is one of `LOCAL_TAG /
+  PROC_TAG / SCOPE_END`. Param records likely need an equivalent —
+  candidate continuation tags are `$20/$21/$22/$63/$25/$03/$2A/$2C`
+  plus the open-array hidden sub-record marker `$20 $21`.
+
+**Cross-check against `$2A` registry**: TThreadPriority's primary
+type id in the `$2A` registry is **$3370** (cross-unit RTL `$A8`
+body-flag form — §4.8). The `71 06` bytes in the `$21` record are
+NEITHER the primary's LO byte ($70 ≠ $71) NOR a known alias from
+§5.1's enum flow. This points at an additional cross-unit RTL alias
+encoding for register-passed parameters that isn't yet documented;
+the linker token at $25-record body+3..+6 (§6.5 closure) might be
+the bridge, but the 2-byte head ($0671 if the 2-byte read held)
+doesn't appear in any registry we've inspected.
+
+**Why this is independent of §6.9**: §6.9 closed
+`Member.PrimitiveTypeId` for **class FIELDS** of `$2C` records — the
+bridge runs inside the Format-A linker. §6.15 is in the **scanner's
+locals/params** path, which never touches the Format-A linker.
+
+**Why class-field auto-detect would still work**:
+`TestTfwEnumTypedFieldResolvesToPrimary` pinned `TUserKonsOutlook.
+SyncDirection.PrimitiveTypeId = $7B7F` against the class member —
+not against a $21 record. A live `evaluate myUserKonsOutlook.
+SyncDirection` would exercise
+[Debugger.pas:3057-3063](DPT.Rsm.Debugger.pas#L3057-L3063) (path 1:
+`AMember.PrimitiveTypeId`), bypassing the broken `$21`-record path
+entirely. That live verification is still open (no readily-accessible
+TUserKonsOutlook instance found in early TFW startup).
+
+**Open closure work**:
+
+1. Enumerate the Hi-byte → next-byte structural correlation for the
+   42 observed Hi values: does byte +5 reliably contain a record-tag
+   in the 1-byte-typeid case? Build the table.
+2. Decode the cross-unit RTL alias for register-passed parameters:
+   the `71 06` LE bytes need a bridge to the `$2A` primary `$3370`
+   that the existing `FCrossUnitEnumIds` / `FLowByteEnumRefs` may
+   or may not cover.
+3. Implement the structural disambiguator in `HandleParamRecord` /
+   `HandleRegVarRecord` (and consistently in
+   `HandleGlobalRecord`'s narrower-but-still-fragile gate).
+4. Pin via
+   [Test.DPT.Rsm.Scanner.Test\<...\>EnumParamTypeIdDecoded](../Test/Test.DPT.Rsm.Scanner.pas):
+   assert `Scanner.Procs[TouchRegEnumParam].Locals['AStatusPriority']
+   .TypeIdx = $3370` (TThreadPriority's primary).
+
+The `TouchRegEnumParam` fixture in `DebugTarget.dpr` is already in
+place so future investigations have a small repro.
 
 ---
 
