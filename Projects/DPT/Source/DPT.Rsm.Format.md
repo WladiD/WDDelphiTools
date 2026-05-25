@@ -997,6 +997,19 @@ as a post-process to drop members that the `$2C` records never
 confirmed (see §4.9 and
 [FormatALinker.pas:752-786](DPT.Rsm.FormatALinker.pas#L752-L786)).
 
+**Terminal-field byte width** (design limitation). Unlike records
+which carry a size DWORD between the name and the field stream
+(§4.13's recovery rule), classes carry no equivalent instance-size
+slot anywhere in the RSM byte stream. The class trailer ends with
+a per-platform constant DWORD (`$58` Win32 / `$C8` Win64) that
+documents the trailer's structural size, NOT the class instance
+size (TInner and TWithRec — wildly different instance sizes —
+both ship `$58` on Win32). The class's true instance size lives in
+its VMT in the `.text` section, out of reach of the symbol container
+reader. Consequence: the terminal class field's `Size` stays 0 and
+the evaluator falls back to the user-requested type's width. This
+covers every concrete evaluation path the debugger needs.
+
 ---
 
 ## 5. Cross-record state machines
@@ -1153,20 +1166,6 @@ hierarchies (TStringList, TStream, TList&lt;T&gt; subclasses with
 non-TComponent ancestry) lose visibility into inherited fields.
 TComponent-rooted hierarchies happen to be packed tightly enough
 that the existing cap doesn't bite.
-
-### 6.13 Terminal class field byte width (`UNCERTAIN`)
-
-[StructDiscoverer.pas:284-287](DPT.Rsm.StructDiscoverer.pas#L284-L287)
-— class members use the backward field walker, whose terminal
-member's byte width cannot be derived from a successor offset.
-Classes don't carry an obvious "instance size" the way records do
-(the record's size DWORD sitting right after the name closes §6.13
-for records; pinned by
-[Test.DPT.Rsm.Scanner.TestTerminalRecordFieldSizeRecovered32](../Test/Test.DPT.Rsm.Scanner.pas)).
-The evaluator falls back to the user-requested type's width for
-class terminal fields; whether an equivalent total-size field
-exists in the class trailer or anywhere else in the byte stream
-has not been investigated.
 
 ---
 
