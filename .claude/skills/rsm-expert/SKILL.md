@@ -174,6 +174,43 @@ new shape, fix a misparse, or change the meaning of a captured field:
   the `DebugTarget.exe` fixture) live alongside the test exes
   without ending up in commits.
 
+### Stale-binary trap (silent prebuild failure)
+
+The test exe builds via `Test.DptDebugger.dproj`, which has
+`DebugTarget.dpr` + the other targets wired into a PreBuild event.
+**A compile failure in DebugTarget.dpr does not abort the dproj
+build** — the RECENT host treats it as a non-fatal warning, the
+test exe links against the previous build, and the tests then run
+against the **stale** `.rsm` produced by the prior successful
+DebugTarget compile. The batch's tail still reports
+"BuildAndRun completed" with green test counts.
+
+This bit me once in this session: I added a `published Integer`
+field to `TNoFPrefixHost` (Delphi rejects this with `E2217`),
+then ran `BuildAndRun.bat`, saw "139/165 passed" and confidently
+diagnosed against the OLD `.rsm`. I noticed only because a probe
+that should have been present returned "NOT FOUND" — without that
+sentinel value the false-positive would have shipped.
+
+**Workflow guard**: after any change to `DebugTarget.dpr`, before
+trusting the test results, compare mtime:
+
+```
+ls -la Projects/DPT/Test/Win32/DebugTarget.rsm \
+      Projects/DPT/Test/DebugTarget.dpr
+```
+
+If the `.rsm` is older than the `.dpr`, the prebuild failed
+silently — scan the batch log for `error E` to confirm. Build
+errors live in the middle of the log, not the tail.
+
+The same trap exists for fields you add to test code: a compile
+error in `Test.DPT.Rsm.Scanner.pas` aborts the test-exe link, but
+the previous test-exe stays in place, and a subsequent re-run of
+the batch would use it. Watch for `error E2003` etc. lines and
+the "Build successful" / "Build failed with exit code 1" tail
+line.
+
 ### Running a single test (DUnitX filtering)
 
 DUnitX accepts a name filter via `--run:<value>` and an alternative
@@ -385,6 +422,104 @@ be removed by hand before commit.
   `TestSparseEnumResolvesViaEnumConstNames32` (commit `a9d6361`).
   Both commits show the diagnostic-then-pin transition as a single
   changeset.
+
+### PowerShell for raw byte access — two footguns
+
+PowerShell is a tempting first reach for quick byte-stream probes
+("just find the offset of this name in the .rsm"), but two traps
+turn 5-second tasks into 5-minute or 5-hour ones on the project's
+real fixtures. Both have bitten this session.
+
+**1. Indexed byte-array loops are ~1000× slower than
+`String.IndexOf`.** A `for ($i = 0; $i -lt $bytes.Length; $i++) {
+if ($bytes[$i] -ne 0x28) { ... } }` loop traverses each byte
+through the PSObject wrapper layer at ~1-10 µs per access. On the
+800 MB `TFW.rsm` that's 20 minutes per name; on the 1.17 GB
+`TFW.Win64.Debug.rsm` it's 2-18 hours. **Convert to a string once
+and use `.IndexOf` (.NET native, SIMD-accelerated where
+available):**
+
+```powershell
+$bytes = [System.IO.File]::ReadAllBytes($rsm)
+$text  = [System.Text.Encoding]::GetEncoding('ISO-8859-1').GetString($bytes)
+foreach ($n in $names) {
+    $needle = [char]0x28 + [char]$n.Length + $n
+    $idx = $text.IndexOf($needle)   # microseconds, not minutes
+    ...
+}
+```
+
+ISO-8859-1 gives a lossless 1:1 byte↔char mapping; `$text.Length`
+equals `$bytes.Length` and the returned offset is the file
+offset.
+
+**2. `GetString` OOMs above ~1 GB.** PowerShell 5.1 strings are
+.NET UTF-16, so the converted string occupies 2× the byte-array
+size. The 1.17 GB `TFW.Win64.Debug.rsm` yields a 2.3 GB string
+and trips `System.OutOfMemoryException` even on 64-bit
+PowerShell. The trick from footgun #1 still works for the 800 MB
+Win32 `TFW.rsm`, but for anything bigger:
+
+* Drop PowerShell entirely and write the probe in Pascal as a
+  `[Test]` in `Test.DPT.Rsm.Tfw.pas`. Pascal's native byte
+  indexing is fast and the `Reader.Scanner.ByteAt` /
+  `Reader.Scanner.Sz` accessors give zero-overhead reads. The
+  test runs in the same process the user runs anyway, so no
+  extra environment setup.
+* Or use a small C# scanner if the investigation is throwaway.
+
+The user has flagged the byte-loop trap explicitly more than once
+("PS-Loop schmeisst byte-Array durch object-wrapper layer; nutz
+String.IndexOf"). Treat any PowerShell `for`-loop over `$bytes`
+that touches a multi-MB region as wrong by default.
+
+### Multi-round delegation for hard gaps
+
+Some §6 gaps need more than one investigation pass. §6.9
+(FieldId → Enum binding) needed **four investigation rounds**
+plus a separate implementation round before closing. Each round
+refuted hypotheses from the prior round and surfaced the next
+closest-shape lead. The pattern that worked:
+
+1. **Investigate-only delegation.** Spawn a fresh agent with the
+   rsm-expert skill, brief it on what the previous round
+   refuted, point at concrete byte offsets, and **explicitly
+   restrict the scope to a written report — no code changes, no
+   pin tests, no commits.** The agent's deliverable is bullet-
+   list findings plus a "next investigator's lead" or
+   "deferred" recommendation.
+2. **Document every refutation in §6 immediately.** When an
+   agent reports "I checked hypothesis X, here's why it's
+   wrong", that bullet goes into the gap entry. The next round's
+   agent reads it and doesn't re-walk the dead end. Over §6.9's
+   four rounds the entry grew six refutation bullets — every
+   one saved the next agent an hour.
+3. **Escalate to "investigate + fix" only after a positive
+   finding.** Round 4 of §6.9 produced a working bridge ("byte
+   +3 = secondary-LOW byte"). Only then did the next round get
+   permission to write production code. The earlier rounds
+   would have produced "fixes" that didn't actually fix
+   anything.
+4. **Round budgets per agent.** Tell the agent in the prompt
+   to stop after ~30-45 minutes if both hypotheses are
+   inconclusive. A confident "no" closes a lead; a hopeful
+   "maybe" wastes the next agent's time. The skill already
+   states this ("confident negative > hopeful maybe") but
+   it bears repeating for multi-round investigations.
+5. **Confirm-then-implement.** Before the fix-round agent
+   commits anything, it must satisfy two gates: (a) every
+   prior round's refutations stay refuted, (b) the new pin
+   asserts byte-exact behaviour on ≥2 probes. §6.9's round 5
+   implementation skipped same-unit gating and was reverted
+   because the global LOW-byte map collided in TFW; round 6
+   re-added per-unit scoping via file-offset proximity (the
+   §6.10 block-owner pattern) and landed.
+
+The Format.md §6 entry doubles as the **investigation log**.
+Don't shrink it to "deferred" until either the gap closes or
+the cost-to-payoff has clearly tilted away from chasing it.
+A long entry with five refuted hypotheses is far more useful
+to the next investigator than a one-line "this is hard, skip".
 
 ---
 
