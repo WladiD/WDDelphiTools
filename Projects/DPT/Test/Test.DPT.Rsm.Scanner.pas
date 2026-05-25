@@ -118,6 +118,22 @@ type
     procedure TestSimpleRecordHeaderFieldCount64;
 
     /// <summary>
+    ///   Pin test for §6.6.1 closure -- the $2A wide-body ($20 flag)
+    ///   slot at body+5..+8 is a Win32-style (VA shl 4) | $07
+    ///   pointer into the type's RTTI structure. For each
+    ///   $20-flagged class probe, decodes the DWORD, applies the
+    ///   `(DW >> 4)` formula, and asserts the recovered VA sits in
+    ///   the .text section's plausible window (image base + .text
+    ///   RVA &lt;= VA &lt; image base + 256 MB) AND that consecutive
+    ///   probes are monotonically increasing (the linker emits RTTI
+    ///   in declaration order). This catches a regression that
+    ///   re-interprets the slot as the old 2-byte SecCandidate at
+    ///   +7/+8.
+    /// </summary>
+    [Test]
+    procedure TestTypeRegistryWideBodyHoldsRttiVA32;
+
+    /// <summary>
     ///   Pin test for §6.5 closure -- the 4-byte slot at body+3..+6
     ///   of the $25 cross-unit RTL form is NOT an RVA into the loaded
     ///   binary. The DebugTarget Win32 and Win64 .rsm files contain
@@ -725,6 +741,108 @@ begin
       Assert.IsTrue(Found,
         Exp.Name + ': no $0E-anchored record-name record found in RSM');
     end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestTypeRegistryWideBodyHoldsRttiVA32;
+// §6.6.1 PIN. For each $20-flagged $2A entry (program-local class /
+// record with RTTI emitted), decodes body bytes +5..+8 as Win32
+// (VA shl 4) | $07 and asserts the recovered VA is in the .text
+// window. Then asserts the VAs are monotonically increasing across
+// the probe list (the linker emits RTTI in declaration order, so
+// later-declared types land at higher VAs).
+const
+  // Probes ordered by declaration site in DebugTarget.dpr so we can
+  // assert monotonic VA increase (the linker emits per-type RTTI in
+  // declaration order). TPair / TWithRec / TMixedRec specifically:
+  // lines 88 / 89 / 96 in DebugTarget.dpr -- TWithRec sits BETWEEN
+  // TPair and TMixedRec, which the order below preserves.
+  Probes: array[0..6] of String = (
+    'TInner', 'TDerived', 'TPoint2D', 'TRect2D', 'TPair', 'TWithRec',
+    'TMixedRec');
+var
+  S       : TRsmScanner;
+  I, J    : Integer;
+  P, EndP : NativeInt;
+  NL      : Byte;
+  Name    : String;
+  Body    : NativeInt;
+  Flag    : Byte;
+  PriHi   : Byte;
+  DW      : UInt32;
+  VA      : UInt32;
+  Found   : array of Boolean;
+  VAs     : array of UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    SetLength(Found, Length(Probes));
+    SetLength(VAs,   Length(Probes));
+
+    EndP := S.Sz - 16;
+    P := 4;
+    while P < EndP do
+    begin
+      if S.ByteAt(P) = TRsmTag.TYPE_REGISTRY_TAG then
+      begin
+        NL := S.ByteAt(P + 1);
+        if (NL >= 2) and (NL <= 40) and
+           (P + 2 + NL + 12 < S.Sz) and
+           (S.ByteAt(P + 2) = Byte(Ord('T'))) and
+           (S.ByteAt(P + 2 + NL + 1) = $00) and
+           (S.ByteAt(P + 2 + NL + 2) = $00) and
+           S.ReadIdentifier(P + 1, Name) then
+        begin
+          Body := P + 2 + NL;
+          Flag := S.ByteAt(Body);
+          PriHi := S.ByteAt(Body + 4);
+          if (Flag = $20) and (PriHi = $2E) then
+          begin
+            for J := Low(Probes) to High(Probes) do
+              if SameText(Probes[J], Name) and not Found[J] then
+              begin
+                DW := UInt32(S.ByteAt(Body + 5)) or
+                      (UInt32(S.ByteAt(Body + 6)) shl 8) or
+                      (UInt32(S.ByteAt(Body + 7)) shl 16) or
+                      (UInt32(S.ByteAt(Body + 8)) shl 24);
+                // Win32 wire format: low nibble must be $07.
+                Assert.AreEqual<UInt32>(UInt32($07), DW and UInt32($0F),
+                  Format('Probe %s: $20 wide-body slot byte +5 low nibble ' +
+                         'must be $07 (Win32 (VA shl 4) | $07 format); ' +
+                         'got DW=$%x', [Probes[J], DW]));
+                VA := DW shr 4;
+                Assert.IsTrue((VA >= $401000) and (VA < $00800000),
+                  Format('Probe %s: decoded RTTI-VA $%x is outside the ' +
+                         'plausible DebugTarget .text window ' +
+                         '[$401000, $800000)', [Probes[J], VA]));
+                Found[J] := True;
+                VAs[J]   := VA;
+                Break;
+              end;
+          end;
+        end;
+      end;
+      Inc(P);
+    end;
+
+    for I := Low(Probes) to High(Probes) do
+      Assert.IsTrue(Found[I],
+        Format('Probe %s: no $20-flagged $2A entry with PriHi=$2E ' +
+               'found in .rsm', [Probes[I]]));
+
+    // Monotonic RTTI-VA increase across declaration-ordered probes.
+    for I := Low(Probes) + 1 to High(Probes) do
+      Assert.IsTrue(VAs[I] > VAs[I - 1],
+        Format('Probe %s: RTTI-VA $%x is not greater than predecessor ' +
+               '%s VA $%x. The linker emits per-type RTTI in declaration ' +
+               'order, so a regression here means the slot is no longer ' +
+               'the RTTI-pointer documented in §4.8 / §6.6.1.',
+          [Probes[I], VAs[I], Probes[I - 1], VAs[I - 1]]));
   finally
     S.Free;
   end;

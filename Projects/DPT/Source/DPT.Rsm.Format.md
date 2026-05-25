@@ -575,17 +575,29 @@ program-local registry cluster:
   `TFieldStatusHost`, ...) use this form. The bytes the existing
   scanner reads from +7, +8 as `SecCandidate` for these entries
   belong to the next record — see §5.1 for why this is harmless.
-* **`$20` — wide body**: at +5 begins a non-zero 4-byte block (LE
-  word at +5/+6 + LE word at +7/+8) whose meaning is only partially
-  understood. All program-local classes
-  (`TInner`/`TDerived`/`TDeepDerived`/`TClassFieldHost`/...) and a
-  subset of records (`TPoint2D`, `TRect2D`, `TPair`, `TMixedRec`,
-  `TWhdrHeader`, `TWithHeader`, `TPrimitives`, ...) use this form.
-  The word at +7/+8 is what the scanner reads as `SecCandidate`; for
-  the wide form it carries a legitimate value (often `$04DB` in
-  DebugTarget), but only enum-bridge consumers gated by
-  `FCrossUnitEnumIds` end up using it (see §6.6 for the remaining
-  uncertainty).
+* **`$20` — wide body**: at +5..+8 sits a 4-byte LE DWORD encoding
+  a pointer to the type's RTTI structure. The wire format matches the
+  per-platform proc-address encoding documented in §4.1:
+  * **Win32**: `(VA shl 4) or $07` — recover `VA = DWORD shr 4`.
+    Example: TInner's `87 2F DB 04` LE = `$04DB2F87`, `>> 4` =
+    `$004DB2F8`, which lands 172 bytes past the .map symbol
+    `DebugTarget..TInner` (`0001:000DA24C` → VA `$004DB24C`),
+    i.e. inside the per-class RTTI metadata the linker emits there.
+  * **Win64**: 21-bit packed form `(byte0 and $7F)==$03; bit 7=VA
+    bit 4; byte 1=VA bits 5..12; byte 2=VA bits 13..20`. Example:
+    TInner's `03 10 A5 26` decodes to SegmentOffset `$149200`.
+  All program-local classes use this form (TInner, TDerived,
+  TDeepDerived, TClassFieldHost, TWithRec, TNoFPrefixHost,
+  TThPriHost, ...) plus the subset of records the linker emits
+  full RTTI for (TPoint2D, TRect2D, TPair, TMixedRec, TWhdrHeader,
+  TWithHeader, TPrimitives). The latter list does NOT split
+  cleanly on "has managed fields" or "is embedded as a sub-record"
+  -- the exact discriminator the Delphi linker uses is still open
+  (§6.6.2).
+  The word at +7/+8 is also what the scanner reads as
+  `SecCandidate` for the enum bridge; it's the high half of the
+  RTTI-pointer DWORD and carries a legitimate value only because
+  the address ends up in the `$04xxxxxx` window in DebugTarget.
 * **`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`** — observed on cross-unit
   RTL entries (`TObject`, `TGUID`, `TVisibilityClass`, `TThreadID`,
   ...); body shape is undocumented. See §6.6.
@@ -966,31 +978,29 @@ Each item here is anchored to the code location that flags it.
 ### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 
 [Scanner.pas:1170-1183](DPT.Rsm.Scanner.pas#L1170-L1183) — the byte
-at body offset +0 was previously called `KindFlag` and hypothesised to
-discriminate class / record / enum / primitive. That hypothesis is
-**refuted**: in DebugTarget's program-local cluster classes and
-records share `$20`, while enums and records share `$00` (see §4.8
-for the full taxonomy and
-[Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)
-for the pinning test). What remains open:
+at body offset +0 is a body-shape selector, NOT a kind discriminator
+(see §4.8 + pinning test
+[Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)).
+Sub-point §6.6.1 (wide-body payload meaning) is **closed** -- the
+bytes at +5..+8 are an RTTI-pointer encoded with the same
+per-platform shape as proc addresses (§4.1 / §4.8). What remains
+open:
 
-1. **Wide-body payload meaning (`$20`)**: the 4 bytes at +5..+8 are a
-   non-zero block that climbs monotonically across consecutive entries
-   in DebugTarget — `$87 $2F $DB $04` for `TInner`, `$C7 $40 $DB $04`
-   for `TDerived`, ... The trailing `$04 $DB` suggests a segmented
-   reference (segment `$04DB`, offset varying); we have no decoder
-   that consumes any of this yet beyond the enum-bridge use of the
-   word at +7/+8.
-2. **Which records get `$20` vs. `$00`**: both `TPoint2D` and
+1. **`$20` vs `$00` discriminator for records**: both `TPoint2D` and
    `TPoint3D` are integer-only records yet pick different flags
-   (`$20` and `$00` respectively). The discriminator is not obviously
-   "has managed fields" or "has variant cases" — likely a Delphi RTTI
-   emission decision driven by class membership / `{$M+}` scope, but
-   the linker rule isn't pinned down.
-3. **Cross-unit RTL values (`$08`, `$80`, `$88`, `$98`, `$A8`, `$B8`)**:
-   observed on `TObject`, `TGUID`, `TVisibilityClass`, etc.; body
-   shapes are not characterised and no concrete sample has been
-   broken open.
+   (`$20` and `$00` respectively). The discriminator is not "has
+   managed fields" (TPoint2D and TPoint3D both have N=0; yet only
+   TPoint2D gets `$20`) and not "is embedded as a sub-record"
+   (TMixedRec has `$20` but appears only as the type of a top-level
+   global). The Delphi compiler emits per-record RTTI on some
+   internal criterion the corpus hasn't disentangled. Closing this
+   would require a fixture sweep that toggles individual factors
+   (TypInfo references, `{$M+}` scope, type-helper presence, ...)
+   and watches the flag flip.
+2. **Cross-unit RTL flag values (`$08`, `$80`, `$88`, `$98`, `$A8`,
+   `$B8`)**: observed on `TObject`, `TGUID`, `TVisibilityClass`,
+   `TThreadID`, etc.; body shapes are not characterised and no
+   concrete sample has been broken open.
 
 ### 6.7 `$28` sub-tag coverage (`GAP`)
 
