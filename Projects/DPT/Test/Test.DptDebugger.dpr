@@ -15,7 +15,8 @@ uses
   Test.DPT.Rsm.LocalsReader,
   Test.DPT.Rsm.Model,
   Test.DPT.Rsm.Scanner,
-  Test.DPT.Rsm.Reader;
+  Test.DPT.Rsm.Reader,
+  Test.DPT.Rsm.Tfw;
 
 var
   runner: ITestRunner;
