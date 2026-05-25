@@ -471,9 +471,7 @@ not correspond to any plausible code or data offset in the binary,
 and is too large (28 bits set) to be an in-image RVA at all. The
 slot is an **opaque linker token** (likely a `.dcu`-internal symbol
 id or similar) that the debugger has no use for. The decoder
-correctly skips it; `RecordCrossUnitRtlConstant` stores only the
-record position (`ARecordPos`) for the per-`$25`-region locality
-hint documented in §6.11.
+correctly skips it.
 
 Ordinal is `body[11] >> 1`. Reaches `RecordCrossUnitRtlConstant`.
 
@@ -492,7 +490,7 @@ observed `base + ord * 3` behaviour.)
 The secondary id is `body[7]` (single byte); the `$00`s at +8, +9, +10
 form the padding before the ordinal.
 
-Reaches `RecordCrossUnitSameCompConstant(secId, ordinal, name, pos)` —
+Reaches `RecordCrossUnitSameCompConstant(secId, ordinal, name)` —
 constants are **buffered** until the matching `$2A` registry entry
 arrives (because the secondary collides across sibling-unit enums).
 
@@ -1030,13 +1028,49 @@ Format-A linker uses the `$9C $01` body-shape rules in
 [FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700) to
 recover a `PrimitiveTypeId` for enum-typed fields, but those FieldIds
 live in a separate id space from the `$2A` registry's primary ids, so
-no direct lookup bridges them to the right `TRsmEnumDef`. Earlier
-diagnostic tests against TFW were reverted once it became clear that
-neither name-based fallback nor byte-stream-proximity pairing was a
-reliable bridge — the encoding of the FieldId → primary linkage
-hasn't been reverse-engineered. Resolving this requires a fresh
-attempt with a different angle (e.g. a `$4C`-like binding record
-within or near the `$2C` block, or a separate registry table).
+no direct lookup bridges them to the right `TRsmEnumDef`.
+
+**Investigation snapshot (TFW.exe Win32):**
+
+```
+$2C SyncDirection body:   00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08
+                                      ^^^^^ +3..+4 (FieldId $0D2A)
+                                            ^^ +5 = $0C (enum kind)
+                                               ^^^^^ +6..+7 = $9C $01 marker
+                                                     ^^^^^ +8..+9 ($02C9 -- not the
+                                                                   enum primary either)
+
+$25 ukodBidirektional:    8A 00 00 F8 24 73 A4 2A 00 00 00
+                                      ^^^^^^^^^^^ linker-token (§4.6.2)
+                                                  ^^^^^ typeId $002A (shared secondary,
+                                                                      hi=0)
+                                                        ^^ ord-byte (0)
+
+$2A TUserKonsOutlookDirection:  A8 00 00 7F 7B 75 11 2A 07 96 9E 1C
+                                ^^ BodyFlag $A8 (cross-unit RTL, §6.6.2)
+                                         ^^^^^ +3..+4 primary id $7B7F
+```
+
+Three id-space candidates surface (FieldId `$0D2A`, $2C-body
+`$02C9`, $25-secondary `$002A`, $2A-primary `$7B7F`) and none
+directly equals another. The encoding of the FieldId → primary
+linkage isn't a proximity-based byte rewrite or any of the simple
+transforms tested.
+
+Resolving this requires a fresh attempt with a different angle:
+* A `$4C`-like binding record somewhere between the $25 cluster and
+  the $2C field block (none visible in the immediate ~2 KB window
+  surrounding `SyncDirection`).
+* A separate registry / cross-reference table holding (FieldId,
+  PrimaryId) pairs.
+* A bit-level transform of FieldId / +8..+9 that yields `$7B7F`
+  (none found via simple shifts / XORs across the four samples).
+
+Deferred until a richer fixture (or a Delphi linker spec leak)
+unlocks the bridge. The Reader currently falls through to
+`FindBestRecordForGlobalAndField`'s name-proximity heuristic, which
+covers many real-world cases but mis-routes the TFW
+`SyncDirection`/`SyncStatus` example.
 
 ### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
 
@@ -1046,14 +1080,6 @@ and resolved via the block-owner index. This is sufficient for the
 TFW `UserKonsOutlook*` corpus but may miss edge cases (block-owner
 pairing breaks down when a unit's `$0E` record markers don't appear in
 the same order as the `$2C` field blocks). The pairing is heuristic.
-
-### 6.11 `TRsmEnumDecoder.FLastSecondary` (`unused`)
-
-[EnumDecoder.pas:70-78](DPT.Rsm.EnumDecoder.pas#L70-L78) — the most
-recently scanned `$25` secondary id and its file position are recorded
-on every cross-unit constant but never consumed. Comment notes "set-only;
-reserved for future use by resolvers that want to reason about
-per-$25-region locality". Not a gap so much as latent state.
 
 ### 6.12 `TStrings → TPersistent → TObject` inheritance chain (`GAP`)
 

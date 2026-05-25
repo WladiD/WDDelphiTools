@@ -1102,9 +1102,9 @@ begin
       // $2A registry entry can flush it under its TRUE primary
       // and avoid the last-wins collision on the secondary.
       if HiByte <> 0 then
-        FEnumDecoder.RecordCrossUnitRtlConstant(EnumTypeId, Ordinal, Name, P)
+        FEnumDecoder.RecordCrossUnitRtlConstant(EnumTypeId, Ordinal, Name)
       else
-        FEnumDecoder.RecordCrossUnitSameCompConstant(EnumTypeId, Ordinal, Name, P);
+        FEnumDecoder.RecordCrossUnitSameCompConstant(EnumTypeId, Ordinal, Name);
     end;
     P := P + 2 + Length(Name) + BodyLen;
     Exit(True);

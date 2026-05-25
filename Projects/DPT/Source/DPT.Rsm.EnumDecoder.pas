@@ -67,15 +67,6 @@ type
     /// primary id, then flush all buffered constants keyed by that
     /// primary -- avoiding the last-wins collision on the secondary.
     FPendingConstants    : IList<TRsmEnumElement>;
-    /// Most recently scanned $25 cross-unit secondary id and its
-    /// file position. The Delphi RSM emits all of an enum's $25
-    /// records back-to-back, then the $2A registry entry that names
-    /// it; remembering the last $25 secondary id lets us bridge the
-    /// $2A primary to it without depending on a single fixed body-
-    /// offset slot. Currently set-only; reserved for future use by
-    /// resolvers that want to reason about per-$25-region locality.
-    FLastSecondary       : UInt32;
-    FLastSecondaryPos    : NativeInt;
   public
     constructor Create;
 
@@ -101,7 +92,7 @@ type
     ///   can recognise it.
     /// </summary>
     procedure RecordCrossUnitRtlConstant(ATypeId: UInt32;
-      AOrdinal: Integer; const AName: String; ARecordPos: NativeInt);
+      AOrdinal: Integer; const AName: String);
 
     /// <summary>
     ///   Same-compilation cross-unit form ($25 + $8A + ...,
@@ -111,7 +102,7 @@ type
     ///   in the cross-unit set so the $2A bridge can confirm it.
     /// </summary>
     procedure RecordCrossUnitSameCompConstant(ASecId: UInt32;
-      AOrdinal: Integer; const AName: String; ARecordPos: NativeInt);
+      AOrdinal: Integer; const AName: String);
 
     /// <summary>
     ///   Append a parsed $03 ENUM_DEF record. Two units declaring the
@@ -170,8 +161,6 @@ begin
   FEnumAliasesByPrimary := Collections.NewPlainKeyValue<UInt32, IList<UInt32>>;
   FEnumDefs             := Collections.NewPlainList<TRsmEnumDef>;
   FPendingConstants     := Collections.NewPlainList<TRsmEnumElement>;
-  FLastSecondary        := 0;
-  FLastSecondaryPos     := -1;
 end;
 
 procedure TRsmEnumDecoder.Reset;
@@ -182,8 +171,6 @@ begin
   FEnumAliasesByPrimary.Clear;
   FEnumDefs.Clear;
   FPendingConstants.Clear;
-  FLastSecondary    := 0;
-  FLastSecondaryPos := -1;
 end;
 
 procedure TRsmEnumDecoder.RecordProgramLocalConstant(ATypeId: UInt32;
@@ -194,17 +181,15 @@ begin
 end;
 
 procedure TRsmEnumDecoder.RecordCrossUnitRtlConstant(ATypeId: UInt32;
-  AOrdinal: Integer; const AName: String; ARecordPos: NativeInt);
+  AOrdinal: Integer; const AName: String);
 begin
   FEnumTypeIds[ATypeId] := True;
   FCrossUnitEnumIds[ATypeId] := True;
   FEnumConstNames[IntToStr(ATypeId) + ':' + IntToStr(AOrdinal)] := AName;
-  FLastSecondary    := ATypeId;
-  FLastSecondaryPos := ARecordPos;
 end;
 
 procedure TRsmEnumDecoder.RecordCrossUnitSameCompConstant(ASecId: UInt32;
-  AOrdinal: Integer; const AName: String; ARecordPos: NativeInt);
+  AOrdinal: Integer; const AName: String);
 var
   Pe: TRsmEnumElement;
 begin
@@ -212,8 +197,6 @@ begin
   Pe.Name    := AName;
   Pe.Ordinal := AOrdinal;
   FPendingConstants.Add(Pe);
-  FLastSecondary    := ASecId;
-  FLastSecondaryPos := ARecordPos;
 end;
 
 procedure TRsmEnumDecoder.RecordEnumDef(const ADef: TRsmEnumDef);
