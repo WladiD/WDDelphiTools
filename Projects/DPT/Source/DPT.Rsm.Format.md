@@ -191,7 +191,9 @@ happens on the byte at `name+0`:
 | `$20`   | `TryWin32(name+3)` then `TryWin64(name+3)`             | Simple inline form (DebugTarget Win64 uses this)                            |
 | `$A0`   | `TryWin32(name+7)` (Win32) / `TryWin64A0(name+7)` (Win64) | Extended form with type-ref / timestamp metadata; TFW.Win64 standard form |
 | `$41`   | `TryWin32(name+4)` only                                | Method-record extended form found in large binaries (`41 02 10 00` header) |
-| `$80`, `$00`, ... | None                                         | Forward declaration / cross-reference, no embedded address                  |
+| `$80`         | None                                                   | **External proc reference** (§6.7 closure). The most common non-`$A0` form: 43,330 occurrences in TFW vs `$A0`'s 155,649. Comes in two header variants `$80 $00 $00 <4-byte linker-token>` and `$80 $80 $00 <4-byte linker-token>`; bytes after the header are the proc's normal sub-records (`$21` REGVAR for parameters, `$22` PARAM, `$63` SCOPE_END). The 4-byte token at body+3..+6 is an opaque DCU symbol id of the same family as §4.6.2's `$25 $8A`-form token. No inline address — the linker resolves the actual VA via the matching `$A0` definition in the proc's owning unit. |
+| `$00`         | None                                                   | **Cross-reference** (§6.7 closure). 2,802 occurrences in TFW. Same shape as `$80` minus the leading marker. No inline address. |
+| other (`$01`..`$1F`, `$84`, ...) | None                              | Mostly false-positive matches in the global `$28` byte scan (incidental `$28 <NL> <name>` triples inside other record bodies). Each tag value seen ≤ 100 times across all of TFW; not a real proc-record form. |
 
 The `$A0` Win32-vs-Win64 dispatch is gated on
 `TRsmScanner.Is64Bit`, set in `LoadFromFile` by reading the .exe's
@@ -1103,24 +1105,6 @@ type of another record/class (§4.8 table). What remains open:
   — knowing that won't make the Reader more useful, but the body
   shapes might still carry consumable data the current decoder
   walks past.
-
-### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
-
-[Scanner.pas:596-616](DPT.Rsm.Scanner.pas#L596-L616) — the proc-record
-sub-tag byte at `name+0` is dispatched for `$20`, `$A0`, `$41`.
-Other observed values (`$80`, `$00`, ...) are treated as
-forward-declaration / cross-reference records with no embedded address.
-There may be address payloads in those forms that the current decoder
-discards.
-
-(The previously-open Win64 `$A0` byte-7=$03 sub-form is **closed**
-by `TryWin64A0`'s Variant B path -- the address is the 21-bit packed
-form at bytes 0..2 of the address slot, same encoding the `$20`
-sub-tag's `TryWin64` uses. Pinned by
-[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwWin64ProcAddressDecodesViaA0Narrow](../Test/Test.DPT.Rsm.Tfw.pas)
-against three TFW.Win64 probes -- TStringList.Add, TObject.Create,
-System.SysUtils.IntToStr -- whose .map RVAs all sit below 2 MB and
-previously decoded to 0.)
 
 ### 6.12 `TStrings → TPersistent → TObject` inheritance chain (`GAP`)
 
