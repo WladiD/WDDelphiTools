@@ -130,6 +130,7 @@ type
     function  HandleParamRecord(var P: NativeInt): Boolean;
     function  HandleRegVarRecord(var P: NativeInt): Boolean;
     function  HandleLocalRecord(var P: NativeInt): Boolean;
+    function  DecodeTypeIdByStructuralLookahead(APayloadStart: NativeInt): UInt32;
     function  HandleModuleGlobalLocalTagRecord(var P: NativeInt): Boolean;
     function  HandleGlobalPrimRecord(var P: NativeInt): Boolean;
     function  HandleEnumConstantRecord(var P: NativeInt): Boolean;
@@ -682,6 +683,60 @@ begin
   Result := True;
 end;
 
+function TRsmScanner.DecodeTypeIdByStructuralLookahead(
+  APayloadStart: NativeInt): UInt32;
+// §6.15 closure: when the typeId Hi byte (at APayloadStart+4) is
+// neither $2E nor $2F (the well-known structured-type markers), the
+// record may still be a 2-byte typeId — cross-unit RTL types use a
+// linker-minted per-binary alias whose Hi byte varies widely. The
+// distinguishing feature is the position of the NEXT record's tag
+// byte:
+//
+//   1-byte typeId form:  <lo> <pad>  <next-tag>           (next tag at +5)
+//   2-byte typeId form:  <lo> <hi>   <pad>  <next-tag>    (next tag at +6)
+//
+// Continuation tag set: the param/regvar/local/proc/scope-end tags
+// (plus $25 ENUM_CONST when the proc body has cross-unit constants
+// inline, $03 ENUM_DEF, $28 PROC for the next proc record).
+// Falls back to 1-byte read when neither +5 nor +6 carries a
+// recognizable continuation byte (e.g. the open-array hidden
+// sub-record `$20 $21` case, handled by the caller's existing
+// post-advance check).
+const
+  // Continuation tags that can follow a $21/$22 record's payload
+  // within the proc-body byte stream. Wider than HandleLocalRecord's
+  // set (which only needs $20/$28/$63) because param records can be
+  // followed by another param ($21/$22) BEFORE the proc body starts.
+  ContTags = [$20, $21, $22, $25, $28, $63, $03];
+begin
+  if APayloadStart + 6 >= FSz then
+  begin
+    // Not enough bytes to apply the lookahead; default to 1-byte.
+    Result := ByteAt(APayloadStart + 3);
+    Exit;
+  end;
+  var Byte5: Byte := ByteAt(APayloadStart + 5);
+  if Byte5 in ContTags then
+  begin
+    // 1-byte typeId at +3, byte +4 is padding, next record at +5.
+    Result := ByteAt(APayloadStart + 3);
+    Exit;
+  end;
+  var Byte6: Byte := ByteAt(APayloadStart + 6);
+  if Byte6 in ContTags then
+  begin
+    // 2-byte typeId at +3..+4, byte +5 is padding, next record at +6.
+    Result := UInt32(ByteAt(APayloadStart + 3)) or
+              (UInt32(ByteAt(APayloadStart + 4)) shl 8);
+    Exit;
+  end;
+  // Neither position carries a known tag — fall back to the
+  // historical 1-byte read so callers that rely on the existing
+  // post-advance heuristics (open-array $20 $21 detection) keep
+  // working.
+  Result := ByteAt(APayloadStart + 3);
+end;
+
 function TRsmScanner.HandleParamRecord(var P: NativeInt): Boolean;
 // Parameter record: $22 NameLen Name $62 $00 $00 <type-id 2 bytes>.
 // Unlike LOCAL_TAG, this record does NOT carry a frame offset:
@@ -716,14 +771,21 @@ begin
   begin
     // Type-id is the LE 16-bit value "<lo> <hi>" when hi is
     // a structured-type marker ($2E for most types, $2F for
-    // some Win64 sets); otherwise the type-id is the single
-    // byte at +3 (built-in primitive types).
+    // some Win64 sets); otherwise structural disambiguation by
+    // continuation-tag position decides 1-byte vs 2-byte read.
+    // 2-byte typeIds with non-$2E/$2F Hi bytes occur for cross-
+    // unit RTL types where the linker mints a per-binary alias
+    // id whose Hi byte varies (§6.15 — observed: Self at Hi=$04
+    // through $13 for various RTL classes, AStatusPriority
+    // TThreadPriority at Hi=$06). Without this disambiguator the
+    // 1-byte fallback truncates the alias into random foreign
+    // type ids.
     var Hi: Byte := ByteAt(PayloadStart + 4);
     if (Hi = $2E) or (Hi = $2F) then
       Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
                       (UInt32(Hi) shl 8)
     else
-      Loc.TypeIdx := ByteAt(PayloadStart + 3);
+      Loc.TypeIdx := DecodeTypeIdByStructuralLookahead(PayloadStart);
   end;
   FProcs[FProcs.Count - 1].Locals.Add(Loc);
   Inc(FScanLocalIdx);
@@ -768,12 +830,16 @@ begin
      (ByteAt(PayloadStart + 1) = $00) and
      (ByteAt(PayloadStart + 2) = $00) then
   begin
+    // Same structural-lookahead disambiguation as $22 PARAM
+    // (see comment in HandleParamRecord). §6.15 closure for
+    // the most common case: cross-unit RTL types whose alias
+    // Hi byte is not $2E/$2F.
     var Hi: Byte := ByteAt(PayloadStart + 4);
     if (Hi = $2E) or (Hi = $2F) then
       Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 3)) or
                       (UInt32(Hi) shl 8)
     else
-      Loc.TypeIdx := ByteAt(PayloadStart + 3);
+      Loc.TypeIdx := DecodeTypeIdByStructuralLookahead(PayloadStart);
   end;
   FProcs[FProcs.Count - 1].Locals.Add(Loc);
   Inc(FScanLocalIdx);

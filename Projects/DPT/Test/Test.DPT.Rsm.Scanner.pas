@@ -197,6 +197,34 @@ type
     [Test]
     procedure TestSparseEnumResolvesViaEnumConstNames32;
 
+    /// §6.15 PIN. Register-passed parameters carry their typeId in a
+    /// $21 REGVAR record whose payload is `$66 $00 $00 <typeIdLo>
+    /// <typeIdHi> <pad> <next-record-tag>` for the 2-byte form, or
+    /// `$66 $00 $00 <typeId> <pad> <next-record-tag>` for the 1-byte
+    /// primitive form. The pre-§6.15 scanner gated the 2-byte read on
+    /// `Hi in {$2E, $2F}` — true for program-local types but missed
+    /// cross-unit RTL types whose per-binary alias id has a varying
+    /// Hi byte (observed: $06 for TThreadPriority in DebugTarget).
+    /// Without the fix the alias was truncated to its low byte ($71),
+    /// colliding with whatever foreign type happened to be registered
+    /// at id $71 in the target's class table.
+    ///
+    /// This test pins the structural-lookahead disambiguator against
+    /// `TouchRegEnumParam(AStatusLight: TLightStatus; AStatusPriority:
+    /// TThreadPriority)` (see DebugTarget.dpr line 516):
+    ///   - AStatusLight (prog-local TLightStatus) keeps decoding to
+    ///     TLightStatus's primary $2E81 — the $2E/$2F fast path stays
+    ///     intact.
+    ///   - AStatusPriority (cross-unit RTL TThreadPriority) now
+    ///     decodes to the per-binary alias $0671 (full 2-byte read)
+    ///     instead of the truncated $71. The alias→primary bridge
+    ///     is the residual §6.15 follow-up — pinning the correct
+    ///     2-byte read here closes the truncation collision, which
+    ///     was the user-visible symptom (live evaluate returning
+    ///     "record TSatz33" in TFW).
+    [Test]
+    procedure TestRegisterParamEnumTypeIdNotTruncated32;
+
     {$IFDEF CPUX64}
     /// Win64 sanity. Same as TestProcsCollected32 but on the Win64
     /// fixture; structures are encoded differently (Win64 trailer
@@ -1378,6 +1406,73 @@ begin
   end;
 end;
 {$ENDIF}
+
+procedure TRsmScannerTests.TestRegisterParamEnumTypeIdNotTruncated32;
+const
+  TLightStatusPrimary : UInt32 = $2E81; // program-local enum
+  // Per-binary alias the linker mints for the cross-unit RTL enum
+  // TThreadPriority's $21 REGVAR record. NOT the $2A registry primary
+  // ($3370) — the alias→primary bridge is the residual §6.15 work.
+  TThreadPriorityAlias: UInt32 = $0671;
+var
+  S          : TRsmScanner;
+  ProcIdx    : Integer;
+  I          : Integer;
+  Proc       : TRsmProc;
+  LightFound : Boolean;
+  PriFound   : Boolean;
+  LightId    : UInt32;
+  PriId      : UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.ProcByName.TryGetValue('touchregenumparam', ProcIdx),
+      'TouchRegEnumParam must be in ProcByName -- DebugTarget.dpr ' +
+      '§6.15 fixture missing? Rebuild DebugTarget.exe.');
+    Proc := S.Procs[ProcIdx];
+    LightFound := False; PriFound := False;
+    LightId := 0; PriId := 0;
+    for I := 0 to Proc.Locals.Count - 1 do
+    begin
+      if SameText(Proc.Locals[I].Name, 'AStatusLight') then
+      begin
+        LightFound := True;
+        LightId := Proc.Locals[I].TypeIdx;
+      end
+      else if SameText(Proc.Locals[I].Name, 'AStatusPriority') then
+      begin
+        PriFound := True;
+        PriId := Proc.Locals[I].TypeIdx;
+      end;
+    end;
+    Assert.IsTrue(LightFound,
+      'AStatusLight must be present as a Local on TouchRegEnumParam');
+    Assert.IsTrue(PriFound,
+      'AStatusPriority must be present as a Local on TouchRegEnumParam');
+    // Fast path: $2E/$2F gate kept program-local enum unchanged.
+    Assert.AreEqual<UInt32>(TLightStatusPrimary, LightId,
+      Format('AStatusLight (TLightStatus) TypeIdx must be $%x (the ' +
+             'program-local enum primary). Got $%x -- did the $2E/$2F ' +
+             'fast path regress?', [TLightStatusPrimary, LightId]));
+    // The bug fix: cross-unit RTL alias now reads as a full 2-byte
+    // value instead of the 1-byte truncation $71 that previously
+    // collided with random foreign types.
+    Assert.AreNotEqual<UInt32>(UInt32($71), PriId,
+      'AStatusPriority TypeIdx must NOT equal $71 (the pre-§6.15 ' +
+      '1-byte truncation of the cross-unit RTL alias). Hitting $71 ' +
+      'means the structural-lookahead disambiguator regressed.');
+    Assert.AreEqual<UInt32>(TThreadPriorityAlias, PriId,
+      Format('AStatusPriority (TThreadPriority) TypeIdx must be ' +
+             'the per-binary alias $%x (2-byte structural read). Got ' +
+             '$%x -- either the disambiguator missed the +6=$63 ' +
+             '(SCOPE_END) continuation tag, or the linker shifted the ' +
+             'alias and the fixture needs re-pinning.',
+             [TThreadPriorityAlias, PriId]));
+  finally
+    S.Free;
+  end;
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmScannerTests);
