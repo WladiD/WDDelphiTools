@@ -160,6 +160,21 @@ type
 
     {$IFDEF CPUX64}
     /// <summary>
+    ///   Pin test for §6.7 (Win64 $A0 byte-7 = $03 sub-form).
+    ///   Procs with a single $28 record whose $A0 form has byte 7
+    ///   low-nibble = $03 (TStringList.Add, TObject.Create,
+    ///   System.SysUtils.IntToStr) historically decoded to
+    ///   SegmentOffset = 0 -- the only $A0 path was the
+    ///   high-RVA (V shl 4)|$07 variant that rejects $03. With
+    ///   TryWin64A0 Variant B (21-bit packed form at bytes 0..2 of
+    ///   the address slot, same encoding the $20 sub-tag's
+    ///   TryWin64 uses), the same procs decode byte-exact against
+    ///   the .map. This pin asserts the decoded SegmentOffset
+    ///   matches the map for three low-RVA Win64 probes.
+    /// </summary>
+    [Test]
+    procedure TestTfwWin64ProcAddressDecodesViaA0Narrow;
+    /// <summary>
     ///   Pin test for §6.2 (Win64 proc-address VAs above 2 MB).
     ///   Verifies that TFW.Win64 procs with .map-reported RVAs well
     ///   beyond the historical 21-bit / 2 MB cap decode to exactly
@@ -740,6 +755,56 @@ begin
 end;
 
 {$IFDEF CPUX64}
+procedure TRsmTfwTests.TestTfwWin64ProcAddressDecodesViaA0Narrow;
+// §6.7 PIN: probes whose $28 record uses the $A0 byte-7=$03
+// (narrow / 21-bit) sub-form must decode to the right SegmentOffset
+// after TryWin64A0's Variant B path. The three probes here all have
+// .map RVA < 2 MB and previously decoded to 0.
+const
+  Probes: array[0..2] of String = (
+    'TStringList.Add',
+    'TObject.Create',
+    'IntToStr');
+  ProbeUnits: array[0..2] of String = (
+    'System.Classes',
+    'System',
+    'System.SysUtils');
+var
+  I        : Integer;
+  ProcIdx  : Integer;
+  DecodedSO: NativeUInt;
+  MapSegOff: UInt64;
+begin
+  if ShouldSkipWin64 then Exit;
+  Assert.IsNotNull(FMapWin64,
+    Format('Win64 .map missing at "%s" -- the §6.7 pin needs ' +
+           'ground-truth RVAs to compare against.', [TfwWin64MapPath]));
+
+  for I := Low(Probes) to High(Probes) do
+  begin
+    MapSegOff := FMapWin64.VAFromUnitAndProcName(ProbeUnits[I], Probes[I]);
+    Assert.IsTrue(MapSegOff > 0,
+      Format('Probe %s.%s missing from Win64 .map -- pick another ' +
+             'probe with the $A0 byte-7=$03 form.',
+        [ProbeUnits[I], Probes[I]]));
+    Assert.IsTrue(MapSegOff < $200000,
+      Format('Probe %s map-RVA $%x is above the 2 MB cap; the §6.7 ' +
+             'narrow form decodes only the low 21 bits, so probes ' +
+             'must stay below 2 MB.', [Probes[I], MapSegOff]));
+
+    ProcIdx := FReaderWin64.FindProcByName(Probes[I]);
+    Assert.IsTrue(ProcIdx >= 0,
+      Format('FindProcByName(%s) returned -1 on the Win64 reader.',
+        [Probes[I]]));
+    DecodedSO := FReaderWin64.Procs[ProcIdx].SegmentOffset;
+    Assert.AreEqual(MapSegOff, UInt64(DecodedSO),
+      Format('Proc %s SegmentOffset mismatch: decoded=$%x, .map=$%x. ' +
+             'A zero decoded means TryWin64A0 Variant B regressed; a ' +
+             'non-matching non-zero means the 21-bit packing changed.',
+        [Probes[I], Integer(DecodedSO), MapSegOff]));
+  end;
+end;
+
 procedure TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap;
 // §6.2 PIN: probes with .map RVA well above 2 MB must decode to
 // exactly the right SegmentOffset after the TryWin64A0 path replaces

@@ -488,24 +488,52 @@ function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
   end;
 
   function TryWin64A0(AOff: NativeInt): NativeUInt;
-  // Win64 $A0-form address decoder. Same 4-byte LE encoding
-  // `(VA shl 4) or $07` as Win32 but subtracts only $1000 (the
-  // .text-section RVA) instead of $401000 -- the Win32 image base
-  // $400000 sits in VA bits 20-31 there, whereas Win64's image base
-  // $140000000 sits in bits 32-39 which the 4-byte slot doesn't
-  // carry. See §6.2 in DPT.Rsm.Format.md.
-  var DW: UInt32; Dec: Int64;
+  // Win64 $A0-form address decoder. Two sub-variants distinguished
+  // by byte 0's low nibble:
+  //
+  // Variant A (high-RVA, low nibble = $07): 4-byte LE DWORD
+  // `(VA shl 4) or $07`. Subtracts $1000 (the .text-section RVA)
+  // instead of $401000 -- the Win32 image base $400000 sits in VA
+  // bits 20-31 there, whereas Win64's image base $140000000 sits in
+  // bits 32-39 which the 4-byte slot doesn't carry. See §6.2.
+  // Used for procs with .text-RVA in (~0, 256 MB]. Capacity caps at
+  // 28 bits.
+  //
+  // Variant B (low-RVA, (byte 0 and $7F) == $03): same 21-bit
+  // packed form the $20 sub-tag's TryWin64 uses, applied to bytes
+  // 0..2 of the $A0 form's address slot:
+  //   byte 0 bit 7 = VA bit 4
+  //   byte 1      = VA bits 5..12
+  //   byte 2      = VA bits 13..20
+  // Verified on TFW.Win64 procs whose .map RVA fits in 21 bits
+  // (TStringList.Add @$145460, TObject.Create @$10EE0,
+  // System.SysUtils.IntToStr @$536C0). See §6.7.
+  var DW: UInt32; Dec: Int64; B0, B1, B2: Byte; Va: UInt32;
   begin
     Result := 0;
     if AOff + 3 >= FSz then Exit;
-    if (ByteAt(AOff) and $0F) <> $07 then Exit;
-    DW := DwordAt(AOff);
-    Dec := (Int64(DW) shr 4) - $1000;
-    // The 28-bit encoding capacity caps recoverable RVAs at 256 MB;
-    // anything beyond would need a wider slot which we haven't seen
-    // in the corpus yet.
-    if (Dec > 0) and (Dec < $10000000) then
-      Result := NativeUInt(Dec);
+    B0 := ByteAt(AOff);
+    if (B0 and $0F) = $07 then
+    begin
+      // Variant A: 28-bit VA in 4-byte slot.
+      DW := DwordAt(AOff);
+      Dec := (Int64(DW) shr 4) - $1000;
+      if (Dec > 0) and (Dec < $10000000) then
+        Result := NativeUInt(Dec);
+      Exit;
+    end;
+    if (B0 and $7F) = $03 then
+    begin
+      // Variant B: 21-bit VA across bytes 0..2.
+      B1 := ByteAt(AOff + 1);
+      B2 := ByteAt(AOff + 2);
+      Va := ((UInt32(B0) shr 7) and 1) shl 4 or
+            (UInt32(B1) shl 5) or
+            (UInt32(B2) shl 13);
+      Va := Va and $1FFFFF;
+      if Va >= $1000 then
+        Result := NativeUInt(Va - $1000);
+    end;
   end;
 
   function TryWin64(AOff: NativeInt): NativeUInt;
