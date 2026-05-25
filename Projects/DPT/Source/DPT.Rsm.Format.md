@@ -453,15 +453,27 @@ Reaches `RecordProgramLocalConstant(typeId, ordinal, name)`.
 
 ```
 $25  <NL>  <Name>
-$8A $00 $00  <RVA:4>  <typeId-lo>  <typeId-hi != $00>  $00 $00  <2*ordinal: u8>
+$8A $00 $00  <linker-token: u32>  <typeId-lo>  <typeId-hi != $00>  $00 $00  <2*ordinal: u8>
 ```
 
 Anchor: `$8A $00 $00` opens the body, `typeId-hi` is non-zero (real
 cross-unit primary, e.g. `$04` for `TThreadPriority` → id `$0441`).
 
-The 4-byte RVA at offset +3..+6 is captured but currently unused
-(`RecordCrossUnitRtlConstant` stores `ARecordPos` only — see
-[EnumDecoder.pas:196-204](DPT.Rsm.EnumDecoder.pas#L196-L204)).
+The 4-byte slot at body offset +3..+6 was historically labelled
+"RVA" (§6.5 in earlier revisions), but a direct dump across
+DebugTarget Win32 and Win64 (whose image bases and section layouts
+differ wildly) shows **identical values byte-for-byte for the same
+source-level enum constant**. The values follow the linear pattern
+`base + ord * 3` across an enum's elements (e.g. for `TThreadPriority`:
+`tpIdle=$914BDCE9`, `tpLowest=$914BDCEC`, `tpLower=$914BDCEF`, ...,
+`tpTimeCritical=$914BDCFB`) — a 3-byte stride per ordinal that does
+not correspond to any plausible code or data offset in the binary,
+and is too large (28 bits set) to be an in-image RVA at all. The
+slot is an **opaque linker token** (likely a `.dcu`-internal symbol
+id or similar) that the debugger has no use for. The decoder
+correctly skips it; `RecordCrossUnitRtlConstant` stores only the
+record position (`ARecordPos`) for the per-`$25`-region locality
+hint documented in §6.11.
 
 Ordinal is `body[11] >> 1`. Reaches `RecordCrossUnitRtlConstant`.
 
@@ -469,8 +481,11 @@ Ordinal is `body[11] >> 1`. Reaches `RecordCrossUnitRtlConstant`.
 
 ```
 $25  <NL>  <Name>
-$8A $00 $00  <RVA:4>  <secId-lo>  $00 $00 $00  <2*ordinal: u8>
+$8A $00 $00  <linker-token: u32>  <secId-lo>  $00 $00 $00  <2*ordinal: u8>
 ```
+
+(Same opaque linker token as §4.6.2; see that section for its
+observed `base + ord * 3` behaviour.)
 
 `typeId-hi == 0` AND `body[10]` LSB == 0. Ordinal = `body[10] >> 1`.
 
@@ -485,7 +500,7 @@ arrives (because the secondary collides across sibling-unit enums).
 
 ```
 $25  <NL>  <Name>
-$8A $00 $00  <RVA:4>  <secId-lo>  $00 $00 $00  <ord-byte-lo>  <ord-byte-hi>
+$8A $00 $00  <linker-token: u32>  <secId-lo>  $00 $00 $00  <ord-byte-lo>  <ord-byte-hi>
 ```
 
 `typeId-hi == 0` AND `body[10]` LSB == 1.
@@ -947,14 +962,6 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 ## 6. Identified gaps and uncertainties
 
 Each item here is anchored to the code location that flags it.
-
-### 6.5 `$25` cross-unit RTL form's 4-byte RVA (`UNCERTAIN / unused`)
-
-The 4-byte RVA at offset +3..+6 of the cross-unit RTL `$25` body is
-captured but never consumed. The `RecordCrossUnitRtlConstant` method
-stores `ARecordPos` (the byte offset of the record) but does not
-expose the RVA to any resolver. Whether the RVA serves a meaningful
-purpose (linker fixup target?) is unknown.
 
 ### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 

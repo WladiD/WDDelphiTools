@@ -117,6 +117,23 @@ type
     [Test]
     procedure TestSimpleRecordHeaderFieldCount64;
 
+    /// <summary>
+    ///   Pin test for §6.5 closure -- the 4-byte slot at body+3..+6
+    ///   of the $25 cross-unit RTL form is NOT an RVA into the loaded
+    ///   binary. The DebugTarget Win32 and Win64 .rsm files contain
+    ///   byte-identical token values for the same source-level enum
+    ///   constants (verified by dumping all 7 TThreadPriority
+    ///   elements on both platforms), and the values follow the
+    ///   linear pattern `base + ord * 3` across an enum's elements.
+    ///   The slot is an opaque linker / DCU-internal token; the
+    ///   decoder correctly skips it. This test pins the linear-
+    ///   stride invariant so a future encoder change that breaks it
+    ///   surfaces as a regression rather than silently shifting an
+    ///   undocumented field.
+    /// </summary>
+    [Test]
+    procedure TestCrossUnitRtlLinkerTokenIsLinearStride32;
+
     /// Pins the actual sparse-ordinal enum encoding (RSM format §6.1).
     /// The original "different $03 emission shape" hypothesis is
     /// REFUTED: the linker emits NO $03 ENUM_DEF record at all for
@@ -707,6 +724,116 @@ begin
       end;
       Assert.IsTrue(Found,
         Exp.Name + ': no $0E-anchored record-name record found in RSM');
+    end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestCrossUnitRtlLinkerTokenIsLinearStride32;
+// §6.5 PIN. For each TThreadPriority element (System.Classes
+// cross-unit enum), finds the $25 cross-unit RTL record in the .rsm
+// byte stream and reads the 4-byte LE DWORD at body offset +3..+6.
+// Asserts the recovered values follow `base + ord * 3`: a linear
+// stride that proves the slot is NOT a Win32/Win64 VA/RVA (those
+// would diverge across platforms; the linker token does not) and
+// matches no plausible in-image offset.
+type
+  TProbe = record
+    Name   : String;
+    Ordinal: Integer;
+  end;
+const
+  // tpIdle=0, tpLowest=1, tpLower=2, tpNormal=3, tpHigher=4,
+  // tpHighest=5, tpTimeCritical=6 (System.Classes.TThreadPriority).
+  Probes: array[0..6] of TProbe = (
+    (Name: 'tpIdle';         Ordinal: 0),
+    (Name: 'tpLowest';       Ordinal: 1),
+    (Name: 'tpLower';        Ordinal: 2),
+    (Name: 'tpNormal';       Ordinal: 3),
+    (Name: 'tpHigher';       Ordinal: 4),
+    (Name: 'tpHighest';      Ordinal: 5),
+    (Name: 'tpTimeCritical'; Ordinal: 6));
+var
+  S        : TRsmScanner;
+  Probe    : TProbe;
+  I        : Integer;
+  P        : NativeInt;
+  NL       : Byte;
+  Name     : String;
+  Body     : NativeInt;
+  Token    : UInt32;
+  Base     : UInt32;
+  ProbeIdx : Integer;
+  Found    : array of Boolean;
+  Tokens   : array of UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    SetLength(Found,  Length(Probes));
+    SetLength(Tokens, Length(Probes));
+
+    // Walk the byte stream for $25 records with the cross-unit RTL
+    // anchor `$8A $00 $00` after the name.
+    P := 4;
+    while P < S.Sz - 16 do
+    begin
+      if (S.ByteAt(P) = $25) then
+      begin
+        NL := S.ByteAt(P + 1);
+        if (NL >= 1) and (NL <= 64) and
+           (P + 2 + NL + 11 < S.Sz) and
+           (S.ByteAt(P + 2 + NL)     = $8A) and
+           (S.ByteAt(P + 2 + NL + 1) = $00) and
+           (S.ByteAt(P + 2 + NL + 2) = $00) and
+           S.ReadIdentifier(P + 1, Name) then
+        begin
+          ProbeIdx := -1;
+          for I := Low(Probes) to High(Probes) do
+            if SameText(Probes[I].Name, Name) then
+            begin
+              ProbeIdx := I;
+              Break;
+            end;
+          if ProbeIdx >= 0 then
+          begin
+            Body := P + 2 + NL;
+            Token := UInt32(S.ByteAt(Body + 3)) or
+                     (UInt32(S.ByteAt(Body + 4)) shl 8) or
+                     (UInt32(S.ByteAt(Body + 5)) shl 16) or
+                     (UInt32(S.ByteAt(Body + 6)) shl 24);
+            Found[ProbeIdx]  := True;
+            Tokens[ProbeIdx] := Token;
+          end;
+        end;
+      end;
+      Inc(P);
+    end;
+
+    // Require every probe to have appeared.
+    for I := Low(Probes) to High(Probes) do
+      Assert.IsTrue(Found[I],
+        Format('Probe %s not found in .rsm; the test fixture must keep ' +
+               'a reference to System.Classes.TThreadPriority alive ' +
+               '(see DebugTarget.dpr GGlobalThPriHost).', [Probes[I].Name]));
+
+    // Linear-stride invariant: Tokens[I] - Base == Ordinal * 3 for
+    // some constant Base (the enum's first-element token). Anchor
+    // Base = Tokens[0] (= tpIdle = ord 0).
+    Base := Tokens[0];
+    for I := Low(Probes) to High(Probes) do
+    begin
+      Probe := Probes[I];
+      var Expected: UInt32 := Base + UInt32(Probe.Ordinal) * 3;
+      Assert.AreEqual<UInt32>(Expected, Tokens[I],
+        Format('Probe %s (ord=%d): linker-token $%x does not match the ' +
+               'predicted linear-stride value $%x (= base $%x + ord * 3). ' +
+               'A change in stride means the slot is no longer the opaque ' +
+               '`base + ord * 3` token §6.5 documented -- re-investigate.',
+          [Probe.Name, Probe.Ordinal, Tokens[I], Expected, Base]));
     end;
   finally
     S.Free;
