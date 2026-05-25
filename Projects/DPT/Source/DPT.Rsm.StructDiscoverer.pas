@@ -351,29 +351,29 @@ begin
   if ARecordNameOff + 1 + NL + 4 > FSz then Exit;
   PStart := ARecordNameOff + 1 + NL + 4;
 
-  // The header between the size DWORD and the first field tag has
-  // a SIMPLE shape (now mapped in DPT.Rsm.Format.md §4.13: byte 0 =
-  // managed-field count, byte 5+N*K = declared field count, header
-  // length = 17 + N*8 on Win32 / 25 + N*16 on Win64) and an
-  // ELABORATE shape observed only on TFW's TAppCaps (see §6.4)
-  // where ~500 bytes of nested sub-record header sit between the
-  // record-name size DWORD and the first $02 field tag.
+  // The header between the size DWORD and the first field tag uses
+  // the SIMPLE shape mapped in DPT.Rsm.Format.md §4.13: byte 0 =
+  // managed-field count (N), byte 5+N*K = declared field count,
+  // total length = 17 + N*8 on Win32 / 25 + N*16 on Win64.
+  // The "elaborate ~500-byte header" hypothesis that previously
+  // motivated the 4 KB scan window is **refuted** -- the §6.4
+  // diagnostic (Test.DPT.Rsm.Tfw.TestTfwSimpleRecordHeaderCovers
+  // TfwRecords) verified that even TFW's TAppCaps fits the simple
+  // shape exactly (gap = 33 bytes = 17 + 2*8 for managed=2, with
+  // member[0]="AddDict" landing precisely at PStart+33).
   //
-  // Rather than branch on shape, we locate the first field tag
-  // heuristically -- scan forward up to a bounded window for the
-  // first $02 byte that looks like a complete field record. "Looks
-  // like" is a STRUCTURAL anchor: the 6 bytes after the field name
-  // must form the documented field-typeinfo prefix
+  // We still scan rather than jumping to the predicted offset,
+  // because the strict typeinfo-prefix anchor gives us "right
+  // first field or no match" detection essentially for free: a
+  // STRUCTURAL match on the 6 bytes after the field name
   //     $02 $00 <last-flag> $00 $00 $00          (last-flag in {$00, $02})
-  // which is far more selective than any first-character rule
-  // could be, and DOES NOT depend on Delphi house style (so
-  // records whose fields don't start with 'F' -- TFW's
-  // TAppCaps.DbKindName, TMdt.Id, ... -- get parsed correctly).
-  // 4 KB scan window covers TAppCaps's expanded header; the simple
-  // shape resolves on the very first iteration. The strict
-  // typeinfo-prefix anchor keeps the false-positive rate at zero
-  // across the gap, so the scan-then-anchor combination is both
-  // simpler and at least as robust as a shape-branched decoder.
+  // is far more selective than any first-character rule could
+  // be, and DOES NOT depend on Delphi house style (so records
+  // whose fields don't start with 'F' -- TFW's TAppCaps.DbKindName,
+  // TMdt.Id, ... -- get parsed correctly).
+  // The 4 KB window is kept as a safety margin against any
+  // unforeseen header variants; on the entire DebugTarget + TFW
+  // corpus it resolves on the very first iteration.
   FoundFirst := False;
   P := PStart;
   PScan := PStart + 4096;

@@ -774,18 +774,20 @@ Field 0's offset is hard-coded to 0; subsequent offsets come from each
 prior field's next-offset DWORD.
 
 **First-field locator**: the bytes between the record-name and the
-first field tag form a header whose **simple (base) shape is now
-mapped** (see below). For records with nested sub-record headers
-(observed only on TFW's `TAppCaps`, where ~500 bytes of expanded
-header sit between the name and the first field) the simple-shape
-decoder doesn't apply, so the walker still scans up to 4 KB forward
-for the first `$02` byte that satisfies `IsValidFieldTypeinfoPrefix`.
-The 4 KB window remains as a safety net; the strict typeinfo anchor
-keeps the false-positive rate at zero across the gap. See §6.4 for
-the elaborate-header remnant.
+first field tag form a header whose simple shape (mapped below)
+covers **every record observed in the DebugTarget + TFW corpus**,
+including TAppCaps which an earlier hypothesis singled out as
+needing a separate "elaborate" form. The §6.4 pin
+([Test.DPT.Rsm.Tfw.TestTfwSimpleRecordHeaderCoversTfwRecords](../Test/Test.DPT.Rsm.Tfw.pas))
+verifies that the gap between PStart and the first valid `$02`-
+prefixed field record is exactly `17 + N * 8` (Win32) for the
+interface-scope records the §6.3 work also exercised. The walker
+still scans up to 4 KB forward rather than jumping to the predicted
+offset because the strict typeinfo anchor gives "right first field
+or no match" detection essentially for free; on the entire corpus
+the scan terminates on the very first iteration.
 
-**Simple-shape record header** (covers every DebugTarget record and
-the vast majority of TFW records). Starting at `RecordNameOff + 1 +
+**Simple-shape record header**. Starting at `RecordNameOff + 1 +
 NL + 4` (right after the record-name's size DWORD):
 
 ```
@@ -945,22 +947,6 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 ## 6. Identified gaps and uncertainties
 
 Each item here is anchored to the code location that flags it.
-
-### 6.4 Elaborate record header (TAppCaps-style nested sub-record shape) (`UNCERTAIN`)
-
-[StructDiscoverer.pas:354-396](DPT.Rsm.StructDiscoverer.pas#L354-L396)
-— the **simple** record header shape (covers every DebugTarget record
-and the bulk of TFW records) is now mapped in §4.13. What remains
-**uncertain** is the **elaborate** shape produced when a record
-carries a nested sub-record header — observed on TFW's `TAppCaps`,
-where ~500 bytes of expanded header sit between the record-name size
-DWORD and the first `$02` field tag. The 4 KB scan window in the
-walker is the safety net for this case; the strict typeinfo anchor
-keeps the false-positive rate at zero across the gap. Whether the
-elaborate shape is a recursive embedding of the simple shape, a
-variant-case dispatch table, or something else entirely is not yet
-broken open — no high-leverage symptom drives the cost of decoding it,
-since the scan + anchor combination handles every observed case.
 
 ### 6.5 `$25` cross-unit RTL form's 4-byte RVA (`UNCERTAIN / unused`)
 

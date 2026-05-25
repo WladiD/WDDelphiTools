@@ -138,6 +138,26 @@ type
     [Test]
     procedure TestTfwGlobalRecordResolves;
 
+    /// <summary>
+    ///   Pin test for §6.4 (originally "elaborate record header,
+    ///   TAppCaps-style nested sub-record shape" -- refuted). The
+    ///   simple-shape record header documented in §4.13 covers every
+    ///   TFW.exe record probed here, including the canonical "elaborate"
+    ///   suspect TAppCaps. For each probe the gap between
+    ///   <c>PStart = nameOff + 1 + NL + 4</c> and the first valid
+    ///   <c>$02</c>-prefixed field record must equal the simple-shape
+    ///   prediction <c>17 + managed * 8</c> (Win32).
+    /// </summary>
+    /// <remarks>
+    ///   A regression that re-introduces an elaborate header (or
+    ///   breaks the simple-shape decoder) trips here as a non-matching
+    ///   gap. The probe list spans the records that the §6.3 work
+    ///   already exercised, so the pin doubles as a structural
+    ///   integrity check for TFW's interface-scope record layout.
+    /// </remarks>
+    [Test]
+    procedure TestTfwSimpleRecordHeaderCoversTfwRecords;
+
     {$IFDEF CPUX64}
     /// <summary>
     ///   Pin test for §6.2 (Win64 proc-address VAs above 2 MB).
@@ -613,6 +633,110 @@ begin
   Assert.AreNotEqual(Itext, Simple,
     'Simple-name lookup must NOT return the .itext unit-init ' +
     'proc VA -- that was the user-facing bug.');
+end;
+
+procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;
+// §6.4 PIN: the simple-shape record header (§4.13) covers every TFW
+// record probed here. For each probe, the gap between PStart and the
+// first valid $02-prefixed field record must equal the simple-shape
+// prediction `17 + managed * 8` (Win32). The probe list spans the
+// interface-scope records the §6.3 work exercised plus TAppCaps,
+// which the StructDiscoverer comment historically singled out as
+// "puts its first $02-field record ~500 bytes past the name". The
+// diagnostic that led to this pin showed the gap is 33 bytes
+// (= 17 + 2*8 for managed=2), refuting the elaborate-shape
+// hypothesis.
+const
+  Probes: array[0..4] of String = (
+    'TAppCaps',          // the alleged "elaborate-header" case
+    'TKonsApl',
+    'TMdt',
+    'TUserKonsOutlook',
+    'TKonsAplPortal');
+var
+  I        : Integer;
+  ClassIdx : Integer;
+  NameOff  : NativeInt;
+  NameLen  : Byte;
+  PStart   : NativeInt;
+  PScan    : NativeInt;
+  Found    : NativeInt;
+  K        : NativeInt;
+  Sc       : TRsmScanner;
+  FoundFieldName : String;
+  FieldNameLen   : Byte;
+  ManagedB : Byte;
+  SimpleHdrLen : Integer;
+begin
+  if ShouldSkip then Exit;
+  Sc := FReader.Scanner;
+
+  for I := Low(Probes) to High(Probes) do
+  begin
+    ClassIdx := FReader.FindClassByName(Probes[I]);
+    Assert.IsTrue(ClassIdx >= 0,
+      Format('Probe %s not discovered -- §6.3 / structural-anchor ' +
+             'change regressed?', [Probes[I]]));
+
+    NameOff := NativeInt(FReader.Classes[ClassIdx].TypeIdx);
+    Assert.IsTrue((NameOff > 0) and (NameOff + Length(Probes[I]) + 8 < Sc.Sz),
+      Format('Probe %s TypeIdx=0x%x out of range', [Probes[I], NameOff]));
+
+    NameLen := Sc.ByteAt(NameOff);
+    Assert.AreEqual(Byte(Length(Probes[I])), NameLen,
+      Format('Probe %s NameLen byte mismatch -- TypeIdx must point at ' +
+             'the length-prefixed name', [Probes[I]]));
+
+    PStart := NameOff + 1 + NameLen + 4;
+    ManagedB := Sc.ByteAt(PStart);
+    SimpleHdrLen := 17 + Integer(ManagedB) * 8;
+
+    // Locate the first $02-prefixed field record with a valid
+    // typeinfo anchor, using the same walker contract as
+    // ScanFieldsForwardFromRecordName.
+    PScan := PStart + 4096;
+    if PScan > Sc.Sz - 16 then PScan := Sc.Sz - 16;
+    Found := -1;
+    K := PStart;
+    while K < PScan do
+    begin
+      if Sc.ByteAt(K) = $02 then
+      begin
+        FieldNameLen := Sc.ByteAt(K + 1);
+        if (FieldNameLen >= 1) and (FieldNameLen <= 40) and
+           Sc.ReadIdentifier(K + 1, FoundFieldName) and
+           Sc.IsValidFieldTypeinfoPrefix(K + 2 + Length(FoundFieldName)) then
+        begin
+          Found := K;
+          Break;
+        end;
+      end;
+      Inc(K);
+    end;
+    Assert.IsTrue(Found >= 0,
+      Format('Probe %s -- no $02 field record found within 4 KB of ' +
+             'PStart=0x%x', [Probes[I], PStart]));
+
+    Assert.AreEqual(Int64(SimpleHdrLen), Int64(Found - PStart),
+      Format('Probe %s simple-shape header-length mismatch: ' +
+             'expected %d (= 17 + %d * 8), actual gap %d. ' +
+             'A non-matching gap means the elaborate-header ' +
+             'hypothesis is back on the table -- re-open §6.4.',
+        [Probes[I], SimpleHdrLen, ManagedB, Found - PStart]));
+
+    // Cross-check: the field name the walker would discover at the
+    // simple-shape offset must match what StructDiscoverer recorded
+    // as Members[0]. A mismatch means our gap calculation found a
+    // phantom $02 somewhere inside the header.
+    Assert.IsTrue(FReader.Classes[ClassIdx].Members.Count >= 1,
+      Format('Probe %s has no members -- discovery regressed?', [Probes[I]]));
+    Assert.AreEqual(FReader.Classes[ClassIdx].Members[0].Name, FoundFieldName,
+      Format('Probe %s -- scan-found first field "%s" does not match ' +
+             'discovered Members[0]="%s"; the scan probably landed on a ' +
+             'phantom $02 inside the header.',
+        [Probes[I], FoundFieldName,
+         FReader.Classes[ClassIdx].Members[0].Name]));
+  end;
 end;
 
 {$IFDEF CPUX64}
