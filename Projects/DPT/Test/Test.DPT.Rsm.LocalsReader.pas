@@ -88,6 +88,14 @@ type
     procedure TestOpenArrayParamRecognized32;
     [Test]
     procedure TestFindGlobalTypeIdx32;
+    /// §6.15 PIN. After
+    /// <see cref="TRsmFieldAliasEnumBridge.Run"/> has registered the
+    /// per-binary RTL type alias <c>$0671</c> against TThreadPriority's
+    /// <c>$03</c> ENUM_DEF (via the F-prefix field-name convention),
+    /// the Reader must recognize the alias as an enum AND resolve
+    /// ordinals to element names.
+    [Test]
+    procedure TestFieldAliasEnumBridgeResolvesTThreadPriority32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -912,6 +920,52 @@ procedure TRsmReaderLegacyTests.TestDerivedInheritsBaseFields64;        begin Do
 procedure TRsmReaderLegacyTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
 procedure TRsmReaderLegacyTests.TestOpenArrayParamRecognized64;         begin DoTestOpenArrayParamRecognized(True);          end;
 {$ENDIF}
+
+procedure TRsmReaderLegacyTests.TestFieldAliasEnumBridgeResolvesTThreadPriority32;
+const
+  // The $21 REGVAR record's typeId for AStatusPriority -- the same
+  // value the linker uses in the $2C FThreadPriority field record
+  // for TThPriHost.FThreadPriority. Read via the structural
+  // disambiguator landed in the previous session.
+  TThreadPriorityAlias: UInt32 = $0671;
+var
+  Reader : TRsmReader;
+  Name   : String;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(Reader.IsEnumTypeId(TThreadPriorityAlias),
+      Format('Reader.IsEnumTypeId(`$%x) must be True after the §6.15 ' +
+             'field-alias bridge resolves the alias to TThreadPriority''s ' +
+             'EnumDef via the FThreadPriority field convention.',
+             [TThreadPriorityAlias]));
+    Assert.IsTrue(Reader.TryGetEnumConstantName(
+                    TThreadPriorityAlias, 4, Name),
+      Format('TryGetEnumConstantName(`$%x, 4) must resolve to ' +
+             'tpHigher via the field-alias bridge.',
+             [TThreadPriorityAlias]));
+    Assert.AreEqual('tpHigher', Name,
+      'Ordinal 4 of TThreadPriority must resolve to ''tpHigher'' -- ' +
+      'got: ' + Name);
+    Assert.IsTrue(Reader.TryGetEnumConstantName(
+                    TThreadPriorityAlias, 0, Name),
+      Format('TryGetEnumConstantName(`$%x, 0) must resolve to tpIdle.',
+             [TThreadPriorityAlias]));
+    Assert.AreEqual('tpIdle', Name,
+      'Ordinal 0 of TThreadPriority must resolve to ''tpIdle'' -- ' +
+      'got: ' + Name);
+    Assert.IsTrue(Reader.TryGetEnumConstantName(
+                    TThreadPriorityAlias, 6, Name),
+      Format('TryGetEnumConstantName(`$%x, 6) must resolve to tpTimeCritical.',
+             [TThreadPriorityAlias]));
+    Assert.AreEqual('tpTimeCritical', Name,
+      'Ordinal 6 of TThreadPriority must resolve to ''tpTimeCritical'' -- ' +
+      'got: ' + Name);
+  finally
+    Reader.Free;
+  end;
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmReaderLegacyTests);

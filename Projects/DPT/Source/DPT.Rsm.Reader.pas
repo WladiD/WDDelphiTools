@@ -30,7 +30,8 @@ uses
   DPT.Rsm.FormatALinker,
   DPT.Rsm.ClassParentDeriver,
   DPT.Rsm.CrossUnitParentResolver,
-  DPT.Rsm.ScopeLocalEnumBridge;
+  DPT.Rsm.ScopeLocalEnumBridge,
+  DPT.Rsm.FieldAliasEnumBridge;
 
 type
 
@@ -84,6 +85,16 @@ type
     FCrossUnitParentResolver  : TRsmCrossUnitParentResolver;
     /// Strong-form bridge from scope-local enum type ids to EnumDef.
     FScopeLocalEnumBridge     : TRsmScopeLocalEnumBridge;
+    /// §6.15 closure: F-prefix field-name bridge that maps per-binary
+    /// cross-unit RTL type aliases (used in $21/$22 param records and
+    /// $2C field records, with arbitrary Hi bytes like $06 / $08 /
+    /// $0A / ...) to the corresponding EnumDef via class members whose
+    /// names follow the conventional <c>F&lt;TypeName&gt;</c>
+    /// naming pattern. Populates the same
+    /// <see cref="FScopeLocalTypeIdToEnumDef"/> map the $1E-marker
+    /// bridge uses, so IsEnumTypeId and TryGetEnumConstantName get
+    /// the new entries transparently.
+    FFieldAliasEnumBridge     : TRsmFieldAliasEnumBridge;
     function  GetOnPhase: TProc<String>;
     procedure SetOnPhase(const AValue: TProc<String>);
     function  GetProcs: IList<TRsmProc>;
@@ -171,10 +182,14 @@ begin
     FScanner.Classes, FRsmTypeIdToClassIdx);
   FScopeLocalEnumBridge      := TRsmScopeLocalEnumBridge.Create(
     FScanner.GlobalByName, FScanner.EnumDefs, FScopeLocalTypeIdToEnumDef);
+  FFieldAliasEnumBridge      := TRsmFieldAliasEnumBridge.Create(
+    FScanner.Classes, FScanner.Procs, FScanner.EnumDefs,
+    FScopeLocalTypeIdToEnumDef);
 end;
 
 destructor TRsmReader.Destroy;
 begin
+  FFieldAliasEnumBridge.Free;
   FScopeLocalEnumBridge.Free;
   FCrossUnitParentResolver.Free;
   FClassParentDeriver.Free;
@@ -397,6 +412,11 @@ begin
   Report('ResolveParentNamesFromTypeIds');
   FScopeLocalEnumBridge.Run;
   Report('BuildScopeLocalTypeIdBridge');
+  // §6.15: must run AFTER FFormatALinker so class members carry
+  // their PrimitiveTypeId. Also after FScopeLocalEnumBridge so the
+  // $1E-marker bridge gets first claim on any aliases it can cover.
+  FFieldAliasEnumBridge.Run;
+  Report('BuildFieldAliasEnumBridge');
   Report('done');
 end;
 
@@ -518,7 +538,12 @@ end;
 function TRsmReader.IsEnumTypeId(ATypeId: UInt32): Boolean;
 begin
   if ATypeId = 0 then Exit(False);
-  Result := FScanner.EnumTypeIds.ContainsKey(ATypeId);
+  // Direct hit via the scanner's $25 enum-constant channel.
+  if FScanner.EnumTypeIds.ContainsKey(ATypeId) then Exit(True);
+  // §6.15: scope-local + field-alias bridges share the same map.
+  // An entry there means we've bridged the alias to an EnumDef even
+  // when no $25 record registered the id directly.
+  Result := FScopeLocalTypeIdToEnumDef.ContainsKey(ATypeId);
 end;
 
 /// <summary>
@@ -562,6 +587,12 @@ begin
   // First try the input id directly -- the $25 record may have
   // registered constants under it.
   if FScanner.EnumConstNames.TryGetValue(IntToStr(ATypeId) + OrdStr, AName) then
+    Exit(True);
+  // §6.15: try the scope-local / field-alias bridge before the
+  // $2A-alias chain. When this map carries the id, we have a
+  // direct EnumDef pointer and can read the element name without
+  // walking the alias list.
+  if TryResolveByScopeLocalTypeId(ATypeId, AOrdinal, AName) then
     Exit(True);
   if not FScanner.EnumAliasesByPrimary.TryGetValue(ATypeId, AliasList) then
     Exit;

@@ -289,10 +289,17 @@ Type id decode (post-§6.15 structural disambiguator,
 
 The fallback structural read is necessary for cross-unit RTL types
 whose linker-minted per-binary alias id has a Hi byte outside the
-$2E/$2F gate (§6.15: TThreadPriority `$0671`, TEncoding `$06xx`,
-etc.). The pre-§6.15 1-byte truncation collided with whatever
-foreign type was registered at the truncated id — `TSatz33` in TFW
-for `KonsCommonLoad(AKonsCommonTyp: TKonsCommonTyp)`.
+$2E/$2F gate (TThreadPriority `$0671`, TEncoding `$06xx`, etc.).
+Without the disambiguator the 1-byte truncation collided with
+whatever foreign type was registered at the truncated id — `TSatz33`
+in TFW for `KonsCommonLoad(AKonsCommonTyp: TKonsCommonTyp)`.
+
+The per-binary alias the linker emits in the typeId slot has no
+direct entry in the `$2A` type registry (e.g. `$0671` resolves to
+the unrelated TWordArray in DebugTarget.rsm's registry, not to
+TThreadPriority's `$3370` primary). The alias is bridged to its
+enum's element list via the F-prefix / A-prefix naming bridge
+documented in §4.15.
 
 Open-array parameters use **two register slots** (pointer + high-index).
 After consuming the param body the scanner peeks the next 2 bytes; if
@@ -1090,6 +1097,35 @@ investigated closure path either (i) over-collects on the
 DebugTarget tight-pair fixtures, or (ii) requires a field-offset
 source that the `$2C` body shape does not currently carry.
 
+### 4.15 Per-binary RTL type alias → enum bridge (`F`/`A`-prefix naming bridge)
+
+Cross-unit RTL types (System.Classes.TThreadPriority, Base.Kons.Common.Typ.TKonsCommonTyp, etc.) get a per-binary alias id allocated by the linker. The alias appears as the typeId in `$21` REGVAR records, `$22` PARAM records, and the FieldId slot of `$2C` field records — but has **no entry in the `$2A` type registry**:
+
+* TThreadPriority's `$2A` primary is `$3370`, but its per-binary register-param alias in DebugTarget.rsm is `$0671`
+* `$0671` happens to resolve via the registry to the unrelated TWordArray
+* TKonsCommonTyp's per-binary alias in TFW.rsm is `$18`, which collides with TSatz33's primary `$0018`
+
+The bridge from the alias to the actual enum element list is recovered from Delphi's identifier-naming conventions. Implemented by
+[TRsmFieldAliasEnumBridge](DPT.Rsm.FieldAliasEnumBridge.pas), which runs
+as a post-process pass after the Format-A linker populates
+`Member.PrimitiveTypeId` for every `$2C` field:
+
+1. **Pass 1 — class fields.** For every class member with `PrimitiveTypeId != 0`:
+    * If the member name starts with `F`, strip the leading `F` and prepend `T` to get a candidate type name (`FThreadPriority → TThreadPriority`)
+    * If that candidate matches the `TypeName` of any `$03` ENUM_DEF, register `(PrimitiveTypeId → EnumDef)` in the `FScopeLocalTypeIdToEnumDef` map (the same map the `$1E`-marker scope-local enum bridge uses)
+2. **Pass 2 — procedure parameters.** For every procedure local with `TypeIdx != 0`:
+    * If the name starts with `A` (Delphi argument convention), apply the same `A<Name> → T<Name>` mapping and register if the EnumDef name matches (`AKonsCommonTyp → TKonsCommonTyp`)
+
+After this pass:
+
+* `TRsmReader.IsEnumTypeId(alias)` recognises the alias as enum-typed
+* `TRsmReader.TryGetEnumConstantName(alias, ordinal, out name)` delegates to `TryResolveByScopeLocalTypeId`, returning the element name from the cached EnumDef
+
+The bridge is purely **name-based** so it fires only when at least one F-prefixed field or A-prefixed parameter exists for the type in the binary. RTL enum types with neither convention applied (e.g. record fields named just `Typ` and never passed as a register/stack parameter with an A-prefix) still won't auto-detect — they require either a code path that exercises them through a Pass-1 or Pass-2 site, OR an explicit `type=int` argument to `evaluate`. Pinned by
+[Test.DPT.Rsm.LocalsReader.TestFieldAliasEnumBridgeResolvesTThreadPriority32](../Test/Test.DPT.Rsm.LocalsReader.pas)
+which asserts `IsEnumTypeId($0671) = True` and resolves ordinals
+0 / 4 / 6 to `tpIdle` / `tpHigher` / `tpTimeCritical`.
+
 ---
 
 ## 5. Cross-record state machines
@@ -1159,181 +1195,10 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-Each item here is anchored to the code location that flags it.
-
-### 6.15 Cross-unit RTL register-param alias → type bridge (`GAP`)
-
-Structural-typeId-read half of this gap is **closed** (the 1-byte
-truncation collision is eliminated — see §4.2 / §4.3 closure note).
-What remains open: the cross-unit RTL alias that the linker emits
-in the `$21` REGVAR / `$22` PARAM record's typeId slot has **no
-direct mapping** to the actual type's `$2A` registry primary. For
-`TThreadPriority` from `System.Classes`, the chain looks like:
-
-| What                                                | Value     | Source                                         |
-|-----------------------------------------------------|-----------|------------------------------------------------|
-| `$2A` registry primary (cross-unit RTL body flag $A8) | `$3370` | type-registry record body +3..+4               |
-| `$25` enum-constant secondary (per cross-unit-RTL form) | `$0441` | tpHigher / tpIdle / ... record body +7..+8     |
-| `$21` REGVAR param alias (per-binary, per-RTL-type)   | `$0671` | AStatusPriority register-param record +3..+4   |
-| `$2A` registry entry at primary $0671                | TWordArray | unrelated array helper — coincidental collision |
-
-The three ids are NOT directly linked. The `$0671` alias resolves to
-`TWordArray` in the type registry (an unrelated `packed array of
-Word`), so live evaluate gets `FindStructByTypeIdx($0671) → TWordArray`
-(or, if the resolver doesn't accept that, "no RSM type metadata for
-this field"). The user-visible symptom in TFW was different —
-`KonsCommonLoad`'s `AKonsCommonTyp` truncated to $71 collided with
-`TSatz33` (a registered `packed record`) — but the underlying cause
-is the same: there is no bridge from the `$21` record's alias id to
-the actual type.
-
-**Status after the structural-disambiguator landing**:
-
-* **2-byte alias case** (DebugTarget AStatusPriority): no longer
-  truncates the alias to its low byte. The scanner now reads the full
-  `$0671`. The 1-byte truncation collision with TSatz33-like foreign
-  classes is eliminated for the 2-byte form. Live `evaluate` returns
-  "no RSM type metadata for this field" — accurate, since the alias
-  doesn't resolve to anything.
-* **1-byte alias case** (TFW AKonsCommonTyp): the linker emits a
-  genuine 1-byte alias (`$18`) that the disambiguator correctly
-  identifies as 1-byte. The collision with TSatz33's primary `$0018`
-  is structural, not a scanner bug — both ids are honestly `$18`.
-  Live `evaluate` still labels the param as "record TSatz33" because
-  the resolver treats the alias as a primary id. Closing this
-  requires the alias→primary bridge (see Remaining closure work).
-
-**Concrete repros** observed in DebugTarget and TFW show the linker
-emits the cross-unit RTL alias in either a **2-byte** or **1-byte**
-form depending on the alias's magnitude:
-
-| Fixture                      | Param             | Source enum     | `$21` payload after `$66 $00 $00`                            | Scanner TypeIdx (post-fix) |
-|------------------------------|-------------------|-----------------|--------------------------------------------------------------|----------------------------|
-| DebugTarget TouchRegEnumParam | `AStatusLight`    | TLightStatus    | `81 2E FE 21 0F` — Hi=$2E, next-tag at +6                    | `$2E81` (program-local primary, fast path) |
-| DebugTarget TouchRegEnumParam | `AStatusPriority` | TThreadPriority | `71 06 FC 63 27` — next-tag at +6 (SCOPE_END)               | `$0671` (per-binary RTL alias, 2-byte) |
-| TFW KonsCommonLoad           | `AKonsCommonTyp`  | TKonsCommonTyp  | `18 FE 22 0B 41…` — next-tag at +5 (PARAM_TAG / "AKonsCommon") | `$18` (per-binary RTL alias, 1-byte) |
-
-The 1-byte form is genuine — the structural disambiguator correctly
-reads it because byte +5 is a continuation tag. The 1-byte alias `$18`
-collides with TSatz33's primary `$0018` (a `packed record` in
-`Tfw.GAEB.Typ.pas`), so live `evaluate` STILL returns "record TSatz33"
-for TKonsCommonTyp register parameters even after this fix lands.
-That collision is the alias→primary bridge problem, not a scanner-side
-bug — the disambiguator correctly produced the value the linker
-actually emitted.
-
-**Why this is independent of §6.9**: §6.9 closed
-`Member.PrimitiveTypeId` for **class FIELDS** of `$2C` records — the
-bridge runs inside the Format-A linker. §6.15 is in the **scanner's
-locals/params** path, which never touches the Format-A linker.
-
-**Why class-field auto-detect would still work**:
-`TestTfwEnumTypedFieldResolvesToPrimary` pinned `TUserKonsOutlook.
-SyncDirection.PrimitiveTypeId = $7B7F` against the class member —
-not against a $21 record. A live `evaluate myUserKonsOutlook.
-SyncDirection` would exercise
-[Debugger.pas:3057-3063](DPT.Rsm.Debugger.pas#L3057-L3063) (path 1:
-`AMember.PrimitiveTypeId`), bypassing the `$21`-record path entirely.
-
-**Round-3 RE pass (May 26)** — discovered a previously-undecoded
-**per-unit 9-byte-stride alias table** but ruled it out as the
-bridge for TThreadPriority specifically.
-
-The table has shape:
-```
-00 02 00  <KEY-LO> <KEY-HI>  <V1-LO> <V1-HI>  <REF-LO> <REF-HI>  00 02 00  <next entry...>
-```
-
-Each 9-byte entry maps a per-unit allocated KEY (sequential 8-byte
-stride: $0609, $0611, $0619, ..., $0691, $0699, ...) to a REF that
-**does** resolve cleanly via the $2A registry — but to types from
-the table's owning unit, not arbitrary cross-unit types.
-
-Two tables containing KEY=$0671 were found in DebugTarget.rsm:
-
-| Table offset | KEY    | REF      | $2A primary at REF                    |
-|--------------|--------|----------|----------------------------------------|
-| @2097235     | $0671  | $053D    | `TSmallBlockType` (System.pas memory mgr)|
-| @4576638     | $0671  | $118D    | `:1` (anonymous generic)              |
-
-Neither resolves to TThreadPriority ($3370). A full-file scan
-(`find any 9-byte entry where REF = 70 33`) finds **0 hits** — no
-table anywhere in DebugTarget.rsm maps any KEY to TThreadPriority's
-primary. The 9-byte tables are real and stable, but the
-AStatusPriority param's `$0671` alias is **not** an entry in any of
-them.
-
-This refutes a 5th hypothesis: that the param-alias resolution
-goes through these per-unit alias tables. The `$0671` in
-AStatusPriority's `$21` record is a different kind of allocation —
-possibly a SCOPE-LOCAL allocation owned by TouchRegEnumParam itself
-that gets the same byte values as the System.pas alias for
-TSmallBlockType by coincidence.
-
-**Round-2 RE pass**: four hypotheses for where the bridge
-might live were tested empirically against DebugTarget.rsm and
-ruled out:
-
-1. **The alias's own `$2A` record body** — `TWordArray` ($2A primary
-   `$0671`) body at offset 75654 contains the cross-unit-RTL alias
-   marker `$9C $11 89 2C F1 27` plus `$FF $2A` cross-refs to
-   `PByteArray`/`TByteArray`/`PWordArray`. None of these is
-   TThreadPriority's primary `$3370`. Refuted.
-2. **A second `$2A` entry that bridges `$0671 ↔ $3370`** — a
-   full-file scan for `$2A` records whose primary is `$0671` finds
-   exactly ONE (TWordArray). A scan for `$2A` records whose body
-   contains the bytes `70 33` (`$3370` LE) finds only
-   `TThreadProcedure` and `TThreadPriority` itself. No bridging
-   pair exists. Refuted.
-3. **A `$63 $65` UNIT_BRIDGE record near the param** — the apparent
-   `$63 $65` matches in DebugTarget.rsm are false positives (the
-   bytes are `'c' 'e'` at the end of names like "Process").
-   Refuted as a record-tag scheme.
-4. **Spatial co-location** — neither `71 06` (the alias) nor
-   `41 04` (TThreadPriority's `$25` enum-constant secondary
-   `$0441`) appears within ±2 KB of either tpHigher's `$25` record
-   nor AStatusPriority's `$21` record. The bridge is not local.
-
-Per-binary stability of the alias for *classes* is confirmed by
-counting `Self`-named `$21` records: 92 distinct (Hi, Lo) pairs with
-Hi ∉ {$2E, $2F}; the most common is `$05A5` (21 hits — a common RTL
-class method), `$0699` (16), `$053D` (15). Each per-binary alias is
-stable across all methods of the same class. But for the singleton
-case (`TThreadPriority` appears as a param exactly once in
-DebugTarget), the alias `$0671` is unique to that one occurrence —
-which means there's no occurrence-count signal we can use to
-distinguish "alias of a unique RTL type" from "primary of an
-unrelated registry entry".
-
-**Remaining closure work** (this entry stays `GAP` until landed):
-
-1. **Proc-signature type id** — TouchRegEnumParam's PROC prologue
-   carries `11 2E` at offset +10..+11 = `$2E11`. This is a
-   structured-type id (Hi=$2E) but does NOT appear in the `$2A`
-   registry. Likely a proc-signature reference into a separate
-   PROC-TYPE table the scanner doesn't yet decode. The proc-type
-   would list the param types in declaration order — including
-   the actual type id for TThreadPriority — which is exactly the
-   bridge we need.
-2. **`$03` ENUM_DEF trailing payload** — documented decoder reads
-   up to `<max-ord>` then assumes 7 trailing zero bytes. For
-   cross-unit RTL ENUMS specifically the trailing bytes might
-   carry the alias mapping the linker uses for register params.
-   (Note: cross-unit RTL enums may NOT have `$03` records at all —
-   $03 is partly described as program-local-only — so this lead
-   may not apply.)
-3. **Fallback workaround if byte-level bridge isn't found**:
-   parse the `.map` file's procedure-signature line (carries
-   `KonsCommonLoad(AKonsCommonTyp: TKonsCommonTyp; ...)`) and map
-   declared param names → declared type names → enum constants
-   via the existing `$25`-decoded registry. Less elegant than a
-   byte-level decoder but reliable and platform-agnostic.
-4. **Pin** via
-   [Test.DPT.Rsm.Scanner.TestRegisterParamEnumTypeIdResolvesToPrimary32](../Test/Test.DPT.Rsm.Scanner.pas)
-   (does not exist yet): assert that
-   `Reader.ResolveRegParamAlias($0671)` returns the primary `$3370`
-   so the enum-constant table can format
-   `Ord(tpHigher) → 'tpHigher'`.
+No open gaps remain. Every previously-tagged `GAP` / `UNCERTAIN`
+item has been either decoded into §4 / §5 or closed as a documented
+design choice. See the git history of this file for the closure
+audit trail.
 
 ---
 
