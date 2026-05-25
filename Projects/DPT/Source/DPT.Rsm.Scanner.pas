@@ -86,6 +86,17 @@ type
     /// $07 tag; absent for records where the VA cannot be
     /// recovered.
     FGlobalVa        : IKeyValue<String, UInt32>;
+    /// True when the loaded fixture targets x64 (PE Machine field
+    /// `$8664`). Detected in `LoadFromFile` by reading the .exe's PE
+    /// header; defaults to False (Win32) when only `LoadFromBytes`
+    /// or `LoadFromBuffer` is used and no .exe is available to
+    /// inspect. Consumed by `DecodeProcAddrPayload` to choose the
+    /// correct subtraction constant for the `$A0` sub-form (Win32
+    /// subtracts `$401000` = image base + .text RVA; Win64
+    /// subtracts only `$1000` = .text RVA, since the Win64 image
+    /// base `$140000000` sits in VA bits 32-39 which the 4-byte
+    /// encoded slot doesn't carry). See §6.2 in DPT.Rsm.Format.md.
+    FIs64Bit         : Boolean;
     /// Owns the enum-related lookup tables and the cross-unit
     /// pending-buffer state machine. Pulled out of TRsmScanner so
     /// the $25/$03/$2A handling lives in one place; the scanner
@@ -186,6 +197,10 @@ type
     property Buf: PByte read FBuf;
     /// Loaded buffer size in bytes.
     property Sz : NativeInt read FSz;
+    /// Architecture flag (see <see cref="FIs64Bit"/>). Public so the
+    /// reader and tests can confirm the right decoder path was
+    /// selected.
+    property Is64Bit: Boolean read FIs64Bit;
 
     property Procs              : IList<TRsmProc> read FProcs;
     property Classes            : IList<TRsmClassInfo> read FClasses;
@@ -293,6 +308,40 @@ begin
   Result := RsmIsValidFieldTypeinfoPrefix(FBuf, FSz, AOffset);
 end;
 
+function DetectIs64BitExe(const AExePath: String): Boolean;
+// Reads the PE header's COFF Machine field to distinguish Win32
+// ($014C = IMAGE_FILE_MACHINE_I386) from Win64 ($8664 =
+// IMAGE_FILE_MACHINE_AMD64). Returns False on any IO error or when
+// the file isn't a recognisable PE -- callers treat that as "assume
+// Win32", which matches the historical decoder behaviour.
+var
+  Stream  : TFileStream;
+  PEOffset: UInt32;
+  Machine : UInt16;
+begin
+  Result := False;
+  if not FileExists(AExePath) then Exit;
+  try
+    Stream := TFileStream.Create(AExePath,
+      fmOpenRead or fmShareDenyNone);
+    try
+      if Stream.Size < $40 then Exit;
+      Stream.Position := $3C;
+      if Stream.Read(PEOffset, 4) <> 4 then Exit;
+      if Int64(PEOffset) + 6 >= Stream.Size then Exit;
+      // PE signature is 4 bytes "PE\0\0", Machine sits at PE+4.
+      Stream.Position := PEOffset + 4;
+      if Stream.Read(Machine, 2) <> 2 then Exit;
+      Result := Machine = $8664;
+    finally
+      Stream.Free;
+    end;
+  except
+    // IO failures fall through to Result := False -- the historical
+    // decoder treats every unknown binary as Win32.
+  end;
+end;
+
 procedure TRsmScanner.LoadFromFile(const AExePath: String);
 var
   RsmPath: String;
@@ -302,6 +351,12 @@ begin
     FMapping.UnMap;
     FOwnsMapping := False;
   end;
+  // Detect arch from the .exe BEFORE the .rsm load so the proc-
+  // address decoder picks the right $A0-form subtraction constant
+  // (Win32: $401000, Win64: $1000 -- the difference is the Win32
+  // image base $400000 that the Win64 encoding pushes into VA bits
+  // 32-39 which the 4-byte slot doesn't carry).
+  FIs64Bit := DetectIs64BitExe(AExePath);
   RsmPath := ChangeFileExt(AExePath, '.rsm');
   if not FileExists(RsmPath) then
     Exit;
@@ -339,6 +394,10 @@ begin
   FEnumDecoder.Reset;
   FBuf := ABuf;
   FSz  := ASize;
+  // FIs64Bit is set by LoadFromFile from the .exe's PE header. The
+  // LoadFromBytes / LoadFromBuffer entry points have no .exe to
+  // inspect, so we don't reset it here; callers that need a clean
+  // arch slate must call LoadFromFile or set the flag explicitly.
   if (ABuf = nil) or (ASize < 8) then
     Exit;
   if PUInt32(ABuf)^ <> TRsmTag.SigCSH7 then
@@ -371,22 +430,38 @@ function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
 // section's typical RVA.
 //
 // === Win64 proc-address encoding ===
-// The address block is variable-length: 4 bytes when the proc
-// is small (size <= $80), 5 bytes for larger procs, followed by
-// the fixed terminator "04 10 21 2e 00". Only bytes 0..2 are
-// needed to recover the RVA; bytes 3/4 encode proc size + local-
-// layout info and aren't needed for address resolution.
+// Two sub-forms are observed:
 //
-// Decoded layout (LSB-first; bits are of VA = RVA + $1000, i.e.
-// RVA measured from the image base instead of from the .text
-// section start):
-//    byte 0 bits 0-6 : constant $03 (encoding-kind tag for code)
-//    byte 0 bit  7   : VA bit 4
-//    byte 1          : VA bits 5-12  (full 8 bits)
-//    byte 2          : VA bits 13-20 (full 8 bits)
-// Procs are 16-byte aligned, so VA bits 0-3 are implicitly zero.
-// This covers code sections up to 2MB; for larger binaries the
-// higher VA bits would have to come from bytes 3/4 (not yet RE'd).
+// $20 sub-tag (simple inline form, used by small Win64 binaries like
+// DebugTarget):
+//   address block is variable-length: 4 bytes when the proc is small
+//   (size <= $80), 5 bytes for larger procs, followed by the fixed
+//   terminator "04 10 ?? 2E 00". Only bytes 0..2 are needed to
+//   recover the RVA; bytes 3/4 encode proc size + local-layout info.
+//   Decoded layout (LSB-first):
+//     byte 0 bits 0-6 : constant $03 (encoding-kind tag for code)
+//     byte 0 bit  7   : VA bit 4
+//     byte 1          : VA bits 5-12  (full 8 bits)
+//     byte 2          : VA bits 13-20 (full 8 bits)
+//   Procs are 16-byte aligned, so VA bits 0-3 are implicitly zero.
+//   This covers code sections up to 2 MB.
+//
+// $A0 sub-tag (extended form with type-ref / timestamp metadata,
+// used by larger Win64 binaries like TFW.Win64; closed §6.2):
+//   bytes 0..2 are the sub-tag preamble `$A0 $00 $00`. The address
+//   sits at bytes 7..10 of the payload as a 4-byte LE DWORD encoding
+//   `(VA shl 4) or $07`, exactly the same wire format Win32 uses --
+//   but the Win64 VA's high 32 bits ($140000000-shaped image base
+//   bits) don't fit in the 4-byte slot, so the encoder stores only
+//   the lower 32 bits. SegmentOffset is then recovered as
+//   `(DW shr 4) - $1000` (subtracting the .text section's RVA from
+//   the image base only, NOT the Win32 image-base + .text constant
+//   `$401000` that the Win32 decoder uses). The arch-specific
+//   subtraction is what the new `TryWin64A0` handles.
+//   Verified on TFW.Win64: TFormMain.Create at byte 3..10 `A0 00 00
+//   F4 A2 28 8C 07 05 E1 7B` -- DW(7..10) = $7BE10507, shr 4 =
+//   $07BE1050, -$1000 = $07BE0050 which matches the .map entry
+//   `0001:07BE0050 Tfw.Main.Form.TFormMain.Create` byte-exactly.
 
   function TryWin32(AOff: NativeInt): NativeUInt;
   // Win32 PROC-address payload: 4 bytes encoding the full
@@ -408,6 +483,27 @@ function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
     if (ByteAt(AOff) and $0F) <> $07 then Exit;
     DW := DwordAt(AOff);
     Dec := (Int64(DW) shr 4) - $401000;
+    if (Dec > 0) and (Dec < $10000000) then
+      Result := NativeUInt(Dec);
+  end;
+
+  function TryWin64A0(AOff: NativeInt): NativeUInt;
+  // Win64 $A0-form address decoder. Same 4-byte LE encoding
+  // `(VA shl 4) or $07` as Win32 but subtracts only $1000 (the
+  // .text-section RVA) instead of $401000 -- the Win32 image base
+  // $400000 sits in VA bits 20-31 there, whereas Win64's image base
+  // $140000000 sits in bits 32-39 which the 4-byte slot doesn't
+  // carry. See §6.2 in DPT.Rsm.Format.md.
+  var DW: UInt32; Dec: Int64;
+  begin
+    Result := 0;
+    if AOff + 3 >= FSz then Exit;
+    if (ByteAt(AOff) and $0F) <> $07 then Exit;
+    DW := DwordAt(AOff);
+    Dec := (Int64(DW) shr 4) - $1000;
+    // The 28-bit encoding capacity caps recoverable RVAs at 256 MB;
+    // anything beyond would need a wider slot which we haven't seen
+    // in the corpus yet.
     if (Dec > 0) and (Dec < $10000000) then
       Result := NativeUInt(Dec);
   end;
@@ -465,7 +561,16 @@ begin
           Result := TryWin64(AStartOff + 3);
       end;
     $A0:
-      Result := TryWin32(AStartOff + 7);
+      begin
+        // On Win64 the $A0 form sits at bytes 7..10 with the same
+        // (VA shl 4) | $07 wire layout as Win32, but the implicit
+        // image base differs ($140000000 vs $400000) so the
+        // subtraction constant changes. See TryWin64A0 / §6.2.
+        if FIs64Bit then
+          Result := TryWin64A0(AStartOff + 7)
+        else
+          Result := TryWin32(AStartOff + 7);
+      end;
     $41:
       Result := TryWin32(AStartOff + 4);
   end;

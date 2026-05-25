@@ -32,7 +32,8 @@ uses
 
   DPT.MapFileParser,
   DPT.Rsm.Model,
-  DPT.Rsm.Reader;
+  DPT.Rsm.Reader,
+  DPT.Rsm.Scanner;
 
 type
 
@@ -42,8 +43,14 @@ type
     /// Single source of truth for the TFW fixture location. Both the
     /// .rsm sidecar (loaded by TRsmReader) and the .map file
     /// (loaded by TMapFileParser) are derived from this base path.
-    TfwExePath = 'C:\MSE\TFW\TFW.exe';
-    TfwMapPath = 'C:\MSE\TFW\TFW.map';
+    TfwExePath      = 'C:\MSE\TFW\TFW.exe';
+    TfwMapPath      = 'C:\MSE\TFW\TFW.map';
+    /// Win64 variant of the fixture, used by §6.2 (Win64 proc-address
+    /// VAs > 2 MB) reverse-engineering. Only consumed when the test
+    /// exe is itself 64-bit (the .rsm at ~1.17 GB is too tight for a
+    /// 32-bit process address space alongside the Win32 TFW load).
+    TfwWin64ExePath = 'C:\MSE\TFW\TFW.Win64.Debug.exe';
+    TfwWin64MapPath = 'C:\MSE\TFW\TFW.Win64.Debug.map';
   strict private
     FReader      : TRsmReader;
     FMap         : TMapFileParser;
@@ -54,10 +61,23 @@ type
     FFixtureMB   : Double;
     FFixtureLine : String;
     FSkipReason  : String;
+    {$IFDEF CPUX64}
+    /// Win64 reader / map. The reader exposes Procs[].SegmentOffset
+    /// (decoded address) and its internal Scanner (Is64Bit + ByteAt
+    /// for raw-byte diagnostics). The map provides ground-truth
+    /// RVAs for the §6.2 pin and future Win64 sub-form investigations.
+    FReaderWin64    : TRsmReader;
+    FMapWin64       : TMapFileParser;
+    FWin64SkipReason: String;
+    {$ENDIF}
     /// Sets FSkipReason and returns True when the fixture is missing.
     /// Both [Test] methods call this and Assert.Pass + Exit on True so
     /// they don't dereference FReader / FMap when the load was skipped.
     function ShouldSkip: Boolean;
+    {$IFDEF CPUX64}
+    /// Same shape as ShouldSkip but for the Win64 fixture.
+    function ShouldSkipWin64: Boolean;
+    {$ENDIF}
   public
     /// One-time fixture setup: loads TFW.rsm once with OnPhase timings
     /// captured into FPhaseTimings, then loads TFW.map. Subsequent
@@ -117,6 +137,31 @@ type
     /// </remarks>
     [Test]
     procedure TestTfwGlobalRecordResolves;
+
+    {$IFDEF CPUX64}
+    /// <summary>
+    ///   Pin test for §6.2 (Win64 proc-address VAs above 2 MB).
+    ///   Verifies that TFW.Win64 procs with .map-reported RVAs well
+    ///   beyond the historical 21-bit / 2 MB cap decode to exactly
+    ///   the right <c>SegmentOffset</c> via the new <c>TryWin64A0</c>
+    ///   path (subtracts $1000 from the $A0 form's bytes 7..10
+    ///   instead of the Win32-specific $401000 the old dispatcher
+    ///   applied unconditionally). Asserts are byte-exact against
+    ///   the .map ground truth for four named procs spanning the
+    ///   [~94 MB, ~129 MB] RVA window.
+    /// </summary>
+    /// <remarks>
+    ///   Probes deliberately stay above 2 MB: that's the window the
+    ///   old decoder mishandled, so a regression that re-routes $A0
+    ///   to TryWin32 (or drops the arch-detection step in
+    ///   TRsmScanner.LoadFromFile) trips here immediately. Procs
+    ///   with the $A0 byte-7 low nibble != $07 (TStringList.Add,
+    ///   TObject.Create, IntToStr) are a SEPARATE Win64 sub-form
+    ///   tracked under §6.7 and intentionally not asserted here.
+    /// </remarks>
+    [Test]
+    procedure TestTfwWin64ProcAddressDecodesAboveCap;
+    {$ENDIF}
   end;
 
 implementation
@@ -127,6 +172,20 @@ begin
   if Result then
     Assert.Pass(FSkipReason);
 end;
+
+{$IFDEF CPUX64}
+function TRsmTfwTests.ShouldSkipWin64: Boolean;
+begin
+  // Cascade: if the Win32 fixture is missing the setup bailed early
+  // and FScannerWin64 / FReaderWin64 are nil too. Treat both
+  // skip-paths uniformly so the test never dereferences a nil reader.
+  if (FWin64SkipReason = '') and (FReaderWin64 = nil) then
+    FWin64SkipReason := FSkipReason;
+  Result := FWin64SkipReason <> '';
+  if Result then
+    Assert.Pass(FWin64SkipReason);
+end;
+{$ENDIF}
 
 procedure TRsmTfwTests.SetupFixture;
 const
@@ -267,10 +326,41 @@ begin
   // tie-break check; load it once here so both tests share it.
   if TFile.Exists(TfwMapPath) then
     FMap := TMapFileParser.Create(TfwMapPath);
+
+  {$IFDEF CPUX64}
+  // Win64 fixture for §6.2 (proc-address VAs > 2 MB) RE. Loaded only
+  // when the test exe is itself 64-bit -- the .rsm is ~1.17 GB and
+  // the Win32 process already has the Win32 TFW .rsm mapped, so
+  // mapping the Win64 .rsm on top would overrun a 32-bit address
+  // space.
+  if TFile.Exists(TfwWin64ExePath) then
+  begin
+    Writeln(Format('  win64-fixture: exe=%s', [TfwWin64ExePath]));
+    FReaderWin64 := TRsmReader.Create;
+    FReaderWin64.LoadFromFile(TfwWin64ExePath);
+    if TFile.Exists(TfwWin64MapPath) then
+      FMapWin64 := TMapFileParser.Create(TfwWin64MapPath);
+    Writeln(Format('  win64-fixture: procs=%d  classes=%d  is64=%s',
+      [FReaderWin64.Procs.Count, FReaderWin64.Classes.Count,
+       BoolToStr(FReaderWin64.Scanner.Is64Bit, True)]));
+  end
+  else
+  begin
+    FWin64SkipReason := Format(
+      'WARNING: §6.2 Win64 tests SKIPPED -- Win64 fixture not found ' +
+      'at "%s". Without the > 2 MB-RVA corpus the proc-address ' +
+      'decoder cannot be exercised.', [TfwWin64ExePath]);
+    Writeln(FWin64SkipReason);
+  end;
+  {$ENDIF}
 end;
 
 procedure TRsmTfwTests.TearDownFixture;
 begin
+  {$IFDEF CPUX64}
+  FreeAndNil(FMapWin64);
+  FreeAndNil(FReaderWin64);
+  {$ENDIF}
   FreeAndNil(FMap);
   FreeAndNil(FReader);
   FreeAndNil(FPhaseTable);
@@ -524,6 +614,67 @@ begin
     'Simple-name lookup must NOT return the .itext unit-init ' +
     'proc VA -- that was the user-facing bug.');
 end;
+
+{$IFDEF CPUX64}
+procedure TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap;
+// §6.2 PIN: probes with .map RVA well above 2 MB must decode to
+// exactly the right SegmentOffset after the TryWin64A0 path replaces
+// the unconditional TryWin32 routing for the $A0 sub-tag.
+const
+  Probes: array[0..3] of String = (
+    'TFormMain.Create',
+    'TFormMain.AfterMenuRebuild',
+    'TFormVBh.Create',
+    'TFormVBh.CreateGsVBhBridge');
+  ProbeUnits: array[0..3] of String = (
+    'Tfw.Main.Form',
+    'Tfw.Main.Form',
+    'Tfw.Vbh.Form',
+    'Tfw.Vbh.Form');
+var
+  I        : Integer;
+  ProcIdx  : Integer;
+  DecodedSO: NativeUInt;
+  MapSegOff: UInt64;
+begin
+  if ShouldSkipWin64 then Exit;
+
+  // Sanity: the arch flag must be set or the dispatcher will still
+  // route $A0 to TryWin32 and every probe below will be off by
+  // exactly $400000.
+  Assert.IsTrue(FReaderWin64.Scanner.Is64Bit,
+    'FReaderWin64.Scanner.Is64Bit must be True after loading a Win64 ' +
+    '.exe; arch detection failed (PE-header read in ' +
+    'TRsmScanner.LoadFromFile / DetectIs64BitExe regressed?).');
+
+  Assert.IsNotNull(FMapWin64,
+    Format('Win64 .map missing at "%s" -- the §6.2 pin needs ' +
+           'ground-truth RVAs to compare against.', [TfwWin64MapPath]));
+
+  for I := Low(Probes) to High(Probes) do
+  begin
+    MapSegOff := FMapWin64.VAFromUnitAndProcName(ProbeUnits[I], Probes[I]);
+    Assert.IsTrue(MapSegOff > $200000,
+      Format('Probe %s.%s map-reported RVA $%x is at or below 2 MB; ' +
+             'the §6.2 pin needs probes ABOVE the historical cap to ' +
+             'be meaningful -- pick a higher-RVA proc.',
+        [ProbeUnits[I], Probes[I], MapSegOff]));
+
+    ProcIdx := FReaderWin64.FindProcByName(Probes[I]);
+    Assert.IsTrue(ProcIdx >= 0,
+      Format('FindProcByName(%s) returned -1; the proc is not in ' +
+             'FReaderWin64.Procs.', [Probes[I]]));
+    DecodedSO := FReaderWin64.Procs[ProcIdx].SegmentOffset;
+    Assert.AreEqual(MapSegOff, UInt64(DecodedSO),
+      Format('Proc %s SegmentOffset mismatch: decoded=$%x, .map=$%x, ' +
+             'delta=$%x. A non-zero delta of exactly $400000 means the ' +
+             '$A0 dispatcher fell back to TryWin32 -- check ' +
+             'TRsmScanner.FIs64Bit propagation.',
+        [Probes[I], Integer(DecodedSO), MapSegOff,
+         Int64(MapSegOff) - Int64(DecodedSO)]));
+  end;
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmTfwTests);

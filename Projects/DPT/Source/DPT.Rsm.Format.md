@@ -112,7 +112,7 @@ acts as a kind discriminator:
 
 Several scanner branches use the hi byte to decide between a 1-byte
 primitive id and a 2-byte structured id; in
-[DPT.Rsm.Scanner.pas:576-581](DPT.Rsm.Scanner.pas#L576-L581) for
+[DPT.Rsm.Scanner.pas:681-686](DPT.Rsm.Scanner.pas#L681-L686) for
 example, `Hi == $2E` or `Hi == $2F` selects the 2-byte read, anything
 else falls back to the 1-byte read.
 
@@ -130,9 +130,9 @@ following byte extends it into a 16-bit word and the recovered value is
 some sparse ordinals). This shows up in:
 
 * `TRsmScanner.HandleLocalRecord` BPRel-offset decoder
-  ([DPT.Rsm.Scanner.pas:667-681](DPT.Rsm.Scanner.pas#L667-L681))
+  ([DPT.Rsm.Scanner.pas:773-787](DPT.Rsm.Scanner.pas#L773-L787))
 * `TRsmScanner.HandleEnumConstantRecord` sparse-ordinal form
-  ([DPT.Rsm.Scanner.pas:906-915](DPT.Rsm.Scanner.pas#L906-L915))
+  ([DPT.Rsm.Scanner.pas:1012-1021](DPT.Rsm.Scanner.pas#L1012-L1021))
 
 ---
 
@@ -183,17 +183,24 @@ the `$ActRec` closure suffix.
 
 The address payload after the name is **variable-length** and is
 decoded by `DecodeProcAddrPayload`
-([DPT.Rsm.Scanner.pas:358-472](DPT.Rsm.Scanner.pas#L358-L472)). Dispatch
+([DPT.Rsm.Scanner.pas:417-577](DPT.Rsm.Scanner.pas#L417-L577)). Dispatch
 happens on the byte at `name+0`:
 
-| Sub-tag | Decoder        | Notes                                                                       |
-|---------|----------------|-----------------------------------------------------------------------------|
-| `$20`   | `TryWin32(name+3)` then `TryWin64(name+3)` | Simple inline form                                                          |
-| `$A0`   | `TryWin32(name+7)` only                    | Extended form with type-ref / timestamp metadata                            |
-| `$41`   | `TryWin32(name+4)` only                    | Method-record extended form found in large binaries (`41 02 10 00` header) |
-| `$80`, `$00`, ... | None              | Forward declaration / cross-reference, no embedded address                  |
+| Sub-tag | Decoder (Win32 / Win64)                                | Notes                                                                       |
+|---------|--------------------------------------------------------|-----------------------------------------------------------------------------|
+| `$20`   | `TryWin32(name+3)` then `TryWin64(name+3)`             | Simple inline form (DebugTarget Win64 uses this)                            |
+| `$A0`   | `TryWin32(name+7)` (Win32) / `TryWin64A0(name+7)` (Win64) | Extended form with type-ref / timestamp metadata; TFW.Win64 standard form |
+| `$41`   | `TryWin32(name+4)` only                                | Method-record extended form found in large binaries (`41 02 10 00` header) |
+| `$80`, `$00`, ... | None                                         | Forward declaration / cross-reference, no embedded address                  |
 
-**Win32 address encoding** (`TryWin32`, [line 391-413](DPT.Rsm.Scanner.pas#L391-L413)):
+The `$A0` Win32-vs-Win64 dispatch is gated on
+`TRsmScanner.Is64Bit`, set in `LoadFromFile` by reading the .exe's
+PE-header Machine field (`$014C` = i386, `$8664` = AMD64). When the
+scanner is loaded via `LoadFromBytes` / `LoadFromBuffer` (no .exe to
+inspect) the flag stays at its caller-supplied value (default
+`False`).
+
+**Win32 address encoding** (`TryWin32`, [Scanner.pas:466-488](DPT.Rsm.Scanner.pas#L466-L488)):
 
 ```
 4 bytes: DWORD = (VA shl 4) or $07
@@ -203,7 +210,7 @@ The low nibble of byte 0 must be `$07`. The recovered RVA is
 `(DWORD >> 4) - $401000` (`$400000` image base + `$1000` `.text` RVA).
 Sanity range: `(0, $10000000)` — i.e. up to 256 MB of code.
 
-**Win64 address encoding** (`TryWin64`, [line 415-441](DPT.Rsm.Scanner.pas#L415-L441)):
+**Win64 `$20` address encoding** (`TryWin64`, [Scanner.pas:511-538](DPT.Rsm.Scanner.pas#L511-L538)):
 
 ```
 byte 0: (byte0 and $7F) must be $03         // encoding-kind tag
@@ -214,14 +221,36 @@ byte 3,4: encoded proc-size / local-layout info (not used for address)
 ```
 
 A trailer `04 10 ?? 2E 00` must follow within the next 1-2 bytes, where
-`??` is a per-binary counter that varies build-to-build (linker
-allocates it from the overall RSM layout, not from the proc itself).
+`??` is a per-binary counter that varies build-to-build. The
+recovered VA is masked to 21 bits (`$1FFFFF`), capping at ~2 MB of
+code per binary. Small Win64 binaries (e.g. DebugTarget at ~1.3 MB)
+fit; larger binaries route through `$A0` instead and don't hit this
+ceiling.
 
-The recovered VA is masked to 21 bits (`$1FFFFF`), so the encoding caps
-out at ~2 MB of code per binary for the bits-0..2 alone. **UNCERTAIN /
-GAP**: larger binaries would have to draw additional high VA bits from
-bytes 3/4, which the current decoder ignores. The comment at
-[line 373-389](DPT.Rsm.Scanner.pas#L373-L389) acknowledges this.
+**Win64 `$A0` address encoding** (`TryWin64A0`, [Scanner.pas:490-509](DPT.Rsm.Scanner.pas#L490-L509), §6.2 closure):
+
+Same 4-byte LE wire format as Win32 (`(VA shl 4) or $07`) but the
+encoder stores only the **lower 32 bits** of VA -- the Win64 image
+base `$140000000` sits in VA bits 32-39 which the 4-byte slot
+doesn't carry. The recovered SegmentOffset is therefore
+`(DWORD >> 4) - $1000` (subtracting only the .text-section RVA,
+**not** the Win32 image-base + .text constant `$401000`).
+
+Verified on TFW.Win64 by
+[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap](../Test/Test.DPT.Rsm.Tfw.pas):
+`TFormMain.Create` payload bytes 3..10 = `A0 00 00 F4 A2 28 8C 07
+05 E1 7B` -- `DWORD(7..10) = $7BE10507`, `>> 4 = $07BE1050`,
+`-$1000 = $07BE0050`, which matches the .map entry
+`0001:07BE0050 Tfw.Main.Form.TFormMain.Create` byte-exactly. The
+three other pinned probes (`TFormMain.AfterMenuRebuild`,
+`TFormVBh.Create`, `TFormVBh.CreateGsVBhBridge`) cover the same
+window; together they pin the [~94 MB, ~129 MB] RVA range that the
+historical 21-bit decoder mishandled.
+
+The 28-bit encoding capacity caps recoverable RVAs at 256 MB; TFW's
+Win64 .text is ~129 MB so the cap doesn't bite there. Whether the
+linker emits a wider slot for binaries beyond 256 MB is unknown
+(no corpus to test against).
 
 **Duplicate-name handling**: the first `$28` for a name creates the proc
 with whatever `Decoded` address (possibly 0). A later `$28` with the
@@ -249,7 +278,7 @@ After consuming the param body the scanner peeks the next 2 bytes; if
 they start with `$20 $21` (a hidden high-index sub-record), it
 increments `FScanRegParam` once more so subsequent parameters retain
 correct register indices. See
-[DPT.Rsm.Scanner.pas:594-598](DPT.Rsm.Scanner.pas#L594-L598).
+[DPT.Rsm.Scanner.pas:700-704](DPT.Rsm.Scanner.pas#L700-L704).
 
 Stored as `TRsmLocal` with `Kind = lkRegister`, `RegParamIdx =
 FScanRegParam`.
@@ -275,7 +304,7 @@ $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 ```
 
 Decoded by `HandleLocalRecord`
-([DPT.Rsm.Scanner.pas:643-747](DPT.Rsm.Scanner.pas#L643-L747)). The
+([DPT.Rsm.Scanner.pas:749-853](DPT.Rsm.Scanner.pas#L749-L853)). The
 payload starts at `P + 2 + NL`. Two main shapes:
 
 **Shape A — structured-type id with BPRel offset:**
@@ -312,7 +341,7 @@ common Delphi types) may still hit the fallback on unfamiliar binaries.
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
-([Scanner.pas:719-744](DPT.Rsm.Scanner.pas#L719-L744)), because the
+([Scanner.pas:825-850](DPT.Rsm.Scanner.pas#L825-L850)), because the
 `FScanInProc` gate cannot reliably distinguish a stack local from a
 module-level variable in every code path.
 
@@ -323,7 +352,7 @@ $20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
 Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:749-784](DPT.Rsm.Scanner.pas#L749-L784)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:855-890](DPT.Rsm.Scanner.pas#L855-L890)). `NL` ∈ `[1, 40]`.
 The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
 the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
 shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
@@ -342,7 +371,7 @@ scope (because the previous `$63 SCOPE_END` was suppressed by the
 the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
 stack-local record ever carries) and publishes both the type id and
 the decoded VA into the global maps as a fallback. See
-[Scanner.pas:726-743](DPT.Rsm.Scanner.pas#L726-L743).
+[Scanner.pas:832-849](DPT.Rsm.Scanner.pas#L832-L849).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
@@ -351,7 +380,7 @@ $27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
 Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:786-853](DPT.Rsm.Scanner.pas#L786-L853)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:892-959](DPT.Rsm.Scanner.pas#L892-L959)). `NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
@@ -370,7 +399,7 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:789-799](DPT.Rsm.Scanner.pas#L789-L799) explains
+comment at [Scanner.pas:895-905](DPT.Rsm.Scanner.pas#L895-L905) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
@@ -486,7 +515,7 @@ byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
 The unit name follows immediately after the last element.
 
 **The dispatcher does NOT advance `P` past the body** (see comment at
-[Scanner.pas:991-993](DPT.Rsm.Scanner.pas#L991-L993)). The single-byte
+[Scanner.pas:1097-1099](DPT.Rsm.Scanner.pas#L1097-L1099)). The single-byte
 fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
@@ -567,7 +596,7 @@ pending): the scanner walks up to 1024 bytes forward looking for a
 proc; its identifier IS the owning unit's name. This is the only known
 way to recover the `(unit, type)` pair for synthesized `EnumDef`s in
 the same-comp case. See
-[Scanner.pas:1101-1133](DPT.Rsm.Scanner.pas#L1101-L1133).
+[Scanner.pas:1207-1239](DPT.Rsm.Scanner.pas#L1207-L1239).
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
@@ -646,7 +675,7 @@ Format-B over-collection from the backward window scan.
 
 A single byte. Closes the active proc scope **only when**
 `FScanSeenLocalSinceProc` is True
-([Scanner.pas:1204-1210](DPT.Rsm.Scanner.pas#L1204-L1210)). The guard
+([Scanner.pas:1310-1316](DPT.Rsm.Scanner.pas#L1310-L1316)). The guard
 prevents incidental `$63` bytes in the proc's address payload (the
 `$A0` sub-form's payload is ~18 bytes of arbitrary data that routinely
 contains `$63`) from prematurely closing the scope before
@@ -917,15 +946,6 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 Each item here is anchored to the code location that flags it.
 
-### 6.2 Win64 proc-address VAs above 2 MB (`UNCERTAIN`)
-
-[Scanner.pas:373-389](DPT.Rsm.Scanner.pas#L373-L389) — the current
-Win64 decoder only uses bytes 0..2 for the VA bits, capping recoverable
-RVAs at 21 bits (`$1FFFFF` ≈ 2 MB). Larger binaries presumably carry
-higher VA bits in bytes 3/4, but the encoding isn't reverse-engineered
-yet. Symptoms when wrong: `SegmentOffset = 0` on procs whose RVA falls
-outside the decoded window.
-
 ### 6.4 Elaborate record header (TAppCaps-style nested sub-record shape) (`UNCERTAIN`)
 
 [StructDiscoverer.pas:354-396](DPT.Rsm.StructDiscoverer.pas#L354-L396)
@@ -952,7 +972,7 @@ purpose (linker fixup target?) is unknown.
 
 ### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
 
-[Scanner.pas:1064-1077](DPT.Rsm.Scanner.pas#L1064-L1077) — the byte
+[Scanner.pas:1170-1183](DPT.Rsm.Scanner.pas#L1170-L1183) — the byte
 at body offset +0 was previously called `KindFlag` and hypothesised to
 discriminate class / record / enum / primitive. That hypothesis is
 **refuted**: in DebugTarget's program-local cluster classes and
@@ -979,14 +999,26 @@ for the pinning test). What remains open:
    shapes are not characterised and no concrete sample has been
    broken open.
 
-### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
+### 6.7 `$28` sub-tag coverage (`GAP`)
 
-[Scanner.pas:446-471](DPT.Rsm.Scanner.pas#L446-L471) — the proc-record
+[Scanner.pas:556-576](DPT.Rsm.Scanner.pas#L556-L576) — the proc-record
 sub-tag byte at `name+0` is dispatched for `$20`, `$A0`, `$41`.
 Other observed values (`$80`, `$00`, ...) are treated as
 forward-declaration / cross-reference records with no embedded address.
 There may be address payloads in those forms that the current decoder
 discards.
+
+A related variant surfaces on TFW.Win64 procs whose only `$28` record
+uses the `$A0` sub-tag but with `byte 7 low-nibble = $03` instead of
+the expected `$07` (e.g. `TStringList.Add`, `TObject.Create`,
+`System.SysUtils.IntToStr`). The new `TryWin64A0` rejects these (the
+`$07` low-nibble is the address-form marker), so `Reader.Procs[i].
+SegmentOffset` stays 0 even though the .map file has the proc at a
+sensible RVA. The byte-7 = `$03` form's address payload position is
+not yet broken open — the diagnostic dump in
+[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap](../Test/Test.DPT.Rsm.Tfw.pas)
+captured 24 bytes per probe; the next investigator should re-enable
+that diagnostic and search for the address pattern in bytes 8..23.
 
 ### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`GAP`)
 

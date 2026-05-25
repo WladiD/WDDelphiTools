@@ -126,6 +126,13 @@ type
     property  Procs: IList<TRsmProc> read GetProcs;
     property  Classes: IList<TRsmClassInfo> read GetClasses;
     /// <summary>
+    ///   Underlying scanner. Exposed (read-only) so callers can read
+    ///   raw bytes via <c>ByteAt</c>/<c>DwordAt</c>, inspect the
+    ///   <c>Is64Bit</c> arch flag, or run targeted diagnostics that
+    ///   need byte-level access without re-mapping the .rsm file.
+    /// </summary>
+    property  Scanner: TRsmScanner read FScanner;
+    /// <summary>
     ///   The <c>$03</c> ENUM_DEF records the scanner extracted, in
     ///   first-seen order. Each entry binds a (unit, type) pair to
     ///   its ordered element list -- the authoritative source for
