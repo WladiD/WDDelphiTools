@@ -1167,25 +1167,46 @@ bridge alternative; the LOW-byte rule above is cheaper and
 suffices for §6.9 closure. Catalog deserves its own §4
 subsection in a future pass.
 
-**Implementation path** for the parent session: in
+**Implementation path** for the next session: in
 `LinkFieldsFromFormatA`, when the `$2C` body shape indicates an
 enum-typed field (BodyLen=14, `$9C $01` marker at +6..+7 OR
 +7..+8 for large-offset records), read byte +3 alone as a
 secondary-LO. Cross-reference with the existing
 `FCrossUnitEnumIds` / `FEnumAliasesByPrimary` tables in
 `TRsmEnumDecoder` — the existing $2A→$25 bridge already populates
-those. The LOW-byte match plus same-unit gating produces the
-PrimaryId, which the existing resolvers then consume normally.
+those. The LOW-byte match plus **same-unit gating** (block-owner
+index, §6.10) produces the PrimaryId, which the existing
+resolvers then consume normally.
 
 Pin probes: `TFW!TUserKonsOutlook.SyncDirection → ukodBidirektional`
 and `TFW!TUserKonsOutlook.SyncStatus → uksoUninitialised` (or
 whatever the first uksto* member is). Both end-to-end against
 .map ground truth.
 
-**Status**: encoding RE complete; production fix not yet landed.
-Parent session next step is to verify the LOW-byte rule across
-the full TUserKons family with a diagnostic, then implement in
-`FormatALinker.pas` and pin.
+**Round 5 implementation attempt (reverted)**: a simpler global
+LOW-byte → primary map (added to `TRsmEnumDecoder` and consumed
+by `TRsmFormatALinker`) was tried and reverted. Both first-wins
+and last-wins collision policies returned the WRONG primary for
+SyncDirection:
+* last-wins gave `$BC2C` (some later same-comp enum that also
+  has secondary-LOW `$2A`),
+* first-wins gave `$FFF6` (a different same-comp enum declared
+  earlier in the binary).
+TFW has at least 3 same-comp cross-unit enums whose
+secondary-LOW byte equals `$2A`; without unit-scoping, the
+global map collapses them onto whichever entry the iteration
+order picks. **Same-unit gating via the §6.10 block-owner index
+is mandatory** for clean closure -- the LOW byte alone is too
+narrow a key in a large corpus.
+
+**Status**: encoding RE **complete** (round 4); minimal global
+implementation **insufficient** for TFW-class corpora (round 5);
+production fix requires per-unit scoping. The Reader currently
+falls through to `FindBestRecordForGlobalAndField`'s
+name-proximity heuristic, which mis-routes the TFW
+`SyncDirection`/`SyncStatus` example. Closure deferred to a
+session that wires the block-owner index into the EnumDecoder /
+FormatALinker bridge.
 
 ### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
 
