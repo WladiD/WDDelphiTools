@@ -1187,21 +1187,40 @@ this field"). The user-visible symptom in TFW was different —
 is the same: there is no bridge from the `$21` record's alias id to
 the actual type.
 
-**Status after the structural-disambiguator landing**: the LO-byte
-truncation collision is gone. TFW's "record TSatz33" mis-label
-becomes a clean "no RSM type metadata for this field" — accurate
-about what the scanner knows, less misleading. The full enum-name
-resolution still requires the alias→primary bridge.
+**Status after the structural-disambiguator landing**:
 
-**Concrete repro** (`DebugTarget.exe`, BP at
-[DebugTarget.dpr:516](../Test/DebugTarget.dpr#L516)
-inside `procedure TouchRegEnumParam(AStatusLight: TLightStatus;
-AStatusPriority: TThreadPriority)`):
+* **2-byte alias case** (DebugTarget AStatusPriority): no longer
+  truncates the alias to its low byte. The scanner now reads the full
+  `$0671`. The 1-byte truncation collision with TSatz33-like foreign
+  classes is eliminated for the 2-byte form. Live `evaluate` returns
+  "no RSM type metadata for this field" — accurate, since the alias
+  doesn't resolve to anything.
+* **1-byte alias case** (TFW AKonsCommonTyp): the linker emits a
+  genuine 1-byte alias (`$18`) that the disambiguator correctly
+  identifies as 1-byte. The collision with TSatz33's primary `$0018`
+  is structural, not a scanner bug — both ids are honestly `$18`.
+  Live `evaluate` still labels the param as "record TSatz33" because
+  the resolver treats the alias as a primary id. Closing this
+  requires the alias→primary bridge (see Remaining closure work).
 
-| Parameter        | Source enum     | Origin           | `$21` payload after `$66 $00 $00`        | Scanner TypeIdx (post-fix) |
-|------------------|-----------------|------------------|------------------------------------------|----------------------------|
-| `AStatusLight`   | TLightStatus    | program-local    | `81 2E FE 21 0F` — Hi=$2E, next-tag at +6 | `$2E81` (program-local enum primary) |
-| `AStatusPriority`| TThreadPriority | cross-unit (RTL) | `71 06 FC 63 27` — Hi=$06, next-tag at +6 (SCOPE_END) | `$0671` (per-binary RTL alias)        |
+**Concrete repros** observed in DebugTarget and TFW show the linker
+emits the cross-unit RTL alias in either a **2-byte** or **1-byte**
+form depending on the alias's magnitude:
+
+| Fixture                      | Param             | Source enum     | `$21` payload after `$66 $00 $00`                            | Scanner TypeIdx (post-fix) |
+|------------------------------|-------------------|-----------------|--------------------------------------------------------------|----------------------------|
+| DebugTarget TouchRegEnumParam | `AStatusLight`    | TLightStatus    | `81 2E FE 21 0F` — Hi=$2E, next-tag at +6                    | `$2E81` (program-local primary, fast path) |
+| DebugTarget TouchRegEnumParam | `AStatusPriority` | TThreadPriority | `71 06 FC 63 27` — next-tag at +6 (SCOPE_END)               | `$0671` (per-binary RTL alias, 2-byte) |
+| TFW KonsCommonLoad           | `AKonsCommonTyp`  | TKonsCommonTyp  | `18 FE 22 0B 41…` — next-tag at +5 (PARAM_TAG / "AKonsCommon") | `$18` (per-binary RTL alias, 1-byte) |
+
+The 1-byte form is genuine — the structural disambiguator correctly
+reads it because byte +5 is a continuation tag. The 1-byte alias `$18`
+collides with TSatz33's primary `$0018` (a `packed record` in
+`Tfw.GAEB.Typ.pas`), so live `evaluate` STILL returns "record TSatz33"
+for TKonsCommonTyp register parameters even after this fix lands.
+That collision is the alias→primary bridge problem, not a scanner-side
+bug — the disambiguator correctly produced the value the linker
+actually emitted.
 
 **Why this is independent of §6.9**: §6.9 closed
 `Member.PrimitiveTypeId` for **class FIELDS** of `$2C` records — the
