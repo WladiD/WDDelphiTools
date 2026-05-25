@@ -118,6 +118,15 @@ type
     procedure TestSimpleRecordHeaderFieldCount64;
 
     /// <summary>
+    ///   Pin test for §6.13 closure -- the terminal field of a
+    ///   record now reports a non-zero Size, derived from the
+    ///   record's total byte size (4-byte DWORD between the
+    ///   record name and the field-record stream).
+    /// </summary>
+    [Test]
+    procedure TestTerminalRecordFieldSizeRecovered32;
+
+    /// <summary>
     ///   Pin test for §6.6.1 closure -- the $2A wide-body ($20 flag)
     ///   slot at body+5..+8 is a Win32-style (VA shl 4) | $07
     ///   pointer into the type's RTTI structure. For each
@@ -740,6 +749,60 @@ begin
       end;
       Assert.IsTrue(Found,
         Exp.Name + ': no $0E-anchored record-name record found in RSM');
+    end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestTerminalRecordFieldSizeRecovered32;
+// §6.13 PIN: terminal field of a record now reports the correct
+// byte width. For each probe record we know the source-declared
+// field set; assert the LAST member's Size matches the type's
+// declared width.
+type
+  TProbe = record
+    Recname     : String;
+    LastName    : String;
+    LastSize    : UInt32;
+  end;
+const
+  // Probe set: simple integer records whose terminal field is
+  // unambiguous on Win32. TPoint2D/TPoint3D Integer = 4 bytes,
+  // TPair.FLabel = string pointer = 4 bytes on Win32.
+  Probes: array[0..3] of TProbe = (
+    (Recname: 'TPoint2D';    LastName: 'FY';      LastSize: 4),
+    (Recname: 'TPoint3D';    LastName: 'FZ';      LastSize: 4),
+    (Recname: 'TPair';       LastName: 'FLabel';  LastSize: 4),
+    (Recname: 'TWhdrHeader'; LastName: 'WhdrVer'; LastSize: 4));
+var
+  S       : TRsmScanner;
+  I       : Integer;
+  ClassIdx: Integer;
+  Members : IList<TRsmClassMember>;
+  Last    : TRsmClassMember;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    for I := Low(Probes) to High(Probes) do
+    begin
+      Assert.IsTrue(S.ClassByName.TryGetValue(
+        LowerCase(Probes[I].Recname), ClassIdx),
+        Format('Probe %s not discovered', [Probes[I].Recname]));
+      Members := S.Classes[ClassIdx].Members;
+      Assert.IsTrue(Members.Count >= 1,
+        Format('Probe %s has no members', [Probes[I].Recname]));
+      Last := Members[Members.Count - 1];
+      Assert.AreEqual(Probes[I].LastName, Last.Name,
+        Format('Probe %s last-member name mismatch', [Probes[I].Recname]));
+      Assert.AreEqual<UInt32>(Probes[I].LastSize, UInt32(Last.Size),
+        Format('Probe %s last-member %s Size: expected %d, got %d. ' +
+               'A regression to Size=0 means the §6.13 terminal-' +
+               'field recovery via record-size DWORD broke.',
+          [Probes[I].Recname, Probes[I].LastName, Probes[I].LastSize, Last.Size]));
     end;
   finally
     S.Free;

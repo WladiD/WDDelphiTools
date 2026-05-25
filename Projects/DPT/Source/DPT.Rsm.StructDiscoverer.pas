@@ -346,9 +346,14 @@ var
   List        : IList<TRsmClassMember>;
   Member      : TRsmClassMember;
   FoundFirst  : Boolean;
+  RecordSize  : UInt32;
 begin
   NL := Length(ARecordName);
   if ARecordNameOff + 1 + NL + 4 > FSz then Exit;
+  // The 4-byte LE DWORD between the record name and the field-record
+  // stream is the record's total byte size (§6.13 closure -- used to
+  // derive the terminal field's Size by subtracting its offset).
+  RecordSize := DwordAt(ARecordNameOff + 1 + NL);
   PStart := ARecordNameOff + 1 + NL + 4;
 
   // The header between the size DWORD and the first field tag uses
@@ -462,8 +467,23 @@ begin
     // a wrong derived size on a variant overlay would be worse than
     // letting EvaluateVariable fall back to the user-requested type
     // width.
+    //
+    // For the LAST member (no successor), §6.13 closure: use the
+    // record's total byte size (from the 4-byte DWORD between the
+    // record name and the field-record stream) to compute
+    // `Size = RecordSize - Member.Offset`. This recovers the
+    // terminal field's width for the common non-variant case
+    // without forcing the evaluator's type-fallback path. Variant
+    // overlays still fall through to Size = 0 (they have a
+    // sibling at the same offset, so the (I + 1 < Count) branch
+    // doesn't fire and we'd hit the I + 1 == Count branch -- but
+    // the sibling's Cands[I+1].Offset equals Cands[I].Offset so
+    // the first arm doesn't take it. Only TRUE terminal fields
+    // benefit; variants stay safe.
     if (I + 1 < Count) and (Cands[I + 1].Offset > Cands[I].Offset) then
       Member.Size := Cands[I + 1].Offset - Cands[I].Offset
+    else if (I + 1 = Count) and (RecordSize > Cands[I].Offset) then
+      Member.Size := RecordSize - Cands[I].Offset
     else
       Member.Size := 0;
     List.Add(Member);

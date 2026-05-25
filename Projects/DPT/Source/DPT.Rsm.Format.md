@@ -1086,21 +1086,58 @@ the same order as the `$2C` field blocks). The pairing is heuristic.
 [Test.DPT.Rsm.LocalsReader.pas:709-738](../Test/Test.DPT.Rsm.LocalsReader.pas#L709-L738)
 — `DoTestNonComponentRtlInheritance` documents that `TStringList.FCount`
 resolves (own field) but `TStringList.FUpdateCount via TStrings` does
-NOT, because the RSM emits `TStrings`'s field records in a region that
-sits BEFORE the previous discovered class's `AMinStartOff` cap. The
-backward-scan-with-cap is conservatively safe (prevents cross-class
-leakage) but loses cross-anchor inherited fields for non-TComponent
-RTL hierarchies.
+NOT.
 
-### 6.13 Field byte width for terminal fields (`UNCERTAIN`)
+**Mechanism**: `ScanFieldsBackwardFromClassName(AClassNameOff,
+AMinStartOff)` walks 64 KB backward from each class's anchor looking
+for `<DWORD-off> <NL> <name>` triples, capped at the previous
+discovered class's anchor (`AMinStartOff`). For TStrings the field
+records sit BEFORE that cap, so the scan never reaches them and
+`Reader.Classes[TStringsIdx].Members` ends up empty. The Format-A
+linker's `$2C` pass would happily *update* an existing member with
+its `PrimitiveTypeId` but doesn't currently *add* new members it
+didn't see in discovery, so the empty list stays empty all the way
+through `FindClassMember`'s chain walker -- the chain reaches
+TStrings but finds no member to match.
 
-[StructDiscoverer.pas:457-460](DPT.Rsm.StructDiscoverer.pas#L457-L460)
-and [278-281](DPT.Rsm.StructDiscoverer.pas#L278-L281) — the last
-member of a record / class has `Size := 0` because its byte width
-cannot be derived from a successor offset. The evaluator falls back
-to the user-requested type's width in that case; whether the byte
-width is recoverable from elsewhere in the field's typeinfo prefix is
-not known.
+**Why the cap is there**: relaxing it would re-introduce the
+cross-class leakage that previously corrupted `FirstOffs` /
+`DeriveClassParents` on closely-packed pairs like
+`TDerived → TDeepDerived`. Any fix must be at least as selective.
+
+**Possible closure paths** (none investigated end-to-end):
+1. Have the Format-A linker *create* a new member when it sees a
+   `$2C` record naming a field whose parent class has the field
+   missing. The `$2C` body would need to carry a usable byte
+   offset for the new member's `Offset`; whether it does is part
+   of §6.9's still-open RE.
+2. Run a second backward scan when the parent class has been
+   resolved (so the chain walker reaches an empty parent), with a
+   tighter shape filter that rejects bytes belonging to the
+   intervening capped class.
+3. Match $25-region locality (the same logic that was tested with
+   `FLastSecondary` and dropped in §6.11) to associate
+   declaration-order field clusters with their owning class.
+
+Symptom impact: dotted evaluations into non-TComponent RTL
+hierarchies (TStringList, TStream, TList&lt;T&gt; subclasses with
+non-TComponent ancestry) lose visibility into inherited fields.
+TComponent-rooted hierarchies happen to be packed tightly enough
+that the existing cap doesn't bite.
+
+### 6.13 Terminal class field byte width (`UNCERTAIN`)
+
+[StructDiscoverer.pas:278-281](DPT.Rsm.StructDiscoverer.pas#L278-L281)
+— class members use the backward field walker, whose terminal
+member's byte width cannot be derived from a successor offset.
+Classes don't carry an obvious "instance size" the way records do
+(the record's size DWORD sitting right after the name closes §6.13
+for records; pinned by
+[Test.DPT.Rsm.Scanner.TestTerminalRecordFieldSizeRecovered32](../Test/Test.DPT.Rsm.Scanner.pas)).
+The evaluator falls back to the user-requested type's width for
+class terminal fields; whether an equivalent total-size field
+exists in the class trailer or anywhere else in the byte stream
+has not been investigated.
 
 ### 6.14 Class-field anchor byte +2 — visibility/section taxonomy (`UNCERTAIN`)
 
