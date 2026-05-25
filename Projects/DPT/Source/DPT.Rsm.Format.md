@@ -1041,10 +1041,17 @@ no direct lookup bridges them to the right `TRsmEnumDef`.
 ```
 $2C SyncDirection body:   00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08
                                       ^^^^^ +3..+4 (FieldId $0D2A)
-                                            ^^ +5 = $0C (enum kind)
+                                            ^^ +5 = $0C (NOT "enum kind" -- it is
+                                                          the two-byte-offset
+                                                          separator the linker
+                                                          emits when the field's
+                                                          record-offset >= 256;
+                                                          §6.9 round-3 finding)
                                                ^^^^^ +6..+7 = $9C $01 marker
-                                                     ^^^^^ +8..+9 ($02C9 -- not the
-                                                                   enum primary either)
+                                                     ^^^^^ +8..+9 ($02C9 -- per-record
+                                                                   sequential
+                                                                   field-slot index,
+                                                                   not an enum id)
 
 $25 ukodBidirektional:    8A 00 00 F8 24 73 A4 2A 00 00 00
                                       ^^^^^^^^^^^ linker-token (§4.6.2)
@@ -1084,25 +1091,33 @@ transforms tested.
   SyncStatus) are **byte-identical** except for their FieldId
   itself — no discriminator beyond that hints at the binding.
 
-**Closest-shape lead still open**: between consecutive class
-records the linker emits `$63 $45 ...` trailer blocks (e.g. at
-`$A8E6D0F` right after TUserKonsOutlook's field block: `63 45 2A
-08 51 02 00 48 00 4D 61 04 D1 21 55 02 00 00 00 A0 00 25 3F 00 00`).
-These don't contain `$7F $7B` or `$0D 2A` either, but they're
-emitted exactly between enum-typed regions and the current
-dispatcher walks past them as noise. The shape resembles a
-`$63 = SCOPE_END` followed by an unhandled `$45` family marker
-plus a payload. Decoding this trailer block would be the next
-investigator's most promising lead.
+**Third-round investigation (two more refutations):**
 
-**Heuristic-fix recommendation** (not implemented; deferred): a
-**same-unit positional fallback** in `LinkFieldsFromFormatA` —
-when the BodyLen=14 enum body's FieldId fails `FindClassIdxForRawId`,
-walk the unit's `$2A` enum entries in declaration order and pair
-the Nth enum-typed `$2C` with the Nth enum's `$2A`. This is a
-heuristic that needs careful name-based regression tests for
-each known probe; the parent session opted not to land it without
-a fresh failing real-world repro.
+* The `$63 $45 ...` trailer blocks the round-2 snapshot flagged as
+  the "closest-shape lead" are **per-record headers**, one fixed-
+  length (~25-byte) block per record in the unit. Survey of the
+  TUserKons unit window (4 records, 4 blocks at `$A8E6A9E`,
+  `$A8E6B08`, `$A8E6B8D`, `$A8E6D0F`) shows the byte at +7 carries
+  the parent-record id (matches the immediately following `$2C`
+  field block's parent-id). None of the four blocks contains any
+  FieldId or enum-primary byte pair. Refutes "binding table in
+  the trailer".
+* The **same-unit positional fallback** (Nth enum-typed `$2C` ↔
+  Nth enum's `$2A` in unit declaration order) is structurally
+  impossible: the TUserKons unit has 11 `$2A` enum entries but
+  only 2 enum-typed `$2C` fields. Counts can't align. Even with
+  generous filtering, SyncDirection (the 0th enum-typed `$2C` in
+  the unit) would pair with TUserKonsTyp (the 0th enum `$2A`),
+  which is wrong -- TUserKonsTyp is referenced by a different
+  field elsewhere. Refutes the round-2 heuristic recommendation.
+
+**Closest-shape lead still open** (after three refutation rounds):
+back-walking from each enum's first `$25` cross-unit constant record
+($8A form, §4.6.2) to find the field that references the enum.
+The `$25` records carry the enum's secondary type id, and the
+$8A-form's body has more uncovered bytes than the round-1 dump
+exhausted. This is the only remaining structural path with enough
+information density to carry the binding.
 
 Deferred until a richer fixture (or a Delphi linker spec leak)
 unlocks the bridge. The Reader currently falls through to
