@@ -587,11 +587,38 @@ program-local registry cluster:
   All program-local classes use this form (TInner, TDerived,
   TDeepDerived, TClassFieldHost, TWithRec, TNoFPrefixHost,
   TThPriHost, ...) plus the subset of records the linker emits
-  full RTTI for (TPoint2D, TRect2D, TPair, TMixedRec, TWhdrHeader,
-  TWithHeader, TPrimitives). The latter list does NOT split
-  cleanly on "has managed fields" or "is embedded as a sub-record"
-  -- the exact discriminator the Delphi linker uses is still open
-  (§6.6.2).
+  full RTTI for. The record discriminator (§6.6.2 closure, pinned
+  by `TestRecordRttiFlagDiscriminator32`):
+
+  > A record gets `$20` iff it has **at least one RTTI-managed
+  > field** (string / dynarray / interface / Variant / WideString
+  > — i.e. `managed-field count > 0` in §4.13's simple-shape
+  > header byte 0) **OR** it appears as a **non-variant field
+  > type** of another record / class. Variant-case references
+  > don't promote the flag.
+
+  In DebugTarget the rule sorts cleanly:
+
+  | Record           | managed | non-variant ref       | Flag |
+  |------------------|---------|------------------------|------|
+  | TPoint2D         | 0       | TRect2D, TWithRec      | `$20`|
+  | TRect2D          | 0       | TWithRec               | `$20`|
+  | TWhdrHeader      | 0       | TWithHeader            | `$20`|
+  | TPair            | 1       | TWithRec               | `$20`|
+  | TMixedRec        | 1       | —                      | `$20`|
+  | TWithHeader      | 1       | —                      | `$20`|
+  | TPrimitives      | 2       | —                      | `$20`|
+  | TPoint3D         | 0       | —                      | `$00`|
+  | TFloats          | 0       | —                      | `$00`|
+  | TNarrowInts      | 0       | — (packed)             | `$00`|
+  | TVariantSlot     | 0       | — (variant)            | `$00`|
+  | TFieldStatusHost | 0       | — (packed)             | `$00`|
+  | TEnumVariantHost | 0       | — (packed variant)     | `$00`|
+  | TEnumHostRec     | 0       | TEnumVariantHost.FInner (**variant-case only**) | `$00`|
+
+  TEnumHostRec is the pin's canonical "variant-refs do not
+  promote" probe: it IS referenced by TEnumVariantHost, but only
+  inside a `case ... of` branch, and the flag stays `$00`.
   The word at +7/+8 is also what the scanner reads as
   `SecCandidate` for the enum bridge; it's the high half of the
   RTTI-pointer DWORD and carries a legitimate value only because
@@ -1031,32 +1058,28 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 Each item here is anchored to the code location that flags it.
 
-### 6.6 `$2A` type-registry body-flag remaining unknowns (`UNCERTAIN`)
+### 6.6 `$2A` type-registry body-flag — cross-unit RTL forms (`UNCERTAIN`)
 
 [Scanner.pas:1210-1223](DPT.Rsm.Scanner.pas#L1210-L1223) — the byte
 at body offset +0 is a body-shape selector, NOT a kind discriminator
 (see §4.8 + pinning test
 [Test.DPT.Rsm.Scanner.Test2ATypeRegistryFlagIsBodyShapeNotKind32](../Test/Test.DPT.Rsm.Scanner.pas)).
-Sub-point §6.6.1 (wide-body payload meaning) is **closed** -- the
-bytes at +5..+8 are an RTTI-pointer encoded with the same
-per-platform shape as proc addresses (§4.1 / §4.8). What remains
-open:
+Sub-points §6.6.1 (wide-body payload meaning) and §6.6.2 (`$20`
+vs `$00` discriminator for records) are **closed** — the wide-body
+bytes are an RTTI-pointer (§4.1 / §4.8), and records get `$20` iff
+they have a managed field or are referenced as a non-variant field
+type of another record/class (§4.8 table). What remains open:
 
-1. **`$20` vs `$00` discriminator for records**: both `TPoint2D` and
-   `TPoint3D` are integer-only records yet pick different flags
-   (`$20` and `$00` respectively). The discriminator is not "has
-   managed fields" (TPoint2D and TPoint3D both have N=0; yet only
-   TPoint2D gets `$20`) and not "is embedded as a sub-record"
-   (TMixedRec has `$20` but appears only as the type of a top-level
-   global). The Delphi compiler emits per-record RTTI on some
-   internal criterion the corpus hasn't disentangled. Closing this
-   would require a fixture sweep that toggles individual factors
-   (TypInfo references, `{$M+}` scope, type-helper presence, ...)
-   and watches the flag flip.
-2. **Cross-unit RTL flag values (`$08`, `$80`, `$88`, `$98`, `$A8`,
-   `$B8`)**: observed on `TObject`, `TGUID`, `TVisibilityClass`,
-   `TThreadID`, etc.; body shapes are not characterised and no
-   concrete sample has been broken open.
+* **Cross-unit RTL flag values (`$08`, `$80`, `$88`, `$98`, `$A8`,
+  `$B8`)**: observed on `TObject`, `TGUID`, `TVisibilityClass`,
+  `TThreadID`, etc.; body shapes are not characterised and no
+  concrete sample has been broken open. The cross-unit RTL forms
+  sit in the source-imported portion of the RSM (System.Classes,
+  System.SysUtils, ...) so the discriminator is presumably "which
+  DCU-internal RTTI-emission policy applied at the source unit"
+  — knowing that won't make the Reader more useful, but the body
+  shapes might still carry consumable data the current decoder
+  walks past.
 
 ### 6.7 `$28` `$80` / `$00` sub-tags (`GAP`)
 

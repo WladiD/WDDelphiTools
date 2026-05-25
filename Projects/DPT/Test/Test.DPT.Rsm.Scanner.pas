@@ -130,6 +130,20 @@ type
     procedure TestVisibilityMarkerTaxonomy32;
 
     /// <summary>
+    ///   Pin test for §6.6.2 closure -- the $2A body-flag
+    ///   discriminator for records: a record gets `$20` iff it
+    ///   has at least one RTTI-managed field OR it is referenced
+    ///   as a non-variant field type of another record/class.
+    ///   Variant-case references do NOT promote the flag (the
+    ///   canonical case: TEnumHostRec is referenced only via
+    ///   TEnumVariantHost.FInner inside a variant case branch,
+    ///   and stays `$00`). Pins all 14 DebugTarget records'
+    ///   flags against the rule.
+    /// </summary>
+    [Test]
+    procedure TestRecordRttiFlagDiscriminator32;
+
+    /// <summary>
     ///   Pin test for §6.13 closure -- the terminal field of a
     ///   record now reports a non-zero Size, derived from the
     ///   record's total byte size (4-byte DWORD between the
@@ -875,6 +889,101 @@ begin
                'visibility encodings; update the §6.14 taxonomy.',
           [Probes[I].Name, Probes[I].SectionKind,
            Probes[I].ExpectedMarker, ActualMarker]));
+    end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestRecordRttiFlagDiscriminator32;
+// §6.6.2 PIN. The $2A body-flag for RECORDS in DebugTarget follows
+// the rule:
+//   $20  iff  (managed-field count > 0) OR (record appears as a
+//             non-variant field type of another record/class)
+//   $00  otherwise
+// Variant-case references do NOT promote the flag (TEnumHostRec is
+// the canonical witness: referenced only via TEnumVariantHost's
+// `5: (FInner: TEnumHostRec)` branch, and stays $00).
+type
+  TProbe = record
+    Name        : String;
+    ExpectedFlag: Byte;
+    Why         : String;
+  end;
+const
+  Probes: array[0..13] of TProbe = (
+    (Name: 'TPoint2D';         ExpectedFlag: $20; Why: 'referenced as field in TRect2D, TWithRec'),
+    (Name: 'TRect2D';          ExpectedFlag: $20; Why: 'referenced as field in TWithRec'),
+    (Name: 'TPair';            ExpectedFlag: $20; Why: 'managed FLabel:string'),
+    (Name: 'TMixedRec';        ExpectedFlag: $20; Why: 'managed FMixedStr:string'),
+    (Name: 'TPoint3D';         ExpectedFlag: $00; Why: 'no managed, no non-variant field-ref'),
+    (Name: 'TWhdrHeader';      ExpectedFlag: $20; Why: 'referenced as field in TWithHeader'),
+    (Name: 'TWithHeader';      ExpectedFlag: $20; Why: 'managed WhdrLongStr:string'),
+    (Name: 'TVariantSlot';     ExpectedFlag: $00; Why: 'no managed, no non-variant field-ref'),
+    (Name: 'TNarrowInts';      ExpectedFlag: $00; Why: 'packed, no managed, no non-variant field-ref'),
+    (Name: 'TFloats';          ExpectedFlag: $00; Why: 'no managed, no non-variant field-ref'),
+    (Name: 'TPrimitives';      ExpectedFlag: $20; Why: 'managed FAnsi:AnsiString, FWide:WideString'),
+    (Name: 'TEnumHostRec';     ExpectedFlag: $00; Why: 'variant-case-only reference (TEnumVariantHost.FInner) -- does NOT promote'),
+    (Name: 'TFieldStatusHost'; ExpectedFlag: $00; Why: 'packed, no managed, no non-variant field-ref'),
+    (Name: 'TEnumVariantHost'; ExpectedFlag: $00; Why: 'packed variant, no managed, no non-variant field-ref'));
+var
+  S        : TRsmScanner;
+  I        : Integer;
+  P, EndPos: NativeInt;
+  NL       : Byte;
+  Name     : String;
+  PriHi    : Byte;
+  Flag     : Byte;
+  Found    : Boolean;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
+
+    for I := Low(Probes) to High(Probes) do
+    begin
+      Found := False;
+      EndPos := S.Sz - 12;
+      P := 4;
+      while P < EndPos do
+      begin
+        if S.ByteAt(P) = TRsmTag.TYPE_REGISTRY_TAG then
+        begin
+          NL := S.ByteAt(P + 1);
+          if (NL = Length(Probes[I].Name)) and
+             (P + 2 + NL + 10 < S.Sz) and
+             (S.ByteAt(P + 2 + NL + 1) = $00) and
+             (S.ByteAt(P + 2 + NL + 2) = $00) and
+             S.ReadIdentifier(P + 1, Name) and
+             SameText(Name, Probes[I].Name) then
+          begin
+            PriHi := S.ByteAt(P + 2 + NL + 4);
+            // Restrict to the program-local cluster (hi byte $2E)
+            // so the same name in a cross-unit cluster doesn't
+            // false-positive.
+            if PriHi = $2E then
+            begin
+              Flag := S.ByteAt(P + 2 + NL + 0);
+              Found := True;
+              Break;
+            end;
+          end;
+        end;
+        Inc(P);
+      end;
+      Assert.IsTrue(Found,
+        Format('Probe %s: no program-local $2A registry entry found',
+          [Probes[I].Name]));
+      Assert.AreEqual<Byte>(Probes[I].ExpectedFlag, Flag,
+        Format('Probe %s: $2A body flag mismatch (%s). Expected $%.2X, ' +
+               'got $%.2X. A change here means either the source ' +
+               'fixture introduced a new field-reference / managed ' +
+               'field, OR the Delphi compiler changed its record-' +
+               'RTTI-emission rule -- re-derive the §6.6.2 ' +
+               'discriminator from the new fixture and update §4.8.',
+          [Probes[I].Name, Probes[I].Why,
+           Probes[I].ExpectedFlag, Flag]));
     end;
   finally
     S.Free;
