@@ -712,6 +712,16 @@ Two encodings are observed:
   This bridge is critical for the TFW corpus where unit-local id `$44`
   is `TUserKonsOutlook` in one unit and an unrelated class in another.
 
+  The block-owner pairing is a heuristic: it assumes the unit's `$0E`
+  record markers appear in the same source-declaration order as the
+  `$2C` field blocks. The §6.9 round-6 closure (FieldId → Enum bridge)
+  validated this on every enum-typed `$2C` field in TFW
+  (TUserKonsOutlook's 12 fields paired correctly, plus the broader
+  scan over 113 `$2C` records via the LOW-byte → primary lookup), so
+  no observed failure remains across the DebugTarget + TFW corpus.
+  If a future fixture exposes an out-of-order unit, the §6.9 enum
+  bridge's nearest-offset disambiguation provides the safety net.
+
 #### Body shapes — field type information
 
 `BodyLen = EndOff - After` (i.e. distance from the anchor to the
@@ -1098,15 +1108,6 @@ sub-tag's `TryWin64` uses. Pinned by
 against three TFW.Win64 probes -- TStringList.Add, TObject.Create,
 System.SysUtils.IntToStr -- whose .map RVAs all sit below 2 MB and
 previously decoded to 0.)
-
-### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
-
-[FormatALinker.pas:627-644](DPT.Rsm.FormatALinker.pas#L627-L644) —
-when `parent-hi == $FF`, the parent id is treated as a unit-local byte
-and resolved via the block-owner index. This is sufficient for the
-TFW `UserKonsOutlook*` corpus but may miss edge cases (block-owner
-pairing breaks down when a unit's `$0E` record markers don't appear in
-the same order as the `$2C` field blocks). The pairing is heuristic.
 
 ### 6.12 `TStrings → TPersistent → TObject` inheritance chain (`GAP`)
 
