@@ -1024,17 +1024,20 @@ against three TFW.Win64 probes -- TStringList.Add, TObject.Create,
 System.SysUtils.IntToStr -- whose .map RVAs all sit below 2 MB and
 previously decoded to 0.)
 
-### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`GAP`)
+### 6.9 FieldId → Enum binding for `$2C` enum-typed fields (`PARTIALLY-RESOLVED`)
 
 Observed in TFW: `TUserKonsOutlook.SyncDirection` evaluates to
 `sdSync (0)` instead of the correct `ukodBidirektional (0)` because
-the resolver can't pair the field's id (`$0D2A` for `SyncDirection`,
-`$1D2C` for `SyncStatus`) with the matching `EnumDef`. The current
-Format-A linker uses the `$9C $01` body-shape rules in
+the resolver can't pair the field with the matching `EnumDef`. The
+current Format-A linker uses the `$9C $01` body-shape rules in
 [FormatALinker.pas:660-700](DPT.Rsm.FormatALinker.pas#L660-L700) to
-recover a `PrimitiveTypeId` for enum-typed fields, but those FieldIds
-live in a separate id space from the `$2A` registry's primary ids, so
-no direct lookup bridges them to the right `TRsmEnumDef`.
+recover a `PrimitiveTypeId` for enum-typed fields by reading a
+**two-byte word** from body+3..+4. **Round-4 RE proved that read is
+the bug**: byte +3 is the enum's secondary-id LOW byte (matching
+the `$25` `$8A`-form constants and the `$2A` SecCandidate's low
+byte); byte +4 is the per-record sequential field-slot index
+(unrelated). Reading them as a 2-byte word fabricates a non-existent
+"FieldId" that matches no registry entry.
 
 **Investigation snapshot (TFW.exe Win32):**
 
@@ -1111,19 +1114,78 @@ transforms tested.
   which is wrong -- TUserKonsTyp is referenced by a different
   field elsewhere. Refutes the round-2 heuristic recommendation.
 
-**Closest-shape lead still open** (after three refutation rounds):
-back-walking from each enum's first `$25` cross-unit constant record
-($8A form, §4.6.2) to find the field that references the enum.
-The `$25` records carry the enum's secondary type id, and the
-$8A-form's body has more uncovered bytes than the round-1 dump
-exhausted. This is the only remaining structural path with enough
-information density to carry the binding.
+**Fourth-round breakthrough** (the `$25 $8A`-form back-walk paid off):
 
-Deferred until a richer fixture (or a Delphi linker spec leak)
-unlocks the bridge. The Reader currently falls through to
-`FindBestRecordForGlobalAndField`'s name-proximity heuristic, which
-covers many real-world cases but mis-routes the TFW
-`SyncDirection`/`SyncStatus` example.
+The bridge is **secondary-id-LOW byte equality** across three
+record families. For SyncDirection:
+
+```
+$25 ukodBidirektional body @ $A8E6433:
+   8A 00 00 F8 24 73 A4 2A 00 00 00
+                           ^^^^^ +7..+8 = $25 secondary id $002A
+                                          (typeId-lo = $2A, hi = $00)
+                            ^^ LOW byte $2A
+
+$2A TUserKonsOutlookDirection body @ $A8E658B:
+   A8 00 00 7F 7B 75 11 2A 07 96 9E 1C
+                        ^^^^^ +7..+8 = SecCandidate $072A
+                                       (low byte $2A matches!)
+                         ^^ LOW byte $2A
+
+$2C SyncDirection body @ $A8E6C44 (after name):
+   00 02 00 2A 0D 0C 9C 01 C9 02 07 00 00 08 44 FF
+            ^^ +3 = secondary-LO byte $2A
+               ^^ +4 = per-record field-slot index $0D (unrelated)
+```
+
+All three records share secondary-LO `$2A`. Same pattern for
+`SyncStatus` (LOW `$2C` across $2C-body-+3 / $2A-SecCandidate-low /
+$25-typeId-lo). The disambiguation when multiple enums share a
+LOW byte falls out of the existing `$0E` block-owner resolution
+(§6.10) — the field's owning class lives in a specific unit, and
+within that unit only one `$2A` enum entry typically carries each
+secondary-LO value.
+
+**Bonus finding (not yet documented in §4)**: a previously-
+undocumented DCU symbol catalog ships in TFW.rsm at offsets like
+`$25C692E3`, `$32576500`. Structure:
+
+```
+$63 $65  <NL>  <UnitName>            // unit header
+$66      <NL>  <TypeName>      <4-byte type-id>
+$67      <NL>  <ConstantName>  <4-byte constant-id>
+…
+```
+
+For `TUserKonsOutlookDirection`, the `$66` entry's 4-byte id is
+`$11757B7F` — low 2 bytes `$7B7F` match the `$2A` primary id.
+For `ukodBidirektional`, the `$67` id is `$A47324F8` — exactly
+the §4.6.2 "linker-token" (which §6.5 closed as opaque). The
+catalog is the actual source of those tokens (name-keyed export
+table). The catalog is a richer (name-keyed, fully-qualified)
+bridge alternative; the LOW-byte rule above is cheaper and
+suffices for §6.9 closure. Catalog deserves its own §4
+subsection in a future pass.
+
+**Implementation path** for the parent session: in
+`LinkFieldsFromFormatA`, when the `$2C` body shape indicates an
+enum-typed field (BodyLen=14, `$9C $01` marker at +6..+7 OR
++7..+8 for large-offset records), read byte +3 alone as a
+secondary-LO. Cross-reference with the existing
+`FCrossUnitEnumIds` / `FEnumAliasesByPrimary` tables in
+`TRsmEnumDecoder` — the existing $2A→$25 bridge already populates
+those. The LOW-byte match plus same-unit gating produces the
+PrimaryId, which the existing resolvers then consume normally.
+
+Pin probes: `TFW!TUserKonsOutlook.SyncDirection → ukodBidirektional`
+and `TFW!TUserKonsOutlook.SyncStatus → uksoUninitialised` (or
+whatever the first uksto* member is). Both end-to-end against
+.map ground truth.
+
+**Status**: encoding RE complete; production fix not yet landed.
+Parent session next step is to verify the LOW-byte rule across
+the full TUserKons family with a diagnostic, then implement in
+`FormatALinker.pas` and pin.
 
 ### 6.10 `$2C` parent id narrow encoding scope (`UNCERTAIN`)
 
