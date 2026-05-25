@@ -1235,7 +1235,42 @@ SyncDirection` would exercise
 [Debugger.pas:3057-3063](DPT.Rsm.Debugger.pas#L3057-L3063) (path 1:
 `AMember.PrimitiveTypeId`), bypassing the `$21`-record path entirely.
 
-**Round-2 RE pass (May 26)**: four hypotheses for where the bridge
+**Round-3 RE pass (May 26)** — discovered a previously-undecoded
+**per-unit 9-byte-stride alias table** but ruled it out as the
+bridge for TThreadPriority specifically.
+
+The table has shape:
+```
+00 02 00  <KEY-LO> <KEY-HI>  <V1-LO> <V1-HI>  <REF-LO> <REF-HI>  00 02 00  <next entry...>
+```
+
+Each 9-byte entry maps a per-unit allocated KEY (sequential 8-byte
+stride: $0609, $0611, $0619, ..., $0691, $0699, ...) to a REF that
+**does** resolve cleanly via the $2A registry — but to types from
+the table's owning unit, not arbitrary cross-unit types.
+
+Two tables containing KEY=$0671 were found in DebugTarget.rsm:
+
+| Table offset | KEY    | REF      | $2A primary at REF                    |
+|--------------|--------|----------|----------------------------------------|
+| @2097235     | $0671  | $053D    | `TSmallBlockType` (System.pas memory mgr)|
+| @4576638     | $0671  | $118D    | `:1` (anonymous generic)              |
+
+Neither resolves to TThreadPriority ($3370). A full-file scan
+(`find any 9-byte entry where REF = 70 33`) finds **0 hits** — no
+table anywhere in DebugTarget.rsm maps any KEY to TThreadPriority's
+primary. The 9-byte tables are real and stable, but the
+AStatusPriority param's `$0671` alias is **not** an entry in any of
+them.
+
+This refutes a 5th hypothesis: that the param-alias resolution
+goes through these per-unit alias tables. The `$0671` in
+AStatusPriority's `$21` record is a different kind of allocation —
+possibly a SCOPE-LOCAL allocation owned by TouchRegEnumParam itself
+that gets the same byte values as the System.pas alias for
+TSmallBlockType by coincidence.
+
+**Round-2 RE pass**: four hypotheses for where the bridge
 might live were tested empirically against DebugTarget.rsm and
 ruled out:
 
@@ -1272,28 +1307,28 @@ unrelated registry entry".
 
 **Remaining closure work** (this entry stays `GAP` until landed):
 
-1. **The most likely undecoded mechanism** — given the negative
-   findings above, the bridge is probably emitted as a record kind
-   the scanner currently walks past entirely. Two unexplored
-   candidates:
-   - The `$26` / `$27` / `$03` records emitted alongside the
-     unit-init proc sequence. `$03` is partly decoded as
-     ENUM_DEF, but its full payload (especially the trailing
-     bytes after the documented `(unit, type)` pair) hasn't been
-     mapped.
-   - The `$28 PROC_TAG` record's PROLOGUE bytes (between the proc
-     name and the first `$21`/`$22` param record): for
-     `TouchRegEnumParam` we observed
-     `28 ... 07 7F DC 04 E8 02 00 11 2E 00` — the `11 2E` looks
-     like a structured-type id `$2E11`, possibly the proc's own
-     signature type that lists its param types.
-2. **Fallback workaround if the byte-level bridge isn't found**:
-   parse the `.map` file's procedure-signature line (which carries
-   the human-readable declaration `KonsCommonLoad(AKonsCommonTyp:
-   TKonsCommonTyp; ...)` and map declared param names → declared
-   type names → enum constants via the existing $25-decoded
-   registry.
-3. **Pin** via
+1. **Proc-signature type id** — TouchRegEnumParam's PROC prologue
+   carries `11 2E` at offset +10..+11 = `$2E11`. This is a
+   structured-type id (Hi=$2E) but does NOT appear in the `$2A`
+   registry. Likely a proc-signature reference into a separate
+   PROC-TYPE table the scanner doesn't yet decode. The proc-type
+   would list the param types in declaration order — including
+   the actual type id for TThreadPriority — which is exactly the
+   bridge we need.
+2. **`$03` ENUM_DEF trailing payload** — documented decoder reads
+   up to `<max-ord>` then assumes 7 trailing zero bytes. For
+   cross-unit RTL ENUMS specifically the trailing bytes might
+   carry the alias mapping the linker uses for register params.
+   (Note: cross-unit RTL enums may NOT have `$03` records at all —
+   $03 is partly described as program-local-only — so this lead
+   may not apply.)
+3. **Fallback workaround if byte-level bridge isn't found**:
+   parse the `.map` file's procedure-signature line (carries
+   `KonsCommonLoad(AKonsCommonTyp: TKonsCommonTyp; ...)`) and map
+   declared param names → declared type names → enum constants
+   via the existing `$25`-decoded registry. Less elegant than a
+   byte-level decoder but reliable and platform-agnostic.
+4. **Pin** via
    [Test.DPT.Rsm.Scanner.TestRegisterParamEnumTypeIdResolvesToPrimary32](../Test/Test.DPT.Rsm.Scanner.pas)
    (does not exist yet): assert that
    `Reader.ResolveRegParamAlias($0671)` returns the primary `$3370`
