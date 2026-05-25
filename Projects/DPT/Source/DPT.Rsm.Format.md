@@ -1063,14 +1063,46 @@ directly equals another. The encoding of the FieldId → primary
 linkage isn't a proximity-based byte rewrite or any of the simple
 transforms tested.
 
-Resolving this requires a fresh attempt with a different angle:
-* A `$4C`-like binding record somewhere between the $25 cluster and
-  the $2C field block (none visible in the immediate ~2 KB window
-  surrounding `SyncDirection`).
-* A separate registry / cross-reference table holding (FieldId,
-  PrimaryId) pairs.
-* A bit-level transform of FieldId / +8..+9 that yields `$7B7F`
-  (none found via simple shifts / XORs across the four samples).
+**Second-round investigation (deeper RE pass, all dead ends):**
+
+* The `$2C` body's `+8..+9` word is **not** an enum-id slot at all
+  — it's a per-record sequential field-slot index that increments
+  by 4 across the field records of one parent record (across
+  TUserKonsOutlook's 12 fields the word counts `$02B5, $02B9,
+  $02BD, …, $02E1`). Refutes one of the original "is this the
+  hidden primary id?" hypotheses.
+* No `(FieldId, PrimaryId)` byte adjacency anywhere in the file
+  for either probe (searched both `2A 0D 7F 7B` and `7F 7B 2A 0D`
+  → 0 hits; same for the SyncStatus pair). Rules out a flat
+  inline binding.
+* No co-located `(FieldId, PrimaryId)` pair within ±4 KB of any
+  unit anchor (i.e. no record carrying both ids near each other).
+  Rules out a "binding record adjacent to either anchor".
+* The `$2A` enum body bytes after the primary id (`+5..+8`) are
+  the §6.6.1 RTTI pointer, not the FieldId.
+* The two enum-typed `$2C` field bodies (SyncDirection,
+  SyncStatus) are **byte-identical** except for their FieldId
+  itself — no discriminator beyond that hints at the binding.
+
+**Closest-shape lead still open**: between consecutive class
+records the linker emits `$63 $45 ...` trailer blocks (e.g. at
+`$A8E6D0F` right after TUserKonsOutlook's field block: `63 45 2A
+08 51 02 00 48 00 4D 61 04 D1 21 55 02 00 00 00 A0 00 25 3F 00 00`).
+These don't contain `$7F $7B` or `$0D 2A` either, but they're
+emitted exactly between enum-typed regions and the current
+dispatcher walks past them as noise. The shape resembles a
+`$63 = SCOPE_END` followed by an unhandled `$45` family marker
+plus a payload. Decoding this trailer block would be the next
+investigator's most promising lead.
+
+**Heuristic-fix recommendation** (not implemented; deferred): a
+**same-unit positional fallback** in `LinkFieldsFromFormatA` —
+when the BodyLen=14 enum body's FieldId fails `FindClassIdxForRawId`,
+walk the unit's `$2A` enum entries in declaration order and pair
+the Nth enum-typed `$2C` with the Nth enum's `$2A`. This is a
+heuristic that needs careful name-based regression tests for
+each known probe; the parent session opted not to land it without
+a fresh failing real-world repro.
 
 Deferred until a richer fixture (or a Delphi linker spec leak)
 unlocks the bridge. The Reader currently falls through to
