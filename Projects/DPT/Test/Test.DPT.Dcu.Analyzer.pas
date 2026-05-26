@@ -304,7 +304,7 @@ begin
   Assert.IsTrue(ContainsUnit(Res, 'DPT.Task', dusInterface));
   Assert.IsTrue(ContainsUnit(Res, 'DPT.Types', dusInterface));
   Assert.IsTrue(ContainsUnit(Res, 'DPT.Workflow', dusInterface));
-  Assert.IsTrue(ContainsUnit(Res, 'Slim.CmdUtils', dusInterface));
+  Assert.IsTrue(ContainsUnit(Res, 'mormot.core.collections', dusInterface));
 end;
 
 procedure TTestDcuAnalyzer.UsesEntriesAreNonEmptyAndUnique;

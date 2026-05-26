@@ -47,7 +47,6 @@ implementation
 uses
 
   System.Classes,
-  System.Generics.Collections,
   System.IniFiles,
   System.IOUtils,
   System.SysUtils,
@@ -454,18 +453,15 @@ function TDptLintTask.GetLatestTestResultFile(const APageName: String): String;
 var
   Files     : TArray<String>;
   ResultsDir: String;
+  I         : Integer;
 begin
   Result := '';
   ResultsDir := TPath.Combine(FFitNesseRoot, 'files\testResults\' + APageName);
-  if TDirectory.Exists(ResultsDir) then
-  begin
-    Files := TDirectory.GetFiles(ResultsDir, '*.xml');
-    if Length(Files) > 0 then
-    begin
-      TArray.Sort<String>(Files);
-      Result := Files[High(Files)];
-    end;
-  end;
+  if not TDirectory.Exists(ResultsDir) then Exit;
+  Files := TDirectory.GetFiles(ResultsDir, '*.xml');
+  for I := 0 to High(Files) do
+    if Files[I] > Result then
+      Result := Files[I];
 end;
 
 end.

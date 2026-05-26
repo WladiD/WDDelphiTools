@@ -4,7 +4,7 @@ interface
 
 uses
 
-  System.Generics.Collections,
+  mormot.core.collections,
 
   dwsComp,
   dwsExprs,
@@ -24,7 +24,7 @@ type
   /// </summary>
   TDptDwsFormatter = class(TDptFormatter)
   private
-    FAvailableProcs: TDictionary<string, Boolean>;
+    FAvailableProcs: IKeyValue<string, Boolean>;
     FExec          : IdwsProgramExecution;
     FProgram       : IdwsProgram;
     FProcsCached   : Boolean;
@@ -139,7 +139,7 @@ uses
 constructor TDptDwsFormatter.Create;
 begin
   inherited Create;
-  FAvailableProcs := TDictionary<string, Boolean>.Create;
+  FAvailableProcs := Collections.NewPlainKeyValue<string, Boolean>;
   FScript := TDelphiWebScript.Create(nil);
   FUnit := TdwsUnit.Create(nil);
   FUnit.UnitName := 'DptFormatterAPI';
@@ -151,7 +151,6 @@ destructor TDptDwsFormatter.Destroy;
 begin
   FExec := nil;
   FProgram := nil;
-  FAvailableProcs.Free;
   FUnit.Free;
   FScript.Free;
   inherited Destroy;

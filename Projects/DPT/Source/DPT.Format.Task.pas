@@ -24,9 +24,8 @@ implementation
 
 uses
 
-  System.Classes, 
-  System.Generics.Collections, 
-  System.IOUtils, 
+  System.Classes,
+  System.IOUtils,
   System.SysUtils,
 
   ParseTree.Nodes, 
