@@ -450,7 +450,7 @@ begin
           '  1. set_breakpoint(unit, line) - max 4 hardware breakpoints; can be queued before a session.' + sLineBreak +
           '  2. start_debug_session(executable_path) - process launches paused; pending breakpoints apply.' + sLineBreak +
           '  3. continue / step_into / step_over - non-blocking; always follow with wait_until_paused.' + sLineBreak +
-          '  4. Inspect at a pause: get_stack_trace, get_registers, get_locals (named locals from TD32, preferred), get_stack_slots (heuristic fallback), read_memory, read_global_variable.' + sLineBreak +
+          '  4. Inspect at a pause: get_stack_trace, get_registers, get_locals (named locals from the .rsm sidecar, preferred), get_stack_slots (heuristic fallback), read_memory, read_global_variable.' + sLineBreak +
           '     Output (Writeln/stderr/OutputDebugString) of the target is auto-attached to wait_until_paused/get_state as "recent_output" (only what was emitted since the last continue/step). Use get_output when you need older context than that delta.' + sLineBreak +
           '  5. stop_debug_session (detach) or terminate_debug_session (kill).' + sLineBreak +
           sLineBreak +
@@ -700,7 +700,7 @@ begin
     'and globals), "object" (returns "ClassName @ HexAddr" or "nil"). FIELD ' +
     'NAVIGATION: dotted names like "MyObj.FField" or "MyObj.FInner.FNested" are ' +
     'followed by dereferencing each intermediate object pointer, looking up the ' +
-    'field offset via TD32 class info, and reading the final field with the ' +
+    'field offset via RSM class info, and reading the final field with the ' +
     'requested type; intermediate nil objects yield "nil" as the result. Records ' +
     '(Delphi "record" types) are navigated inline without dereferencing, so paths ' +
     'like "MyObj.FRec.FX" or "MyObj.FRec.FInnerRec.FX" work the same way as class ' +
@@ -753,7 +753,7 @@ begin
 
   var ToolLocals := TJSONObject.Create;
   ToolLocals.AddPair('name', 'get_locals');
-  ToolLocals.AddPair('description', 'Returns the named local variables of the procedure that contains the current PC, as a JSON object with "procedure" and a "locals" array. Each local has "name", "bp_offset" (signed, EBP/RBP-relative) and "hex" (8 raw little-endian bytes read from the live process). Interpret the hex per the variable''s Delphi type: first 4 bytes for Integer/Cardinal, all 8 bytes for Int64/Pointer/Double. Requires TD32 debug info embedded in the EXE - this is the default for Debug builds (-V -$D+) but absent from -release- binaries. The tool returns a clear error message when no debug info is available, when the current PC is not inside a covered procedure (e.g. inside an RTL routine), or when the procedure has no recorded locals. Prefer this over get_stack_slots whenever possible: it gives source-level names and skips heuristic guessing. Only callable when state is "paused".');
+  ToolLocals.AddPair('description', 'Returns the named local variables of the procedure that contains the current PC, as a JSON object with "procedure" and a "locals" array. Each local has "name", "bp_offset" (signed, EBP/RBP-relative) and "hex" (8 raw little-endian bytes read from the live process). Interpret the hex per the variable''s Delphi type: first 4 bytes for Integer/Cardinal, all 8 bytes for Int64/Pointer/Double. Requires the .rsm Remote Debug Symbols sidecar next to the EXE - emitted by linker options -V -VR but absent from -release- binaries. The tool returns a clear error message when no debug info is available, when the current PC is not inside a covered procedure (e.g. inside an RTL routine), or when the procedure has no recorded locals. Prefer this over get_stack_slots whenever possible: it gives source-level names and skips heuristic guessing. Only callable when state is "paused".');
   ToolLocals.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolLocals);
 
@@ -1894,29 +1894,29 @@ begin
 
   // Distinct error messages so an AI agent can branch on the cause:
   //   - no debug info loaded at all
-  //   - PC outside any procedure with TD32 coverage (e.g. RTL or thunk)
-  //   - procedure found but emitted no BPREL32 records
+  //   - PC outside any procedure covered by the .rsm sidecar (e.g. RTL or thunk)
+  //   - procedure found but emitted no local-variable records
   if not Assigned(FDebugger.LocalsReader) or
      (FDebugger.LocalsReader.Procs.Count = 0) then
     Exit(MakeErrorResult(
-      'No TD32 debug information available for the current executable. ' +
-      'Rebuild the target as a Debug build (linker option -V together with ' +
-      '-$D+) so the EXE carries an embedded FB09 stream. get_locals cannot ' +
+      'No RSM debug information available for the current executable. ' +
+      'Rebuild the target with linker options -V -VR so the matching ' +
+      '.rsm sidecar is produced next to the .exe. get_locals cannot ' +
       'work without it.'));
 
   ProcName := FDebugger.GetCurrentProcedureName(FDebugger.LastThreadHit);
   if ProcName = '' then
     Exit(MakeErrorResult(
-      'Current PC is not inside any procedure that has TD32 debug info ' +
+      'Current PC is not inside any procedure covered by the .rsm sidecar ' +
       '(typical inside RTL or import thunks). Step or continue until a ' +
       'breakpoint inside debugged user code, then call get_locals again.'));
 
   Locals := FDebugger.GetLocals(FDebugger.LastThreadHit);
   if Length(Locals) = 0 then
     Exit(MakeTextResult(Format(
-      'Procedure "%s" has no recorded local variables (BPREL32 records). ' +
-      'This is normal for parameterless leaf procedures or RTL stubs.',
-      [ProcName])));
+      'Procedure "%s" has no recorded local variables in the .rsm ' +
+      'sidecar. This is normal for parameterless leaf procedures or RTL ' +
+      'stubs.', [ProcName])));
 
   ResultObj := TJSONObject.Create;
   try

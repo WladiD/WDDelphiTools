@@ -348,7 +348,7 @@ type
     ///   Resolves a named local of the procedure that contains the
     ///   current PC to its runtime address (EBP/RBP + signed offset,
     ///   with the Win64 frame-base correction applied). Returns
-    ///   <c>False</c> when the PC is outside any TD32-covered procedure
+    ///   <c>False</c> when the PC is outside any RSM-covered procedure
     ///   or no local with the given name exists. Use this to read more
     ///   bytes than <see cref="GetLocals"/>'s fixed 8-byte slice would
     ///   provide (e.g. for inline value types like ShortString).
@@ -363,10 +363,14 @@ type
     function  GetThreadIds: TArray<Cardinal>;
     procedure IgnoreException(const AClassName: String);
     /// <summary>
-    ///   Loads TD32 debug info embedded in the given Delphi PE executable
-    ///   (built with linker option -VR / "Include remote debug symbols").
-    ///   Required for <see cref="GetLocals"/>; safe to skip when only map
-    ///   file based functionality is needed.
+    ///   Loads the <c>.rsm</c> Remote Debug Symbols sidecar file
+    ///   produced by the Delphi linker for the given executable
+    ///   (built with linker options <c>-V -VR</c>, the latter
+    ///   being "Include remote debug symbols"). The sidecar lives
+    ///   next to the .exe, NOT embedded inside it. Required for
+    ///   <see cref="GetLocals"/> and the dotted-field walk in
+    ///   <see cref="EvaluateVariable"/>; safe to skip when only
+    ///   map-file based functionality is needed.
     /// </summary>
     procedure LoadDebugInfoFromExe(const AExePath: string;
       AOnPhase: TProc<String> = nil);
@@ -2404,7 +2408,7 @@ begin
   //    the existing read_global_variable / single-local behavior intact.
   // 2. If that fails AND the name contains a dot, treat it as a dotted
   //    field chain: first segment is a local or global object reference,
-  //    subsequent segments are field names looked up via TD32 class info.
+  //    subsequent segments are field names looked up via RSM class info.
   Locals := GetLocals(FLastThreadHit);
   Phase('after GetLocals');
   for I := 0 to High(Locals) do
@@ -2434,9 +2438,9 @@ begin
     // Path 2: dotted field-chain walk. The first segment must resolve
     // to an instance pointer (a local or global object reference); each
     // subsequent segment dereferences the current object, looks up the
-    // named field via TD32 class info, and advances to that field's
+    // named field via RSM class info, and advances to that field's
     // address. The final segment's address is then read with the
-    // user-specified type. Requires TD32 class layout (LoadDebugInfoFromExe).
+    // user-specified type. Requires RSM class layout (LoadDebugInfoFromExe).
     Segments := AName.Split(['.']);
     var FirstHopHasInstancePtr: Boolean := False;
     var FirstHopInstancePtr   : UIntPtr := 0;
@@ -2520,7 +2524,7 @@ begin
       // order:
       //
       //   * Local-record (preferred when Segments[0] is a stack
-      //     local). The TD32 BPREL record carries the local's
+      //     local). The RSM local record carries the local's
       //     declared type id, which TRsmReader stores as the
       //     file-offset-based TypeIdx -- so FindStructByTypeIdx
       //     gives us the record entry directly. This is what
@@ -2537,7 +2541,7 @@ begin
       //     id space.
       var GStructIdx: Integer := -1;
       if FirstLocalTypeIdx <> 0 then
-        // TD32 BPREL records carry the 2-byte RSM registry id, so
+        // RSM local records carry the 2-byte RSM registry id, so
         // resolve through the registry-backed map -- same encoding
         // used by FindGlobalTypeIdx below. FindStructByTypeIdx
         // would mismatch because Classes[].TypeIdx is the
