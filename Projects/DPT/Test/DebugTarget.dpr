@@ -580,6 +580,52 @@ begin
           GGlobalPropHost.CalcProp, ' ',
           GGlobalPropHost.Greeting); Flush(Output);
 end;
+// Record property fixture: Delphi records can declare properties
+// since the language got operator overloading & method support.
+// The compiler may emit $31 records for these too, but they belong
+// to a record (skRecord), not a class (skClass). The PropertyLinker
+// must surface these analogously to class properties.
+type
+  TPropRec = record
+  private
+    FRecPlain   : Integer;
+    FRecBacking : string;
+    FRecBacked  : Integer;
+    function GetRecCalc: Integer;
+    function GetRecLabel: string;
+  public
+    procedure Init;
+    /// Direct-field-backed property; reads inline FRecPlain.
+    property RecPlainProp: Integer read FRecPlain;
+    /// Getter-backed integer property on a record.
+    property RecCalcProp: Integer read GetRecCalc;
+    /// Getter-backed string property on a record.
+    property RecLabel: string read GetRecLabel;
+  end;
+var
+  GGlobalPropRec: TPropRec;
+procedure TPropRec.Init;
+begin
+  FRecPlain   := Integer($CAFEBABE);
+  FRecBacking := 'Record';
+  FRecBacked  := Integer($DEADC0DE);
+end;
+function TPropRec.GetRecCalc: Integer;
+begin
+  Result := FRecBacked + 2;     // = $DEADC0E0
+end;
+function TPropRec.GetRecLabel: string;
+begin
+  Result := 'Tag: ' + FRecBacking;
+end;
+procedure RecordPropertyProbe;
+begin
+  GGlobalPropRec.Init;
+  Writeln('RecPropProbe ',                                             // Line 624 - record-property bp here
+          GGlobalPropRec.RecPlainProp, ' ',
+          GGlobalPropRec.RecCalcProp, ' ',
+          GGlobalPropRec.RecLabel); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -750,6 +796,9 @@ begin
     // Reach PropertyProbe with GGlobalPropHost live so the Reader's
     // property-read tests can hit a populated TPropHost instance.
     PropertyProbe;
+    // Reach RecordPropertyProbe with GGlobalPropRec populated so
+    // the record-property pin tests have a live record instance.
+    RecordPropertyProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked

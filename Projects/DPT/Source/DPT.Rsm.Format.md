@@ -1165,6 +1165,21 @@ therefore does its OWN walk, tracking the last `$2C` field record's
 wide parent type-id and resolving it via
 `FRsmTypeIdToClassIdx`.
 
+**Records with methods / properties** (e.g. `TPropRec` in the test
+fixture) get the same `$31` shape as classes — the host's `Kind` is
+`skRecord` instead of `skClass`, otherwise identical. These records
+are typically NOT visible in `Classes` after the StructDiscoverer's
+Format-B walk because the discoverer expects a simpler shape than
+records-with-methods emit. The property linker handles this by
+walking `$2A` registry entries during the same pass to build a
+local `(TypeId → Name)` lookup; when a `$2C` parent type-id misses
+`FRsmTypeIdToClassIdx`, the linker SYNTHESIZES a `skRecord`
+`TRsmClassInfo` (with an empty Members list) from the registry
+name so property attribution can proceed. Dotted field navigation
+through the synthetic record stays unsupported — only
+`Reader.FindClassProperty` works for these types until the
+StructDiscoverer is extended to handle records-with-methods.
+
 A second `$2C` body-anchor variant lives here: `$00 $00 $00` (rather
 than the canonical `$00 $02 $00`) marks field records that are the
 direct read-target of a property. The block-owner index accepts both
@@ -1175,18 +1190,24 @@ just don't contribute member updates, only block ownership).
 
 Implemented in
 [TRsmPropertyLinker](DPT.Rsm.PropertyLinker.pas) and exposed as
-`TRsmClassInfo.Properties` plus `Reader.FindClassProperty`. Pinned by
-[Test.DPT.Rsm.LocalsReader.TestPropertyLinkerSurfacesFieldAndGetterBackedReads32](../Test/Test.DPT.Rsm.LocalsReader.pas)
-which asserts:
+`TRsmClassInfo.Properties` plus `Reader.FindClassProperty`. Pinned
+against two fixtures in
+[DebugTarget.dpr](../Test/DebugTarget.dpr):
 
-* `PlainProp` (field-backed) → `UnderlyingField = 'FPlainInt'`
-* `CalcProp` (getter-backed) → `UnderlyingField = ''`,
-  `PrimitiveTypeId = $02` (Integer)
-* `Greeting` (getter-backed) → `UnderlyingField = ''`,
-  `PrimitiveTypeId = $04` (string)
-
-against the `TPropHost` fixture in
-[DebugTarget.dpr](../Test/DebugTarget.dpr).
+* Class properties on `TPropHost` —
+  [Test.DPT.Rsm.LocalsReader.TestPropertyLinkerSurfacesFieldAndGetterBackedReads32](../Test/Test.DPT.Rsm.LocalsReader.pas):
+    * `PlainProp` (field-backed) → `UnderlyingField = 'FPlainInt'`
+    * `CalcProp` (getter-backed) → `UnderlyingField = ''`,
+      `PrimitiveTypeId = $02` (Integer)
+    * `Greeting` (getter-backed) → `UnderlyingField = ''`,
+      `PrimitiveTypeId = $04` (string)
+* Record properties on `TPropRec` (skRecord, synthesised by the
+  linker) —
+  [Test.DPT.Rsm.LocalsReader.TestPropertyLinkerHandlesRecordProperties32](../Test/Test.DPT.Rsm.LocalsReader.pas):
+    * `RecPlainProp` (field-backed) → `UnderlyingField = 'FRecPlain'`
+    * `RecCalcProp` / `RecLabel` (getter-backed) → empty
+      `UnderlyingField`, `PrimitiveTypeId` distinguishes Integer vs
+      string.
 
 ---
 

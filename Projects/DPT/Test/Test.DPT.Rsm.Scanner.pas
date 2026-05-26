@@ -574,12 +574,16 @@ begin
     end
     else
     begin
-      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E2000
+      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E3000
       //   GGlobalLight 0003:00003BDC
-      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E7000
-      ExpectedInt   := $004E2000 + $00003BD4;  // $004E5BD4
-      ExpectedLight := $004E2000 + $00003BDC;  // $004E5BDC
-      ExpectedField := $004E7000 + $000068D0;  // $004ED8D0
+      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E8000
+      // Like the Win64 branch above, the segment-base VAs drift
+      // by $1000 every time DebugTarget.dpr grows past a page
+      // boundary -- cross-check Win32/DebugTarget.map after any
+      // fixture addition.
+      ExpectedInt   := $004E3000 + $00003BD4;  // $004E6BD4
+      ExpectedLight := $004E3000 + $00003BDC;  // $004E6BDC
+      ExpectedField := $004E8000 + $000068D0;  // $004EE8D0
     end;
 
     Assert.IsTrue(S.GlobalVa.TryGetValue('gglobalint', Va),

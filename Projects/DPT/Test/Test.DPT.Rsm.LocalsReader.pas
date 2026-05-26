@@ -114,6 +114,23 @@ type
     /// </list>
     [Test]
     procedure TestPropertyLinkerSurfacesFieldAndGetterBackedReads32;
+    /// §4.16 PIN. Properties on RECORDS (not classes) are emitted
+    /// using the same <c>$31</c> record encoding. The linker
+    /// attributes them to the record's $2A registry entry exactly
+    /// like class properties. Pins both styles on
+    /// <c>TPropRec</c> (DebugTarget.dpr line 624 region):
+    /// <list type="bullet">
+    ///   <item><c>RecPlainProp</c> field-backed via <c>FRecPlain</c>
+    ///     resolves <see cref="TRsmClassProperty.UnderlyingField"/>.</item>
+    ///   <item><c>RecCalcProp</c> getter-backed (<c>GetRecCalc</c>)
+    ///     keeps <c>UnderlyingField</c> empty.</item>
+    ///   <item><c>RecLabel</c> getter-backed string property.</item>
+    /// </list>
+    /// Also asserts the host's <c>Kind</c> is <c>skRecord</c> so a
+    /// future regression that re-introduces the <c>Kind=skClass</c>
+    /// filter in the PropertyLinker would surface here.
+    [Test]
+    procedure TestPropertyLinkerHandlesRecordProperties32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -1079,6 +1096,57 @@ begin
       'Non-existent property must return False');
     Assert.IsFalse(Reader.FindClassProperty('TNoSuchClass', 'PlainProp', Prop),
       'Non-existent class must return False');
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestPropertyLinkerHandlesRecordProperties32;
+var
+  Reader : TRsmReader;
+  RecIdx : Integer;
+  Prop   : TRsmClassProperty;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(False));
+
+    RecIdx := Reader.FindClassByName('TPropRec');
+    Assert.IsTrue(RecIdx >= 0,
+      'TPropRec must be discovered as a record');
+    Assert.AreEqual(Ord(skRecord), Ord(Reader.Classes[RecIdx].Kind),
+      'TPropRec.Kind must be skRecord -- a regression that changes ' +
+      'it to skClass would change discovery / inheritance semantics');
+
+    // RecPlainProp -- field-backed (`property RecPlainProp: Integer
+    // read FRecPlain`). UnderlyingField must resolve to FRecPlain.
+    Assert.IsTrue(Reader.FindClassProperty('TPropRec', 'RecPlainProp', Prop),
+      'TPropRec.RecPlainProp must be in the property list -- the ' +
+      'PropertyLinker''s skClass-only filter must NOT re-appear.');
+    Assert.AreEqual<UInt16>($02, Prop.PrimitiveTypeId,
+      Format('RecPlainProp.PrimitiveTypeId must be $02 (Integer). Got $%x',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('FRecPlain', Prop.UnderlyingField,
+      'RecPlainProp must bridge to FRecPlain via the $2C-alias map. ' +
+      'UnderlyingField=''' + Prop.UnderlyingField + '''');
+
+    // RecCalcProp -- getter-backed integer on a record.
+    Assert.IsTrue(Reader.FindClassProperty('TPropRec', 'RecCalcProp', Prop),
+      'TPropRec.RecCalcProp must be in the property list');
+    Assert.AreEqual<UInt16>($02, Prop.PrimitiveTypeId,
+      Format('RecCalcProp.PrimitiveTypeId must be $02 (Integer). Got $%x',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('', Prop.UnderlyingField,
+      'RecCalcProp is getter-backed -- UnderlyingField must stay empty.');
+
+    // RecLabel -- getter-backed string on a record.
+    Assert.IsTrue(Reader.FindClassProperty('TPropRec', 'RecLabel', Prop),
+      'TPropRec.RecLabel must be in the property list');
+    Assert.AreEqual<UInt16>($04, Prop.PrimitiveTypeId,
+      Format('RecLabel.PrimitiveTypeId must be $04 (string). Got $%x',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('', Prop.UnderlyingField,
+      'RecLabel is getter-backed -- UnderlyingField must stay empty.');
   finally
     Reader.Free;
   end;

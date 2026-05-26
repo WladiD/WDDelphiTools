@@ -163,9 +163,12 @@ type
     Kind      : TRsmStructKind;
     Members   : IList<TRsmClassMember>;
     /// <summary>
-    ///   Properties declared on this class, parsed from <c>$31</c>
-    ///   property records. Nil/empty for classes that declare no
-    ///   properties OR records (records do not carry $31 entries).
+    ///   Properties declared on this class or record, parsed from
+    ///   <c>$31</c> property records. Nil for classes/records that
+    ///   declare no properties (the list is allocated lazily on
+    ///   first attribution). Records carry $31 entries identically
+    ///   to classes -- Delphi records have supported properties
+    ///   since the language got method/operator overloading.
     ///   See <see cref="TRsmClassProperty"/> for the per-property
     ///   bridge to the underlying field.
     /// </summary>

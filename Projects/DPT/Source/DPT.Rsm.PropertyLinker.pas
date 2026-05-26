@@ -95,8 +95,13 @@ begin
 end;
 
 procedure TRsmPropertyLinker.Run(ABuf: PByte; ASz: NativeInt);
-// Single sequential walk over the byte stream. Two record kinds
+// Single sequential walk over the byte stream. Three record kinds
 // drive state:
+//   $2A type-registry record -- builds a local (TypeId -> Name)
+//                        lookup so records-with-methods that the
+//                        StructDiscoverer's Format-B walker missed
+//                        can still be synthesized when their
+//                        properties surface.
 //   $2C field record  -- updates the (alias id -> field name) map
 //                        AND, when it carries a wide-encoded parent
 //                        type id, sets LastClsIdx to the owning
@@ -113,8 +118,11 @@ procedure TRsmPropertyLinker.Run(ABuf: PByte; ASz: NativeInt);
 // either, and the block-owner heuristic for narrow ids lives in
 // FormatALinker.BuildBlockOwnerIndex. Hi!=$FF means a wide
 // $2A-registry id, which we look up via FRsmTypeIdToClassIdx.
+// Misses there fall back to the local TypeIdToName map and
+// synthesize a new skRecord TRsmClassInfo when the name is known.
 var
   AliasIdToField : IKeyValue<UInt32, String>;
+  TypeIdToName   : IKeyValue<UInt32, String>;
   P              : NativeInt;
   NL             : Byte;
   Name           : String;
@@ -126,6 +134,46 @@ var
   LastClsIdx     : Integer;
   Cls            : TRsmClassInfo;
   Prop           : TRsmClassProperty;
+
+  function ResolveOwningClass(AParentTypeId: UInt32): Integer;
+  // First tries the read-only FClasses index via the type-id
+  // map. If that misses, looks the name up in the local
+  // TypeIdToName map and -- if a name is known but no FClasses
+  // entry exists -- synthesizes a skRecord entry so property
+  // attribution can proceed. Returns -1 only when neither the
+  // type-id nor a name can be recovered.
+  var
+    SynName : String;
+    LowName : String;
+    NewCls  : TRsmClassInfo;
+  begin
+    if FRsmTypeIdToClassIdx.TryGetValue(AParentTypeId, Result) then Exit;
+    if not TypeIdToName.TryGetValue(AParentTypeId, SynName) then
+      Exit(-1);
+    LowName := LowerCase(SynName);
+    if FClassByName.TryGetValue(LowName, Result) then
+    begin
+      // Existing entry under that name -- bind the type-id so
+      // subsequent calls hit the fast path.
+      FRsmTypeIdToClassIdx[AParentTypeId] := Result;
+      Exit;
+    end;
+    // Synthesize. records-with-methods that the StructDiscoverer
+    // skipped land here. We don't have a member list (the walker
+    // didn't run) but for property attribution that's fine -- the
+    // Properties list is what the test asserts, and downstream
+    // dotted-field navigation through this synthetic record stays
+    // unsupported (out of scope for §4.16).
+    NewCls := Default(TRsmClassInfo);
+    NewCls.Name    := SynName;
+    NewCls.Kind    := skRecord;
+    NewCls.Members := Collections.NewPlainList<TRsmClassMember>;
+    Result := FClasses.Count;
+    FClasses.Add(NewCls);
+    FClassByName[LowName] := Result;
+    FRsmTypeIdToClassIdx[AParentTypeId] := Result;
+  end;
+
 begin
   FBuf := ABuf;
   FSz  := ASz;
@@ -133,11 +181,33 @@ begin
   if FClasses.Count = 0 then Exit;
 
   AliasIdToField := Collections.NewPlainKeyValue<UInt32, String>;
+  TypeIdToName   := Collections.NewPlainKeyValue<UInt32, String>;
   LastClsIdx     := -1;
   P              := 1;
   while P + 24 < FSz do
   begin
     var B: Byte := ByteAt(P);
+    // ---- $2A type-registry record --------------------------
+    // Build local (TypeId -> Name) so we can synthesize record
+    // entries the StructDiscoverer missed (records-with-methods).
+    if B = $2A then
+    begin
+      NL := ByteAt(P + 1);
+      if (NL >= 2) and (NL <= 40) and
+         (P + 2 + NL + 5 < FSz) and
+         (ByteAt(P + 2) = Byte(Ord('T'))) and
+         (ByteAt(P + 2 + NL + 1) = $00) and
+         (ByteAt(P + 2 + NL + 2) = $00) and
+         ReadIdentifier(P + 1, Name) then
+      begin
+        var TypeId: UInt32 := UInt32(ByteAt(P + 2 + NL + 3)) or
+                              (UInt32(ByteAt(P + 2 + NL + 4)) shl 8);
+        if (TypeId <> 0) and (not TypeIdToName.ContainsKey(TypeId)) then
+          TypeIdToName[TypeId] := Name;
+      end;
+      Inc(P);
+      Continue;
+    end;
     // ---- $2C field record -----------------------------------
     if B = $2C then
     begin
@@ -191,8 +261,8 @@ begin
       begin
         ParentTypeId := UInt32(ByteAt(EndOff + 4)) or
                         (UInt32(ByteAt(EndOff + 5)) shl 8);
-        if FRsmTypeIdToClassIdx.TryGetValue(ParentTypeId, I) then
-          LastClsIdx := I;
+        I := ResolveOwningClass(ParentTypeId);
+        if I >= 0 then LastClsIdx := I;
       end;
       P := EndOff + 6;
       Continue;
@@ -233,12 +303,12 @@ begin
         Inc(P);
         Continue;
       end;
+      // Both classes (skClass) and records (skRecord) carry $31
+      // property records -- Delphi records have supported properties
+      // since the language got method/operator overloading. The
+      // attribution mechanism (wide parent-type-id via the last
+      // $2C in the same block) works identically for both kinds.
       Cls := FClasses[LastClsIdx];
-      if Cls.Kind <> skClass then
-      begin
-        Inc(P);
-        Continue;
-      end;
       if Cls.Properties = nil then
         Cls.Properties := Collections.NewPlainList<TRsmClassProperty>;
       Prop := Default(TRsmClassProperty);
