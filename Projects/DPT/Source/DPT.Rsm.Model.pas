@@ -16,7 +16,6 @@ unit DPT.Rsm.Model;
 interface
 
 uses
-  System.SysUtils,
 
   mormot.core.collections;
 
@@ -314,6 +313,10 @@ type
 function BuildPascalAcronym(const AStrippedTypeName: String): String;
 
 implementation
+
+uses
+
+  System.SysUtils;
 
 function BuildPascalAcronym(const AStrippedTypeName: String): String;
 var

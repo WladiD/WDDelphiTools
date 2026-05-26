@@ -10,8 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-
   mormot.core.collections,
 
   DPT.Dcu.Types;
@@ -92,6 +90,10 @@ const
   );
 
 implementation
+
+uses
+
+  System.SysUtils;
 
 { TExePeSection }
 

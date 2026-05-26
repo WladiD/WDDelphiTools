@@ -20,9 +20,7 @@ unit DPT.Rsm.EnumDecoder;
 interface
 
 uses
-  System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
 
   DPT.Rsm.Model;
@@ -222,6 +220,10 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils;
 
 { TRsmEnumDecoder }
 

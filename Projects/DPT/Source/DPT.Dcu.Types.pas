@@ -10,8 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-
   mormot.core.collections;
 
 type

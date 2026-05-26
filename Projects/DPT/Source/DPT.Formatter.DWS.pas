@@ -4,24 +4,15 @@ interface
 
 uses
 
-  System.Classes,
   System.Generics.Collections,
-  System.IOUtils,
-  System.SysUtils,
-  System.Variants,
-  
+
   dwsComp,
-  dwsErrors,
   dwsExprs,
   dwsInfo,
-  dwsRTTIExposer,
   dwsUnitSymbols,
 
   ParseTree.Core,
   ParseTree.Nodes,
-  ParseTree.Tokens,
-
-  WDDT.StringTools,
 
   DPT.Formatter;
 
@@ -128,6 +119,20 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.IOUtils,
+  System.SysUtils,
+  System.Variants,
+
+  dwsErrors,
+  dwsRTTIExposer,
+
+  ParseTree.Tokens,
+
+  WDDT.StringTools;
 
 { TDptDwsFormatter }
 

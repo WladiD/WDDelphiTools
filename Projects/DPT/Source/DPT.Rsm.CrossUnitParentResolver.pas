@@ -9,7 +9,7 @@ unit DPT.Rsm.CrossUnitParentResolver;
 interface
 
 uses
-  mormot.core.base,
+
   mormot.core.collections,
 
   DPT.Rsm.Model;

@@ -31,10 +31,9 @@ unit DPT.Rsm.Scanner;
 interface
 
 uses
-  System.Classes,
+
   System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
   mormot.core.os,
 
@@ -225,6 +224,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+
+  mormot.core.base;
 
 function CompareProcBySegmentOffset(const A, B): Integer;
 var

@@ -19,9 +19,6 @@ unit DPT.Rsm.BufferIO;
 
 interface
 
-uses
-  System.SysUtils;
-
 /// <summary>
 ///   Single byte at the given offset within the supplied buffer. No
 ///   bounds check (callers verify offset).
@@ -60,6 +57,10 @@ function RsmIsValidFieldTypeinfoPrefix(ABuf: PByte; ASz: NativeInt;
   AOffset: NativeInt): Boolean;
 
 implementation
+
+uses
+
+  System.SysUtils;
 
 function RsmByteAt(ABuf: PByte; AOffset: NativeInt): Byte;
 begin

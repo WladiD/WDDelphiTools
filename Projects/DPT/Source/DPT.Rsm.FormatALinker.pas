@@ -135,6 +135,7 @@ type
 implementation
 
 uses
+
   DPT.Rsm.BufferIO;
 
 { TRsmFormatALinker }

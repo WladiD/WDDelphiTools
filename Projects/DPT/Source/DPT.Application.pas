@@ -10,15 +10,7 @@ interface
 
 uses
 
-  Winapi.Windows,
-
-  System.Classes,
-
   mormot.core.collections,
-
-  Slim.CmdUtils,
-  Slim.Fixture,
-  Slim.Server,
 
   DPT.Task,
   DPT.Types,
@@ -44,11 +36,18 @@ implementation
 
 uses
 
+  Winapi.Windows,
+
+  System.Classes,
   System.Contnrs,
   System.Hash,
   System.IOUtils,
   System.NetEncoding,
   System.SysUtils,
+
+  Slim.CmdUtils,
+  Slim.Fixture,
+  Slim.Server,
 
   DPT.Build.Task,
   DPT.BuildEnvironment.Task,

@@ -10,13 +10,9 @@ interface
 
 uses
 
-  System.Classes,
   System.SysUtils,
 
-  mormot.core.collections,
-
   DPT.Dcu.Index,
-  DPT.Dcu.Types,
   DPT.Exe.Types;
 
 type
@@ -61,11 +57,15 @@ implementation
 
 uses
 
+  System.Classes,
   System.DateUtils,
   System.IOUtils,
 
+  mormot.core.collections,
+
   JclTD32,
 
+  DPT.Dcu.Types,
   DPT.MapFileParser;
 
 const

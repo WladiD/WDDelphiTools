@@ -15,13 +15,10 @@ uses
   Winapi.Windows,
 
   System.Classes,
-  System.SysUtils,
-  System.Variants,
 
   ExprParser,
 
-  DPT.Types,
-  DPT.Git;
+  DPT.Types;
 
 type
 
@@ -98,6 +95,8 @@ uses
   System.IOUtils,
   System.Math,
   System.StrUtils,
+  System.SysUtils,
+  System.Variants,
   System.Masks,
 
   ExprParserTools,
@@ -108,6 +107,7 @@ uses
   DPT.Formatter.DWS,
 
   DPT.DProjAnalyzer,
+  DPT.Git,
   DPT.Utils,
   DPT.Detection;
 

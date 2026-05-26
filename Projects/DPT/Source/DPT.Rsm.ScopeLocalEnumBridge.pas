@@ -9,10 +9,7 @@ unit DPT.Rsm.ScopeLocalEnumBridge;
 interface
 
 uses
-  System.StrUtils,
-  System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
 
   DPT.Rsm.Model;
@@ -48,6 +45,11 @@ type
   end;
 
 implementation
+
+uses
+
+  System.StrUtils,
+  System.SysUtils;
 
 { TRsmScopeLocalEnumBridge }
 

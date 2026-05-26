@@ -21,9 +21,7 @@ unit DPT.Rsm.StructDiscoverer;
 interface
 
 uses
-  System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
 
   DPT.Rsm.Model;
@@ -68,6 +66,11 @@ type
 implementation
 
 uses
+
+  System.SysUtils,
+
+  mormot.core.base,
+
   DPT.Rsm.BufferIO;
 
 { TRsmStructDiscoverer }

@@ -10,8 +10,6 @@ interface
 
 uses
 
-  mormot.core.base,
-
   Winapi.Windows,
 
   System.Classes,
@@ -20,7 +18,6 @@ uses
   System.Threading,
 
   mormot.core.collections,
-  mormot.core.json,
 
   DPT.Debugger;
 
@@ -120,7 +117,10 @@ uses
 
   System.Diagnostics,
   System.IOUtils,
-  System.SysUtils;
+  System.SysUtils,
+
+  mormot.core.base,
+  mormot.core.json;
 
 const
 

@@ -3,11 +3,12 @@ unit DPT.Format.Task;
 interface
 
 uses
-  System.SysUtils, System.Classes, System.Generics.Collections,
+
   mormot.core.collections,
   DPT.Task, DPT.Types;
 
 type
+
   { CLI task for formatting source text using a DWScript ruleset }
   TDptFormatTask = class(TDptTaskBase)
   private
@@ -22,8 +23,16 @@ type
 implementation
 
 uses
-  System.IOUtils,
-  ParseTree.Nodes, ParseTree.Parser, ParseTree.Writer,
+
+  System.Classes, 
+  System.Generics.Collections, 
+  System.IOUtils, 
+  System.SysUtils,
+
+  ParseTree.Nodes, 
+  ParseTree.Parser, 
+  ParseTree.Writer,
+
   DPT.Formatter.DWS;
 
 { TDptFormatTask }

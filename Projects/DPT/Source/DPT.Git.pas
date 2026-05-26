@@ -8,11 +8,6 @@ unit DPT.Git;
 
 interface
 
-uses
-
-  System.Classes,
-  System.SysUtils;
-
 type
 
   TDptMockRunCommandFunc = reference to function(const ACommand, ADirectory: String; out AOutput: String): Integer;
@@ -30,7 +25,9 @@ uses
 
   Winapi.Windows,
 
+  System.Classes,
   System.IOUtils,
+  System.SysUtils,
 
   DPT.Detection;
 

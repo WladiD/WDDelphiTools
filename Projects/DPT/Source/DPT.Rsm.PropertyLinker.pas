@@ -9,9 +9,7 @@ unit DPT.Rsm.PropertyLinker;
 interface
 
 uses
-  System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
 
   DPT.Rsm.Model,
@@ -69,6 +67,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.SysUtils,
+
+  mormot.core.base;
 
 { TRsmPropertyLinker }
 

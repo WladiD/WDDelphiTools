@@ -11,7 +11,6 @@ interface
 uses
 
   System.Classes,
-  System.SysUtils,
 
   DPT.Dcu.Index;
 
@@ -50,6 +49,7 @@ uses
   System.DateUtils,
   System.IOUtils,
   System.JSON,
+  System.SysUtils,
 
   mormot.core.collections,
 

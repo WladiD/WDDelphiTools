@@ -10,9 +10,6 @@ interface
 
 uses
 
-  System.SysUtils,
-  System.Classes,
-
   mormot.core.collections;
 
 type
@@ -116,6 +113,11 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.SysUtils;
 
 function IsHexChar(C: AnsiChar): Boolean; inline;
 begin

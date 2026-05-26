@@ -10,7 +10,6 @@ interface
 
 uses
 
-  System.Classes,
   System.SysUtils;
 
 type
@@ -69,6 +68,10 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes;
 
 { TDcuReader }
 

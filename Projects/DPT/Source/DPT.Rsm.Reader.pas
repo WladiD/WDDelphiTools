@@ -18,11 +18,8 @@ interface
 
 uses
 
-  System.Classes,
-  System.StrUtils,
   System.SysUtils,
 
-  mormot.core.base,
   mormot.core.collections,
 
   DPT.Rsm.Model,
@@ -183,6 +180,10 @@ type
   end;
 
 implementation
+
+uses
+
+  System.StrUtils;
 
 { TRsmReader }
 

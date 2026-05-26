@@ -9,8 +9,6 @@ unit DPT.Rsm.FieldAliasEnumBridge;
 interface
 
 uses
-  System.StrUtils,
-  System.SysUtils,
 
   mormot.core.collections,
 
@@ -77,6 +75,11 @@ type
   end;
 
 implementation
+
+uses
+
+  System.StrUtils,
+  System.SysUtils;
 
 { TRsmFieldAliasEnumBridge }
 

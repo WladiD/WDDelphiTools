@@ -4,10 +4,6 @@ interface
 
 uses
 
-  System.Classes,
-  System.Generics.Collections,
-  System.SysUtils,
-
   ParseTree.Core,
   ParseTree.Nodes,
   ParseTree.Visitor;
@@ -59,6 +55,12 @@ type
   end;
 
 implementation
+
+uses
+
+  System.Classes,
+  System.Generics.Collections,
+  System.SysUtils;
 
 { TDptFormatter }
 

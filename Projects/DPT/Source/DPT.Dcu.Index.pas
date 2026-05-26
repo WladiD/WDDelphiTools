@@ -10,7 +10,6 @@ interface
 
 uses
 
-  System.Classes,
   System.SysUtils,
 
   mormot.core.collections,
@@ -141,6 +140,7 @@ implementation
 
 uses
 
+  System.Classes,
   System.IOUtils,
   System.Threading,
   System.Types,
