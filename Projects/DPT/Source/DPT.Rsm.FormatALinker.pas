@@ -101,7 +101,6 @@ type
     procedure BuildRecordOffsetIndex;
     function  FindRecordAtOffset(AOffset: NativeInt): Integer;
     procedure BuildBlockOwnerIndex;
-    function  FindBlockOwnerAt(AOffset: UInt32): Integer;
     procedure ScanTypeRegistry;
     procedure LinkFieldsFromFormatA;
     procedure PruneSpuriousMembers;
@@ -121,6 +120,16 @@ type
     ///   <c>RunPostProcess</c> at the start of every load).
     /// </summary>
     procedure Run(ABuf: PByte; ASz: NativeInt);
+    /// <summary>
+    ///   Returns the FClasses index of the class that owns the
+    ///   $2C / $31 block containing the byte at <paramref name="AOffset"/>,
+    ///   or -1 when no block is registered for that offset.
+    ///   Built during <see cref="Run"/> via the source-order
+    ///   block-to-class pairing. Made public so adjacent post-process
+    ///   passes (the §4.16 property linker) can attribute records to
+    ///   the same class as the surrounding $2C field block.
+    /// </summary>
+    function  FindBlockOwnerAt(AOffset: UInt32): Integer;
   end;
 
 implementation
@@ -333,8 +342,17 @@ begin
         Continue;
       end;
       var After: Integer := P + 2 + NL;
-      if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
-         (ByteAt(After + 2) <> $00) then
+      // Accept BOTH known anchor variants here so the block-owner
+      // index also covers $2C records that back properties (§4.16
+      // / TPropHost.FPlainInt). LinkFieldsFromFormatA's own filter
+      // stays strict (`$00 $02 $00` only); accepting the variant
+      // here just lets the $2C-block→class pairing capture the
+      // wider block.
+      //   $00 $02 $00 — canonical Format-A field anchor
+      //   $00 $00 $00 — variant emitted for fields that are the
+      //                 direct read-target of a property record
+      if (ByteAt(After) <> $00) or (ByteAt(After + 2) <> $00) or
+         ((ByteAt(After + 1) <> $02) and (ByteAt(After + 1) <> $00)) then
       begin
         Inc(P);
         Continue;

@@ -104,6 +104,44 @@ type
   end;
 
   /// <summary>
+  ///   A read-accessible Delphi property declared on a class, parsed
+  ///   from a <c>$31</c> property record in the RSM symbol stream.
+  ///   Properties come in two flavours the compiler emits identically
+  ///   at the record level but link differently:
+  ///   <list type="bullet">
+  ///     <item><c>property Foo: Integer read FFoo;</c> — the target
+  ///       id (<see cref="TargetId"/>) equals the secondary id of an
+  ///       existing <c>$2C</c> field record. The reader can resolve
+  ///       <c>Obj.Foo</c> to the same byte offset as
+  ///       <c>Obj.FFoo</c>.</item>
+  ///     <item><c>property Foo: Integer read GetFoo;</c> — the
+  ///       target id points at a getter method (no $2C field has it).
+  ///       Live evaluate cannot read the property without calling
+  ///       the getter, but the reader still surfaces the property
+  ///       and the caller can fall back accordingly.</item>
+  ///   </list>
+  ///   <see cref="UnderlyingField"/> is set to the matching field
+  ///   name when the bridge succeeds, empty otherwise.
+  /// </summary>
+  TRsmClassProperty = record
+    Name           : String;
+    /// 2-byte alias the Delphi linker emitted as the property's read
+    /// target (byte +10..+11 of the $31 record body). Compared
+    /// against each $2C field record's secondary id (byte +7..+8) to
+    /// resolve field-backed properties.
+    TargetId       : UInt16;
+    /// 1-byte primitive type id sitting at $31-record body+3 (the
+    /// same value the matching $2C field record carries). $02 =
+    /// Integer, $04 = string, etc. Zero when the type is structured
+    /// rather than primitive.
+    PrimitiveTypeId: UInt16;
+    /// Field name when <see cref="TargetId"/> matched a known field
+    /// (i.e. the property is field-backed). Empty for getter-backed
+    /// properties.
+    UnderlyingField: String;
+  end;
+
+  /// <summary>
   ///   Whether a structured type from the RSM type stream is a Delphi
   ///   class (with a VMT pointer at instance offset 0) or a Delphi
   ///   record (no VMT, fields start at offset 0). Decides whether
@@ -124,6 +162,14 @@ type
     TypeIdx   : UInt32;
     Kind      : TRsmStructKind;
     Members   : IList<TRsmClassMember>;
+    /// <summary>
+    ///   Properties declared on this class, parsed from <c>$31</c>
+    ///   property records. Nil/empty for classes that declare no
+    ///   properties OR records (records do not carry $31 entries).
+    ///   See <see cref="TRsmClassProperty"/> for the per-property
+    ///   bridge to the underlying field.
+    /// </summary>
+    Properties: IList<TRsmClassProperty>;
     /// <summary>
     ///   Name of the immediate parent class for class-kind entries.
     ///   Empty when the class is at the top of the user-visible
@@ -196,6 +242,15 @@ type
     ///   <unit-len> <unit-name>
     /// where <max-ord> = element-count - 1.
     ENUM_DEF_TAG     = $03;
+    /// Property-declaration record tag (Format-A property). One per
+    /// `property &lt;Name&gt;: &lt;Type&gt; read &lt;Field-or-Getter&gt;`
+    /// clause. Layout:
+    ///   $FF $31 &lt;NL&gt; &lt;Name&gt; $00 $02 $00 &lt;prim-type: u8&gt;
+    ///       $FE $0F $00 $00 $00 $80 &lt;target-lo&gt; &lt;target-hi&gt; ...
+    /// where &lt;target&gt; matches a $2C field record's secondary id
+    /// (byte +7..+8) for field-backed properties, or points at a
+    /// method otherwise.
+    PROPERTY_TAG     = $31;
     /// CSH7 file-header signature: 'CSH7' on disk in LE byte order.
     SigCSH7          = UInt32($37485343);
   end;

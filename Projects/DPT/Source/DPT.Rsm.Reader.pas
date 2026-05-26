@@ -31,7 +31,8 @@ uses
   DPT.Rsm.ClassParentDeriver,
   DPT.Rsm.CrossUnitParentResolver,
   DPT.Rsm.ScopeLocalEnumBridge,
-  DPT.Rsm.FieldAliasEnumBridge;
+  DPT.Rsm.FieldAliasEnumBridge,
+  DPT.Rsm.PropertyLinker;
 
 type
 
@@ -95,6 +96,14 @@ type
     /// bridge uses, so IsEnumTypeId and TryGetEnumConstantName get
     /// the new entries transparently.
     FFieldAliasEnumBridge     : TRsmFieldAliasEnumBridge;
+    /// §4.16 property-record linker: walks <c>$31</c> records, parses
+    /// each property declaration, attributes it to the owning class
+    /// via byte-offset proximity, and bridges field-backed properties
+    /// to their underlying <c>$2C</c> field via the body+7..+8 alias
+    /// id match. Populates <see cref="TRsmClassInfo.Properties"/>
+    /// per class. Run as a post-process pass after the class list is
+    /// populated; runs independently of the Format-A field linker.
+    FPropertyLinker           : TRsmPropertyLinker;
     function  GetOnPhase: TProc<String>;
     procedure SetOnPhase(const AValue: TProc<String>);
     function  GetProcs: IList<TRsmProc>;
@@ -124,6 +133,17 @@ type
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
     function  FindClassMember(const AClassName, AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
+    /// <summary>
+    ///   Looks up a property by name on a class. The walk follows
+    ///   the inheritance chain via <c>ParentName</c>, so callers can
+    ///   resolve properties declared on an ancestor exactly like
+    ///   they resolve inherited fields. Returns False when no
+    ///   property of that name exists anywhere in the chain.
+    ///   See <see cref="TRsmClassProperty"/> for the field-backed vs
+    ///   getter-backed distinction.
+    /// </summary>
+    function  FindClassProperty(const AClassName, APropertyName: String;
+      out AProperty: TRsmClassProperty): Boolean;
     function  FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
     function  IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
@@ -185,10 +205,13 @@ begin
   FFieldAliasEnumBridge      := TRsmFieldAliasEnumBridge.Create(
     FScanner.Classes, FScanner.Procs, FScanner.EnumDefs,
     FScopeLocalTypeIdToEnumDef);
+  FPropertyLinker            := TRsmPropertyLinker.Create(
+    FScanner.Classes, FScanner.ClassByName, FRsmTypeIdToClassIdx);
 end;
 
 destructor TRsmReader.Destroy;
 begin
+  FPropertyLinker.Free;
   FFieldAliasEnumBridge.Free;
   FScopeLocalEnumBridge.Free;
   FCrossUnitParentResolver.Free;
@@ -417,6 +440,12 @@ begin
   // $1E-marker bridge gets first claim on any aliases it can cover.
   FFieldAliasEnumBridge.Run;
   Report('BuildFieldAliasEnumBridge');
+  // §4.16: $31 property records. Independent of the bridge passes,
+  // depends only on the FClasses list having been populated by the
+  // scanner. Bridges field-backed properties to their underlying
+  // $2C field via the body+7..+8 alias-id match.
+  FPropertyLinker.Run(FScanner.Buf, FScanner.Sz);
+  Report('LinkPropertiesFromFormatA');
   Report('done');
 end;
 
@@ -809,6 +838,41 @@ begin
         AMember := Info.Members[I];
         Exit(True);
       end;
+    CurrentClass := Info.ParentName;
+    Inc(Steps);
+  end;
+end;
+
+function TRsmReader.FindClassProperty(const AClassName, APropertyName: String;
+  out AProperty: TRsmClassProperty): Boolean;
+// Walks the class chain (own then ancestors) looking for a property
+// of the requested name. Properties live in TRsmClassInfo.Properties,
+// populated by TRsmPropertyLinker during RunPostProcess.
+const
+  MaxChainDepth = 32;
+var
+  ClsIdx, I, Steps: Integer;
+  Info            : TRsmClassInfo;
+  CurrentClass    : String;
+  FClasses        : IList<TRsmClassInfo>;
+begin
+  Result := False;
+  AProperty := Default(TRsmClassProperty);
+  FClasses := FScanner.Classes;
+  CurrentClass := AClassName;
+  Steps := 0;
+  while (CurrentClass <> '') and (Steps < MaxChainDepth) do
+  begin
+    ClsIdx := FindClassByName(CurrentClass);
+    if ClsIdx < 0 then Exit;
+    Info := FClasses[ClsIdx];
+    if Info.Properties <> nil then
+      for I := 0 to Info.Properties.Count - 1 do
+        if SameText(Info.Properties[I].Name, APropertyName) then
+        begin
+          AProperty := Info.Properties[I];
+          Exit(True);
+        end;
     CurrentClass := Info.ParentName;
     Inc(Steps);
   end;

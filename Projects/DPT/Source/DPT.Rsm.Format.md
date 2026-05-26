@@ -72,7 +72,8 @@ After the symbol-stream walk completes, the scanner runs
 `TRsmStructDiscoverer.Run` (class / record discovery, Format-B field
 walks) and the reader's post-process passes
 (`TRsmFormatALinker.Run` → `TRsmClassParentDeriver.Run` →
-`TRsmCrossUnitParentResolver.Run` → `TRsmScopeLocalEnumBridge.Run`).
+`TRsmCrossUnitParentResolver.Run` → `TRsmScopeLocalEnumBridge.Run` →
+`TRsmFieldAliasEnumBridge.Run` → `TRsmPropertyLinker.Run`).
 
 ---
 
@@ -153,11 +154,12 @@ Tag constants live in `TRsmTag` in
 | `$28`  | `PROC_TAG`          | Procedure / method declaration with address payload                                                     |
 | `$2A`  | `TYPE_REGISTRY_TAG` | Type-registry entry — joins a type name to its 2-byte primary id                                        |
 | `$2C`  | (Format-A field)    | Named field record carrying the field's type and parent record id                                       |
+| `$31`  | `PROPERTY_TAG`      | Property declaration (read-source target); sits in the same Format-A block as the class's $2C records  |
 | `$63`  | `SCOPE_END`         | Closes the current proc scope (only effective after at least one local-shaped record has been seen)     |
 
-`$28 PROC_TAG`, `$25`, `$03`, `$2A` and `$2C` are valid both inside and
-outside a proc scope. The `$22`, `$21`, `$20` (local-form), and
-`$27` paths gate on the scanner's `FScanInProc` state.
+`$28 PROC_TAG`, `$25`, `$03`, `$2A`, `$2C` and `$31` are valid both
+inside and outside a proc scope. The `$22`, `$21`, `$20` (local-form),
+and `$27` paths gate on the scanner's `FScanInProc` state.
 
 The dispatcher uses **single-byte fallback advance** on shape mismatch:
 when a handler rejects a candidate record (`Result := False`), the
@@ -1125,6 +1127,66 @@ The bridge is purely **name-based** so it fires only when at least one F-prefixe
 [Test.DPT.Rsm.LocalsReader.TestFieldAliasEnumBridgeResolvesTThreadPriority32](../Test/Test.DPT.Rsm.LocalsReader.pas)
 which asserts `IsEnumTypeId($0671) = True` and resolves ordinals
 0 / 4 / 6 to `tpIdle` / `tpHigher` / `tpTimeCritical`.
+
+### 4.16 `$31` PROPERTY_TAG — property declaration
+
+The Delphi compiler emits one `$31` record per `property <Name>: <Type>
+read <Field-or-Getter>` clause on a class. Layout:
+
+```
+[$FF]?  $31  <NL: u8>  <Name>
+    $00 $02 $00            ; Format-A anchor (same as $2C field)
+    <prim-type: u8>        ; $02=Integer, $04=string, ...
+    $FE $0F $00 $00 $00 $80
+    <target-lo> <target-hi>
+    ...
+```
+
+The 2-byte target at body+10..+11 identifies the read source:
+
+* **Field-backed property** (`property Foo: Integer read FFoo;`) —
+  target matches the secondary alias id at body+7..+8 of one of the
+  class's `$2C` field records. The bridge resolves the target to the
+  field name so callers can navigate `Obj.Foo` through the field's
+  byte offset exactly like `Obj.FFoo`.
+* **Getter-backed property** (`property Foo: Integer read GetFoo;`)
+  — target points at the getter method record. No `$2C` field
+  carries the target, so the bridge leaves
+  `TRsmClassProperty.UnderlyingField` empty and the caller can
+  detect "getter-only" via that signal.
+
+Owning-class attribution: properties sit in the same Format-A block
+as the class's `$2C` field records. The block-owner pairing for
+WIDE-encoded parent ids (the common case for `$2A`-registered
+classes) is NOT covered by
+`TRsmFormatALinker.BuildBlockOwnerIndex` (which only handles the
+narrow / per-unit-local-id form by design). The property linker
+therefore does its OWN walk, tracking the last `$2C` field record's
+wide parent type-id and resolving it via
+`FRsmTypeIdToClassIdx`.
+
+A second `$2C` body-anchor variant lives here: `$00 $00 $00` (rather
+than the canonical `$00 $02 $00`) marks field records that are the
+direct read-target of a property. The block-owner index accepts both
+to keep the linker's downstream filters intact while still seeing
+the wider block (the strict `$00 $02 $00` filter stays in place for
+`LinkFieldsFromFormatA`'s actual member-linking pass — variant blocks
+just don't contribute member updates, only block ownership).
+
+Implemented in
+[TRsmPropertyLinker](DPT.Rsm.PropertyLinker.pas) and exposed as
+`TRsmClassInfo.Properties` plus `Reader.FindClassProperty`. Pinned by
+[Test.DPT.Rsm.LocalsReader.TestPropertyLinkerSurfacesFieldAndGetterBackedReads32](../Test/Test.DPT.Rsm.LocalsReader.pas)
+which asserts:
+
+* `PlainProp` (field-backed) → `UnderlyingField = 'FPlainInt'`
+* `CalcProp` (getter-backed) → `UnderlyingField = ''`,
+  `PrimitiveTypeId = $02` (Integer)
+* `Greeting` (getter-backed) → `UnderlyingField = ''`,
+  `PrimitiveTypeId = $04` (string)
+
+against the `TPropHost` fixture in
+[DebugTarget.dpr](../Test/DebugTarget.dpr).
 
 ---
 

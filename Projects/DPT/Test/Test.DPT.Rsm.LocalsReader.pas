@@ -96,6 +96,24 @@ type
     /// ordinals to element names.
     [Test]
     procedure TestFieldAliasEnumBridgeResolvesTThreadPriority32;
+    /// §4.16 PIN. The <c>$31</c> property-record linker
+    /// (<c>TRsmPropertyLinker</c>) must surface read-accessible
+    /// properties on TPropHost, distinguishing field-backed from
+    /// getter-backed declarations:
+    /// <list type="bullet">
+    ///   <item><c>PlainProp</c> is declared <c>read FPlainInt</c> so
+    ///     the bridge resolves <see cref="TRsmClassProperty.UnderlyingField"/>
+    ///     to <c>FPlainInt</c>. Live evaluate can read the property
+    ///     via the underlying field's instance offset.</item>
+    ///   <item><c>CalcProp</c> is declared <c>read GetCalcInt</c> —
+    ///     no <c>$2C</c> field record matches the target alias, so
+    ///     <c>UnderlyingField</c> stays empty (getter-backed).</item>
+    ///   <item><c>Greeting</c> is declared <c>read GetGreeting</c>,
+    ///     same treatment as CalcProp but with a string return type
+    ///     for primitive-type-id coverage.</item>
+    /// </list>
+    [Test]
+    procedure TestPropertyLinkerSurfacesFieldAndGetterBackedReads32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -962,6 +980,105 @@ begin
     Assert.AreEqual('tpTimeCritical', Name,
       'Ordinal 6 of TThreadPriority must resolve to ''tpTimeCritical'' -- ' +
       'got: ' + Name);
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestPropertyLinkerSurfacesFieldAndGetterBackedReads32;
+var
+  Reader   : TRsmReader;
+  Prop     : TRsmClassProperty;
+  ClsIdx   : Integer;
+  PropCount: Integer;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(False));
+
+    // Diagnostic: confirm TPropHost is discovered and report its
+    // property count before the per-property assertions. Surfaces
+    // whether the failure is at the class-discovery stage, the
+    // PropertyLinker's $31-walk stage, or the field-bridge stage.
+    ClsIdx := Reader.FindClassByName('TPropHost');
+    Assert.IsTrue(ClsIdx >= 0,
+      'TPropHost class not discovered -- StructDiscoverer regressed?');
+    if Reader.Classes[ClsIdx].Properties = nil then
+      PropCount := -1
+    else
+      PropCount := Reader.Classes[ClsIdx].Properties.Count;
+    // Count total property attributions across ALL classes -- if 0,
+    // the parser never matched any $31 record; if > 0 but TPropHost
+    // got 0, attribution lost the records to a different class.
+    var GlobalPropCount: Integer := 0;
+    var FirstAttributedCls: String := '';
+    for var I: Integer := 0 to Reader.Classes.Count - 1 do
+      if Reader.Classes[I].Properties <> nil then
+      begin
+        Inc(GlobalPropCount, Reader.Classes[I].Properties.Count);
+        if FirstAttributedCls = '' then
+          FirstAttributedCls := Reader.Classes[I].Name;
+      end;
+    Assert.IsTrue(PropCount >= 3,
+      Format('TPropHost.Properties.Count expected >= 3, got %d ' +
+             '(-1 means nil). TPropHost class kind=%d typeIdx=0x%x. ' +
+             'Global property count across ALL classes=%d (first ' +
+             'attributed class: ''%s''). Diagnoses: 0/0 = parser ' +
+             'broken; N/0 = attribution sends to wrong class; N/<3 = ' +
+             'parser misses some records.',
+             [PropCount, Ord(Reader.Classes[ClsIdx].Kind),
+              Reader.Classes[ClsIdx].TypeIdx, GlobalPropCount,
+              FirstAttributedCls]));
+
+    // PlainProp -- field-backed (`property PlainProp: Integer
+    // read FPlainInt`). UnderlyingField must resolve to the
+    // backing field's name so live evaluate can read the property
+    // via the field's instance offset.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'PlainProp', Prop),
+      'TPropHost.PlainProp must be in the property list -- $31 ' +
+      'record parser or block-owner attribution regressed?');
+    Assert.AreEqual('PlainProp', Prop.Name,
+      'PlainProp.Name round-trip mismatch');
+    Assert.AreEqual<UInt16>($02, Prop.PrimitiveTypeId,
+      Format('PlainProp.PrimitiveTypeId must be $02 (Integer). Got $%x',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('FPlainInt', Prop.UnderlyingField,
+      'PlainProp must bridge to its backing field FPlainInt via the ' +
+      'target-id -> $2C-alias map. UnderlyingField=''' +
+      Prop.UnderlyingField + '''');
+
+    // CalcProp -- getter-backed (`property CalcProp: Integer
+    // read GetCalcInt`). No $2C field record carries CalcProp's
+    // target alias, so UnderlyingField stays empty.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'CalcProp', Prop),
+      'TPropHost.CalcProp must be in the property list');
+    Assert.AreEqual<UInt16>($02, Prop.PrimitiveTypeId,
+      Format('CalcProp.PrimitiveTypeId must be $02 (Integer). Got $%x',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('', Prop.UnderlyingField,
+      'CalcProp is getter-backed -- UnderlyingField must stay empty. ' +
+      'Got: ''' + Prop.UnderlyingField + ''' (this means a $2C field ' +
+      'happens to share CalcProp''s target alias, which would point ' +
+      'live evaluate at the wrong byte).');
+
+    // Greeting -- getter-backed string property. Exercises a
+    // different primitive-type-id ($04 = string) so the test
+    // notices a regression where prim-type read shifts position.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'Greeting', Prop),
+      'TPropHost.Greeting must be in the property list');
+    Assert.AreEqual<UInt16>($04, Prop.PrimitiveTypeId,
+      Format('Greeting.PrimitiveTypeId must be $04 (string). Got $%x ' +
+             '-- did the prim-type byte position drift?',
+             [Integer(Prop.PrimitiveTypeId)]));
+    Assert.AreEqual('', Prop.UnderlyingField,
+      'Greeting is getter-backed -- UnderlyingField must stay empty.');
+
+    // A property of a class that doesn't exist must return False
+    // cleanly rather than throwing.
+    Assert.IsFalse(Reader.FindClassProperty('TPropHost', 'NoSuchProp', Prop),
+      'Non-existent property must return False');
+    Assert.IsFalse(Reader.FindClassProperty('TNoSuchClass', 'PlainProp', Prop),
+      'Non-existent class must return False');
   finally
     Reader.Free;
   end;

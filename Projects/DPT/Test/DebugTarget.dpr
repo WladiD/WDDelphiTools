@@ -516,6 +516,70 @@ begin
   Writeln('RegEnum ', Ord(AStatusLight), ' ',                          // Line 516 - register-enum-param bp here
           Ord(AStatusPriority)); Flush(Output);
 end;
+// Property fixture: a class exposing read access through both
+// styles the Delphi compiler emits differently:
+//
+//   - `property PlainProp: Integer read FPlainInt;`
+//       Compiler inlines reads as a direct field load -- so the
+//       Reader's existing field-by-name resolution should find the
+//       underlying FPlainInt and the test asserts that BOTH the
+//       property name and the underlying field name resolve.
+//   - `property CalcProp: Integer read GetCalcInt;`
+//       Compiler emits a call to the getter. No backing field
+//       directly visible; the property name cannot be resolved
+//       through field navigation alone -- the Reader has to either
+//       expose the getter method or fail cleanly.
+//
+// Both shapes get a sentinel value so the pin test can assert
+// concrete byte values rather than "non-zero".
+//
+// Placed AFTER the last BP marker (line 516) per the rsm-expert
+// skill's BP-line discipline; the new BP marker added below is at
+// a higher line number and doesn't shift earlier markers.
+type
+  TPropHost = class
+  private
+    FPlainInt   : Integer;
+    FBackingStr : string;
+    FBackedInt  : Integer;
+    function GetCalcInt: Integer;
+    function GetGreeting: string;
+  public
+    constructor Create;
+    /// Direct-field-backed property; compiler resolves reads to
+    /// FPlainInt.
+    property PlainProp: Integer read FPlainInt;
+    /// Getter-backed integer property; compiler emits a call to
+    /// GetCalcInt.
+    property CalcProp: Integer read GetCalcInt;
+    /// Getter-backed string property; exercises managed-return path.
+    property Greeting: string read GetGreeting;
+  end;
+var
+  GGlobalPropHost: TPropHost;
+constructor TPropHost.Create;
+begin
+  inherited;
+  FPlainInt   := Integer($AABBCCDD);
+  FBackingStr := 'World';
+  FBackedInt  := Integer($12345678);
+end;
+function TPropHost.GetCalcInt: Integer;
+begin
+  Result := FBackedInt + 1;     // = $12345679
+end;
+function TPropHost.GetGreeting: string;
+begin
+  Result := 'Hello, ' + FBackingStr;
+end;
+procedure PropertyProbe;
+begin
+  GGlobalPropHost := TPropHost.Create;
+  Writeln('PropProbe ',                                                // Line 578 - property bp here
+          GGlobalPropHost.PlainProp, ' ',
+          GGlobalPropHost.CalcProp, ' ',
+          GGlobalPropHost.Greeting); Flush(Output);
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -683,6 +747,9 @@ begin
     // first two register parameter slots. Drives the §6.15 register-
     // passed enum parameter auto-detect pin.
     TouchRegEnumParam(lsYellow, tpHigher);
+    // Reach PropertyProbe with GGlobalPropHost live so the Reader's
+    // property-read tests can hit a populated TPropHost instance.
+    PropertyProbe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
@@ -710,5 +777,6 @@ begin
     GGlobalComp.Free;
     GGlobalEmptyChild.Free;
     GGlobalObject.Free;
+    GGlobalPropHost.Free;
   end;
 end.

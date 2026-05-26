@@ -561,12 +561,16 @@ begin
     if AUse64Bit then
     begin
       // .map entries (segment:offset) + segment start (RVA):
-      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $153000
+      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $154000
       //   GGlobalLight 0002:00021FCC
-      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $176000
-      ExpectedInt   := $00153000 + $00021EC4;  // $174EC4
-      ExpectedLight := $00153000 + $00021FCC;  // $174FCC
-      ExpectedField := $00176000 + $0000C710;  // $182710
+      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $177000
+      // Note: the segment-base RVAs drift by $1000 (one page) every
+      // time DebugTarget.dpr grows past a page boundary in .data or
+      // .bss. Cross-check Win64/DebugTarget.map after any fixture
+      // additions; the offsets within each segment stay stable.
+      ExpectedInt   := $00154000 + $00021EC4;  // $175EC4
+      ExpectedLight := $00154000 + $00021FCC;  // $175FCC
+      ExpectedField := $00177000 + $0000C710;  // $183710
     end
     else
     begin
