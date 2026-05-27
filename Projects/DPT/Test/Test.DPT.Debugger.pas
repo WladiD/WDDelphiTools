@@ -262,7 +262,9 @@ begin
   try
     Debugger.OnException := OnException;
     Debugger.LoadMapFile(MapFile);
-    // EAbort is ignored by default
+    // EAbort is ignored by default; native first-chance exceptions are
+    // not broken on by default (benign startup noise like an env-injected
+    // C++ EH exception), so this test sees only the Delphi 'Exception'.
 
     TDebuggerThread.Create(Debugger, ExePath);
     Debugger.WaitForReady(5000);

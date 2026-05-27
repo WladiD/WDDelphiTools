@@ -139,6 +139,21 @@ type
     procedure TestTfwGlobalRecordResolves;
 
     /// <summary>
+    ///   §6.1 CHARACTERIZATION: dotted field navigation on a large VCL
+    ///   *class* instance (not a record global). Live-debugging TFW had
+    ///   evaluate("Self.FAd") / "Self.FUDFProcess" fail for TFormAd. The
+    ///   root cause is RSM-side: TFormAd is absent from FClasses because
+    ///   TRsmStructDiscoverer.Run's class-trailer anchor
+    ///   (<c>&lt;name&gt; 04 00 00 00 07 &lt;NL&gt; &lt;name&gt; 58 00 00 00</c>)
+    ///   never matches its encoding -- the linker emits the trailer TAIL
+    ///   (07 TFormAd 58 00 00 00) but not the adjacent HEAD. A control
+    ///   record (TAppCaps) IS discovered. This test pins the current
+    ///   broken state; flip the assertions to close the gap.
+    /// </summary>
+    [Test]
+    procedure TestTfwClassInstanceFieldResolves;
+
+    /// <summary>
     ///   Pin test for §6.4 (originally "elaborate record header,
     ///   TAppCaps-style nested sub-record shape" -- refuted). The
     ///   simple-shape record header documented in §4.13 covers every
@@ -677,6 +692,37 @@ begin
   Assert.AreNotEqual(Itext, Simple,
     'Simple-name lookup must NOT return the .itext unit-init ' +
     'proc VA -- that was the user-facing bug.');
+end;
+
+procedure TRsmTfwTests.TestTfwClassInstanceFieldResolves;
+var
+  M: TRsmClassMember;
+begin
+  if ShouldSkip then Exit;
+
+  // --- Control: a RECORD type IS fully discovered (record-sentinel
+  //     path), proving the fixture and member machinery work. TAppCaps
+  //     is the same record the §6.3/§6.4 pins exercise.
+  Assert.IsTrue(FReader.FindClassByName('TAppCaps') >= 0,
+    'TAppCaps (record) must be discovered -- control for the gap below');
+
+  // --- §6.1 CHARACTERIZATION (open gap). TFormAd is a large VCL form
+  //     class whose method/property block (~12.6 KB on TFW) pushes its
+  //     class trailer past the 8 KB FindClassTrailerWithin window in
+  //     TRsmStructDiscoverer.Run, so the class is absent from FClasses
+  //     and the debugger's dotted field walk (evaluate "Self.FAd")
+  //     fails. Naively widening that window DOES discover TFormAd, but
+  //     it also mis-anchors close-packed classes elsewhere (it regressed
+  //     TestMcpEvaluateInheritedFieldViaVmtWalk, which resolves an
+  //     inherited TComponent field on DebugTarget). A safe fix must bound
+  //     the forward trailer scan (e.g. stop at the next class-def) rather
+  //     than just enlarge the window. These assertions pin the current
+  //     (unfixed) state; flip them when the gap is closed.
+  Assert.AreEqual(Integer(-1), FReader.FindClassByName('TFormAd'),
+    'GAP §6.1: TFormAd is not discovered (class trailer sits past the 8 KB ' +
+    'scan window). When fixed, flip to Assert.IsTrue(... >= 0).');
+  Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FAd', M),
+    'GAP §6.1: FindClassMember(TFormAd, FAd) fails while the class is absent.');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

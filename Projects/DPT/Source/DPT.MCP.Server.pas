@@ -154,7 +154,11 @@ begin
   FPendingIgnoredExceptions := Collections.NewList<String>;
   FPendingUnignoredExceptions := Collections.NewList<String>;
   FPendingIgnoredExceptionCodes := Collections.NewList<Cardinal>;
-  FBreakOnNativeFirstChance := True;
+  // Default OFF -- see TDebugger.Create. First-chance native exceptions
+  // are usually handled by the target's own SEH, so the debugger does not
+  // stop on them by default (unhandled/second-chance native faults still
+  // do); opt in with set_break_on_native_first_chance.
+  FBreakOnNativeFirstChance := False;
 
   if Assigned(FDebugger) then
   begin
@@ -669,11 +673,11 @@ begin
 
   var ToolSetNativeFC := TJSONObject.Create;
   ToolSetNativeFC.AddPair('name', 'set_break_on_native_first_chance');
-  ToolSetNativeFC.AddPair('description', 'Controls whether the debugger pauses on native (non-Delphi) first-chance exceptions. Default true. Set to false to let a large app (e.g. driving a UI through CEF/printer code) run without stopping on routine native first-chance exceptions; second-chance (unhandled) native exceptions still pause. Delphi exceptions are unaffected (use ignore_exception for those). Can be called before or during a session.');
+  ToolSetNativeFC.AddPair('description', 'Controls whether the debugger pauses on native (non-Delphi) FIRST-chance exceptions. Default false: first-chance native exceptions are usually caught by the target''s own SEH (the OS/RTL/3rd-party DLLs and the app routinely raise-and-handle them, and some environments inject startup ones like a C++ EH exception E06D7363), so stopping on every one is noise -- but UNHANDLED (second-chance) native faults, the real crashes, still pause regardless. Set to true to also pause at first chance (e.g. to catch an access violation at the instruction that raises it, before the app''s handler runs). Delphi exceptions are unaffected (use ignore_exception for those). Can be called before or during a session.');
   var SchemaSetNativeFC := TJSONObject.Create;
   SchemaSetNativeFC.AddPair('type', 'object');
   var PropSetNativeFC := TJSONObject.Create;
-  PropSetNativeFC.AddPair('enabled', TJSONObject.Create.AddPair('type', 'boolean').AddPair('description', 'true = pause on native first-chance exceptions (default); false = do not pause on them.'));
+  PropSetNativeFC.AddPair('enabled', TJSONObject.Create.AddPair('type', 'boolean').AddPair('description', 'true = pause on native first-chance exceptions; false = do not pause on them (default).'));
   SchemaSetNativeFC.AddPair('properties', PropSetNativeFC);
   var ReqSetNativeFC := TJSONArray.Create;
   ReqSetNativeFC.Add('enabled');

@@ -294,6 +294,14 @@ begin
   try
     Debugger.LoadMapFile(MapFile);
     Debugger.LoadDebugInfoFromExe(ExePath);
+    // This test specifically verifies native-exception reporting (the
+    // c0000005 access violation raised by CrashProcedure), so it opts
+    // INTO breaking on native first-chance exceptions (default is off).
+    // Some environments also inject a benign native C++ EH first-chance
+    // exception (code E06D7363) during target startup; ignore it by code
+    // so the first surfaced debugger_exception is the c0000005 asserted.
+    Debugger.BreakOnNativeFirstChance := True;
+    Debugger.IgnoreExceptionCode($E06D7363);
     TDebuggerThread.Create(Debugger, ExePath);
 
     OutputWriter := TStringTextWriter.Create;

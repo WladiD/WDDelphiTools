@@ -482,7 +482,19 @@ begin
   FIgnoredExceptions := Collections.NewList<String>;
   FIgnoredExceptions.Add('EAbort');
   FIgnoredExceptionCodes := Collections.NewList<Cardinal>;
-  FBreakOnNativeFirstChance := True;
+  // Default OFF. This is NOT a claim that native (non-Delphi) exceptions
+  // are harmless -- an access violation (C0000005) is a real fault. It
+  // is about FIRST chance vs SECOND chance: the OS, the RTL, third-party
+  // DLLs and the app itself routinely raise native exceptions that their
+  // own SEH handlers immediately catch (and some environments inject
+  // extra startup ones, e.g. a C++ EH exception, code E06D7363). Breaking
+  // on EVERY first-chance native exception therefore stops constantly on
+  // exceptions that are handled and never become a crash. SECOND-chance
+  // (i.e. unhandled) native faults -- the actual crashes -- still surface
+  // regardless of this flag. Set BreakOnNativeFirstChance := True to also
+  // stop at first chance (e.g. to catch an AV at the instruction that
+  // raises it, before the app's handler runs).
+  FBreakOnNativeFirstChance := False;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
