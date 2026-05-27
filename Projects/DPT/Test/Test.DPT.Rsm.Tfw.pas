@@ -139,7 +139,7 @@ type
     procedure TestTfwGlobalRecordResolves;
 
     /// <summary>
-    ///   §6.1 CHARACTERIZATION: dotted field navigation on a large VCL
+    ///   §6.16 CHARACTERIZATION: dotted field navigation on a large VCL
     ///   *class* instance (not a record global). Live-debugging TFW had
     ///   evaluate("Self.FAd") / "Self.FUDFProcess" fail for TFormAd. The
     ///   root cause is RSM-side: TFormAd is absent from FClasses because
@@ -706,7 +706,7 @@ begin
   Assert.IsTrue(FReader.FindClassByName('TAppCaps') >= 0,
     'TAppCaps (record) must be discovered -- control for the gap below');
 
-  // --- §6.1 CHARACTERIZATION (open gap). TFormAd is a large VCL form
+  // --- §6.16 CHARACTERIZATION (open gap). TFormAd is a large VCL form
   //     class whose method/property block (~12.6 KB on TFW) pushes its
   //     class trailer past the 8 KB FindClassTrailerWithin window in
   //     TRsmStructDiscoverer.Run, so the class is absent from FClasses
@@ -719,10 +719,10 @@ begin
   //     than just enlarge the window. These assertions pin the current
   //     (unfixed) state; flip them when the gap is closed.
   Assert.AreEqual(Integer(-1), FReader.FindClassByName('TFormAd'),
-    'GAP §6.1: TFormAd is not discovered (class trailer sits past the 8 KB ' +
+    'GAP §6.16: TFormAd is not discovered (class trailer sits past the 8 KB ' +
     'scan window). When fixed, flip to Assert.IsTrue(... >= 0).');
   Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FAd', M),
-    'GAP §6.1: FindClassMember(TFormAd, FAd) fails while the class is absent.');
+    'GAP §6.16: FindClassMember(TFormAd, FAd) fails while the class is absent.');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

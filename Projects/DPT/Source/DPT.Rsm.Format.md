@@ -1278,10 +1278,62 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-No open gaps remain. Every previously-tagged `GAP` / `UNCERTAIN`
-item has been either decoded into §4 / §5 or closed as a documented
-design choice. See the git history of this file for the closure
-audit trail.
+### 6.16 Large method-heavy class trailers missed; naive widening mis-anchors (`GAP`)
+
+`TRsmStructDiscoverer.Run`'s class-trailer forward scan
+([DPT.Rsm.StructDiscoverer.pas:660-680](DPT.Rsm.StructDiscoverer.pas#L660-L680),
+`FindClassTrailerWithin` at
+[585-614](DPT.Rsm.StructDiscoverer.pas#L585-L614)) finds a method-heavy
+class's trailer (`04 00 00 00 07 <NL> <dupName> 58 00 00 00`) within an
+**8 KB** window after the class-def name. Large VCL form classes exceed
+that: on `C:\MSE\TFW\TFW.rsm`, `TFormAd`'s trailer sits **~12.6 KB**
+past its class-def name (a form emits one method record per method
+between the name and the trailer). So `TFormAd` (and peers like
+`TFormVBh`) never enter `FClasses` (`FindClassByName('TFormAd') = -1`),
+and the live MCP repro `evaluate("Self.FAd")` (debugging
+`Tfw.Ad.Form.TFormAd.TblAdDataChange`, `Tfw.Ad.Form:2274`) cannot
+resolve — there is no class to look the field up in. The data is real:
+`FAd` is at `[Self+0x0C5C]` (a `PAd`), `Land` at `[FAd+0x169D]`
+(`TLandTyp` 0 = `ltInland`), recovered live by a `read_memory` walk.
+(The 4-zero method-block-header filter at
+[660-664](DPT.Rsm.StructDiscoverer.pas#L660-L664) is **not** the cause —
+it passes for `TFormAd`, whose header DWORD `1D 00 00 00` has the
+required three high zero bytes.)
+
+**Naive widening is unsafe (the key finding).** Enlarging the window
+(tried 16 KB and 64 KB) DOES discover `TFormAd`, but it **mis-anchors
+close-packed classes**: at 16 KB, `TestMcpEvaluateInheritedFieldViaVmtWalk`
+regressed (`evaluate AEmpty.FName`, an inherited `TComponent` field on
+the small `DebugTarget` fixture, started returning "Failed to evaluate
+variable"). A wider forward scan lets a class bind to a farther/wrong
+duplicate-name trailer, corrupting its (or a sibling's) backward
+field-scan. 64 KB additionally blew the `DiscoverAndParseAllStructs`
+perf budget (~54 s vs 45 s). So the window stays at **8 KB** and this
+gap is **open**.
+
+**Fix direction:** bound the forward trailer scan so it cannot cross
+into the next class-def region (stop at the next plausible class-def
+name) rather than just enlarging a fixed window — then a large form's
+distant trailer is reachable without close-packed classes mis-anchoring.
+Validate against the full Rsm + MCP suites (the regression surfaced only
+in `TestMcpEvaluateInheritedFieldViaVmtWalk`, not the RSM-unit fixtures)
+and re-check the perf budget. Pinned (current state) by
+`Test.DPT.Rsm.Tfw.TestTfwClassInstanceFieldResolves`, which asserts
+`TFormAd` is NOT found; flip to `>= 0` when fixed.
+
+**Secondary layer (once discovery is fixed):** even when `TFormAd` is
+discovered (via a wider window in the discarded experiment), the
+backward member scan captured only the **128 published component
+fields** (`BrwAdAp`, … at `0x540`+), not the strict-private
+`F`-prefixed fields — so `FAd` resolution needs a further step (private
+fields likely live in a separate `$2C` field-record run linked by
+`FormatALinker`, or past the `MaxFields = 128` / backward-window cap).
+
+*(Related, out of RSM-format scope — recorded so it is not lost: in the
+live frame the debugger's `Self` localization was also wrong — it
+reported `Self = 0x661349C0`, actually the value of `FAd`; the real
+`Self` was `[ebp-04] = 0x65D52320`. That is a locals/`Self`-slot
+heuristic issue in the debugger, separate from this discovery gap.)*
 
 ---
 
