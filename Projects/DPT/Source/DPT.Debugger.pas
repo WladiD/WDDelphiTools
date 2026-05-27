@@ -191,9 +191,14 @@ type
     FFinishedEvent           : TEvent;
     FFirstBreak              : Boolean;
     FIgnoredExceptions       : IList<String>;
+    FIgnoredExceptionCodes   : IList<Cardinal>;
+    FExceptionLock           : TCriticalSection;
+    FBreakOnNativeFirstChance: Boolean;
     FLastBreakpointHit       : TBreakpoint;
     FLastException           : TExceptionRecord;
+    FLastExceptionClassName  : String;
     FLastExceptionFirstChance: Boolean;
+    FLastPauseWasException   : Boolean;
     FLastThreadHit           : THandle;
     FLastThreadId            : Cardinal;
     FLocalsReader            : TRsmReader;
@@ -362,6 +367,12 @@ type
     function  GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
     function  GetThreadIds: TArray<Cardinal>;
     procedure IgnoreException(const AClassName: String);
+    procedure IgnoreExceptionCode(ACode: Cardinal);
+    procedure UnignoreExceptionCode(ACode: Cardinal);
+    function  IsExceptionIgnored(const AClassName: String): Boolean;
+    function  IsExceptionCodeIgnored(ACode: Cardinal): Boolean;
+    function  GetIgnoredExceptions: TArray<String>;
+    function  GetIgnoredExceptionCodes: TArray<Cardinal>;
     /// <summary>
     ///   Loads the <c>.rsm</c> Remote Debug Symbols sidecar file
     ///   produced by the Delphi linker for the given executable
@@ -393,8 +404,11 @@ type
     property  BreakpointLock: TCriticalSection read FBreakpointLock;
     property  Breakpoints: IList<TBreakpoint> read FBreakpoints;
     property  IgnoredExceptions: IList<String> read FIgnoredExceptions;
+    property  BreakOnNativeFirstChance: Boolean read FBreakOnNativeFirstChance write FBreakOnNativeFirstChance;
     property  LastException: TExceptionRecord read FLastException;
+    property  LastExceptionClassName: String read FLastExceptionClassName;
     property  LastExceptionFirstChance: Boolean read FLastExceptionFirstChance;
+    property  LastPauseWasException: Boolean read FLastPauseWasException;
     property  LastThreadHit: THandle read FLastThreadHit;
     property  LastThreadId: Cardinal read FLastThreadId;
     property  LocalsReader: TRsmReader read FLocalsReader;
@@ -464,8 +478,11 @@ begin
   FBreakpoints := Collections.NewList<TBreakpoint>;
   FActiveThreads := Collections.NewKeyValue<Cardinal, THandle>;
   FBreakpointLock := TCriticalSection.Create;
+  FExceptionLock := TCriticalSection.Create;
   FIgnoredExceptions := Collections.NewList<String>;
   FIgnoredExceptions.Add('EAbort');
+  FIgnoredExceptionCodes := Collections.NewList<Cardinal>;
+  FBreakOnNativeFirstChance := True;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
@@ -535,16 +552,102 @@ end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);
 begin
-  for var I: Integer := 0 to FIgnoredExceptions.Count - 1 do
-    if SameText(FIgnoredExceptions[I], AClassName) then Exit;
-  FIgnoredExceptions.Add(AClassName);
+  // FIgnoredExceptions is read by the debug-event loop (HandleException,
+  // on TDebuggerThread) and mutated here from the MCP request thread, so
+  // every touch goes through FExceptionLock.
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := 0 to FIgnoredExceptions.Count - 1 do
+      if SameText(FIgnoredExceptions[I], AClassName) then Exit;
+    FIgnoredExceptions.Add(AClassName);
+  finally
+    FExceptionLock.Leave;
+  end;
 end;
 
 procedure TDebugger.UnignoreException(const AClassName: String);
 begin
-  for var I: Integer := FIgnoredExceptions.Count - 1 downto 0 do
-    if SameText(FIgnoredExceptions[I], AClassName) then
-      FIgnoredExceptions.Delete(I);
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := FIgnoredExceptions.Count - 1 downto 0 do
+      if SameText(FIgnoredExceptions[I], AClassName) then
+        FIgnoredExceptions.Delete(I);
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+procedure TDebugger.IgnoreExceptionCode(ACode: Cardinal);
+begin
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := 0 to FIgnoredExceptionCodes.Count - 1 do
+      if FIgnoredExceptionCodes[I] = ACode then Exit;
+    FIgnoredExceptionCodes.Add(ACode);
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+procedure TDebugger.UnignoreExceptionCode(ACode: Cardinal);
+begin
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := FIgnoredExceptionCodes.Count - 1 downto 0 do
+      if FIgnoredExceptionCodes[I] = ACode then
+        FIgnoredExceptionCodes.Delete(I);
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+function TDebugger.IsExceptionIgnored(const AClassName: String): Boolean;
+begin
+  Result := False;
+  if AClassName = '' then Exit;
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := 0 to FIgnoredExceptions.Count - 1 do
+      if SameText(FIgnoredExceptions[I], AClassName) then Exit(True);
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+function TDebugger.IsExceptionCodeIgnored(ACode: Cardinal): Boolean;
+begin
+  Result := False;
+  FExceptionLock.Enter;
+  try
+    for var I: Integer := 0 to FIgnoredExceptionCodes.Count - 1 do
+      if FIgnoredExceptionCodes[I] = ACode then Exit(True);
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+function TDebugger.GetIgnoredExceptions: TArray<String>;
+begin
+  FExceptionLock.Enter;
+  try
+    SetLength(Result, FIgnoredExceptions.Count);
+    for var I: Integer := 0 to FIgnoredExceptions.Count - 1 do
+      Result[I] := FIgnoredExceptions[I];
+  finally
+    FExceptionLock.Leave;
+  end;
+end;
+
+function TDebugger.GetIgnoredExceptionCodes: TArray<Cardinal>;
+begin
+  FExceptionLock.Enter;
+  try
+    SetLength(Result, FIgnoredExceptionCodes.Count);
+    for var I: Integer := 0 to FIgnoredExceptionCodes.Count - 1 do
+      Result[I] := FIgnoredExceptionCodes[I];
+  finally
+    FExceptionLock.Leave;
+  end;
 end;
 
 function TDebugger.ReadExceptionClassName(const AExceptionRecord: TExceptionRecord): String;
@@ -613,6 +716,7 @@ begin
   FBreakpointHitEvent.Free;
   FContinueEvent.Free;
   FBreakpointLock.Free;
+  FExceptionLock.Free;
   FOutputLock.Free;
   FLocalsReader.Free;
   FMapScanner.Free;
@@ -1729,6 +1833,7 @@ begin
               FLastBreakpointHit := TBreakpoint.Create(Stack[0].UnitName, CurLine, Stack[0].Address);
               FLastThreadHit := CurrentThread;
               FLastThreadId := ADebugEvent.dwThreadId;
+              FLastPauseWasException := False;
               FBreakpointHitEvent.SetEvent;
               if Assigned(FOnStepped) then FOnStepped(Self, FLastBreakpointHit);
               FContinueEvent.ResetEvent;
@@ -1766,6 +1871,7 @@ begin
           FLastBreakpointHit := BP;
           FLastThreadHit := CurrentThread;
           FLastThreadId := ADebugEvent.dwThreadId;
+          FLastPauseWasException := False;
           FBreakpointHitEvent.SetEvent;
           if Assigned(FOnBreakpoint) then
             FOnBreakpoint(Self, BP);
@@ -1842,6 +1948,7 @@ begin
 
             FLastThreadHit := CurrentThread;
             FLastThreadId := ADebugEvent.dwThreadId;
+            FLastPauseWasException := False;
             FBreakpointHitEvent.SetEvent;
             if Assigned(FOnStepped) then
               FOnStepped(Self, FLastBreakpointHit);
@@ -1872,30 +1979,37 @@ begin
   else if (ExCode <> EXCEPTION_BREAKPOINT) and (ExCode <> STATUS_WX86_BREAKPOINT) and
           (ExCode <> EXCEPTION_MS_VC_THREAD_NAME) then
   begin
-    if ADebugEvent.Exception.ExceptionRecord.ExceptionCode = EXCEPTION_DELPHI_LANGUAGE then
+    // The ignore list (FIgnoredExceptions) only ever matches Delphi
+    // language exceptions ($0EEDFADE), because only those carry a Delphi
+    // class name. ReadExceptionClassName returns '' for any other code,
+    // so a native/OS first-chance exception (e.g. C0000005 access
+    // violation, E06D7363 C++ EH) can NEVER be suppressed by class name.
+    // Three suppression paths are checked, in order:
+    //   1) ignored Delphi class    (ignore_exception "EPrinter")
+    //   2) ignored raw code        (ignore_exception_code C0000005)
+    //   3) native first-chance, when break-on-native-first-chance is off
+    var LIsDelphiExc := ExCode = EXCEPTION_DELPHI_LANGUAGE;
+    var ExClass      := ReadExceptionClassName(ADebugEvent.Exception.ExceptionRecord);
+    var LFirstChance := ADebugEvent.Exception.dwFirstChance <> 0;
+
+    var LIsIgnored := False;
+    if LIsDelphiExc and IsExceptionIgnored(ExClass) then
+      LIsIgnored := True
+    else if IsExceptionCodeIgnored(ExCode) then
+      LIsIgnored := True
+    else if (not LIsDelphiExc) and LFirstChance and (not FBreakOnNativeFirstChance) then
+      LIsIgnored := True;
+
+    if LIsIgnored then
     begin
-      var ExClass := ReadExceptionClassName(ADebugEvent.Exception.ExceptionRecord);
-      if ExClass <> '' then
-      begin
-        var LIsIgnored := False;
-        for var I := 0 to FIgnoredExceptions.Count - 1 do
-        begin
-          if SameText(FIgnoredExceptions[I], ExClass) then
-          begin
-            LIsIgnored := True;
-            Break;
-          end;
-        end;
-        if LIsIgnored then
-        begin
-          AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
-          Exit;
-        end;
-      end;
+      AContinueStatus := DBG_EXCEPTION_NOT_HANDLED;
+      Exit;
     end;
 
     FLastException := ADebugEvent.Exception.ExceptionRecord;
-    FLastExceptionFirstChance := ADebugEvent.Exception.dwFirstChance <> 0;
+    FLastExceptionFirstChance := LFirstChance;
+    FLastExceptionClassName := ExClass;
+    FLastPauseWasException := True;
     CurrentThread := OpenThread(THREAD_GET_CONTEXT or THREAD_SET_CONTEXT, False, ADebugEvent.dwThreadId);
     if CurrentThread <> 0 then
     begin

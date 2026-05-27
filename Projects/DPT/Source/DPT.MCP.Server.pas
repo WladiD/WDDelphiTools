@@ -53,6 +53,11 @@ type
     FPendingBreakpoints: IList<TBreakpoint>;
     FPendingIgnoredExceptions: IList<String>;
     FPendingUnignoredExceptions: IList<String>;
+    FPendingIgnoredExceptionCodes: IList<Cardinal>;
+    // Source of truth for the "break on native (non-Delphi) first-chance
+    // exceptions" policy. Default True preserves the original behaviour.
+    // Applied to FDebugger live and re-applied on session start.
+    FBreakOnNativeFirstChance: Boolean;
     FState             : TDebugState;
     procedure ConnectDebuggerEvents;
     procedure DisconnectDebuggerEvents;
@@ -82,6 +87,9 @@ type
     function HandleGetStackTrace(AParams: TJSONObject): TJSONObject;
     function HandleGetState(AParams: TJSONObject): TJSONObject;
     function HandleIgnoreException(AParams: TJSONObject): TJSONObject;
+    function HandleIgnoreExceptionCode(AParams: TJSONObject): TJSONObject;
+    function HandleUnignoreExceptionCode(AParams: TJSONObject): TJSONObject;
+    function HandleSetBreakOnNativeFirstChance(AParams: TJSONObject): TJSONObject;
     function HandleListBreakpoints(AParams: TJSONObject): TJSONObject;
     function HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
     function HandleListThreads(AParams: TJSONObject): TJSONObject;
@@ -145,6 +153,8 @@ begin
   FPendingBreakpoints := Collections.NewList<TBreakpoint>;
   FPendingIgnoredExceptions := Collections.NewList<String>;
   FPendingUnignoredExceptions := Collections.NewList<String>;
+  FPendingIgnoredExceptionCodes := Collections.NewList<Cardinal>;
+  FBreakOnNativeFirstChance := True;
 
   if Assigned(FDebugger) then
   begin
@@ -495,6 +505,12 @@ begin
           SendResponse(ID, HandleUnignoreException(ToolParams))
         else if ToolName = 'list_ignored_exceptions' then
           SendResponse(ID, HandleListIgnoredExceptions(ToolParams))
+        else if ToolName = 'ignore_exception_code' then
+          SendResponse(ID, HandleIgnoreExceptionCode(ToolParams))
+        else if ToolName = 'unignore_exception_code' then
+          SendResponse(ID, HandleUnignoreExceptionCode(ToolParams))
+        else if ToolName = 'set_break_on_native_first_chance' then
+          SendResponse(ID, HandleSetBreakOnNativeFirstChance(ToolParams))
         else if ToolName = 'list_threads' then
           SendResponse(ID, HandleListThreads(ToolParams))
         else if ToolName = 'switch_thread' then
@@ -619,9 +635,51 @@ begin
 
   var ToolListIgnoredExc := TJSONObject.Create;
   ToolListIgnoredExc.AddPair('name', 'list_ignored_exceptions');
-  ToolListIgnoredExc.AddPair('description', 'Lists all Delphi exception classes that are currently being ignored by the debugger.');
+  ToolListIgnoredExc.AddPair('description', 'Returns a JSON object {"classes":[...],"codes":[...],"break_on_native_first_chance":bool} describing the current exception-suppression policy: ignored Delphi exception classes, ignored raw exception codes (hex), and whether the debugger pauses on native (non-Delphi) first-chance exceptions.');
   ToolListIgnoredExc.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolListIgnoredExc);
+
+  var ToolIgnoreExcCode := TJSONObject.Create;
+  ToolIgnoreExcCode.AddPair('name', 'ignore_exception_code');
+  ToolIgnoreExcCode.AddPair('description', 'Ignores a Win32 exception by its raw exception code (hex), so the debugger does not pause when it is raised. Use this for native/OS exceptions that carry no Delphi class name and therefore cannot be suppressed with ignore_exception - e.g. "C0000005" (access violation) or "E06D7363" (C++ EH). Can be called before or during a session.');
+  var SchemaIgnoreExcCode := TJSONObject.Create;
+  SchemaIgnoreExcCode.AddPair('type', 'object');
+  var PropIgnoreExcCode := TJSONObject.Create;
+  PropIgnoreExcCode.AddPair('code', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex exception code, with or without "0x"/"$" prefix (e.g. "C0000005").'));
+  SchemaIgnoreExcCode.AddPair('properties', PropIgnoreExcCode);
+  var ReqIgnoreExcCode := TJSONArray.Create;
+  ReqIgnoreExcCode.Add('code');
+  SchemaIgnoreExcCode.AddPair('required', ReqIgnoreExcCode);
+  ToolIgnoreExcCode.AddPair('inputSchema', SchemaIgnoreExcCode);
+  ToolsArr.Add(ToolIgnoreExcCode);
+
+  var ToolUnignoreExcCode := TJSONObject.Create;
+  ToolUnignoreExcCode.AddPair('name', 'unignore_exception_code');
+  ToolUnignoreExcCode.AddPair('description', 'Stops ignoring a previously ignored raw exception code, causing the debugger to pause again when it is raised.');
+  var SchemaUnignoreExcCode := TJSONObject.Create;
+  SchemaUnignoreExcCode.AddPair('type', 'object');
+  var PropUnignoreExcCode := TJSONObject.Create;
+  PropUnignoreExcCode.AddPair('code', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Hex exception code, with or without "0x"/"$" prefix (e.g. "C0000005").'));
+  SchemaUnignoreExcCode.AddPair('properties', PropUnignoreExcCode);
+  var ReqUnignoreExcCode := TJSONArray.Create;
+  ReqUnignoreExcCode.Add('code');
+  SchemaUnignoreExcCode.AddPair('required', ReqUnignoreExcCode);
+  ToolUnignoreExcCode.AddPair('inputSchema', SchemaUnignoreExcCode);
+  ToolsArr.Add(ToolUnignoreExcCode);
+
+  var ToolSetNativeFC := TJSONObject.Create;
+  ToolSetNativeFC.AddPair('name', 'set_break_on_native_first_chance');
+  ToolSetNativeFC.AddPair('description', 'Controls whether the debugger pauses on native (non-Delphi) first-chance exceptions. Default true. Set to false to let a large app (e.g. driving a UI through CEF/printer code) run without stopping on routine native first-chance exceptions; second-chance (unhandled) native exceptions still pause. Delphi exceptions are unaffected (use ignore_exception for those). Can be called before or during a session.');
+  var SchemaSetNativeFC := TJSONObject.Create;
+  SchemaSetNativeFC.AddPair('type', 'object');
+  var PropSetNativeFC := TJSONObject.Create;
+  PropSetNativeFC.AddPair('enabled', TJSONObject.Create.AddPair('type', 'boolean').AddPair('description', 'true = pause on native first-chance exceptions (default); false = do not pause on them.'));
+  SchemaSetNativeFC.AddPair('properties', PropSetNativeFC);
+  var ReqSetNativeFC := TJSONArray.Create;
+  ReqSetNativeFC.Add('enabled');
+  SchemaSetNativeFC.AddPair('required', ReqSetNativeFC);
+  ToolSetNativeFC.AddPair('inputSchema', SchemaSetNativeFC);
+  ToolsArr.Add(ToolSetNativeFC);
 
   var ToolListThreads := TJSONObject.Create;
   ToolListThreads.AddPair('name', 'list_threads');
@@ -780,7 +838,7 @@ begin
 
   var ToolGetState := TJSONObject.Create;
   ToolGetState.AddPair('name', 'get_state');
-  ToolGetState.AddPair('description', 'Returns the current debugger state instantly as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit" and "line" indicating the current source location. Use wait_until_paused instead if you intend to poll after an execution movement command. Can be called at any time.');
+  ToolGetState.AddPair('description', 'Returns the current debugger state instantly as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit"/"line"/"procedure" for the current source location plus "paused_reason" ("breakpoint" or "exception"). When paused_reason is "exception" it also includes "exception_code" (hex), "first_chance" (bool) and, for Delphi exceptions, "exception_class" - so you can tell an ignorable Delphi exception (use ignore_exception) from an unavoidable native one like code C0000005 (use set_break_on_native_first_chance / ignore_exception_code). Use wait_until_paused instead if you intend to poll after an execution movement command. Can be called at any time.');
   ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolGetState);
 
@@ -978,15 +1036,38 @@ begin
   end;
 end;
 
+function TryParseExceptionCode(const AText: String; out ACode: Cardinal): Boolean;
+// Parses a Win32 exception code given as hex, with or without a "0x" / "$"
+// prefix (e.g. "C0000005", "0xC0000005", "$0EEDFADE").
+var
+  S: String;
+  V: UInt64;
+begin
+  S := Trim(AText);
+  if S.StartsWith('0x', True) then
+    S := S.Substring(2)
+  else if S.StartsWith('$') then
+    S := S.Substring(1);
+  Result := (S <> '') and TryStrToUInt64('$' + S, V);
+  if Result then
+    ACode := Cardinal(V);
+end;
+
 function TMcpServer.HandleListIgnoredExceptions(AParams: TJSONObject): TJSONObject;
 var
-  Arr     : TJSONArray;
-  Defaults: IList<String>;
-  I, J    : Integer;
-  Found   : Boolean;
+  Obj      : TJSONObject;
+  Classes  : TJSONArray;
+  Codes    : TJSONArray;
+  Defaults : IList<String>;
+  I, J     : Integer;
+  Found    : Boolean;
+  CodeVals : TArray<Cardinal>;
 begin
-  Arr := TJSONArray.Create;
+  Obj := TJSONObject.Create;
   try
+    Classes := TJSONArray.Create;
+    Codes   := TJSONArray.Create;
+
     if FState = dsNoSession then
     begin
       Defaults := Collections.NewList<String>;
@@ -1012,18 +1093,104 @@ begin
       end;
 
       for I := 0 to Defaults.Count - 1 do
-        Arr.Add(Defaults[I]);
+        Classes.Add(Defaults[I]);
+
+      for I := 0 to FPendingIgnoredExceptionCodes.Count - 1 do
+        Codes.Add(Format('%.8x', [FPendingIgnoredExceptionCodes[I]]));
     end
     else
     begin
-      for I := 0 to FDebugger.IgnoredExceptions.Count - 1 do
-        Arr.Add(FDebugger.IgnoredExceptions[I]);
+      for var LClass in FDebugger.GetIgnoredExceptions do
+        Classes.Add(LClass);
+      CodeVals := FDebugger.GetIgnoredExceptionCodes;
+      for I := 0 to High(CodeVals) do
+        Codes.Add(Format('%.8x', [CodeVals[I]]));
     end;
 
-    Result := MakeTextResult(Arr.ToJSON);
+    Obj.AddPair('classes', Classes);
+    Obj.AddPair('codes', Codes);
+    Obj.AddPair('break_on_native_first_chance', TJSONBool.Create(FBreakOnNativeFirstChance));
+
+    Result := MakeTextResult(Obj.ToJSON);
   finally
-    Arr.Free;
+    Obj.Free;
   end;
+end;
+
+function TMcpServer.HandleIgnoreExceptionCode(AParams: TJSONObject): TJSONObject;
+var
+  LCode: Cardinal;
+begin
+  if not TryParseExceptionCode(AParams.GetValue('code').Value, LCode) then
+  begin
+    Result := MakeErrorResult('Error: "code" must be a hex exception code, e.g. "C0000005" or "0xC0000005".');
+    Exit;
+  end;
+
+  if FState = dsNoSession then
+  begin
+    for var I := 0 to FPendingIgnoredExceptionCodes.Count - 1 do
+      if FPendingIgnoredExceptionCodes[I] = LCode then
+      begin
+        Result := MakeTextResult(Format('Exception code %.8x will be ignored (pending session start)', [LCode]));
+        Exit;
+      end;
+    FPendingIgnoredExceptionCodes.Add(LCode);
+    Result := MakeTextResult(Format('Exception code %.8x will be ignored (pending session start)', [LCode]));
+  end
+  else
+  begin
+    if not RequireState([dsPaused, dsRunning], Result) then Exit;
+    FDebugger.IgnoreExceptionCode(LCode);
+    Result := MakeTextResult(Format('Exception code %.8x is now ignored', [LCode]));
+  end;
+end;
+
+function TMcpServer.HandleUnignoreExceptionCode(AParams: TJSONObject): TJSONObject;
+var
+  LCode: Cardinal;
+  I    : Integer;
+begin
+  if not TryParseExceptionCode(AParams.GetValue('code').Value, LCode) then
+  begin
+    Result := MakeErrorResult('Error: "code" must be a hex exception code, e.g. "C0000005" or "0xC0000005".');
+    Exit;
+  end;
+
+  if FState = dsNoSession then
+  begin
+    for I := FPendingIgnoredExceptionCodes.Count - 1 downto 0 do
+      if FPendingIgnoredExceptionCodes[I] = LCode then
+        FPendingIgnoredExceptionCodes.Delete(I);
+    Result := MakeTextResult(Format('Exception code %.8x will not be ignored (pending session start)', [LCode]));
+  end
+  else
+  begin
+    if not RequireState([dsPaused, dsRunning], Result) then Exit;
+    FDebugger.UnignoreExceptionCode(LCode);
+    Result := MakeTextResult(Format('Exception code %.8x is no longer ignored', [LCode]));
+  end;
+end;
+
+function TMcpServer.HandleSetBreakOnNativeFirstChance(AParams: TJSONObject): TJSONObject;
+var
+  LVal: TJSONValue;
+begin
+  LVal := AParams.GetValue('enabled');
+  if not (LVal is TJSONBool) then
+  begin
+    Result := MakeErrorResult('Error: "enabled" must be a boolean.');
+    Exit;
+  end;
+
+  FBreakOnNativeFirstChance := TJSONBool(LVal).AsBoolean;
+  if (FState <> dsNoSession) and Assigned(FDebugger) then
+    FDebugger.BreakOnNativeFirstChance := FBreakOnNativeFirstChance;
+
+  if FBreakOnNativeFirstChance then
+    Result := MakeTextResult('Debugger will pause on native (non-Delphi) first-chance exceptions.')
+  else
+    Result := MakeTextResult('Debugger will NOT pause on native (non-Delphi) first-chance exceptions (second-chance still pauses).');
 end;
 
 procedure TMcpServer.LogDiag(const AMessage: String);
@@ -1264,6 +1431,12 @@ begin
     FDebugger.UnignoreException(FPendingUnignoredExceptions[I]);
   FPendingUnignoredExceptions.Clear;
 
+  for I := 0 to FPendingIgnoredExceptionCodes.Count - 1 do
+    FDebugger.IgnoreExceptionCode(FPendingIgnoredExceptionCodes[I]);
+  FPendingIgnoredExceptionCodes.Clear;
+
+  FDebugger.BreakOnNativeFirstChance := FBreakOnNativeFirstChance;
+
   TDebuggerThread.Create(FDebugger, Trim(ExePath + ' ' + Args));
 
   FDebugger.WaitForReady(5000);
@@ -1356,6 +1529,24 @@ begin
     if (FState = dsPaused) and Assigned(FDebugger) then
     begin
       StateObj.AddPair('thread_id', TJSONNumber.Create(FDebugger.LastThreadId));
+
+      // Tell the caller WHY execution paused. When it was an exception,
+      // expose the raw exception code, whether it was first-chance, and
+      // (for Delphi exceptions, $0EEDFADE) the class name. This lets the
+      // caller tell an ignorable Delphi exception from an unavoidable
+      // native one (e.g. C0000005) without consulting the separate
+      // notifications/debugger_exception stream.
+      if FDebugger.LastPauseWasException then
+      begin
+        StateObj.AddPair('paused_reason', 'exception');
+        StateObj.AddPair('exception_code', Format('%.8x', [FDebugger.LastException.ExceptionCode]));
+        StateObj.AddPair('first_chance', TJSONBool.Create(FDebugger.LastExceptionFirstChance));
+        if FDebugger.LastExceptionClassName <> '' then
+          StateObj.AddPair('exception_class', FDebugger.LastExceptionClassName);
+      end
+      else
+        StateObj.AddPair('paused_reason', 'breakpoint');
+
       Stack := FDebugger.GetStackTrace(FDebugger.LastThreadHit);
       if Length(Stack) > 0 then
       begin

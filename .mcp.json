@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "DPT": {
+      "type": "stdio",
+      "command": "Projects\\DPT\\DPT.exe",
+      "args": [
+        "McpDebugger"
+      ],
+      "env": {}
+    }
+  }
+}
