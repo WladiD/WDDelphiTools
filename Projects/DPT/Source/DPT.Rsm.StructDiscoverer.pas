@@ -609,6 +609,40 @@ var
          (ByteAt(P + 8) = $07) and
          SecondNameMatchesBytes(P + 9, ANameStart, ANL) then
         Exit(True);
+      // Defer to a CLOSER class-def of the same name (§6.16). A class
+      // name appears many times in the stream (type registry, the
+      // trailer's own second copy, references, AND -- the case that
+      // bites -- an earlier spurious occurrence that also passes the
+      // 4-zero method-header gate). The trailer belongs to the class-def
+      // occurrence nearest before it. So if, while scanning forward for
+      // the trailer, we hit another occurrence of THIS name that is
+      // itself class-def-shaped, abort: that closer occurrence owns the
+      // trailer, and the Run loop will reach and parse it. Without this
+      // guard, widening the window lets a far/earlier same-name
+      // occurrence reach and steal the real class-def's trailer, so its
+      // members get attributed to the wrong neighbour (a TComponent ->
+      // TComponentInterfaceDelegate-style mis-anchor on DebugTarget).
+      // The trailer's OWN second copy is never seen here: the trailer
+      // checks above Exit(True) at the marker, 5/9 bytes before it.
+      if SecondNameMatchesBytes(P, ANameStart, ANL) then
+      begin
+        var QEnd: NativeInt := P + 1 + Integer(ANL);
+        if (QEnd + 8 < FSz) and
+           ( // 4-zero method-block header (method-class def)
+             ((ByteAt(QEnd + 1) = 0) and (ByteAt(QEnd + 2) = 0) and
+              (ByteAt(QEnd + 3) = 0) and (ByteAt(QEnd + 4) = 0)) or
+             // Win32 tight trailer marker right after the name
+             ((ByteAt(QEnd) = $04) and (ByteAt(QEnd + 1) = 0) and
+              (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
+              (ByteAt(QEnd + 4) = $07)) or
+             // Win64 tight trailer marker right after the name
+             ((ByteAt(QEnd) = $08) and (ByteAt(QEnd + 1) = 0) and
+              (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
+              (ByteAt(QEnd + 4) = 0) and (ByteAt(QEnd + 5) = 0) and
+              (ByteAt(QEnd + 6) = 0) and (ByteAt(QEnd + 7) = 0) and
+              (ByteAt(QEnd + 8) = $07)) ) then
+          Exit(False);
+      end;
       Inc(P);
     end;
   end;
@@ -662,14 +696,19 @@ begin
               (ByteAt(NameEnd + 2) = 0) and
               (ByteAt(NameEnd + 3) = 0) and
               (ByteAt(NameEnd + 4) = 0) and
-              // 8 KB window covers method-heavy RTL classes such as
-              // TStrings (~5.6 KB between first-name and trailer)
-              // and TForm-tier classes with dozens of published
-              // properties and event hooks. The trailer pattern
-              // (4-byte zero prefix, $07 type tag, exact-length
-              // duplicate name) is selective enough that wider
-              // windows don't increase the false-positive rate.
-              FindClassTrailerWithin(NameEnd, 8192, NameStart, L) then
+              // 16 KB window. Method-heavy classes put their trailer one
+              // method record per declared method past the class-def
+              // name: TStrings ~5.6 KB, RTL classes like TStream/TWriter
+              // and large VCL forms (TFW's TFormAd ~12.6 KB) need more
+              // than the original 8 KB. Correctness at this width does
+              // NOT rely on the window being tight -- FindClassTrailerWithin
+              // defers to a closer same-name class-def (see §6.16), so a
+              // far/spurious same-name occurrence can no longer reach and
+              // steal the real class-def's trailer. 16 KB is the
+              // perf/coverage balance: it discovers the large classes
+              // while keeping DiscoverAndParseAllStructs well inside its
+              // budget (~16 s vs 45 s; 64 KB blew it at ~54 s).
+              FindClassTrailerWithin(NameEnd, 16384, NameStart, L) then
         IsClass := True;
 
       if IsClass then

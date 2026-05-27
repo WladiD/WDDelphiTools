@@ -85,6 +85,8 @@ type
     [Test]
     procedure TestMcpEvaluateSelfFieldInsideInstanceMethod;
     [Test]
+    procedure TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber;
+    [Test]
     procedure TestMcpEvaluateMultiLevelInheritedField;
     [Test]
     procedure TestMcpEvaluateRtlInheritedField;
@@ -2398,6 +2400,55 @@ begin
     Line := Fixture.Eval('Self.FInnerStr', 'string');
     Assert.IsTrue(Line.Contains('Inherited Inner'),
       'Self.FInnerStr must equal "Inherited Inner" (inherited), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Stale-register Self regression pin (the TFW <c>TFormAd</c>
+///   scenario, reduced). At <c>TStaleSelfHost.Probe</c> line 654 the
+///   breakpoint sits on a statement that does NOT reference <c>Self</c>,
+///   so the inbound register (EAX on Win32) still holds the preceding
+///   line's arithmetic result (<c>GGlobalInt * 3 + 7</c> = $336699D3),
+///   NOT the receiver. Delphi spilled <c>Self</c> to its prologue home
+///   slot (<c>[ebp-04]</c>), which is the only correct copy.
+///
+///   Before the fix, the locals reader returned the live register, so
+///   <c>evaluate Self</c> reported the junk pointer $336699D3 and
+///   <c>evaluate Self.FMarker</c> failed (dereferencing garbage). With
+///   <c>TryFindRegParamSpillDisp</c> sourcing <c>Self</c> from the home
+///   slot, both resolve: <c>FMarker</c> = $5E1F5E1F = 1579114015.
+///
+///   Win32-only (<c>AUse64Bit = False</c>) like the sibling Self tests:
+///   on Win64 the RSM proc-boundary table maps this PC to the preceding
+///   procedure (a separate, documented gap), so <c>Self</c> never enters
+///   the locals list and the spill-home path can't be exercised here.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 654);
+  try
+    // Self must resolve to the real receiver (a TStaleSelfHost instance),
+    // not the stale register's $336699D3. Asserting the class name proves
+    // the pointer is a live object whose VMT walks to TStaleSelfHost.
+    Line := Fixture.Eval('Self', 'object');
+    Assert.IsTrue(Line.Contains('TStaleSelfHost'),
+      'Self must report TStaleSelfHost (spill home), not the stale ' +
+      'register value, got: ' + Line);
+
+    // Self.FMarker = $5E1F5E1F = 1579114015. Fails outright on the
+    // pre-fix live-register path (junk base pointer).
+    Line := Fixture.Eval('Self.FMarker', 'int');
+    Assert.IsTrue(Line.Contains('1579114015'),
+      'Self.FMarker must equal 1579114015 ($5E1F5E1F) via the spill ' +
+      'home, got: ' + Line);
   finally
     Fixture.Free;
   end;

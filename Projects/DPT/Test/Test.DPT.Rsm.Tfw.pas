@@ -706,23 +706,31 @@ begin
   Assert.IsTrue(FReader.FindClassByName('TAppCaps') >= 0,
     'TAppCaps (record) must be discovered -- control for the gap below');
 
-  // --- §6.16 CHARACTERIZATION (open gap). TFormAd is a large VCL form
-  //     class whose method/property block (~12.6 KB on TFW) pushes its
-  //     class trailer past the 8 KB FindClassTrailerWithin window in
-  //     TRsmStructDiscoverer.Run, so the class is absent from FClasses
-  //     and the debugger's dotted field walk (evaluate "Self.FAd")
-  //     fails. Naively widening that window DOES discover TFormAd, but
-  //     it also mis-anchors close-packed classes elsewhere (it regressed
-  //     TestMcpEvaluateInheritedFieldViaVmtWalk, which resolves an
-  //     inherited TComponent field on DebugTarget). A safe fix must bound
-  //     the forward trailer scan (e.g. stop at the next class-def) rather
-  //     than just enlarge the window. These assertions pin the current
-  //     (unfixed) state; flip them when the gap is closed.
-  Assert.AreEqual(Integer(-1), FReader.FindClassByName('TFormAd'),
-    'GAP §6.16: TFormAd is not discovered (class trailer sits past the 8 KB ' +
-    'scan window). When fixed, flip to Assert.IsTrue(... >= 0).');
+  // --- §6.16 CLOSURE PIN. TFormAd is a large VCL form class whose
+  //     ~12.6 KB method/property block pushed its class trailer past the
+  //     old 8 KB FindClassTrailerWithin window, so it was absent from
+  //     FClasses and the dotted field walk (evaluate "Self.FAd") failed.
+  //     Fixed by widening the window to 16 KB AND making the trailer scan
+  //     defer to a closer same-name class-def (so a far/spurious
+  //     occurrence can't steal the trailer -- that mis-anchor previously
+  //     regressed TestMcpEvaluateInheritedFieldViaVmtWalk). TFormAd is now
+  //     discovered with its published component fields.
+  Assert.IsTrue(FReader.FindClassByName('TFormAd') >= 0,
+    'TFormAd must be discovered (§6.16 fix). A -1 means the class-trailer ' +
+    'window/discriminator regressed.');
+  Assert.IsTrue(FReader.FindClassMember('TFormAd', 'BrwAdAp', M),
+    'FindClassMember(TFormAd, BrwAdAp) must resolve -- a published component ' +
+    'field, exactly what the evaluator dotted-walk needs');
+  Assert.IsTrue(M.Offset > 0,
+    Format('TFormAd.BrwAdAp must have a real (non-zero) offset, got %d', [M.Offset]));
+
+  // Remaining sub-gap (still open under §6.16): strict-private "F"-prefixed
+  // instance fields are not captured by the backward member scan (only the
+  // published component run is), so the original evaluate("Self.FAd") still
+  // cannot resolve. Flip to IsTrue + pin the offset when that layer lands.
   Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FAd', M),
-    'GAP §6.16: FindClassMember(TFormAd, FAd) fails while the class is absent.');
+    'GAP §6.16 (remaining): strict-private FAd not yet captured (only ' +
+    'published components are).');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

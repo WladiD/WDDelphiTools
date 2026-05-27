@@ -335,6 +335,25 @@ type
     ///   caller will see an empty byte slice for them.
     /// </summary>
     function  RegisterParamBytes(const ARegs: TRegisters; ARegParamIdx: Byte): TBytes;
+    /// <summary>
+    ///   Recovers the frame home slot of a register-passed parameter by
+    ///   reading the procedure prologue. Delphi receives <c>Self</c> and
+    ///   the leading scalar parameters in registers (EAX/EDX/ECX on
+    ///   Win32; RCX/RDX/R8/R9 on Win64) but, when the method has a stack
+    ///   frame, immediately spills each to a home slot and reloads it
+    ///   from there for every later access. The RSM only records the
+    ///   register slot (no frame offset), so deep in the body the live
+    ///   register is stale -- the home slot is the authoritative copy.
+    ///   Scans the prologue for the spill store of the register that
+    ///   carries <c>ARegParamIdx</c> and, on a match, returns its signed
+    ///   displacement from the frame pointer (EBP/RBP) in
+    ///   <c>ADispFromFramePtr</c>. Returns <c>False</c> when the
+    ///   parameter is kept in its register (no spill emitted) or the
+    ///   index has no register slot, in which case the caller falls back
+    ///   to the live register value.
+    /// </summary>
+    function  TryFindRegParamSpillDisp(AProcStart: Pointer; ARegParamIdx: Byte;
+      out ADispFromFramePtr: Integer): Boolean;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
   public
@@ -1175,6 +1194,101 @@ begin
   end;
 end;
 
+function TDebugger.TryFindRegParamSpillDisp(AProcStart: Pointer;
+  ARegParamIdx: Byte; out ADispFromFramePtr: Integer): Boolean;
+const
+  // How far into the prologue to look for the spill store. Delphi emits
+  // the spills immediately after the frame setup (verified: Win32 Self at
+  // proc+4, Win64 Self at proc+8), so a small window suffices and keeps
+  // us clear of body code that could contain coincidental byte runs.
+  ScanWindow = 96;
+var
+  Buf  : TBytes;
+  P    : Integer;
+  Rex  : Byte;   // required REX prefix on x64 ($00 = none on x86)
+  Op   : Byte;   // store opcode -- always $89 (MOV r/m, r) for these spills
+  M8   : Byte;   // ModRM for the [framePtr + disp8]  form (mod=01, rm=EBP/RBP)
+  M32  : Byte;   // ModRM for the [framePtr + disp32] form (mod=10, rm=EBP/RBP)
+begin
+  Result := False;
+  ADispFromFramePtr := 0;
+
+  // Map the register-parameter index to the spill store's opcode bytes.
+  // The store is `mov [framePtr + disp], <reg>`; the ModRM reg field
+  // selects the source register, the rm field (101) selects EBP/RBP, and
+  // the mod field selects disp8 ($40-block) vs disp32 ($80-block).
+  Op := $89;
+  if FTargetIs32Bit then
+  begin
+    Rex := $00;
+    case ARegParamIdx of
+      0: begin M8 := $45; M32 := $85; end;  // EAX (Self)
+      1: begin M8 := $55; M32 := $95; end;  // EDX
+      2: begin M8 := $4D; M32 := $8D; end;  // ECX
+    else
+      Exit;  // 4th+ scalar param is stack-passed; no register spill
+    end;
+  end
+  else
+  begin
+    // x64: RCX/RDX use REX.W ($48); R8/R9 add REX.R ($4C) which extends
+    // the ModRM reg field, so R8 reuses EAX's reg encoding and R9 ECX's.
+    case ARegParamIdx of
+      0: begin Rex := $48; M8 := $4D; M32 := $8D; end;  // RCX (Self)
+      1: begin Rex := $48; M8 := $55; M32 := $95; end;  // RDX
+      2: begin Rex := $4C; M8 := $45; M32 := $85; end;  // R8
+      3: begin Rex := $4C; M8 := $4D; M32 := $8D; end;  // R9
+    else
+      Exit;  // 5th+ scalar param is stack-passed; no register spill
+    end;
+  end;
+
+  Buf := ReadProcessMemory(AProcStart, ScanWindow);
+  if Length(Buf) < 4 then
+    Exit;
+
+  // Take the FIRST matching store: the prologue spill precedes any body
+  // reload (which uses the MOV-load opcode $8B, not $89) and any later
+  // store, so the earliest hit is the authoritative home slot.
+  P := 0;
+  while P < Length(Buf) - 3 do
+  begin
+    if FTargetIs32Bit then
+    begin
+      if Buf[P] = Op then
+      begin
+        if Buf[P + 1] = M8 then
+        begin
+          ADispFromFramePtr := ShortInt(Buf[P + 2]);
+          Exit(True);
+        end;
+        if (Buf[P + 1] = M32) and (P + 6 <= Length(Buf)) then
+        begin
+          ADispFromFramePtr := PInteger(@Buf[P + 2])^;
+          Exit(True);
+        end;
+      end;
+    end
+    else
+    begin
+      if (Buf[P] = Rex) and (Buf[P + 1] = Op) then
+      begin
+        if Buf[P + 2] = M8 then
+        begin
+          ADispFromFramePtr := ShortInt(Buf[P + 3]);
+          Exit(True);
+        end;
+        if (Buf[P + 2] = M32) and (P + 7 <= Length(Buf)) then
+        begin
+          ADispFromFramePtr := PInteger(@Buf[P + 3])^;
+          Exit(True);
+        end;
+      end;
+    end;
+    Inc(P);
+  end;
+end;
+
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
   Buf        : TBytes;
@@ -1442,10 +1556,12 @@ var
   Loc       : TLocalVar;
   ProcIdx   : Integer;
   Proc      : TRsmProc;
+  ProcStart : Pointer;
   Regs      : TRegisters;
   ResultList: IList<TLocalVar>;
   SegmentOff: NativeUInt;
   SlotAddr  : UIntPtr;
+  SpillDisp : Integer;
   I         : Integer;
 begin
   Result := nil;
@@ -1482,6 +1598,7 @@ begin
   end;
 
   Proc := FLocalsReader.Procs[ProcIdx];
+  ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + Proc.SegmentOffset);
   ResultList := Collections.NewPlainList<TLocalVar>;
   for I := 0 to Proc.Locals.Count - 1 do
   begin
@@ -1490,7 +1607,22 @@ begin
     Loc.Kind     := Proc.Locals[I].Kind;
     Loc.TypeIdx  := Proc.Locals[I].TypeIdx;
     if Proc.Locals[I].Kind = lkRegister then
-      Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx)
+    begin
+      // Register-passed (Self / leading params): prefer the prologue's
+      // frame home slot over the live register, which goes stale once the
+      // body reuses the register. The spill displacement is relative to
+      // the RAW frame pointer (EBP/RBP), not the LocalSize-corrected
+      // BaseAddr, so apply it to Regs.Ebp directly. Fall back to the live
+      // register when no spill was emitted (leaf / unspilled parameter).
+      if TryFindRegParamSpillDisp(ProcStart, Proc.Locals[I].RegParamIdx, SpillDisp) then
+      begin
+        Loc.BpOffset := SpillDisp;
+        SlotAddr := UIntPtr(NativeInt(Regs.Ebp) + SpillDisp);
+        Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
+      end
+      else
+        Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx);
+    end
     else
     begin
       SlotAddr := UIntPtr(BaseAddr + Loc.BpOffset);

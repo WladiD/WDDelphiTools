@@ -626,6 +626,34 @@ begin
           GGlobalPropRec.RecCalcProp, ' ',
           GGlobalPropRec.RecLabel); Flush(Output);
 end;
+// Stale-Self-register repro. Self is the implicit first register-passed
+// argument (EAX on Win32 / RCX on Win64); Delphi's prologue spills it to
+// a frame-pointer home slot ([ebp-04] on Win32, [rbp+disp] on Win64) and
+// every later field access reloads it from there. The breakpoint below
+// sits on a line that does NOT reference Self, so the inbound register
+// still holds the PRECEDING line's arithmetic result, not Self. Reading
+// Self from the live register therefore yields garbage; the debugger must
+// read it from the prologue spill home. The MCP-evaluate pin
+// (TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber) breaks here on
+// the unfixed reader and passes once Self is sourced from the home slot.
+// Placed AFTER the last BP marker (line 624) per the rsm-expert BP-line
+// discipline; the new BP marker is at a higher line and shifts nothing
+// above it.
+type
+  TStaleSelfHost = class
+    FMarker : Integer;
+    procedure Probe;
+  end;
+var
+  GGlobalStaleSelf : TStaleSelfHost;
+procedure TStaleSelfHost.Probe;
+var
+  LScratch : Integer;
+begin
+  LScratch := GGlobalInt * 3 + 7;        // clobbers EAX/RCX with a non-Self value
+  Writeln('StaleSelf ', LScratch);       // Line 654 - stale-Self bp here (no Self on this line)
+  Writeln('StaleMarker ', FMarker); Flush(Output);  // Self referenced only AFTER the bp line
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -799,6 +827,12 @@ begin
     // Reach RecordPropertyProbe with GGlobalPropRec populated so
     // the record-property pin tests have a live record instance.
     RecordPropertyProbe;
+    // Reach TStaleSelfHost.Probe with Self spilled to its frame home but
+    // the inbound register clobbered, so the Self-from-spill-home fix has
+    // a live BP context (stale-register repro).
+    GGlobalStaleSelf := TStaleSelfHost.Create;
+    GGlobalStaleSelf.FMarker := Integer($5E1F5E1F);
+    GGlobalStaleSelf.Probe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
@@ -827,5 +861,6 @@ begin
     GGlobalEmptyChild.Free;
     GGlobalObject.Free;
     GGlobalPropHost.Free;
+    GGlobalStaleSelf.Free;
   end;
 end.

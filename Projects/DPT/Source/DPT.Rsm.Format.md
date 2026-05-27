@@ -313,6 +313,23 @@ correct register indices. See
 Stored as `TRsmLocal` with `Kind = lkRegister`, `RegParamIdx =
 FScanRegParam`.
 
+> **Consumer note — register params carry no frame offset.** A `$22` /
+> `$21` record records only *which* register slot carries the value, not
+> a stack home (`BpOffset` stays 0). Delphi receives `Self` and the
+> leading scalar params in EAX/EDX/ECX (Win32) or RCX/RDX/R8/R9 (Win64),
+> but a method *with a stack frame* immediately spills each to a frame
+> home in the prologue and reloads it from there for every later access.
+> So at any PC past the prologue the live register is **stale** — reading
+> it yields whatever the body last computed (the original `evaluate
+> Self.FAd` → wrong pointer on TFW's `TFormAd`). The debugger therefore
+> recovers the home slot by scanning the prologue for the spill store
+> (`mov [ebp-NN], eax` = `89 45 NN` on Win32; `mov [rbp+NN], rcx` =
+> `48 89 4D NN` on Win64) rather than trusting the register —
+> [DPT.Debugger.pas TryFindRegParamSpillDisp](DPT.Debugger.pas) feeding
+> `GetLocals`. When no spill was emitted (leaf / unspilled param) it
+> falls back to the live register. Pinned by
+> `Test.DPT.MCP.Server.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber`.
+
 ### 4.3 `$21` REGVAR_TAG — register-passed variable
 
 ```
@@ -1278,62 +1295,88 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-### 6.16 Large method-heavy class trailers missed; naive widening mis-anchors (`GAP`)
+### 6.16 Strict-private (`F`-prefixed) class fields not captured (`GAP`)
 
-`TRsmStructDiscoverer.Run`'s class-trailer forward scan
-([DPT.Rsm.StructDiscoverer.pas:660-680](DPT.Rsm.StructDiscoverer.pas#L660-L680),
-`FindClassTrailerWithin` at
-[585-614](DPT.Rsm.StructDiscoverer.pas#L585-L614)) finds a method-heavy
-class's trailer (`04 00 00 00 07 <NL> <dupName> 58 00 00 00`) within an
-**8 KB** window after the class-def name. Large VCL form classes exceed
-that: on `C:\MSE\TFW\TFW.rsm`, `TFormAd`'s trailer sits **~12.6 KB**
-past its class-def name (a form emits one method record per method
-between the name and the trailer). So `TFormAd` (and peers like
-`TFormVBh`) never enter `FClasses` (`FindClassByName('TFormAd') = -1`),
-and the live MCP repro `evaluate("Self.FAd")` (debugging
-`Tfw.Ad.Form.TFormAd.TblAdDataChange`, `Tfw.Ad.Form:2274`) cannot
-resolve — there is no class to look the field up in. The data is real:
-`FAd` is at `[Self+0x0C5C]` (a `PAd`), `Land` at `[FAd+0x169D]`
-(`TLandTyp` 0 = `ltInland`), recovered live by a `read_memory` walk.
-(The 4-zero method-block-header filter at
-[660-664](DPT.Rsm.StructDiscoverer.pas#L660-L664) is **not** the cause —
-it passes for `TFormAd`, whose header DWORD `1D 00 00 00` has the
-required three high zero bytes.)
-
-**Naive widening is unsafe (the key finding).** Enlarging the window
-(tried 16 KB and 64 KB) DOES discover `TFormAd`, but it **mis-anchors
-close-packed classes**: at 16 KB, `TestMcpEvaluateInheritedFieldViaVmtWalk`
-regressed (`evaluate AEmpty.FName`, an inherited `TComponent` field on
-the small `DebugTarget` fixture, started returning "Failed to evaluate
-variable"). A wider forward scan lets a class bind to a farther/wrong
-duplicate-name trailer, corrupting its (or a sibling's) backward
-field-scan. 64 KB additionally blew the `DiscoverAndParseAllStructs`
-perf budget (~54 s vs 45 s). So the window stays at **8 KB** and this
-gap is **open**.
-
-**Fix direction:** bound the forward trailer scan so it cannot cross
-into the next class-def region (stop at the next plausible class-def
-name) rather than just enlarging a fixed window — then a large form's
-distant trailer is reachable without close-packed classes mis-anchoring.
-Validate against the full Rsm + MCP suites (the regression surfaced only
-in `TestMcpEvaluateInheritedFieldViaVmtWalk`, not the RSM-unit fixtures)
-and re-check the perf budget. Pinned (current state) by
-`Test.DPT.Rsm.Tfw.TestTfwClassInstanceFieldResolves`, which asserts
-`TFormAd` is NOT found; flip to `>= 0` when fixed.
-
-**Secondary layer (once discovery is fixed):** even when `TFormAd` is
-discovered (via a wider window in the discarded experiment), the
-backward member scan captured only the **128 published component
-fields** (`BrwAdAp`, … at `0x540`+), not the strict-private
-`F`-prefixed fields — so `FAd` resolution needs a further step (private
-fields likely live in a separate `$2C` field-record run linked by
+The discovered member list of a class holds only its **published
+component fields**, not its strict-private `F`-prefixed instance fields.
+On `TFormAd` (`C:\MSE\TFW\TFW.rsm`) `FindClassMember('TFormAd','BrwAdAp')`
+resolves (a published `CDbBinding…` control), but
+`FindClassMember('TFormAd','FAd')` does not — so the live MCP repro
+`evaluate("Self.FAd")` (debugging `Tfw.Ad.Form.TFormAd.TblAdDataChange`,
+`Tfw.Ad.Form:2274`) still cannot resolve. The field is real: `FAd` is at
+`[Self+0x0C5C]` (a `PAd`), `Land` at `[FAd+0x169D]` (`TLandTyp` 0 =
+`ltInland`), recovered live by a `read_memory` walk. The backward member
+scan ([StructDiscoverer.pas:119-309](DPT.Rsm.StructDiscoverer.pas#L119-L309))
+catches the contiguous published-field run; private fields evidently sit
+in a separate region (likely a `$2C` field-record run linked by
 `FormatALinker`, or past the `MaxFields = 128` / backward-window cap).
+Confirm where `FAd`'s `<offset-DWORD> <len> "FAd"` record sits relative
+to the class-def, then extend the scan or bridge the `$2C` records.
+Closure pin: flip the `Assert.IsFalse` on
+`FindClassMember('TFormAd','FAd')` in
+`Test.DPT.Rsm.Tfw.TestTfwClassInstanceFieldResolves` to `Assert.IsTrue`
+and pin the offset (`0x0C5C` on the debugged build).
 
-*(Related, out of RSM-format scope — recorded so it is not lost: in the
-live frame the debugger's `Self` localization was also wrong — it
-reported `Self = 0x661349C0`, actually the value of `FAd`; the real
-`Self` was `[ebp-04] = 0x65D52320`. That is a locals/`Self`-slot
-heuristic issue in the debugger, separate from this discovery gap.)*
+**Class *discovery* of large method-heavy classes — FIXED** (was the
+original §6.16; kept here as the investigation log). `Run`'s class
+trailer (`04 00 00 00 07 <NL> <dupName> 58 00 00 00`) is found by a
+forward scan after the class-def name
+([StructDiscoverer.pas:694-711](DPT.Rsm.StructDiscoverer.pas#L694-L711),
+`FindClassTrailerWithin` [585-648](DPT.Rsm.StructDiscoverer.pas#L585-L648)).
+At an 8 KB window, classes whose method block exceeds 8 KB — `TFormAd`
+(~12.6 KB), RTL `TStream`/`TWriter`/… — were never discovered. But
+naively widening the window mis-anchored close-packed classes
+(`TestMcpEvaluateInheritedFieldViaVmtWalk` regressed: on `DebugTarget`,
+`TComponent`'s 12 fields migrated to `TComponentInterfaceDelegate`,
+leaving `TComponent` empty). **Root cause:** a class name occurs many
+times in the stream, and an earlier *spurious* occurrence that also
+passes the 4-zero method-header gate (for `TComponent`: file offset
+`0x697C82`) would, with a wide window, reach and **steal the real
+class-def's trailer** (`0x69AD27`'s trailer ~14.4 KB away), winning the
+`FindClassIdxByName` dedup with the wrong anchor and a wrong backward
+field window. **Fix:** widen to 16 KB **and** make `FindClassTrailerWithin`
+abort when it meets a closer same-name occurrence that is itself
+class-def-shaped (4-zero header or tight `04 00 00 00 07` / Win64 `08…07`
+marker) — the trailer belongs to that nearest class-def, not a far one.
+Correctness is thus window-independent; 16 KB is only the perf/coverage
+balance (`DiscoverAndParseAllStructs` ~20 s vs the 45 s budget; 64 KB was
+~54 s). Pinned by `TestTfwClassInstanceFieldResolves` (TFormAd now
+discovered, `BrwAdAp` resolves) with `TestMcpEvaluateInheritedFieldViaVmtWalk`
+green and the full Rsm + MCP suites green on Win32 + Win64.
+
+*(Related, out of RSM-format scope — **now fixed**: in the live frame the
+debugger's `Self` localization was also wrong — it reported
+`Self = 0x661349C0`, actually the value of `FAd`; the real `Self` was
+`[ebp-04] = 0x65D52320`. Root cause: `$22`/`$21` register params carry no
+frame offset, so the locals reader returned the *live* register, which is
+stale past the prologue. Resolved by recovering the prologue spill home —
+see the consumer note in §4.2 and
+`Test.DPT.MCP.Server.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber`.)*
+
+### 6.17 Win64 proc-boundary off-by-one in the locals reader (`GAP`)
+
+[DPT.Rsm.Scanner.pas:1438 `RecomputeProcSizes`](DPT.Rsm.Scanner.pas#L1438)
++ proc `SegmentOffset` decode at
+[DPT.Rsm.Scanner.pas:662](DPT.Rsm.Scanner.pas#L662), consumed by
+[DPT.Rsm.Reader.pas:487 `FindProcContaining`](DPT.Rsm.Reader.pas#L487) —
+on **Win64** fixtures the locals reader maps a PC to the **preceding**
+procedure. Verified live on `Win64/DebugTarget.exe`: paused at
+`TDerived.TouchSelf` (`DebugTarget.dpr:241`), `get_locals` reports
+procedure `TouchRegClassParam` (its `AInner`/`AOther`, sourced from the
+live RCX/RDX); paused at `TStaleSelfHost.Probe` (`:654`) it reports the
+preceding `RecordPropertyProbe`. The map-based frame resolver
+(`GetStackFrameInfo`/`GetStackTrace`, `.map`-driven) names the procedure
+**correctly** for the same PC — so the disagreement is between the `.rsm`
+proc table and the `.map`, i.e. the RSM `SegmentOffset`/`Size` ranges are
+shifted by one proc on Win64. This is why every Win64 MCP `Self`/locals
+test launches the **Win32** `DebugTarget.exe` (`AUse64Bit = False`) — the
+defect has never been exercised at that layer. Win32 maps the same PCs
+correctly, so the §4.2 stale-Self fix is pinned there. **Next step:** dump
+each `TRsmProc.SegmentOffset` next to `FMapScanner.ProcNameFromAddr` for
+the same RVA on Win64 and find whether the offset is decoded with a wrong
+base (image-base vs `$1000` code-section RVA), an extra/missing proc
+shifts the sort, or `RecomputeProcSizes` over-extends the preceding proc's
+`Size` across the gap.
 
 ---
 
