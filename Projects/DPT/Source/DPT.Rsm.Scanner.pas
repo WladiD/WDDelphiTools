@@ -560,15 +560,27 @@ function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
     Result := 0;
     if AOff + 4 >= FSz then Exit;
     if (ByteAt(AOff) and $7F) <> $03 then Exit;
-    // Marker layout "04 10 ?? 2E 00": bytes 0/1/3/4 are
-    // constant across the corpus; the byte at position 2 is a
-    // per-binary counter that the linker varies build-to-build
-    // (it isn't tied to the proc, but to the overall RSM
-    // module layout), so we accept any value there.
+    // Marker layout "04 ?? ?? 2E ??": only bytes 0 (`$04`) and 3
+    // (`$2E`) are structurally stable -- they form the anchor
+    // confirming the slot is a proc-address marker rather than
+    // incidental bytes. Byte 2 is a per-binary counter (varies
+    // build-to-build per linker module layout). Bytes 1 and 4 vary
+    // per-proc: byte 1 carries a flag (high bits set when the proc
+    // has register-passed parameters like Self -- `$10` for plain
+    // procedures, `$98` for instance methods); byte 4 carries
+    // per-proc data (count / offset / hash, encoding TBD).
+    //
+    // §6.17 closure: the earlier `byte 1 = $10 AND byte 4 = $00`
+    // restriction matched only no-Self procs like LocalsProcedure;
+    // every instance method (TDerived.TouchSelf, TStaleSelfHost.Probe)
+    // fell through, landed with SegmentOffset = 0, got Size = 0 in
+    // RecomputeProcSizes, and FindProcContaining for any PC inside
+    // them returned the preceding proc whose Size extended across
+    // the gap.
     for MOff := AOff + 4 to AOff + 5 do
       if (MOff + 4 < FSz) and
-         (ByteAt(MOff)     = $04) and (ByteAt(MOff + 1) = $10) and
-         (ByteAt(MOff + 3) = $2E) and (ByteAt(MOff + 4) = $00) then
+         (ByteAt(MOff)     = $04) and
+         (ByteAt(MOff + 3) = $2E) then
       begin
         B0 := ByteAt(AOff);
         B1 := ByteAt(AOff + 1);

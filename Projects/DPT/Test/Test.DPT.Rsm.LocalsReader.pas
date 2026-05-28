@@ -147,6 +147,8 @@ type
     [Test]
     procedure TestFindProcContaining64;
     [Test]
+    procedure TestWin64ProcBoundaryNoOffByOne64;
+    [Test]
     procedure TestParsesClassMembers64;
     [Test]
     procedure TestParsesRecordMembers64;
@@ -947,6 +949,91 @@ procedure TRsmReaderLegacyTests.TestParsesLocalsForLocalsProcedure64;   begin Do
 procedure TRsmReaderLegacyTests.TestLocalsHaveDistinctOffsets64;        begin DoTestLocalsHaveDistinctOffsets(True);         end;
 procedure TRsmReaderLegacyTests.TestFindProcByName64;                   begin DoTestFindProcByName(True);                    end;
 procedure TRsmReaderLegacyTests.TestFindProcContaining64;               begin DoTestFindProcContaining(True);                end;
+
+/// <summary>
+///   §6.17 isolation pin: on Win64, `FindProcContaining` maps the
+///   PC of specific procs to the **preceding** procedure rather
+///   than the owning one. Verified live on `Win64/DebugTarget.exe`
+///   for `TDerived.TouchSelf` (PC mapped to `TouchRegClassParam`)
+///   and `TStaleSelfHost.Probe` (PC mapped to `RecordPropertyProbe`).
+///   `LocalsProcedure` and many other procs resolve correctly --
+///   the defect is per-proc, not universal -- so the cause is a
+///   Win64 proc-address sub-form the decoder doesn't recognise:
+///   victim procs land with `SegmentOffset = 0`, get `Size = 0` in
+///   `RecomputeProcSizes`, become unfindable, and the preceding
+///   real proc's `Size` (capped at `MaxProcSize = $4000`) extends
+///   far enough to swallow the PC.
+///
+///   This pin reproduces the failure at the reader level so we can
+///   close it without depending on a live MCP session. It asserts
+///   for each victim proc:
+///     1. `FindProcByName` returns a non-zero index (the proc IS
+///        in the table by name).
+///     2. `Procs[idx].SegmentOffset > 0` (its address decoded).
+///     3. `FindProcContaining(SegmentOffset)` returns the same
+///        index (linear-scan locates it).
+///   Currently (1) passes but (2) and/or (3) fail. The fix lands
+///   when all three pass on every victim probe.
+/// </summary>
+procedure TRsmReaderLegacyTests.TestWin64ProcBoundaryNoOffByOne64;
+const
+  // The live-verified victim procs from §6.17 plus a control that
+  // is known to resolve correctly (LocalsProcedure -- exercises the
+  // already-passing path so a regression here means we broke
+  // something working, not just the gap).
+  Victims: array[0..1] of String = (
+    'TStaleSelfHost.Probe',
+    'TDerived.TouchSelf');
+  Control: String = 'LocalsProcedure';
+var
+  Reader : TRsmReader;
+  I      : Integer;
+
+  procedure AssertResolves(const AName: String; AIsControl: Boolean);
+  var
+    ProcIdx, FoundIdx: Integer;
+    Proc             : TRsmProc;
+  begin
+    ProcIdx := Reader.FindProcByName(AName);
+    Assert.IsTrue(ProcIdx >= 0,
+      Format('%s not in proc table by name -- discovery missed it',
+        [AName]));
+    Proc := Reader.Procs[ProcIdx];
+    Assert.IsTrue(Proc.SegmentOffset > 0,
+      Format('%s.SegmentOffset = 0 -- the proc-address decoder did ' +
+             'not recognise this Win64 sub-form, so Size becomes 0 ' +
+             'in RecomputeProcSizes and the proc is invisible to ' +
+             'FindProcContaining. This is the §6.17 root cause.',
+        [AName]));
+    FoundIdx := Reader.FindProcContaining(Proc.SegmentOffset);
+    var FoundName: String;
+    if (FoundIdx >= 0) and (FoundIdx < Reader.Procs.Count) then
+      FoundName := Reader.Procs[FoundIdx].Name
+    else
+      FoundName := '<out-of-range>';
+    if AIsControl then
+      Assert.AreEqual(ProcIdx, FoundIdx,
+        Format('Control proc %s must resolve to itself (regression check); ' +
+               'got proc index %d ("%s") instead of %d.',
+          [AName, FoundIdx, FoundName, ProcIdx]))
+    else
+      Assert.AreEqual(ProcIdx, FoundIdx,
+        Format('§6.17 victim %s must resolve via FindProcContaining; ' +
+               'got proc index %d ("%s") instead of the expected %d.',
+          [AName, FoundIdx, FoundName, ProcIdx]));
+  end;
+
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(True));
+    AssertResolves(Control, True);
+    for I := Low(Victims) to High(Victims) do
+      AssertResolves(Victims[I], False);
+  finally
+    Reader.Free;
+  end;
+end;
 procedure TRsmReaderLegacyTests.TestParsesClassMembers64;               begin DoTestParsesClassMembers(True);                end;
 procedure TRsmReaderLegacyTests.TestParsesRecordMembers64;              begin DoTestParsesRecordMembers(True);               end;
 procedure TRsmReaderLegacyTests.TestRecordTypeIdxRoundTrip64;           begin DoTestRecordTypeIdxRoundTrip(True);            end;

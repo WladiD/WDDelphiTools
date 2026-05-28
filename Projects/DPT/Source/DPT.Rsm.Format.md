@@ -113,7 +113,7 @@ acts as a kind discriminator:
 
 Several scanner branches use the hi byte to decide between a 1-byte
 primitive id and a 2-byte structured id; in
-[DPT.Rsm.Scanner.pas:721-726](DPT.Rsm.Scanner.pas#L721-L726) for
+[DPT.Rsm.Scanner.pas:733-738](DPT.Rsm.Scanner.pas#L733-L738) for
 example, `Hi == $2E` or `Hi == $2F` selects the 2-byte read, anything
 else falls back to the 1-byte read.
 
@@ -131,9 +131,9 @@ following byte extends it into a 16-bit word and the recovered value is
 some sparse ordinals). This shows up in:
 
 * `TRsmScanner.HandleLocalRecord` BPRel-offset decoder
-  ([DPT.Rsm.Scanner.pas:813-827](DPT.Rsm.Scanner.pas#L813-L827))
+  ([DPT.Rsm.Scanner.pas:825-839](DPT.Rsm.Scanner.pas#L825-L839))
 * `TRsmScanner.HandleEnumConstantRecord` sparse-ordinal form
-  ([DPT.Rsm.Scanner.pas:1052-1061](DPT.Rsm.Scanner.pas#L1052-L1061))
+  ([DPT.Rsm.Scanner.pas:1064-1073](DPT.Rsm.Scanner.pas#L1064-L1073))
 
 ---
 
@@ -185,7 +185,7 @@ the `$ActRec` closure suffix.
 
 The address payload after the name is **variable-length** and is
 decoded by `DecodeProcAddrPayload`
-([DPT.Rsm.Scanner.pas:429-617](DPT.Rsm.Scanner.pas#L429-L617)). Dispatch
+([DPT.Rsm.Scanner.pas:429-629](DPT.Rsm.Scanner.pas#L429-L629)). Dispatch
 happens on the byte at `name+0`:
 
 | Sub-tag | Decoder (Win32 / Win64)                                | Notes                                                                       |
@@ -214,7 +214,7 @@ The low nibble of byte 0 must be `$07`. The recovered RVA is
 `(DWORD >> 4) - $401000` (`$400000` image base + `$1000` `.text` RVA).
 Sanity range: `(0, $10000000)` — i.e. up to 256 MB of code.
 
-**Win64 `$20` address encoding** (`TryWin64`, [Scanner.pas:551-578](DPT.Rsm.Scanner.pas#L551-L578)):
+**Win64 `$20` address encoding** (`TryWin64` in `DPT.Rsm.Scanner.pas`):
 
 ```
 byte 0: (byte0 and $7F) must be $03         // encoding-kind tag
@@ -224,9 +224,33 @@ byte 2: VA bits 13..20 (full 8 bits)
 byte 3,4: encoded proc-size / local-layout info (not used for address)
 ```
 
-A trailer `04 10 ?? 2E 00` must follow within the next 1-2 bytes, where
-`??` is a per-binary counter that varies build-to-build. The
-recovered VA is masked to 21 bits (`$1FFFFF`), capping at ~2 MB of
+A trailer `04 ?? ?? 2E ??` must follow within the next 1-2 bytes. Only
+bytes 0 (`$04`) and 3 (`$2E`) are structurally stable. Byte 2 is a
+per-binary counter (varies build-to-build with linker module layout).
+Bytes 1 and 4 vary **per-proc**:
+
+| byte | role                                              | example values                                  |
+|------|---------------------------------------------------|-------------------------------------------------|
+| 0    | constant `$04` — marker start                     | `$04`                                           |
+| 1    | flag: high bits set when proc has register params | `$10` for plain procs, `$98` for instance methods (Self/RegParam present) |
+| 2    | per-binary counter                                | varies build-to-build, constant within a build  |
+| 3    | constant `$2E` — marker tail                      | `$2E`                                           |
+| 4    | per-proc data (count / offset / hash, TBD)        | `$00` for plain procs; non-zero (`$E1`, `$65`, …) for instance methods |
+
+§6.17 closure: the earlier marker check required `byte 1 = $10 AND
+byte 4 = $00`, which matched only no-Self procs like
+`LocalsProcedure`. Every instance method (`TDerived.TouchSelf`,
+`TStaleSelfHost.Probe`) fell through, got `SegmentOffset = 0`, became
+`Size = 0` after `RecomputeProcSizes`, and `FindProcContaining` for a
+PC inside such a method returned the **preceding** proc whose `Size`
+extended across the gap (capped at `$4000`). Live-MCP-only symptom
+because the Win64 MCP `Self`/locals tests had been routed through the
+Win32 fixture as a workaround; the Win64 reader's identical PC
+resolved to the wrong proc. Pinned by
+`Test.DPT.Rsm.LocalsReader.TRsmReaderLegacyTests.TestWin64ProcBoundaryNoOffByOne64`
+(control + two victim probes).
+
+The recovered VA is masked to 21 bits (`$1FFFFF`), capping at ~2 MB of
 code per binary. Small Win64 binaries (e.g. DebugTarget at ~1.3 MB)
 fit; larger binaries route through `$A0` instead and don't hit this
 ceiling.
@@ -308,7 +332,7 @@ After consuming the param body the scanner peeks the next 2 bytes; if
 they start with `$20 $21` (a hidden high-index sub-record), it
 increments `FScanRegParam` once more so subsequent parameters retain
 correct register indices. See
-[DPT.Rsm.Scanner.pas:740-744](DPT.Rsm.Scanner.pas#L740-L744).
+[DPT.Rsm.Scanner.pas:752-756](DPT.Rsm.Scanner.pas#L752-L756).
 
 Stored as `TRsmLocal` with `Kind = lkRegister`, `RegParamIdx =
 FScanRegParam`.
@@ -369,7 +393,7 @@ $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 ```
 
 Decoded by `HandleLocalRecord`
-([DPT.Rsm.Scanner.pas:789-893](DPT.Rsm.Scanner.pas#L789-L893)). The
+([DPT.Rsm.Scanner.pas:801-905](DPT.Rsm.Scanner.pas#L801-L905)). The
 payload starts at `P + 2 + NL`. Two main shapes:
 
 **Shape A — structured-type id with BPRel offset:**
@@ -406,7 +430,7 @@ common Delphi types) may still hit the fallback on unfamiliar binaries.
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
-([Scanner.pas:865-890](DPT.Rsm.Scanner.pas#L865-L890)), because the
+([Scanner.pas:877-902](DPT.Rsm.Scanner.pas#L877-L902)), because the
 `FScanInProc` gate cannot reliably distinguish a stack local from a
 module-level variable in every code path.
 
@@ -417,7 +441,7 @@ $20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
 Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:895-930](DPT.Rsm.Scanner.pas#L895-L930)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:907-942](DPT.Rsm.Scanner.pas#L907-L942)). `NL` ∈ `[1, 40]`.
 The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
 the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
 shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
@@ -436,7 +460,7 @@ scope (because the previous `$63 SCOPE_END` was suppressed by the
 the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
 stack-local record ever carries) and publishes both the type id and
 the decoded VA into the global maps as a fallback. See
-[Scanner.pas:872-889](DPT.Rsm.Scanner.pas#L872-L889).
+[Scanner.pas:884-901](DPT.Rsm.Scanner.pas#L884-L901).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
@@ -445,7 +469,7 @@ $27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
 Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:932-999](DPT.Rsm.Scanner.pas#L932-L999)). `NL` ∈ `[1, 40]`.
+([Scanner.pas:944-1011](DPT.Rsm.Scanner.pas#L944-L1011)). `NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
@@ -464,7 +488,7 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:935-945](DPT.Rsm.Scanner.pas#L935-L945) explains
+comment at [Scanner.pas:947-957](DPT.Rsm.Scanner.pas#L947-L957) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
@@ -593,7 +617,7 @@ byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
 The unit name follows immediately after the last element.
 
 **The dispatcher does NOT advance `P` past the body** (see comment at
-[Scanner.pas:1137-1139](DPT.Rsm.Scanner.pas#L1137-L1139)). The single-byte
+[Scanner.pas:1149-1151](DPT.Rsm.Scanner.pas#L1149-L1151)). The single-byte
 fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
@@ -742,7 +766,7 @@ pending): the scanner walks up to 1024 bytes forward looking for a
 proc; its identifier IS the owning unit's name. This is the only known
 way to recover the `(unit, type)` pair for synthesized `EnumDef`s in
 the same-comp case. See
-[Scanner.pas:1247-1285](DPT.Rsm.Scanner.pas#L1247-L1285).
+[Scanner.pas:1259-1297](DPT.Rsm.Scanner.pas#L1259-L1297).
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
@@ -883,7 +907,7 @@ The pin lives at
 
 A single byte. Closes the active proc scope **only when**
 `FScanSeenLocalSinceProc` is True
-([Scanner.pas:1356-1362](DPT.Rsm.Scanner.pas#L1356-L1362)). The guard
+([Scanner.pas:1368-1374](DPT.Rsm.Scanner.pas#L1368-L1374)). The guard
 prevents incidental `$63` bytes in the proc's address payload (the
 `$A0` sub-form's payload is ~18 bytes of arbitrary data that routinely
 contains `$63`) from prematurely closing the scope before
@@ -1379,30 +1403,17 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 
 ## 6. Identified gaps and uncertainties
 
-### 6.17 Win64 proc-boundary off-by-one in the locals reader (`GAP`)
+*No open gaps — see §4 for the closed-and-explained encoding
+shapes, and §5 for the cross-record state machines.*
 
-[DPT.Rsm.Scanner.pas:1438 `RecomputeProcSizes`](DPT.Rsm.Scanner.pas#L1438)
-+ proc `SegmentOffset` decode at
-[DPT.Rsm.Scanner.pas:662](DPT.Rsm.Scanner.pas#L662), consumed by
-[DPT.Rsm.Reader.pas:487 `FindProcContaining`](DPT.Rsm.Reader.pas#L487) —
-on **Win64** fixtures the locals reader maps a PC to the **preceding**
-procedure. Verified live on `Win64/DebugTarget.exe`: paused at
-`TDerived.TouchSelf` (`DebugTarget.dpr:241`), `get_locals` reports
-procedure `TouchRegClassParam` (its `AInner`/`AOther`, sourced from the
-live RCX/RDX); paused at `TStaleSelfHost.Probe` (`:654`) it reports the
-preceding `RecordPropertyProbe`. The map-based frame resolver
-(`GetStackFrameInfo`/`GetStackTrace`, `.map`-driven) names the procedure
-**correctly** for the same PC — so the disagreement is between the `.rsm`
-proc table and the `.map`, i.e. the RSM `SegmentOffset`/`Size` ranges are
-shifted by one proc on Win64. This is why every Win64 MCP `Self`/locals
-test launches the **Win32** `DebugTarget.exe` (`AUse64Bit = False`) — the
-defect has never been exercised at that layer. Win32 maps the same PCs
-correctly, so the §4.2 stale-Self fix is pinned there. **Next step:** dump
-each `TRsmProc.SegmentOffset` next to `FMapScanner.ProcNameFromAddr` for
-the same RVA on Win64 and find whether the offset is decoded with a wrong
-base (image-base vs `$1000` code-section RVA), an extra/missing proc
-shifts the sort, or `RecomputeProcSizes` over-extends the preceding proc's
-`Size` across the gap.
+> **Next-gap numbering:** §6 numbers are **stable identifiers**, not
+> sequence positions. The last entry used was §6.17 (Win64 proc-
+> boundary off-by-one, closed and folded into §4.1). The next gap
+> discovered MUST be numbered **§6.18**, not §6.1. Numbers are never
+> reused or recycled — commit messages, code comments, and pin
+> docstrings reference closed §6.N entries by their original number
+> long after the §6 entry itself is gone, and renumbering would
+> silently invalidate those references.
 
 ---
 

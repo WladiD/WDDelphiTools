@@ -115,6 +115,17 @@ Tag with `GAP` when the format itself is undecoded, `UNCERTAIN` when
 the current code makes a guess that mostly works but isn't grounded,
 and `unused` when state is captured but no resolver reads it.
 
+**§6 numbers are stable identifiers, never recycled.** When you add a
+new entry, use `<last-used-number> + 1`, NOT the lowest free hole left
+by closed entries. Closed-and-removed entries are still referenced by
+their original number in commit messages, code comments, the §4
+consumer notes that explain their closure, and pin-test docstrings —
+renumbering would silently invalidate those references. To find the
+next number, scan the doc + the latest commits for the highest §6.N
+ever used (not the highest currently present) and add 1. Format.md's
+placeholder when §6 is empty records the last-used number explicitly
+for this reason.
+
 A §6 entry is **closed** in any of these cases:
 
 1. The shape was decoded (most common case — new bytes parsed, new
