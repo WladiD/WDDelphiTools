@@ -724,13 +724,29 @@ begin
   Assert.IsTrue(M.Offset > 0,
     Format('TFormAd.BrwAdAp must have a real (non-zero) offset, got %d', [M.Offset]));
 
-  // Remaining sub-gap (still open under §6.16): strict-private "F"-prefixed
-  // instance fields are not captured by the backward member scan (only the
-  // published component run is), so the original evaluate("Self.FAd") still
-  // cannot resolve. Flip to IsTrue + pin the offset when that layer lands.
-  Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FAd', M),
-    'GAP §6.16 (remaining): strict-private FAd not yet captured (only ' +
-    'published components are).');
+  // §6.16 CLOSURE: strict-private "F"-prefixed instance fields ARE now
+  // captured. TFormAd has ~496 fields; the old MaxFields=128 cap filled
+  // its slots with the early published-control run and dropped every
+  // later field, including FAd (the field the live evaluate("Self.FAd")
+  // repro needs). Raising the cap to 2048 lets the backward scan reach
+  // FAd. Pinned to the exact instance offset 0x0C5C recovered live via
+  // read_memory at Tfw.Ad.Form:2274.
+  Assert.IsTrue(FReader.FindClassMember('TFormAd', 'FAd', M),
+    '§6.16: strict-private FAd must now be captured by the backward ' +
+    'member scan (MaxFields raised from 128 to 2048).');
+  Assert.AreEqual(UInt32($0C5C), M.Offset,
+    Format('TFormAd.FAd must sit at instance offset 0x0C5C (recovered ' +
+    'live via Self+0xC5C); got 0x%x.', [M.Offset]));
+
+  // Leakage guard: raising the cap must NOT pull a neighbouring class's
+  // fields into TFormAd. The TAdPriorityInfo helper (FPriorityInfoGUID /
+  // FPriorityInfoTyp at offsets 0x4 / 0x14) sits within the 64 KB
+  // backward window; AMinStartOff (previous class's TypeIdx) is what
+  // keeps it out, not the field cap. If this fires, the cap raise
+  // exposed a cross-class-leakage bug that AMinStartOff failed to bound.
+  Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FPriorityInfoGUID', M),
+    '§6.16 leakage guard: FPriorityInfoGUID belongs to the TAdPriorityInfo ' +
+    'helper, not TFormAd -- it must not leak in after the cap raise.');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

@@ -139,7 +139,19 @@ procedure TRsmStructDiscoverer.ScanFieldsBackwardFromClassName(
 // chain). Callers pass the previous class's TypeIdx; pass 0 (the
 // default) for the very first class in the file.
 const
-  MaxFields    = 128;
+  // Upper bound on captured fields per class. Was 128, which silently
+  // truncated very large legacy VCL forms: TFW's TFormAd has ~496 real
+  // fields (controls + strict-private F-fields), and at 128 every field
+  // past scan position #128 — including `FAd` (offset 0x0C5C, the field
+  // the live `evaluate Self.FAd.Land` repro needs) — was dropped while
+  // the early published-control run filled the slots (§6.16). 2048 gives
+  // ~4x headroom over the largest observed class and still bounds the
+  // O(Count^2) overlap-reject and offset-sort loops below to a few
+  // million ops on the worst class (negligible against the 45 s
+  // DiscoverAndParseAllStructs budget). Cross-class leakage is prevented
+  // by AMinStartOff (the previous class's TypeIdx), NOT by this cap, so
+  // raising it does not pull in a neighbouring class's fields.
+  MaxFields    = 2048;
   // Generous backward window so the scan reaches whatever
   // distance separates the class anchor from its earliest field
   // record. The AMinStartOff cap at the previous class's
