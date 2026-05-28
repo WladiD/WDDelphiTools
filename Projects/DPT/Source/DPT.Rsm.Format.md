@@ -330,6 +330,23 @@ FScanRegParam`.
 > falls back to the live register. Pinned by
 > `Test.DPT.MCP.Server.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber`.
 
+> **Consumer note — VMT trumps RSM TypeIdx for class-instance dotted
+> walks.** The dotted-walk evaluator (`DPT.Debugger.EvaluateVariable`)
+> has a *priming* step that flips it into record-hop mode when the
+> first segment's RSM TypeIdx resolves to a record. For register-passed
+> `Self` / class params this priming must be **skipped**: the alias id
+> the scanner reads from the `$22` / `$21` payload can map to an
+> entirely unrelated record in a different build's type registry,
+> while the live VMT is authoritative for the actual class. Observed
+> on a TFW build: `Self`'s PARAM-record `TypeIdx = $073D` resolved to
+> `TMemoryPoolPos` (a record), wrongly routing every `Self.<field>`
+> evaluate into the record-hop branch and exiting before ever calling
+> `FindClassMember`. The fix: when the first hop is `lkRegister` and a
+> VMT walk on its value yields a class name present in `FClasses`,
+> bypass the record-hop priming and let the class-hop branch use the
+> VMT-derived class name. (Records by-reference still prime, because
+> the VMT walk fails on a non-class pointer.)
+
 ### 4.3 `$21` REGVAR_TAG — register-passed variable
 
 ```
@@ -904,9 +921,16 @@ the first class-name and the trailer, pushing the trailer past the
 tight `NameEnd + 4` / `NameEnd + 8` offsets. The discoverer falls back
 to `FindClassTrailerWithin` which scans up to **16 KB** forward for the
 trailer pattern ([StructDiscoverer.pas:597-648](DPT.Rsm.StructDiscoverer.pas#L597-L648),
-call site [#L723](DPT.Rsm.StructDiscoverer.pas#L723)). The 4-byte zero
-prefix before `NameEnd+1..+4` selects the type-record region (vs. the
-method-record region whose 4-byte prefix is non-zero garbage).
+call site [#L723](DPT.Rsm.StructDiscoverer.pas#L723)). The method-block
+header is a **small DWORD at NameEnd+1..+4 whose high three bytes are
+zero** (`+2..+4 = 0`; the low byte at `+1` is the actual record count /
+size and varies per build — observed `0x1D` on the deployment build's
+`TFormAd`). The type-record region's same-name occurrence has non-zero
+garbage at all four bytes, so the high-three-zero filter cleanly
+separates the two. Note: an earlier version of this filter also
+required `+1 = 0` and happened to work on the C:\MSE\TFW corpus where
+that byte was incidentally zero — but missed every method-bearing class
+on builds emitting a non-zero count.
 
 The 16 KB window (raised from an earlier 8 KB) is needed because a
 class's method block can be large — `TFormAd` (~12.6 KB) and RTL
@@ -1352,6 +1376,32 @@ the same RVA on Win64 and find whether the offset is decoded with a wrong
 base (image-base vs `$1000` code-section RVA), an extra/missing proc
 shifts the sort, or `RecomputeProcSizes` over-extends the preceding proc's
 `Size` across the gap.
+
+### 6.18 Dotted-walk pointer-to-record traversal not implemented (`GAP`)
+
+[DPT.Debugger.pas EvaluateVariable](DPT.Debugger.pas) — the dotted walk
+can navigate **class → class** and **class → inline record** chains, but
+not **class → pointer-to-record → field**. On TFW (the original
+`evaluate Self.FAd.Land` repro), `Self.FAd` now resolves to the `PAd`
+pointer value (e.g. `0x65096FC0` on the live build, after the §4.2
+VMT-priority fix), but the next segment `.Land` cannot continue because
+the walker has no pointer-deref-into-record step. The class-hop deref's
+into a VMT (fails for a record pointer); the record-hop reads inline at
+`FieldAddr` (wrong — the pointer's *value* is at `FieldAddr`, not the
+record bytes). Manual `read_memory` walk confirms the data is there:
+`FAd = [Self+0x0C5C]`, `Land = byte[FAd+0x169D]` = `0x00` = `ltInland`.
+
+**Two open questions:** (1) what does the RSM actually record for
+`FAd`'s declared type — does the `$2C` field record or the Format-A
+type registry mark `FAd` as a pointer-to-`TAd` (pointer-kind alias),
+or does its `TypeIdx` collapse straight to `TAd` with the pointer-ness
+elsewhere? Pin the encoding by dumping the `$2C` payload + the type
+registry entry for `FAd`'s `TypeIdx` against TFW's `TAd`/`PAd`
+declaration. (2) Once the pointer-kind signal is identified, the
+dotted walk gains a third hop kind: deref the field as a pointer, then
+record-hop into the pointed-to type — both pieces share the
+class-hop's `ReadTargetPointer` and the record-hop's inline
+field-offset math.
 
 ---
 

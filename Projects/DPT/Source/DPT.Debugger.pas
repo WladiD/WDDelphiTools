@@ -2797,28 +2797,54 @@ begin
       //     proximity to recover the record for TFW-style
       //     globals whose stored id lives outside the registry
       //     id space.
-      var GStructIdx: Integer := -1;
-      if FirstLocalTypeIdx <> 0 then
-        // RSM local records carry the 2-byte RSM registry id, so
-        // resolve through the registry-backed map -- same encoding
-        // used by FindGlobalTypeIdx below. FindStructByTypeIdx
-        // would mismatch because Classes[].TypeIdx is the
-        // file-offset token, a different id space.
-        GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(FirstLocalTypeIdx);
-      if GStructIdx < 0 then
+      // VMT-priority override: if the first hop is a register-passed
+      // local with a live instance pointer AND a VMT walk on it
+      // succeeds against an FClasses entry, the local is a class
+      // instance, NOT a record. Skip the record-hop priming below --
+      // its RSM-TypeIdx-based resolution is unreliable across builds
+      // because the 2-byte alias id can map to a different (record)
+      // type in the live type registry than the live VMT reports.
+      // Observed on the C:\MSE-26.04-Mongo build: Self's PARAM-record
+      // TypeIdx 0x073D resolves to TMemoryPoolPos (skRecord), so the
+      // priming wrongly flipped the walker to record-hop mode and
+      // every Self.<field> dotted evaluate failed even though TFormAd
+      // + FAd were correctly captured by the reader. For class
+      // instances the VMT is authoritative and the class-hop branch
+      // (which reads ClsName from the live VMT) trumps any RSM id
+      // alias mismatch.
+      var SkipRecordPriming: Boolean := False;
+      if FirstHopHasInstancePtr then
       begin
-        var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
-        if GTypeIdx <> 0 then
-          GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
-        if GStructIdx < 0 then
-          GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
-            Segments[0], Segments[1]);
+        var VmtClsName: String;
+        if ReadRuntimeClassName(FirstHopInstancePtr, VmtClsName) and
+           (FLocalsReader.FindClassByName(VmtClsName) >= 0) then
+          SkipRecordPriming := True;
       end;
-      if (GStructIdx >= 0) and
-         (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+      var GStructIdx: Integer := -1;
+      if not SkipRecordPriming then
       begin
-        PrevContextIdx := GStructIdx;
-        ContextIsRecord := True;
+        if FirstLocalTypeIdx <> 0 then
+          // RSM local records carry the 2-byte RSM registry id, so
+          // resolve through the registry-backed map -- same encoding
+          // used by FindGlobalTypeIdx below. FindStructByTypeIdx
+          // would mismatch because Classes[].TypeIdx is the
+          // file-offset token, a different id space.
+          GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(FirstLocalTypeIdx);
+        if GStructIdx < 0 then
+        begin
+          var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
+          if GTypeIdx <> 0 then
+            GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
+          if GStructIdx < 0 then
+            GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
+              Segments[0], Segments[1]);
+        end;
+        if (GStructIdx >= 0) and
+           (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+        begin
+          PrevContextIdx := GStructIdx;
+          ContextIsRecord := True;
+        end;
       end;
       for I := 1 to High(Segments) do
       begin

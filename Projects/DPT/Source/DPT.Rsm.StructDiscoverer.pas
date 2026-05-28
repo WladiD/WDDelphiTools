@@ -695,16 +695,20 @@ begin
       // no longer sits at NameEnd+4 / NameEnd+8.
       //
       // Filter trigger before scanning: a class-def with methods
-      // always starts with a small DWORD at NameEnd whose three
-      // high bytes are zero (the method-records header size). The
-      // *type-record* region's same name has non-zero garbage at
-      // NameEnd+1..4, so this filter cleanly separates the two
-      // and prevents the field-scanner from binding to the wrong
-      // anchor position. Without this filter the forward-scan
-      // matches a later region's trailer for the same class name
-      // and FindClassByName then locks out the correct match.
+      // always starts with a small DWORD at NameEnd whose **three
+      // high bytes are zero** (the method-records header size /
+      // count -- the low byte at +1 carries the actual value and
+      // varies by build). The *type-record* region's same name
+      // has non-zero garbage at NameEnd+1..+4, so checking just
+      // the high three bytes (+2..+4) cleanly separates the two.
+      // Earlier the filter also required +1 = 0; that incidentally
+      // held on the C:\MSE\TFW corpus we calibrated against but
+      // breaks on builds whose TFormAd-class method blocks emit a
+      // non-zero count (the live C:\MSE-26.04-Mongo build emits
+      // 0x1D at +1, breaking class discovery for every method-
+      // bearing class). The comment had said "three high bytes
+      // zero" all along -- the code was tighter than its intent.
       else if (NameEnd + 4 < FSz) and
-              (ByteAt(NameEnd + 1) = 0) and
               (ByteAt(NameEnd + 2) = 0) and
               (ByteAt(NameEnd + 3) = 0) and
               (ByteAt(NameEnd + 4) = 0) and
