@@ -654,6 +654,29 @@ begin
   Writeln('StaleSelf ', LScratch);       // Line 654 - stale-Self bp here (no Self on this line)
   Writeln('StaleMarker ', FMarker); Flush(Output);  // Self referenced only AFTER the bp line
 end;
+// §6.18 fixture: pointer-to-record dotted-walk traversal. Mirrors TFW's
+// `TFormAd.FAd: PAd` shape -- a class field whose declared type is a
+// pointer alias to a record. The dotted walk currently navigates
+// class -> class and class -> inline record, but has no
+// "deref pointer-to-record, then record-hop into the pointed-to type"
+// step, so `evaluate Self.FRecPtr.FMixedInt` fails at the FRecPtr hop.
+// This fixture isolates that gap: TPtrToRecHost holds FRecPtr: PMixedRec
+// pointing at GGlobalPtrToRecRec (a TMixedRec with a known sentinel).
+// Once the walker grows the deref hop, the pin test in
+// Test.DPT.MCP.Server flips from red to green.
+type
+  PMixedRec     = ^TMixedRec;
+  TPtrToRecHost = class
+    FRecPtr : PMixedRec;
+    procedure Probe;
+  end;
+var
+  GGlobalPtrToRecHost : TPtrToRecHost;
+  GGlobalPtrToRecRec  : TMixedRec;
+procedure TPtrToRecHost.Probe;
+begin
+  Writeln('PtrToRec ', FRecPtr^.FMixedInt); Flush(Output);  // Line 678 - ptr-to-rec bp here
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -833,6 +856,14 @@ begin
     GGlobalStaleSelf := TStaleSelfHost.Create;
     GGlobalStaleSelf.FMarker := Integer($5E1F5E1F);
     GGlobalStaleSelf.Probe;
+    // §6.18 fixture: reach TPtrToRecHost.Probe with FRecPtr pointing at
+    // a TMixedRec whose FMixedInt carries a sentinel the pin verifies.
+    GGlobalPtrToRecRec.FMixedInt   := Integer($1F2E3D4C);
+    GGlobalPtrToRecRec.FMixedInt64 := Int64($D1D2D3D4D5D6D7D8);
+    GGlobalPtrToRecRec.FMixedStr   := 'PtrToRec-Str';
+    GGlobalPtrToRecHost := TPtrToRecHost.Create;
+    GGlobalPtrToRecHost.FRecPtr := @GGlobalPtrToRecRec;
+    GGlobalPtrToRecHost.Probe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
@@ -862,5 +893,6 @@ begin
     GGlobalObject.Free;
     GGlobalPropHost.Free;
     GGlobalStaleSelf.Free;
+    GGlobalPtrToRecHost.Free;
   end;
 end.

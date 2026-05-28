@@ -87,6 +87,8 @@ type
     [Test]
     procedure TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber;
     [Test]
+    procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
+    [Test]
     procedure TestMcpEvaluateMultiLevelInheritedField;
     [Test]
     procedure TestMcpEvaluateRtlInheritedField;
@@ -2449,6 +2451,67 @@ begin
     Assert.IsTrue(Line.Contains('1579114015'),
       'Self.FMarker must equal 1579114015 ($5E1F5E1F) via the spill ' +
       'home, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.18 GAP isolation pin: dotted-walk traversal through a
+///   pointer-to-record class field. <c>TPtrToRecHost.FRecPtr</c> is
+///   declared as <c>PMixedRec = ^TMixedRec</c> and points at
+///   <c>GGlobalPtrToRecRec</c>, whose <c>FMixedInt</c> carries the
+///   sentinel <c>$1F2E3D4C = 523124044</c>. Mirrors TFW's
+///   <c>TFormAd.FAd: PAd</c> shape, where the live MCP repro
+///   <c>evaluate Self.FAd.Land</c> still fails after the §4.2 +
+///   §6.16 fixes.
+///
+///   The single-hop probe <c>Self.FRecPtr</c> (just the pointer
+///   value) is already expected to resolve via the class-hop with
+///   the VMT-priority fix in place. The full chain
+///   <c>Self.FRecPtr.FMixedInt</c> exercises the missing
+///   pointer-deref-into-record hop and currently FAILS with
+///   <c>Failed to evaluate variable</c>. This test is the closure
+///   pin for §6.18: it goes from red to green once the walker
+///   grows the third hop kind (deref pointer, then record-hop into
+///   the pointed-to type). Win32-only like the sibling pin (the
+///   §6.17 Win64 proc-boundary off-by-one prevents reliable
+///   live-debugging on Win64).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateClassFieldPointerToRecordDeref;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 678);
+  try
+    // Sanity: VMT walk resolves Self correctly inside the instance method.
+    Line := Fixture.Eval('Self', 'object');
+    Assert.IsTrue(Line.Contains('TPtrToRecHost'),
+      'Self must report TPtrToRecHost, got: ' + Line);
+
+    // Single-hop: Self.FRecPtr resolves to the PMixedRec pointer value
+    // (a non-zero address of GGlobalPtrToRecRec). This relies on the
+    // §4.2 VMT-priority dotted-walk fix and must already pass today.
+    Line := Fixture.Eval('Self.FRecPtr', 'int');
+    Assert.IsFalse(Line.Contains('Failed to evaluate'),
+      'Self.FRecPtr must resolve to the pointer value (single hop, ' +
+      'should pass today after the §4.2 VMT-priority fix), got: ' + Line);
+    Assert.IsFalse(Line.Contains(': 0'),
+      'Self.FRecPtr must be non-zero (points at GGlobalPtrToRecRec), got: ' + Line);
+
+    // §6.18 CHAIN: deref the pointer-to-record and read FMixedInt =
+    // $1F2E3D4C = 523124044. CURRENTLY FAILS -- the dotted walk has
+    // no deref-into-record hop. This is the closure assertion: flip
+    // from red to green when the third hop kind lands.
+    Line := Fixture.Eval('Self.FRecPtr.FMixedInt', 'int');
+    Assert.IsTrue(Line.Contains('523124044'),
+      'Self.FRecPtr.FMixedInt must equal 523124044 ($1F2E3D4C) via ' +
+      'pointer-to-record deref. Currently fails because the dotted ' +
+      'walk lacks the deref+record-hop step (§6.18). Got: ' + Line);
   finally
     Fixture.Free;
   end;

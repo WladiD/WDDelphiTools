@@ -2881,22 +2881,71 @@ begin
             end;
             Exit;
           end;
-          if not ReadRuntimeClassName(ObjPtr, ClsName) then Exit;
-          if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+          if ReadRuntimeClassName(ObjPtr, ClsName) then
           begin
-            // The runtime class doesn't declare this field and the
-            // RSM-derived ParentName chain didn't find it either --
-            // either an intermediate ancestor has no own fields the
-            // RSM scanner could lock onto, or the heuristic mis-paired
-            // the chain. Walk the LIVE VMT instead: each parent VMT's
-            // class name comes straight from the runtime, and a hit
-            // on any ancestor in FClasses yields the correct field
-            // offset (single-inheritance Delphi keeps field offsets
-            // stable across the entire descent of the declaring class).
-            if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
-              Exit;
+            if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+            begin
+              // The runtime class doesn't declare this field and the
+              // RSM-derived ParentName chain didn't find it either --
+              // either an intermediate ancestor has no own fields the
+              // RSM scanner could lock onto, or the heuristic mis-paired
+              // the chain. Walk the LIVE VMT instead: each parent VMT's
+              // class name comes straight from the runtime, and a hit
+              // on any ancestor in FClasses yields the correct field
+              // offset (single-inheritance Delphi keeps field offsets
+              // stable across the entire descent of the declaring class).
+              if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
+                Exit;
+            end;
+            FieldAddr := Pointer(ObjPtr + Member.Offset);
+          end
+          else
+          begin
+            // Class-hop's VMT walk failed -- ObjPtr does not point at
+            // a Delphi class instance. The common case is that the
+            // PREVIOUS field was a pointer-to-record (§4.2 / §6.18),
+            // e.g. TFW's `TFormAd.FAd: PAd = ^TAd` or DebugTarget's
+            // `TPtrToRecHost.FRecPtr: PMixedRec`. The RSM doesn't
+            // populate a usable TypeIdx for these (the Format-A
+            // linker doesn't translate the $2C payload into
+            // Member.TypeIdx for record-typed fields generally), so
+            // we cannot route into record-hop via the type registry
+            // up front. Recover by name: search FClasses for the
+            // single record whose Members contain Segments[I]; if
+            // exactly one matches, treat ObjPtr as that record's
+            // base address and resolve as a record-hop here.
+            //
+            // Pinned by
+            // Test.DPT.MCP.Server.TestMcpEvaluateClassFieldPointerToRecordDeref.
+            //
+            // Ambiguous case (a field name appears in multiple
+            // records, e.g. TFW's `Land` on TAd plus several
+            // Anschrift-style records) intentionally bails so the
+            // fallback never silently picks the wrong record. That
+            // remaining ambiguity is the open follow-up tracked in
+            // the next-step note at the end of §6.18.
+            if ObjPtr = 0 then Exit;
+            var FbFoundIdx  : Integer := -1;
+            var FbMatchCount: Integer := 0;
+            for var FbCi: Integer := 0 to FLocalsReader.Classes.Count - 1 do
+            begin
+              if FLocalsReader.Classes[FbCi].Kind <> skRecord then Continue;
+              for var FbMi: Integer := 0 to FLocalsReader.Classes[FbCi].Members.Count - 1 do
+                if SameText(FLocalsReader.Classes[FbCi].Members[FbMi].Name,
+                            Segments[I]) then
+                begin
+                  if FbMatchCount = 0 then
+                  begin
+                    FbFoundIdx := FbCi;
+                    Member := FLocalsReader.Classes[FbCi].Members[FbMi];
+                  end;
+                  Inc(FbMatchCount);
+                  Break;
+                end;
+            end;
+            if FbMatchCount <> 1 then Exit;
+            FieldAddr := Pointer(ObjPtr + Member.Offset);
           end;
-          FieldAddr := Pointer(ObjPtr + Member.Offset);
         end;
 
         // Determine the next iteration's context purely from the
