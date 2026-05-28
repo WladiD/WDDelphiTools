@@ -1,6 +1,6 @@
 ---
 name: rsm-expert
-description: Become an RSM (CSH7) symbol-container expert. Activate whenever the user asks about the Delphi `.rsm` file format, the `CSH7` byte layout, or the `DPT.Rsm.*` units (Reader, Scanner, EnumDecoder, StructDiscoverer, FormatALinker, ClassParentDeriver, CrossUnitParentResolver, ScopeLocalEnumBridge, BufferIO, Model). Also activate when reverse-engineering new RSM record shapes, closing documented gaps, debugging RSM-driven debugger features, or modifying the canonical reference document `Projects/DPT/Source/DPT.Rsm.Format.md`.
+description: Become an RSM (CSH7) symbol-container expert. Activate whenever the user asks about the Delphi `.rsm` file format, the `CSH7` byte layout, the `DPT.Rsm.*` units (Reader, Scanner, EnumDecoder, StructDiscoverer, FormatALinker, ClassParentDeriver, CrossUnitParentResolver, ScopeLocalEnumBridge, BufferIO, Model), or the RSM-driven debugger consumer code (`DPT.Debugger.EvaluateVariable`'s dotted walk / locals reader, `DPT.MCP.Server`'s evaluate path). Also activate when reverse-engineering new RSM record shapes, closing documented gaps, debugging the live MCP evaluate chain, or modifying the canonical reference document `Projects/DPT/Source/DPT.Rsm.Format.md`.
 user-invocable: true
 ---
 
@@ -74,6 +74,14 @@ move the coverage forward. Look for:
 
 ### 3. Every gap goes into the doc
 
+§6 tracks **open questions about the entire RSM-driven debugger
+pipeline** — the scanner / reader / struct-discoverer / format-A
+linker AND the consumer code that drives off their output
+(`DPT.Debugger.EvaluateVariable`'s dotted walk, the locals reader,
+the MCP server's evaluate path, the frame resolver). A defect
+anywhere along the chain between `.rsm` bytes and the user-visible
+`evaluate("Self.X.Y")` result belongs in §6.
+
 If you identify any of the following, you MUST add a numbered
 subsection under `## 6. Identified gaps and uncertainties` in
 `Projects/DPT/Source/DPT.Rsm.Format.md` before the conversation ends:
@@ -86,6 +94,11 @@ subsection under `## 6. Identified gaps and uncertainties` in
   output and the encoding hasn't been figured out.
 - A latent collection that's populated but never consumed (e.g. the
   `$25` RTL form's `ARecordPos`).
+- **A consumer-side defect** that the encoding alone doesn't fix —
+  e.g. the dotted walk lacks a hop kind, a Win64-host-debugging-
+  Win32-target mismatch breaks a code path, an MCP-only failure
+  that the standalone test reader can't reproduce. The encoding
+  may already be fully decoded; the gap is in how it's consumed.
 
 Format for new entries:
 
@@ -143,6 +156,18 @@ new shape, fix a misparse, or change the meaning of a captured field:
     — only for tag-constant pins / model invariants.
 - Pin a concrete fixture value (e.g. "TLightStatus's ordinal 2 is
   `lsGreen`") rather than a vague existence check whenever possible.
+- **Leakage guard for heuristic widenings.** When a fix widens a
+  heuristic (raises a cap, enlarges a window, relaxes a filter,
+  loosens an anchor) the pin MUST include a leakage guard — an
+  assertion that a NEIGHBOURING entity does NOT incorrectly get
+  pulled in. Without the guard, a widening that silently
+  over-collects ships green. §6.16 example: after raising
+  `MaxFields` 128 → 2048, the closure pin asserts
+  `TFormAd.FAd` resolves AND asserts
+  `TFormAd.FPriorityInfoGUID` does NOT resolve (the neighbouring
+  `TAdPriorityInfo` helper class's field that sits within the 64 KB
+  window). Heuristic widening without a leakage guard is incomplete
+  work, the same way a code change without a test is.
 - Both Win32 and Win64 fixtures exist (`DebugTarget.exe` under
   `Projects/DPT/Test/Win32/` and `Win64/`). If the encoding is
   platform-specific, write paired tests using the `DoTest...` /
@@ -361,7 +386,21 @@ The diagnostic is a `[Test]` whose job is to make the byte stream
 the result to a `.tsv` / `.txt` next to the fixture so you can read
 the data back as a normal file.
 
-* Place it in `Test.DPT.Rsm.Scanner.pas` next to the eventual pin.
+* Place the diagnostic where the data lives:
+  - `Test.DPT.Rsm.Scanner.pas` — raw byte stream (the default,
+    pre-post-process).
+  - `Test.DPT.Rsm.Reader.pas` — post-process state (`FindClassByName`,
+    `Member.TypeIdx`, `FindStructByTypeIdx`, …). §6.18's
+    `TestDiagnosePointerToRecordTypeId` lived here because it
+    needed reader-facade lookups, not raw bytes.
+  - `Test.DPT.Rsm.Tfw.pas` — probes against the huge `TFW.rsm`
+    corpus (load is shared across the fixture; respects the
+    skip-when-missing guard).
+  - **Inside production code** (`DPT.Debugger.pas` /
+    `DPT.MCP.Server.pas`) — runtime / MCP-only state that no test
+    reader can reach. See "Live MCP vs test reader disagree" below.
+    Stage-3 cleanup discipline tightens in this location (full
+    block removal, no "// removed diag" stub).
 * Output path: `ExtractFilePath(ResolveExePath(False)) +
   'rsm-<topic>-dump.tsv'`. The `Win32/` / `Win64/` fixture dirs are
   gitignored (no tracked files there), so dumps land out-of-tree.
@@ -473,6 +512,112 @@ The user has flagged the byte-loop trap explicitly more than once
 String.IndexOf"). Treat any PowerShell `for`-loop over `$bytes`
 that touches a multi-MB region as wrong by default.
 
+### Live MCP vs test reader disagree: the troubleshooting playbook
+
+Recurring scenario: a closure-pin test against `DebugTarget.rsm` (or
+even `C:\MSE\TFW\TFW.rsm` loaded via `TRsmReader.LoadFromFile`)
+passes, but `evaluate("Self.X.Y")` against the **live MCP** debug
+session of the same `.exe` fails. The test reader and the live
+DPT.exe load the same bytes through the same code yet produce
+different end results — the discrepancy is in a **consumer code
+path** that the standalone reader never enters, not in the encoding.
+Hit on this branch by §6.16, §6.17, and §6.18.
+
+Playbook:
+
+1. **Verify the running DPT.exe is your rebuild.** `Get-Process
+   -Name DPT` and compare `StartTime` against the build mtime of
+   `c:\WDC\WDDelphiTools\Projects\DPT\DPT.exe`. The MCP framework
+   respawns DPT.exe automatically on the next request after you
+   kill it; if the running PID's `StartTime` is older than your
+   build, either the kill missed (a DIFFERENT `DPT.exe` at a
+   different path — `c:\SourceC\MISC\DPT\DPT.exe` etc. — is
+   serving) or the MCP client hasn't reconnected. **Kill ONLY the
+   `DPT.exe` whose `Path` is under `c:\WDC\WDDelphiTools\Projects\DPT\`**
+   — other processes serve other Claude sessions in other projects.
+
+2. **Instrument the live code path.** When the test reader can't
+   reproduce, write a one-shot Writeln-to-file diagnostic INSIDE
+   the suspect production code path (`DPT.Debugger.pas`,
+   `DPT.MCP.Server.pas`). Dump every value that distinguishes the
+   competing hypotheses (`FirstHopHasInstancePtr`,
+   `FirstLocalTypeIdx`, `GStructIdx`, the resolved struct's
+   `Kind`, `FindClassByName(<expected>)`, …):
+
+   ```pascal
+   try
+     var Diag := TStringList.Create;
+     try
+       Diag.Add(Format('FirstLocalTypeIdx=$%x GStructIdx=%d',
+         [FirstLocalTypeIdx, GStructIdx]));
+       Diag.SaveToFile('C:\WDC\WDDelphiTools\Projects\DPT\eval-diag.txt');
+     finally Diag.Free; end;
+   except end;  // diagnostic must never throw
+   ```
+
+3. **Kill + rebuild DPT, repro, read the file.**
+   - `Stop-Process` the `Projects\DPT` DPT.exe (the live MCP holds
+     the binary lock; without the kill the rebuild fails with
+     "Executable is currently in use").
+   - Run `_DPT.Build.bat` (NOT a test batch — DPT.exe lives in
+     `Projects\DPT`, the test exes in `Projects\DPT\Test`).
+   - Make the next MCP call; the framework respawns DPT.exe with
+     your rebuild. Verify the new PID's `StartTime` > build mtime
+     before trusting any diagnostic output.
+   - Trigger the failing evaluate. `Read` the diagnostic file.
+
+4. **Stricter cleanup for production-code diagnostics.** Unlike
+   test-code dumps that live next to a `[Test]` and get removed
+   before commit, a production-code diagnostic must be **fully
+   removed** — including the surrounding `try`/`except`, including
+   any leftover `uses` import the diagnostic pulled in. **No
+   `// removed diag` stubs.** Live MCP behaviour depends on every
+   line; leaving the instrumentation in changes the production
+   code path even if the writes never fire.
+
+5. **The discrepancy is usually code-path divergence, not data.**
+   - §6.17 Win64 proc-boundary off-by-one — Win64 DPT.exe's
+     `FindProcContaining` maps the PC into the preceding proc; the
+     Win32 test reader's identical PC resolves correctly because
+     the Win64 path simply isn't exercised there.
+   - §6.18 dotted-walk priming defect — the test's direct
+     `FindClassMember` call works; the MCP dotted walk wraps it in
+     a record-hop priming step the test never runs, and the priming
+     wrongly flipped `ContextIsRecord=True` for a class-instance
+     `Self` because the RSM TypeIdx alias mapped to an unrelated
+     record in this build.
+
+When the divergence is real (binary is current, diagnostic confirms
+code-path divergence, not stale state), the gap belongs in §6 as a
+consumer-side defect per the §3 widening rule.
+
+### Hypothesis budget: instrument after two wrong theories
+
+For in-session investigations (one Claude session, no delegation),
+set yourself an explicit hypothesis budget: **after two wrong
+static-analysis theories, stop theorising and instrument**. Write a
+focused diagnostic that dumps the actual runtime state — the
+`Member.TypeIdx`, the priming result, the byte context around the
+suspect name, `FLocalsReader.Classes.Count`, whatever distinguishes
+the competing hypotheses. The diagnostic almost always reveals
+something that neither static theory predicted.
+
+Worked example: §6.18's pointer-to-record dotted-walk gap. Three
+wrong theories burned in a row (`Self.TypeIdx` alias resolves to a
+record / `FRecPtr` is `lkRegister` with a stale value / Wow64
+host-arch mismatch). The diagnostic that finally landed showed
+`FirstLocalTypeIdx=$73D → GStructIdx=2520 → "TMemoryPoolPos"
+(skRecord)` — the priming was wrongly flipping the walker to
+record-hop because the alias id in this build's type registry
+mapped to an unrelated record. Static analysis would never have
+predicted that mapping; the diagnostic took ~10 minutes including
+build and made the cause obvious.
+
+The §6.9 multi-round delegation section below says this implicitly
+for cross-session investigations — it applies equally to in-session
+ones, and even more strongly because there's no agent round-trip
+cost to amortize.
+
 ### Multi-round delegation for hard gaps
 
 Some §6 gaps need more than one investigation pass. §6.9
@@ -523,22 +668,33 @@ to the next investigator than a one-line "this is hard, skip".
 
 ---
 
-## When the user changes RSM code
+## When the code Format.md describes changes
 
-Treat every commit touching `DPT.Rsm.*.pas` as a potential doc-drift
+Treat every commit touching `DPT.Rsm.*.pas` AND every commit
+touching the RSM-consumer code Format.md cites
+(`DPT.Debugger.pas`'s dotted walk / locals reader,
+`DPT.MCP.Server.pas`'s evaluate path) as a potential doc-drift
 event. After the change:
 
 1. Re-read the modified file.
-2. Re-read §4/§5/§6/§8 of the reference doc.
+2. Re-read §4/§5/§6/§8 of the reference doc (and the §4 consumer
+   notes if you changed `DPT.Debugger.pas`).
 3. Patch the doc wherever the new code disagrees with it.
 4. If the change closed a gap, remove the §6 entry.
-5. If the change introduced new heuristic windows / sub-forms, add a
-   §6 entry describing what is still unknown.
-6. **Drift-check every line range the doc cites into the file you
-   changed.** Format.md is full of `[Scanner.pas:N-M]
-   (DPT.Rsm.Scanner.pas#L_N-L_M)` references. Inserting code anywhere
-   above a cited range shifts every range below it — green tests are
-   no proof the refs still point at the right thing. Workflow:
+5. If the change introduced new heuristic windows / sub-forms / a
+   new consumer fallback, add a §6 entry (or fold into §4 if it's
+   the closure of an existing gap).
+6. **Prefer name-anchored refs; drift-check the line-anchored ones.**
+   Default to `[file FunctionName](file)` (no line) when documenting
+   code —
+   `[DPT.Debugger.pas TryFindRegParamSpillDisp](DPT.Debugger.pas)`
+   has survived every rebuild on this branch, while
+   `Scanner.pas:457-471` and `StructDiscoverer.pas:209-246` have
+   each needed manual drift-fixing **twice**. Reserve
+   `[file:N-M](file#LN-LM)` for inline blocks that genuinely lack a
+   name (a specific `else if` branch, an unnamed loop, a
+   const-block window). For the line-anchored refs that already
+   exist, after any code change touching a referenced file:
    - `Grep("\\.pas:\\d+", path="Projects/DPT/Source/DPT.Rsm.Format.md", -n=true)`
      to list every ref into the changed file.
    - For each ref, read the cited range with the `Read` tool and
