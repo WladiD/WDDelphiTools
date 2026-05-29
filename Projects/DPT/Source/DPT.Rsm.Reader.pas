@@ -106,6 +106,7 @@ type
     function  GetProcs: IList<TRsmProc>;
     function  GetClasses: IList<TRsmClassInfo>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
+    function  GetUnitUseSegments: IList<TRsmUnitUseSegment>;
     procedure RunPostProcess;
   public
     constructor Create;
@@ -169,6 +170,32 @@ type
     ///   entries here, not one.
     /// </summary>
     property  EnumDefs: IList<TRsmEnumDef> read GetEnumDefs;
+    /// <summary>
+    ///   §6.21 cross-unit symbol-import segments produced by the
+    ///   scanner. One entry per <c>$64 NL UnitName $00 $00 $00</c>
+    ///   structural anchor on the wire; the <c>Refs</c> list inside
+    ///   each segment carries the <c>$66</c> / <c>$67</c> / <c>$70</c>
+    ///   entries that follow it. Read-only forwarding of
+    ///   <c>Scanner.UnitUseSegments</c>.
+    /// </summary>
+    property  UnitUseSegments: IList<TRsmUnitUseSegment> read GetUnitUseSegments;
+    /// <summary>
+    ///   Returns the deduplicated list of unit name(s) that DECLARE
+    ///   the given type, derived from the cross-unit symbol-import
+    ///   table: walks every <c>$64</c> segment and returns the
+    ///   distinct <c>UnitName</c> values whose <c>$66</c> entries
+    ///   include <c>ATypeName</c>. The wire shape is
+    ///   <c>$64 &lt;DeclaringUnit&gt; ... $66 &lt;TypeName&gt;</c> --
+    ///   so a hit means the imported-from unit is the result, e.g.
+    ///   <c>UnitsDeclaringType('TLandTyp')</c> returns
+    ///   <c>['Base.Types']</c>. The INVERSE question -- "which units
+    ///   import this type?" -- the table does NOT directly answer;
+    ///   that needs file-offset-proximity attribution of each
+    ///   <c>$64</c> segment to its enclosing unit-of-scope, tracked
+    ///   under §6.20 as a follow-up. Names are deduplicated
+    ///   case-insensitively while preserving first-seen order.
+    /// </summary>
+    function  UnitsDeclaringType(const ATypeName: String): TArray<String>;
     /// <summary>
     ///   Optional progress callback fired by the scanner at each
     ///   major parsing phase. Lets callers surface what the parser
@@ -245,6 +272,67 @@ end;
 function TRsmReader.GetEnumDefs: IList<TRsmEnumDef>;
 begin
   Result := FScanner.EnumDefs;
+end;
+
+function TRsmReader.GetUnitUseSegments: IList<TRsmUnitUseSegment>;
+begin
+  Result := FScanner.UnitUseSegments;
+end;
+
+/// <summary>
+///   Walks every cross-unit symbol-import segment (<c>$64</c>) the
+///   scanner collected and returns the declaring-unit names whose
+///   <c>$66</c> type-references include <c>ATypeName</c>. The
+///   segment's <c>UnitName</c> field IS the declaring/source unit
+///   for its <c>$66</c>/<c>$67</c>/<c>$70</c> entries (verified
+///   empirically: <c>$64 'Base.Types'</c> segments list types
+///   declared in <c>Base.Types.pas</c> such as <c>THttpImplementation</c>
+///   and <c>S_3</c>). Comparison is case-insensitive (matching the
+///   rest of the reader); the returned array is deduplicated
+///   case-insensitively while preserving the first-seen order, so
+///   callers can trust the result as a set without re-sorting.
+/// </summary>
+function TRsmReader.UnitsDeclaringType(const ATypeName: String): TArray<String>;
+var
+  Segments: IList<TRsmUnitUseSegment>;
+  Seen    : IKeyValue<String, Boolean>;
+  Hits    : IList<String>;
+  I, J    : Integer;
+  Seg     : TRsmUnitUseSegment;
+  Ref     : TRsmUnitUseRef;
+  LowerName: String;
+  LowerUnit: String;
+  Match   : Boolean;
+begin
+  Result := nil;
+  Segments := FScanner.UnitUseSegments;
+  if (Segments = nil) or (Segments.Count = 0) or (ATypeName = '') then Exit;
+  LowerName := LowerCase(ATypeName);
+  Seen := Collections.NewPlainKeyValue<String, Boolean>;
+  Hits := Collections.NewPlainList<String>;
+  for I := 0 to Segments.Count - 1 do
+  begin
+    Seg := Segments[I];
+    if Seg.Refs = nil then Continue;
+    Match := False;
+    for J := 0 to Seg.Refs.Count - 1 do
+    begin
+      Ref := Seg.Refs[J];
+      if (Ref.Kind = uukType) and (LowerCase(Ref.Name) = LowerName) then
+      begin
+        Match := True;
+        Break;
+      end;
+    end;
+    if not Match then Continue;
+    LowerUnit := LowerCase(Seg.UnitName);
+    if Seen.ContainsKey(LowerUnit) then Continue;
+    Seen[LowerUnit] := True;
+    Hits.Add(Seg.UnitName);
+  end;
+  SetLength(Result, Hits.Count);
+  for I := 0 to Hits.Count - 1 do
+    Result[I] := Hits[I];
 end;
 
 /// <summary>

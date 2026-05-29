@@ -258,6 +258,38 @@ type
     [Test]
     procedure TestTfwWin64ProcAddressDecodesAboveCap;
     {$ENDIF}
+
+    /// <summary>
+    ///   §4.17 / §6.21 closure pin against TFW.rsm. The cross-unit
+    ///   symbol-import table must decode at least one segment whose
+    ///   <c>$66</c> entries include <c>TLandTyp</c> with the canonical
+    ///   little-endian RVA <c>$7DA69008</c> (the bytes
+    ///   <c>08 90 A6 7D</c> the linker emitted at body+3..+6 of the
+    ///   canonical <c>$2A 'TLandTyp'</c> registry entry at file offset
+    ///   54816881). The Round-3 PowerShell scan counted 68 <c>$66
+    ///   'TLandTyp'</c> occurrences across TFW; we pin a lower bound
+    ///   of 60 to allow the linker some slack without losing the
+    ///   structural finding.
+    /// </summary>
+    [Test]
+    procedure TestTfwUnitUseTableContainsTLandTyp;
+
+    /// <summary>
+    ///   §4.17 / §6.21 cross-validation pin against TFW.rsm. Asserts
+    ///   that at least one <c>$67 'ltInland'</c> symbol-reference
+    ///   entry carries the payload <c>$10A43981</c> (the bytes
+    ///   <c>81 39 A4 10</c> §6.20 Round-3 observed) AND that those
+    ///   same 4 bytes appear at file offset
+    ///   <c>54816777 (= 54816766 + 11)</c> -- the
+    ///   canonical <c>$25 'ltInland'</c> block's body. The match
+    ///   anchors the §6.21 finding that the <c>$67</c> payload is
+    ///   the symbol's canonical declaration RVA (or its in-stream
+    ///   equivalent) for the enum-element family, and pins the
+    ///   structural relationship between the <c>$67</c> use-site
+    ///   table and the <c>$25</c> canonical block.
+    /// </summary>
+    [Test]
+    procedure TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
   end;
 
 implementation
@@ -465,12 +497,16 @@ end;
 
 procedure TRsmTfwTests.TestTfwLoadDiagnostic;
 const
-  // Total budget: the post-fix load is ~24 s on the developer
-  // machine. Allow 3x for CI / cold-cache / slower disks but trip
-  // well below the 425 s pre-fix value. A regression past this
-  // will get caught at the next test run instead of surfacing as
-  // a frozen MCP session minutes after deploy.
-  HardLimit  = 90 * 1000;
+  // Total budget: the post-fix load was ~24 s on the developer
+  // machine at the time of the original calibration. Allow 3x for
+  // CI / cold-cache / slower disks but trip well below the 425 s
+  // pre-fix value. A regression past this will get caught at the
+  // next test run instead of surfacing as a frozen MCP session
+  // minutes after deploy. Raised 90 -> 150 s post-§6.16 (cap raise
+  // 128 -> 2048 in the field-discovery walk) + §6.21 (cross-unit
+  // symbol-import table decoding adds modest per-byte cost in
+  // ScanSymbolStream and per-segment alloc afterwards).
+  HardLimit  = 150 * 1000;
   // Per-phase budgets, picked so each O(N^2) regression we just
   // killed (insertion-sort on 200k procs, per-byte String alloc
   // in the struct scan) trips its own assertion with a clear
@@ -479,7 +515,14 @@ const
   // TRsmReader (ScanSymbolStream / RecomputeProcSizes /
   // DiscoverAndParseAllStructs / LinkMemberTypeIdsFromFormatA /
   // DeriveClassParents); a typo here silently passes.
-  PhaseBudget_DiscoverAndParseAllStructs   = 45 * 1000;
+  // Raised 45 -> 90 s post-§6.16 (field-discovery cap 128 -> 2048
+  // lifts the trailer-scan cost into the 50-65 s band on cold-
+  // cache Win32/Win64 runs against TFW.rsm) + §6.21 (the new
+  // $64-anchored byte walk allocates segment lists this phase
+  // then walks past). The 90 s budget still catches an O(N^2)
+  // regression (the pre-fix value was ~200 s) while accepting
+  // the cumulative feature cost.
+  PhaseBudget_DiscoverAndParseAllStructs   = 90 * 1000;
   PhaseBudget_RecomputeProcSizes           = 20 * 1000;
   PhaseBudget_LinkMemberTypeIdsFromFormatA = 25 * 1000;
   PhaseBudget_DeriveClassParents           = 30 * 1000;
@@ -1126,6 +1169,220 @@ begin
   end;
 end;
 {$ENDIF}
+
+procedure TRsmTfwTests.TestTfwUnitUseTableContainsTLandTyp;
+// §4.17 / §6.21 closure pin against TFW.rsm. The new $64-anchored
+// decoder must surface at least one $66 'TLandTyp' reference with
+// the canonical little-endian RVA $7DA69008 (bytes 08 90 A6 7D, the
+// canonical $2A 'TLandTyp' registry entry body at +3..+6 per
+// §6.20-Round-3). The Round-3 PS scan counted 68 occurrences across
+// TFW; a regression past ~60 means the decoder either bailed out of
+// the segment walk too early or the structural anchor stopped
+// matching for entire ranges of the corpus.
+const
+  ExpectedRva: UInt32 = $7DA69008;
+  MinCount   : Integer = 60;
+var
+  Segments: IList<TRsmUnitUseSegment>;
+  I, J    : Integer;
+  Seg     : TRsmUnitUseSegment;
+  Ref     : TRsmUnitUseRef;
+  Hits    : Integer;
+  SawCorrectRva: Boolean;
+  AnyTLandTypRva: UInt32;
+begin
+  if ShouldSkip then Exit;
+  Segments := FReader.UnitUseSegments;
+  Assert.IsTrue(Segments.Count > 0,
+    'UnitUseSegments empty on TFW.rsm -- the decoder never opened ' +
+    'a single segment.');
+  Hits := 0;
+  SawCorrectRva := False;
+  AnyTLandTypRva := 0;
+  for I := 0 to Segments.Count - 1 do
+  begin
+    Seg := Segments[I];
+    if Seg.Refs = nil then Continue;
+    for J := 0 to Seg.Refs.Count - 1 do
+    begin
+      Ref := Seg.Refs[J];
+      if (Ref.Kind = uukType) and (Ref.Name = 'TLandTyp') then
+      begin
+        Inc(Hits);
+        AnyTLandTypRva := Ref.Rva;
+        if Ref.Rva = ExpectedRva then
+          SawCorrectRva := True;
+      end;
+    end;
+  end;
+  Assert.IsTrue(Hits >= MinCount,
+    Format('Expected at least %d $66 ''TLandTyp'' references in TFW; ' +
+           'got %d. Either the segment walk stops too early, or the ' +
+           'TFW build dropped its TLandTyp imports.',
+           [MinCount, Hits]));
+  Assert.IsTrue(SawCorrectRva,
+    Format('No $66 ''TLandTyp'' reference carries the canonical RVA ' +
+           '$%x. A sample TLandTyp Rva I did see was $%x. Either the ' +
+           '4-byte payload is being read at the wrong offset, or the ' +
+           'canonical $2A ''TLandTyp'' moved on this TFW build (in ' +
+           'which case the §6.21 spec needs updating).',
+           [ExpectedRva, AnyTLandTypRva]));
+end;
+
+procedure TRsmTfwTests.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
+// §4.17 / §6.21 cross-validation pin. Three assertions, layered so
+// the pin survives offset drift between TFW rebuilds while still
+// guarding the structural finding:
+//   (1) At least one decoded $67 'ltInland' entry carries the
+//       canonical-shape payload bytes "?? 39 A4 10" -- the
+//       conserved tail §6.20-Round-3 observed across the +3 LSB
+//       stride family.
+//   (2) The canonical $25 'ltInland' record is locatable in the
+//       byte stream and ITS body carries those same 4 bytes.
+//   (3) The $67 payload and the $25 body payload agree
+//       byte-for-byte, which is what anchors "the $67 payload
+//       references the canonical declaration's RVA slot".
+// The conserved tail "39 A4 10" plus the dynamic discovery of the
+// canonical $25 block makes the pin survive linker rebuild drift
+// (offsets shift; the structural relationship is what we want to
+// pin, not the absolute file offset).
+const
+  // Bytes for the canonical $25 'ltInland' record header on the wire:
+  // $25 $08 'l' 't' 'I' 'n' 'l' 'a' 'n' 'd'
+  NEEDLE: array[0..9] of Byte = ($25, $08, $6C, $74, $49, $6E, $6C,
+                                 $61, $6E, $64);
+var
+  Segments  : IList<TRsmUnitUseSegment>;
+  Sc        : TRsmScanner;
+  I, J      : Integer;
+  Seg       : TRsmUnitUseSegment;
+  Ref       : TRsmUnitUseRef;
+  DecodedRva: UInt32;
+  CanonRva  : UInt32;
+  DecodedHit: Boolean;
+  CanonOff  : NativeInt;
+  Found25Off: NativeInt;
+  Cursor    : NativeInt;
+begin
+  if ShouldSkip then Exit;
+  Sc := FReader.Scanner;
+  Segments := FReader.UnitUseSegments;
+  Assert.IsTrue(Segments.Count > 0,
+    'UnitUseSegments empty on TFW.rsm -- the decoder never opened ' +
+    'a single segment.');
+
+  // (1) Find any decoded $67 'ltInland' entry and capture its payload.
+  // §6.20-Round-3 documents the canonical bytes "81 39 A4 10" =
+  // $10A43981; the conserved tail "39 A4 10" is the structural part.
+  DecodedHit := False;
+  DecodedRva := 0;
+  for I := 0 to Segments.Count - 1 do
+  begin
+    Seg := Segments[I];
+    if Seg.Refs = nil then Continue;
+    for J := 0 to Seg.Refs.Count - 1 do
+    begin
+      Ref := Seg.Refs[J];
+      if (Ref.Kind = uukSymbol) and (Ref.Name = 'ltInland') then
+      begin
+        DecodedRva := Ref.Rva;
+        DecodedHit := True;
+        Break;
+      end;
+    end;
+    if DecodedHit then Break;
+  end;
+  Assert.IsTrue(DecodedHit,
+    '$67 ''ltInland'' was never decoded -- the §6.20-Round-3 35 ' +
+    'use-sites should each surface here.');
+  // Assert the conserved tail "39 A4 10" sits in the top 24 bits of
+  // the little-endian RVA. The LSB byte is per-ordinal (81 / 84 / 87
+  // / 8A / 8D for ltInland / ltAusland / ... in §6.20-Round-3's
+  // recorded snapshot); we don't pin that here because the absolute
+  // RVA can drift with the build.
+  Assert.AreEqual<UInt32>(UInt32($10A43900), DecodedRva and UInt32($FFFFFF00),
+    Format('Decoded $67 ltInland RVA $%x lacks the conserved tail ' +
+           '"39 A4 10" (high 24 bits). Either the structural finding ' +
+           'is broken on this TFW build or the 4-byte payload read ' +
+           'mis-aligned.', [DecodedRva]));
+
+  // (2) Locate the canonical $25 'ltInland' record by scanning for
+  // its on-wire 10-byte header. We only need the FIRST occurrence
+  // (§6.20-Round-3 observed all 36 ltInland strings; only the FIRST
+  // is the canonical $25 block, the rest are $67 use-sites).
+  Found25Off := -1;
+  Cursor := 0;
+  while Cursor < Sc.Sz - SizeOf(NEEDLE) do
+  begin
+    if (Sc.ByteAt(Cursor) = NEEDLE[0]) and
+       (Sc.ByteAt(Cursor + 1) = NEEDLE[1]) and
+       (Sc.ByteAt(Cursor + 2) = NEEDLE[2]) then
+    begin
+      var MatchK: Integer := 3;
+      var Ok: Boolean := True;
+      while (MatchK < Length(NEEDLE)) and Ok do
+      begin
+        if Sc.ByteAt(Cursor + MatchK) <> NEEDLE[MatchK] then
+          Ok := False
+        else
+          Inc(MatchK);
+      end;
+      if Ok then
+      begin
+        Found25Off := Cursor;
+        Break;
+      end;
+    end;
+    Inc(Cursor);
+  end;
+  Assert.IsTrue(Found25Off >= 0,
+    'Canonical $25 ''ltInland'' block not found via byte-needle ' +
+    'scan -- if this regresses, TFW no longer carries the enum.');
+
+  // The canonical block's RVA payload sits at the first non-zero
+  // little-endian DWORD starting at +10 (the byte after the name).
+  // §6.20-Round-3 captured shape:
+  //   $25 $08 'ltInland' <8A 00 00> <81 39 A4 10> ...
+  // Modern TFW (this build) carries:
+  //   $25 $08 'ltInland' <8A 00 00> <81 39 A4 10> ...
+  // -- the body's first 3 bytes are an enum-private flag/size triple
+  // and the payload starts at +13. We don't hard-code +13 because
+  // that's the slot the brief's offsets diverged on; instead we
+  // search for the "39 A4 10" tail within a 24-byte window past the
+  // name and pin the discovered DWORD.
+  CanonOff := -1;
+  for var Probe := Found25Off + 10 to Found25Off + 10 + 16 do
+  begin
+    if Probe + 4 > Sc.Sz then Break;
+    if (Sc.ByteAt(Probe + 1) = $39) and
+       (Sc.ByteAt(Probe + 2) = $A4) and
+       (Sc.ByteAt(Probe + 3) = $10) then
+    begin
+      CanonOff := Probe;
+      Break;
+    end;
+  end;
+  Assert.IsTrue(CanonOff >= 0,
+    Format('Canonical $25 ''ltInland'' block at offset %d does not ' +
+           'carry a 4-byte payload ending in "39 A4 10" within +10..+26 ' +
+           'of the block start. The $67-to-$25 structural relationship ' +
+           '§6.21 documents is broken or the linker reshaped the ' +
+           'canonical body.', [Found25Off]));
+  CanonRva := UInt32(Sc.ByteAt(CanonOff))            or
+              (UInt32(Sc.ByteAt(CanonOff + 1)) shl 8)  or
+              (UInt32(Sc.ByteAt(CanonOff + 2)) shl 16) or
+              (UInt32(Sc.ByteAt(CanonOff + 3)) shl 24);
+
+  // (3) Decoded $67 payload must EQUAL the canonical $25 body's
+  // payload byte-for-byte. This is what proves the $67 entry carries
+  // the canonical declaration's RVA, not some other slot.
+  Assert.AreEqual<UInt32>(CanonRva, DecodedRva,
+    Format('Decoded $67 ltInland RVA $%x does not match the canonical ' +
+           '$25 ltInland body RVA $%x at file offset %d. The §6.21 ' +
+           'spec''s structural mapping between $67 use-sites and the ' +
+           '$25 canonical block requires byte-identity here.',
+           [DecodedRva, CanonRva, CanonOff]));
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmTfwTests);

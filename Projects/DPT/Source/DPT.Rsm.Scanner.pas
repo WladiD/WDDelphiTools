@@ -85,6 +85,13 @@ type
     /// $07 tag; absent for records where the VA cannot be
     /// recovered.
     FGlobalVa        : IKeyValue<String, UInt32>;
+    /// §6.21 cross-unit symbol-import segments, in scan order.
+    /// Populated by HandleUnitUseIntroRecord on each $64-prefixed
+    /// segment that matches the structural anchor (`$64 NL UnitName
+    /// $00 $00 $00`). Each segment's Refs are the consecutive
+    /// $66/$67/$70 entries that follow up to the next $63 SCOPE_END
+    /// (or the first byte that's not in {$66,$67,$70,$63}).
+    FUnitUseSegments : IList<TRsmUnitUseSegment>;
     /// True when the loaded fixture targets x64 (PE Machine field
     /// `$8664`). Detected in `LoadFromFile` by reading the .exe's PE
     /// header; defaults to False (Win32) when only `LoadFromBytes`
@@ -135,6 +142,7 @@ type
     function  HandleEnumConstantRecord(var P: NativeInt): Boolean;
     procedure HandleEnumDefRecord(P: NativeInt);
     procedure HandleTypeRegistryRecord(P: NativeInt);
+    function  HandleUnitUseIntroRecord(var P: NativeInt): Boolean;
     procedure ScanSymbolStream;
   public
     constructor Create;
@@ -210,6 +218,9 @@ type
     property GlobalByName       : IKeyValue<String, UInt32> read FGlobalByName;
     property GlobalFileOffset   : IKeyValue<String, NativeInt> read FGlobalFileOffset;
     property GlobalVa           : IKeyValue<String, UInt32> read FGlobalVa;
+    /// §6.21 cross-unit symbol-import segments. See
+    /// <c>FUnitUseSegments</c> for the per-segment shape.
+    property UnitUseSegments    : IList<TRsmUnitUseSegment> read FUnitUseSegments;
     property EnumConstNames     : IKeyValue<String, String> read GetEnumConstNames;
     property EnumTypeIds        : IKeyValue<UInt32, Boolean> read GetEnumTypeIds;
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read GetCrossUnitEnumIds;
@@ -252,6 +263,7 @@ begin
   FGlobalByName     := Collections.NewPlainKeyValue<String, UInt32>;
   FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
   FGlobalVa         := Collections.NewPlainKeyValue<String, UInt32>;
+  FUnitUseSegments  := Collections.NewPlainList<TRsmUnitUseSegment>;
   FEnumDecoder      := TRsmEnumDecoder.Create;
   FStructDiscoverer := TRsmStructDiscoverer.Create(FClasses, FClassByName);
 end;
@@ -409,6 +421,7 @@ begin
   FGlobalByName.Clear;
   FGlobalFileOffset.Clear;
   FGlobalVa.Clear;
+  FUnitUseSegments.Clear;
   FEnumDecoder.Reset;
   FBuf := ABuf;
   FSz  := ASize;
@@ -1368,6 +1381,128 @@ begin
     UnitNameSparse, UInt32(P));
 end;
 
+function TRsmScanner.HandleUnitUseIntroRecord(var P: NativeInt): Boolean;
+// §6.21 cross-unit symbol-import segment introducer. Layout:
+//
+//   $64 <NL: u8> <UnitName> $00 $00 $00
+//   (
+//     $66 <NL: u8> <TypeName>   <4-byte LE RVA>
+//     $67 <NL: u8> <SymbolName> <4-byte LE RVA>
+//     $70 <NL: u8> <FileName>   <4-byte LE RVA>
+//   )*
+//   $63                                          <- SCOPE_END (optional)
+//
+// Structural anchor: the three trailing zero bytes immediately after
+// the unit name. Without them an incidental $64 byte inside another
+// record's payload would fire here, so we reject the open and fall
+// through to the dispatcher's single-byte advance.
+//
+// Each $66/$67/$70 entry's payload is a 4-byte little-endian RVA
+// into the canonical declaration's slot (matches the $2A entry body
+// bytes +3..+6 for $66, and the per-element +3 stride observed for
+// $67 enum-element siblings).
+//
+// Bail conditions inside the segment walk:
+//   * Hit $63 SCOPE_END -- normal close; consume the byte.
+//   * Hit a tag outside {$66, $67, $70, $63} -- segment ended without
+//     an explicit close (the next thing on the wire is some other
+//     record); leave P pointing at that byte, the outer dispatcher
+//     reroutes.
+//   * Inner entry's name length is out of [1..64] or name fails the
+//     printable-ASCII validator -- treat as the segment ending here
+//     (the same gracefulness the rest of the scanner has).
+//   * Payload all-zero ($00 $00 $00 $00) -- reject, to dodge false
+//     positives where a long zero run mimics the shape.
+//
+// Perf note: $64 is a VERY common byte value in real .rsm files
+// (TFW.rsm has tens of thousands of incidental $64 bytes inside
+// proc-address payloads, type-id bytes, ordinal slots, etc.). The
+// fast-reject path therefore uses direct PByte arithmetic instead
+// of going through ByteAt's call indirection, and bails as soon as
+// the length byte or the trailing-zero anchor disagrees. Only the
+// genuine anchors (a few thousand in TFW) go through the heavier
+// ReadIdentifier validator and the entry walk.
+const
+  REF_TYPE   = TRsmTag.UNIT_USE_TYPE;
+  REF_SYMBOL = TRsmTag.UNIT_USE_SYMBOL;
+  REF_FILE   = TRsmTag.UNIT_USE_FILE;
+var
+  NameLen: Byte;
+  UnitName: String;
+  Q       : NativeInt;
+  Seg     : TRsmUnitUseSegment;
+  Tag     : Byte;
+  EntryLen: Byte;
+  EntryName: String;
+  EntryPayloadOff: NativeInt;
+  Rva     : UInt32;
+  Ref     : TRsmUnitUseRef;
+  AnchorPtr: PByte;
+begin
+  Result := False;
+  if P + 5 >= FSz then Exit;
+  // Direct buffer access for the fast-reject path: 4 byte reads + a
+  // length-byte range check, all without method-call indirection.
+  NameLen := (FBuf + P + 1)^;
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  if P + 2 + Integer(NameLen) + 3 > FSz then Exit;
+  // The trailing three zero bytes are the structural anchor.
+  AnchorPtr := FBuf + P + 2 + NameLen;
+  if (AnchorPtr[0] <> $00) or (AnchorPtr[1] <> $00) or
+     (AnchorPtr[2] <> $00) then Exit;
+  // Past the fast-reject gate: validate the name with the standard
+  // printable-ASCII walker.
+  if not ReadIdentifier(P + 1, UnitName) then Exit;
+
+  Seg.UnitName    := UnitName;
+  Seg.StartOffset := NativeUInt(P);
+  Seg.Refs        := Collections.NewPlainList<TRsmUnitUseRef>;
+
+  Q := P + 2 + Integer(NameLen) + 3;
+  while Q + 1 < FSz do
+  begin
+    Tag := ByteAt(Q);
+    if Tag = TRsmTag.SCOPE_END then
+    begin
+      // Consume the SCOPE_END and stop.
+      Inc(Q);
+      Break;
+    end;
+    if (Tag <> REF_TYPE) and (Tag <> REF_SYMBOL) and (Tag <> REF_FILE) then
+      Break;
+    EntryLen := ByteAt(Q + 1);
+    if (EntryLen < 1) or (EntryLen > 64) then Break;
+    EntryPayloadOff := Q + 2 + Integer(EntryLen);
+    if EntryPayloadOff + 4 > FSz then Break;
+    if not ReadIdentifier(Q + 1, EntryName) then Break;
+    // Reject all-zero payload as a structural anchor for "this byte
+    // run isn't an entry, the segment ended one tag ago".
+    if (ByteAt(EntryPayloadOff)     = 0) and
+       (ByteAt(EntryPayloadOff + 1) = 0) and
+       (ByteAt(EntryPayloadOff + 2) = 0) and
+       (ByteAt(EntryPayloadOff + 3) = 0) then
+      Break;
+    Rva := UInt32(ByteAt(EntryPayloadOff))            or
+           (UInt32(ByteAt(EntryPayloadOff + 1)) shl 8)  or
+           (UInt32(ByteAt(EntryPayloadOff + 2)) shl 16) or
+           (UInt32(ByteAt(EntryPayloadOff + 3)) shl 24);
+    Ref.Name := EntryName;
+    Ref.Rva  := Rva;
+    case Tag of
+      REF_TYPE  : Ref.Kind := uukType;
+      REF_SYMBOL: Ref.Kind := uukSymbol;
+    else
+      Ref.Kind := uukFile;
+    end;
+    Seg.Refs.Add(Ref);
+    Q := EntryPayloadOff + 4;
+  end;
+
+  FUnitUseSegments.Add(Seg);
+  P := Q;
+  Result := True;
+end;
+
 procedure TRsmScanner.ScanSymbolStream;
 // Walk the RSM symbol stream and dispatch each record to its
 // per-tag handler. Handlers update P themselves when they
@@ -1396,6 +1531,7 @@ const
   ENUM_CONST_TAG    = TRsmTag.ENUM_CONST_TAG;
   TYPE_REGISTRY_TAG = TRsmTag.TYPE_REGISTRY_TAG;
   ENUM_DEF_TAG      = TRsmTag.ENUM_DEF_TAG;
+  UNIT_USE_INTRO    = TRsmTag.UNIT_USE_INTRO;
   SCOPE_END         = TRsmTag.SCOPE_END;
 var
   P  : NativeInt;
@@ -1435,6 +1571,8 @@ begin
         HandleEnumDefRecord(P);
       TYPE_REGISTRY_TAG:
         HandleTypeRegistryRecord(P);
+      UNIT_USE_INTRO:
+        if HandleUnitUseIntroRecord(P) then Continue;
       SCOPE_END:
         if FScanSeenLocalSinceProc then
         begin

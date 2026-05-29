@@ -225,6 +225,41 @@ type
     [Test]
     procedure TestRegisterParamEnumTypeIdNotTruncated32;
 
+    /// <summary>
+    ///   §6.21 pin: the cross-unit symbol-import segment introducer
+    ///   <c>$64 NL 'System' $00 $00 $00</c> opens a unit-use block
+    ///   whose <c>$66</c> type-references include common
+    ///   <c>System</c>-unit primitives that the Delphi linker
+    ///   unconditionally imports. We assert that the FIRST <c>System</c>
+    ///   segment in DebugTarget.rsm carries a <c>$66 'Boolean'</c>
+    ///   reference (one of the first entries in the segment) with the
+    ///   pinned canonical RVA <c>$62BC8138</c> -- the exact 4 bytes
+    ///   the linker emitted at offset +11 of the <c>$64 'System'</c>
+    ///   anchor (file offset 388467).
+    /// </summary>
+    [Test]
+    procedure TestUnitUseSegmentSystemIsDecoded;
+    /// <summary>
+    ///   §6.21 pin: <c>$67</c> symbol-reference payloads follow the
+    ///   +3 stride pattern across siblings of a single enum. We pin
+    ///   the <c>System.UITypes</c> <c>vk*</c> sequence: <c>vkLButton
+    ///   = $31E77DAF</c>, <c>vkRButton = $31E77DB2</c>, <c>vkCancel
+    ///   = $31E77DB5</c>. The conserved high bytes plus the +3 LSB
+    ///   stride are the structural finding from §6.20-Round-3.
+    /// </summary>
+    [Test]
+    procedure TestUnitUseSymbolReferencePayloadHasPlusThreeStride;
+    /// <summary>
+    ///   §6.21 leakage guard: a long byte run of <c>$64</c> bytes
+    ///   inside another record's payload must NOT spuriously open
+    ///   a segment. We pass a synthetic buffer whose <c>$64</c>
+    ///   byte is followed by a plausible name length but the three
+    ///   trailing zero anchor bytes are absent; the scanner must
+    ///   reject the shape and leave <c>UnitUseSegments</c> empty.
+    /// </summary>
+    [Test]
+    procedure TestUnitUseFalsePositiveRejection;
+
     {$IFDEF CPUX64}
     /// Win64 sanity. Same as TestProcsCollected32 but on the Win64
     /// fixture; structures are encoded differently (Win64 trailer
@@ -1477,6 +1512,158 @@ begin
              '(SCOPE_END) continuation tag, or the linker shifted the ' +
              'alias and the fixture needs re-pinning.',
              [TThreadPriorityAlias, PriId]));
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestUnitUseSegmentSystemIsDecoded;
+// §6.21 closure pin. Asserts the FIRST $64 'System' segment in
+// DebugTarget.rsm decodes with the expected unit name and that one
+// of its $66 type-references is 'Boolean' with the canonical 4-byte
+// RVA payload the linker emitted (file offset 388467 in the current
+// fixture).
+const
+  ExpectedRva: UInt32 = $62BC8138;
+var
+  S       : TRsmScanner;
+  I, J    : Integer;
+  Seg     : TRsmUnitUseSegment;
+  Ref     : TRsmUnitUseRef;
+  Found   : Boolean;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.UnitUseSegments.Count > 0,
+      'UnitUseSegments empty -- $64 introducer never decoded');
+    Found := False;
+    for I := 0 to S.UnitUseSegments.Count - 1 do
+    begin
+      Seg := S.UnitUseSegments[I];
+      if not SameText(Seg.UnitName, 'System') then Continue;
+      if Seg.Refs = nil then Continue;
+      for J := 0 to Seg.Refs.Count - 1 do
+      begin
+        Ref := Seg.Refs[J];
+        if (Ref.Kind = uukType) and SameText(Ref.Name, 'Boolean') then
+        begin
+          Assert.AreEqual<UInt32>(ExpectedRva, Ref.Rva,
+            Format('System.Boolean $66 payload must be the canonical ' +
+                   'RVA $%x; got $%x. A drift here means either the ' +
+                   'linker re-shuffled the imported RTL slot, or the ' +
+                   'scanner mis-aligned the 4-byte payload read.',
+                   [ExpectedRva, Ref.Rva]));
+          Found := True;
+          Break;
+        end;
+      end;
+      if Found then Break;
+    end;
+    Assert.IsTrue(Found,
+      'No $64 ''System'' segment with a $66 ''Boolean'' reference -- ' +
+      'either the segment anchor failed, or the entry walk bailed early.');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestUnitUseSymbolReferencePayloadHasPlusThreeStride;
+// §6.21 closure pin. The $67 symbol-reference payload bytes follow
+// the +3 LSB stride across siblings of a single enum -- the
+// signature §6.20-Round-3 used to identify the tag family. Pin
+// the System.UITypes vk* run: vkLButton, vkRButton, vkCancel are
+// consecutive elements of TVirtualKeyCode with explicit
+// VK_LBUTTON / VK_RBUTTON / VK_CANCEL ordinals.
+const
+  ExpectedVkLButton: UInt32 = $31E77DAF;
+  ExpectedVkRButton: UInt32 = $31E77DB2;
+  ExpectedVkCancel : UInt32 = $31E77DB5;
+var
+  S       : TRsmScanner;
+  I, J    : Integer;
+  Seg     : TRsmUnitUseSegment;
+  Ref     : TRsmUnitUseRef;
+  GotLButton, GotRButton, GotCancel: Boolean;
+  RvaL, RvaR, RvaC: UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    GotLButton := False; GotRButton := False; GotCancel := False;
+    RvaL := 0; RvaR := 0; RvaC := 0;
+    for I := 0 to S.UnitUseSegments.Count - 1 do
+    begin
+      Seg := S.UnitUseSegments[I];
+      if Seg.Refs = nil then Continue;
+      for J := 0 to Seg.Refs.Count - 1 do
+      begin
+        Ref := Seg.Refs[J];
+        if Ref.Kind <> uukSymbol then Continue;
+        if SameText(Ref.Name, 'vkLButton') then begin GotLButton := True; RvaL := Ref.Rva; end
+        else if SameText(Ref.Name, 'vkRButton') then begin GotRButton := True; RvaR := Ref.Rva; end
+        else if SameText(Ref.Name, 'vkCancel')  then begin GotCancel  := True; RvaC := Ref.Rva; end;
+      end;
+    end;
+    Assert.IsTrue(GotLButton and GotRButton and GotCancel,
+      Format('Missing $67 entries: vkLButton=%s vkRButton=%s vkCancel=%s',
+        [BoolToStr(GotLButton, True), BoolToStr(GotRButton, True),
+         BoolToStr(GotCancel, True)]));
+    Assert.AreEqual<UInt32>(ExpectedVkLButton, RvaL,
+      Format('vkLButton RVA mismatch: expected $%x, got $%x',
+        [ExpectedVkLButton, RvaL]));
+    Assert.AreEqual<UInt32>(ExpectedVkRButton, RvaR,
+      Format('vkRButton RVA mismatch: expected $%x, got $%x',
+        [ExpectedVkRButton, RvaR]));
+    Assert.AreEqual<UInt32>(ExpectedVkCancel, RvaC,
+      Format('vkCancel RVA mismatch: expected $%x, got $%x',
+        [ExpectedVkCancel, RvaC]));
+    // The +3 stride is the structural finding the decoder is built
+    // on; pin it.
+    Assert.AreEqual<UInt32>(UInt32(3), RvaR - RvaL,
+      'vkRButton - vkLButton must be +3 (enum-element LSB stride)');
+    Assert.AreEqual<UInt32>(UInt32(3), RvaC - RvaR,
+      'vkCancel - vkRButton must be +3 (enum-element LSB stride)');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestUnitUseFalsePositiveRejection;
+// §6.21 leakage guard. A $64 byte that ISN'T followed by the
+// `NL UnitName $00 $00 $00` anchor must NOT open a segment.
+// We synthesise a CSH7-magic buffer whose entire post-header
+// content is a $64 byte followed by content that violates the
+// anchor (no trailing zero triple). The scanner must leave
+// UnitUseSegments empty -- otherwise an incidental $64 byte in a
+// proc-address payload (the scenario the §6.20 Round-3 entry
+// describes) would spuriously open garbage segments.
+var
+  S     : TRsmScanner;
+  Buf   : TBytes;
+begin
+  SetLength(Buf, 64);
+  // CSH7 magic
+  Buf[0] := $43; Buf[1] := $53; Buf[2] := $48; Buf[3] := $37;
+  // Pretend $64 with name length 4 -- but the bytes AFTER the
+  // (would-be) name are NOT three zeros; they are random data.
+  Buf[4]  := $64;
+  Buf[5]  := $04;
+  Buf[6]  := Ord('F'); Buf[7] := Ord('o'); Buf[8] := Ord('o'); Buf[9] := Ord('!');
+  // The trailing three bytes after the name MUST be zero to anchor;
+  // we make them nonzero to test rejection.
+  Buf[10] := $AB; Buf[11] := $CD; Buf[12] := $EF;
+  // Fill rest with arbitrary bytes that are NOT in the ref-tag set
+  // so the dispatcher just walks them away.
+  for var I := 13 to High(Buf) do
+    Buf[I] := Byte(I);
+
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromBytes(Buf);
+    Assert.AreEqual<Integer>(0, S.UnitUseSegments.Count,
+      'Synthetic $64 without the $00 $00 $00 anchor opened a segment ' +
+      '-- the structural anchor rejection regressed.');
   finally
     S.Free;
   end;

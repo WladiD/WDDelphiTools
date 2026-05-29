@@ -213,6 +213,53 @@ type
   end;
 
   /// <summary>
+  ///   Kind of a cross-unit reference entry inside a §6.21
+  ///   <c>$64</c> unit-use segment: a type reference (<c>$66</c>),
+  ///   a symbol reference (<c>$67</c>) such as an enum element or
+  ///   a procedure / method, or a source-file reference
+  ///   (<c>$70</c>) carrying the imported unit's <c>.pas</c> /
+  ///   <c>.inc</c> file name. The three kinds share a common
+  ///   wire layout (<c>tag NL Name 4-byte-RVA</c>) but differ in
+  ///   what the name space resolves to.
+  /// </summary>
+  TRsmUnitUseKind = (uukType, uukSymbol, uukFile);
+
+  /// <summary>
+  ///   A single reference entry inside a §6.21 unit-use segment.
+  ///   <c>Rva</c> is the canonical declaration's image RVA -- for
+  ///   a <c>$66 'TLandTyp'</c> entry it equals the bytes at
+  ///   <c>+3..+6</c> of the canonical <c>$2A 'TLandTyp'</c>
+  ///   registry entry body; for <c>$67 'ltInland'</c> it identifies
+  ///   the enum element's slot. The decoder exposes the payload
+  ///   raw -- consumers (e.g. the §6.20 follow-up TAd.Land
+  ///   binding) decide how to map it back to a primary id.
+  /// </summary>
+  TRsmUnitUseRef = record
+    Kind: TRsmUnitUseKind;
+    Name: String;
+    Rva : UInt32;
+  end;
+
+  /// <summary>
+  ///   One <c>$64</c> cross-unit symbol-import segment (§6.21):
+  ///   the imported unit's name plus the ordered list of type /
+  ///   symbol / source-file references appearing between this
+  ///   <c>$64</c> introducer and the next <c>$63 SCOPE_END</c>
+  ///   (or the next non-{$66/$67/$70} byte that ends the run
+  ///   without an explicit close).
+  ///   The <c>StartOffset</c> is the file offset of the <c>$64</c>
+  ///   tag itself -- consumers (the §6.20 closure path being one)
+  ///   use it to associate a segment with an enclosing scope by
+  ///   file-offset proximity (the same pattern §6.10's BlockOwner
+  ///   walk and the §6.9 nearest-$2A bridge already use).
+  /// </summary>
+  TRsmUnitUseSegment = record
+    UnitName   : String;
+    StartOffset: NativeUInt;
+    Refs       : IList<TRsmUnitUseRef>;
+  end;
+
+  /// <summary>
   ///   Tag-byte constants used by the RSM symbol-stream scanner. Kept
   ///   together as a record-of-constants so the scanner and the
   ///   tests refer to one canonical set of values; the previous code
@@ -268,6 +315,28 @@ type
     /// (byte +7..+8) for field-backed properties, or points at a
     /// method otherwise.
     PROPERTY_TAG     = $31;
+    /// Cross-unit symbol-import segment introducer (§6.21). Opens a
+    /// per-unit symbol-import block:
+    ///   $64 &lt;NL&gt; &lt;UnitName&gt; $00 $00 $00
+    /// followed by zero or more $66 / $67 / $70 reference entries,
+    /// closed by $63 SCOPE_END (or end-of-block).
+    UNIT_USE_INTRO   = $64;
+    /// Cross-unit type reference (§6.21). One per imported type
+    /// referenced inside the surrounding $64 segment:
+    ///   $66 &lt;NL&gt; &lt;TypeName&gt; &lt;4-byte LE RVA&gt;
+    /// The 4-byte payload is the canonical declaration's image RVA
+    /// (matches the $2A &lt;TypeName&gt; entry's body bytes +3..+6).
+    UNIT_USE_TYPE    = $66;
+    /// Cross-unit symbol reference (§6.21). Enum elements, procs,
+    /// methods imported by the surrounding $64 segment:
+    ///   $67 &lt;NL&gt; &lt;SymbolName&gt; &lt;4-byte LE RVA&gt;
+    /// Same payload shape as $66; siblings of a single enum carry
+    /// payloads stepping by +3 across the ordinals.
+    UNIT_USE_SYMBOL  = $67;
+    /// Cross-unit source-file reference (§6.21). Sits adjacent to
+    /// $64 blocks and carries the imported unit's source-file name:
+    ///   $70 &lt;NL&gt; &lt;FileName.pas|.inc&gt; &lt;4-byte LE RVA&gt;
+    UNIT_USE_FILE    = $70;
     /// CSH7 file-header signature: 'CSH7' on disk in LE byte order.
     SigCSH7          = UInt32($37485343);
   end;

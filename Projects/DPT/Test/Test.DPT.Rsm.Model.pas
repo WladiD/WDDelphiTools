@@ -68,6 +68,10 @@ begin
   Assert.AreEqual<Byte>($2A, TRsmTag.TYPE_REGISTRY_TAG,'TYPE_REGISTRY_TAG');
   Assert.AreEqual<Byte>($0E, TRsmTag.RECORD_SENTINEL,  'RECORD_SENTINEL');
   Assert.AreEqual<Byte>($63, TRsmTag.SCOPE_END,        'SCOPE_END');
+  Assert.AreEqual<Byte>($64, TRsmTag.UNIT_USE_INTRO,   'UNIT_USE_INTRO');
+  Assert.AreEqual<Byte>($66, TRsmTag.UNIT_USE_TYPE,    'UNIT_USE_TYPE');
+  Assert.AreEqual<Byte>($67, TRsmTag.UNIT_USE_SYMBOL,  'UNIT_USE_SYMBOL');
+  Assert.AreEqual<Byte>($70, TRsmTag.UNIT_USE_FILE,    'UNIT_USE_FILE');
   // 'CSH7' little-endian DWORD on disk.
   Assert.AreEqual<UInt32>($37485343, TRsmTag.SigCSH7, 'SigCSH7');
 end;
