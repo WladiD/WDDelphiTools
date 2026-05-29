@@ -53,6 +53,19 @@ type
       FClassByName        : IKeyValue<String, Integer>;
       FRsmTypeIdToClassIdx: IKeyValue<UInt32, Integer>;
       FTypeIdByName       : IKeyValue<String, UInt32>;
+      /// Maps the raw 2-byte id of a Delphi pointer alias (e.g.
+      /// <c>PMixedRec</c>, <c>PAd</c>) to the <c>TRsmClassInfo.TypeIdx</c>
+      /// of the record it points at. Built by <see cref="ScanTypeRegistry"/>
+      /// via the strict <c>P&lt;X&gt; = ^T&lt;X&gt;</c> naming
+      /// convention (alias starts with 'P' + uppercase letter; target
+      /// derived as <c>T</c> + alias.Substring(1)). Consumed by
+      /// <see cref="LinkFieldsFromFormatA"/> to populate
+      /// <c>Member.PointerTargetTypeIdx</c> for pointer-to-record
+      /// fields whose <c>FieldId</c> resolves to a P-alias instead of
+      /// a class. The §6.19 closure depends on this -- without it the
+      /// dotted-walk evaluator falls back to the §6.18 name-based
+      /// record search, which bails on ambiguous member names.
+      FAliasToTargetTypeIdx: IKeyValue<UInt32, UInt32>;
       /// Format-A-confirmed (classIdx, field-name) pairs. The backward
       /// Format-B scan over-collects field candidates from neighbouring
       /// class declarations because its window is fixed, so we keep an
@@ -104,6 +117,33 @@ type
     procedure ScanTypeRegistry;
     procedure LinkFieldsFromFormatA;
     procedure PruneSpuriousMembers;
+    /// <summary>
+    ///   §6.19 closure pass for fields the <c>$2C</c> linker never
+    ///   sees. TFW's strict-private F-prefixed instance fields (e.g.
+    ///   <c>TFormAd.FAd: PAd</c>) are NOT emitted as $2C records --
+    ///   only the backward Format-B scan picks them up, and that
+    ///   carries no type information. Without this pass
+    ///   <c>Member.PointerTargetTypeIdx</c> stays 0 for every such
+    ///   field, the dotted-walk falls into the §6.18 name-based
+    ///   record fallback, and the fallback's unique-match guard
+    ///   bails whenever the next segment is ambiguous (TFW's
+    ///   <c>Land</c> on TAd plus Anschrift siblings).
+    ///
+    ///   The bridge uses Delphi's strict <c>F&lt;X&gt;:P&lt;X&gt;</c>
+    ///   convention plus the $2A registry as ground truth: for
+    ///   every member where <c>TypeIdx = 0</c> AND
+    ///   <c>PrimitiveTypeId = 0</c> AND
+    ///   <c>PointerTargetTypeIdx = 0</c> AND name starts with
+    ///   <c>F</c> + uppercase, look up <c>P&lt;X&gt;</c> in
+    ///   <c>FTypeIdByName</c> (the $2A registry's name index). A hit
+    ///   means the field's declared type is a pointer alias; bind
+    ///   <c>PointerTargetTypeIdx</c> to <c>T&lt;X&gt;</c>'s class
+    ///   index. The combined F-name + P-alias-exists condition is
+    ///   what keeps this from over-binding (FName: AnsiString,
+    ///   FCount: Integer, etc. have no matching P-alias in the
+    ///   registry and are left alone).
+    /// </summary>
+    procedure BindPointerAliasMembersByNameConvention;
   public
     constructor Create(
       AClasses             : IList<TRsmClassInfo>;
@@ -500,9 +540,10 @@ begin
   // jump directly to the next $2A tag instead of incrementing
   // 858M times in Pascal (a half-second tag-hunt becomes
   // microseconds). Records whose first name character isn't 'T'
-  // are rejected via a single byte peek before we ever build a
-  // String, since the registry only carries Delphi class /
-  // record names which all start with 'T'.
+  // (Delphi class/record convention) or 'P' (pointer-alias
+  // convention -- §6.19 closure path) are rejected via a single
+  // byte peek before we ever build a String; everything else is
+  // incidental $2A noise.
   P := 0;
   while P + 12 < FSz do
   begin
@@ -520,7 +561,7 @@ begin
     NL := ByteAt(P + 1);
     if (NL >= 2) and (NL <= 40) and
        (P + 2 + NL + 5 < FSz) and
-       (ByteAt(P + 2) = Byte(Ord('T'))) and
+       ((ByteAt(P + 2) = Byte(Ord('T'))) or (ByteAt(P + 2) = Byte(Ord('P')))) and
        (ByteAt(P + 2 + NL + 1) = $00) and
        (ByteAt(P + 2 + NL + 2) = $00) and
        ReadIdentifier(P + 1, Name) then
@@ -529,7 +570,27 @@ begin
       Id.Hi := ByteAt(P + 2 + NL + 4);
       ClsIdx := FindClassIdxByName(Name);
       if ClsIdx >= 0 then
-        FRsmTypeIdToClassIdx[RawIdKey(Id)] := ClsIdx;
+        FRsmTypeIdToClassIdx[RawIdKey(Id)] := ClsIdx
+      else if (Length(Name) >= 2) and (Name[1] = 'P') and
+              CharInSet(Name[2], ['A'..'Z']) then
+      begin
+        // §6.19 pointer-alias binding. The strict Delphi convention
+        // `P<X> = ^T<X>` means the name "PAd" / "PMixedRec" /
+        // "PAmbig619Target" identifies the alias and the target
+        // record's name is just "T" + suffix-after-P. Look up the
+        // target class and record the mapping under the alias's raw
+        // id so LinkFieldsFromFormatA can populate
+        // Member.PointerTargetTypeIdx for pointer-to-record fields.
+        // FRsmTypeIdToClassIdx is intentionally NOT touched here --
+        // a pointer-to-record field's TypeIdx must stay 0 so the
+        // dotted-walk knows it has to dereference before the record-
+        // hop (an inline record field, in contrast, has TypeIdx set
+        // and needs no deref).
+        var TargetName: String := 'T' + Copy(Name, 2, MaxInt);
+        ClsIdx := FindClassIdxByName(TargetName);
+        if ClsIdx >= 0 then
+          FAliasToTargetTypeIdx[RawIdKey(Id)] := FClasses[ClsIdx].TypeIdx;
+      end;
       // Also record the (name, typeId) pair regardless of whether
       // the name matches a class in FClasses. The name-based enum
       // resolver in AutoDetectFormatterName uses this to translate
@@ -686,6 +747,21 @@ begin
         FieldIdx := FindClassIdxForRawId(FieldId);
         if FieldIdx >= 0 then
           Member.TypeIdx := FClasses[FieldIdx].TypeIdx
+        // §6.19: the field's type id is a Delphi pointer alias
+        // bound via the P<X>=^T<X> convention during ScanTypeRegistry.
+        // Record the dereference target so the dotted-walk evaluator
+        // can route the next segment straight into the record-hop
+        // branch (with a deref) instead of the §6.18 name-based
+        // fallback (whose unique-match guard bails on ambiguous
+        // member names like TFW's Land).
+        else if FAliasToTargetTypeIdx.TryGetValue(RawIdKey(FieldId),
+                  Member.PointerTargetTypeIdx) then
+        begin
+          // Nothing else to set -- Member.TypeIdx stays 0 (so the
+          // walker still differentiates pointer-to-record from
+          // inline record), and Member.PointerTargetTypeIdx now
+          // carries the target record's TypeIdx.
+        end
         else
         begin
           var BodyLen: Integer := EndOff - After;
@@ -804,17 +880,82 @@ begin
   end;
 end;
 
+procedure TRsmFormatALinker.BindPointerAliasMembersByNameConvention;
+var
+  Member  : TRsmClassMember;
+  N       : String;
+  Suffix  : String;
+  PAliasId: UInt32;
+  Aliased : UInt32;
+  TargetIx: Integer;
+  Ci, Mi  : Integer;
+begin
+  // §6.19 closure for the path Format-A's $2C scanner does not
+  // see: TFW's strict-private F-prefixed instance fields (e.g.
+  // TFormAd.FAd: PAd) are only captured by the backward Format-B
+  // scan, which carries no type information. This pass bridges
+  // that gap via the F<X>:P<X> Delphi naming convention plus the
+  // $2A registry as ground truth. See the interface declaration
+  // for the predicate details.
+  for Ci := 0 to FClasses.Count - 1 do
+    for Mi := 0 to FClasses[Ci].Members.Count - 1 do
+    begin
+      Member := FClasses[Ci].Members[Mi];
+      if (Member.TypeIdx <> 0) or (Member.PrimitiveTypeId <> 0) or
+         (Member.PointerTargetTypeIdx <> 0) then
+        Continue;
+      N := Member.Name;
+      if (Length(N) < 2) or (N[1] <> 'F') or
+         not CharInSet(N[2], ['A'..'Z']) then
+        Continue;
+      Suffix := Copy(N, 2, MaxInt);  // 'FAd' -> 'Ad'
+      // The field's declared type must be the P-alias for the
+      // strip-and-prepend-T mapping to be safe. Asking the $2A
+      // registry directly: is there a "P<suffix>" $2A entry whose
+      // raw id we captured?
+      if not FTypeIdByName.TryGetValue(LowerCase('P' + Suffix), PAliasId) then
+        Continue;
+      // The alias must have been bound to T<suffix> during
+      // ScanTypeRegistry. If not, the convention doesn't hold for
+      // this entry and we leave the member alone (rather than
+      // guess wrong).
+      if not FAliasToTargetTypeIdx.TryGetValue(PAliasId, Aliased) then
+        Continue;
+      // Last sanity: the target must still exist as a class/record
+      // in the current FClasses snapshot.
+      TargetIx := FindRecordAtOffset(Aliased);
+      if TargetIx < 0 then
+      begin
+        // Fall back to a direct TypeIdx scan -- FindRecordAtOffset
+        // only covers skRecord entries built into the offset index,
+        // and we want a class-or-record match either way.
+        var Found: Boolean := False;
+        for var Ti := 0 to FClasses.Count - 1 do
+          if FClasses[Ti].TypeIdx = Aliased then
+          begin
+            Found := True;
+            Break;
+          end;
+        if not Found then Continue;
+      end;
+      Member.PointerTargetTypeIdx := Aliased;
+      FClasses[Ci].Members[Mi] := Member;
+    end;
+end;
+
 procedure TRsmFormatALinker.Run(ABuf: PByte; ASz: NativeInt);
 begin
   FBuf := ABuf;
   FSz  := ASz;
   if (FBuf = nil) or (FSz < 8) then Exit;
   FConfirmed := Collections.NewPlainKeyValue<String, Boolean>;
+  FAliasToTargetTypeIdx := Collections.NewPlainKeyValue<UInt32, UInt32>;
   ScanTypeRegistry;
   BuildRecordOffsetIndex;
   BuildBlockOwnerIndex;
   LinkFieldsFromFormatA;
   PruneSpuriousMembers;
+  BindPointerAliasMembersByNameConvention;
 end;
 
 end.

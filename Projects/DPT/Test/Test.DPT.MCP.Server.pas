@@ -89,6 +89,8 @@ type
     [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
+    procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
+    [Test]
     procedure TestMcpEvaluateMultiLevelInheritedField;
     [Test]
     procedure TestMcpEvaluateRtlInheritedField;
@@ -2512,6 +2514,86 @@ begin
       'Self.FRecPtr.FMixedInt must equal 523124044 ($1F2E3D4C) via ' +
       'pointer-to-record deref. Currently fails because the dotted ' +
       'walk lacks the deref+record-hop step (§6.18). Got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.19 GAP isolation pin: pointer-to-record dotted walk against a
+///   member name that appears on MULTIPLE records. The §6.18 closure
+///   recovers `Self.FRecPtr.FMixedInt` because <c>FMixedInt</c> is
+///   unique to <c>TMixedRec</c>, so the name-based fallback's
+///   unique-match guard succeeds with <c>FbMatchCount = 1</c>. Real-
+///   world chains aren't that clean: TFW's <c>TFormAd.FAd.Land</c>
+///   fails because <c>Land</c> is declared on <c>TAd</c> AND on
+///   several Anschrift-style sibling records.
+///
+///   This fixture mirrors the TFW case in miniature: both
+///   <c>TAmbig619Target</c> and <c>TAmbig619Sibling</c> declare
+///   <c>FShared619</c>. The target's sentinel is <c>$19191919</c>
+///   (= 421075225), the sibling's is <c>$DEADBEEF</c> (= -559038737,
+///   poison) -- a wrong-record pick would flip the value visibly.
+///
+///   Closure path: Format-A linker captures the pointer-alias's name
+///   from its <c>$2A</c> registry entry, strips the leading <c>P</c>,
+///   resolves the result to the target class's <c>TypeIdx</c>, and
+///   populates the pointer field's <c>Member.TypeIdx</c> with that
+///   value. The dotted walk's next-iteration context priming
+///   (line 2957 in DPT.Debugger.pas) then routes straight into the
+///   record-hop branch (line 2851) and never reaches the §6.18
+///   fallback -- so the ambiguity-guard is bypassed entirely.
+///
+///   Win32-only like the sibling §6.18 pin (§6.17 Win64 proc-
+///   boundary off-by-one prevents reliable live debugging on Win64).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateAmbiguousMemberNameDisambiguation;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 715);
+  try
+    // Sanity: VMT walk inside TAmbig619Host.Probe resolves Self.
+    Line := Fixture.Eval('Self', 'object');
+    Assert.IsTrue(Line.Contains('TAmbig619Host'),
+      'Self must report TAmbig619Host, got: ' + Line);
+
+    // Single-hop: Self.FAmbig619Ptr resolves to the pointer value
+    // (non-zero, address of GGlobalAmbig619Target). Relies on the
+    // §4.2 + §6.16 fixes and must already pass.
+    Line := Fixture.Eval('Self.FAmbig619Ptr', 'int');
+    Assert.IsFalse(Line.Contains('Failed to evaluate'),
+      'Self.FAmbig619Ptr must resolve (single hop), got: ' + Line);
+    Assert.IsFalse(Line.Contains(': 0'),
+      'Self.FAmbig619Ptr must be non-zero (points at ' +
+      'GGlobalAmbig619Target), got: ' + Line);
+
+    // §6.19 CHAIN: deref the pointer-to-record and read FShared619.
+    // Target sentinel = $19191919 = 421075225. Currently FAILS because
+    // FShared619 also exists on TAmbig619Sibling, so the §6.18
+    // unique-match guard bails with FbMatchCount = 2. Flips green
+    // once the Format-A linker binds the pointer field's Member.TypeIdx
+    // to TAmbig619Target (via the P->T alias name strip).
+    Line := Fixture.Eval('Self.FAmbig619Ptr.FShared619', 'int');
+    Assert.IsTrue(Line.Contains('421075225'),
+      'Self.FAmbig619Ptr.FShared619 must equal 421075225 ($19191919) ' +
+      'via pointer-to-target-record deref. Currently fails because ' +
+      'the §6.18 name-based fallback bails on the ambiguous member ' +
+      'name (FShared619 on both target + sibling records). Got: ' + Line);
+
+    // Leakage guard: assert the result is NOT the sibling's poison
+    // sentinel. Even after the fix lands, if the alias->target binding
+    // accidentally picks the sibling record, the live read would
+    // return $DEADBEEF (-559038737) instead of $19191919.
+    Assert.IsFalse(Line.Contains('-559038737'),
+      'Self.FAmbig619Ptr.FShared619 must NOT resolve to the sibling ' +
+      'record TAmbig619Sibling''s poison sentinel $DEADBEEF -- ' +
+      'that would mean the alias->target binding picked the wrong ' +
+      'record. Got: ' + Line);
   finally
     Fixture.Free;
   end;

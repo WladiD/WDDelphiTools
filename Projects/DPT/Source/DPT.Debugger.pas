@@ -2918,12 +2918,15 @@ begin
             // Pinned by
             // Test.DPT.MCP.Server.TestMcpEvaluateClassFieldPointerToRecordDeref.
             //
-            // Ambiguous case (a field name appears in multiple
-            // records, e.g. TFW's `Land` on TAd plus several
-            // Anschrift-style records) intentionally bails so the
-            // fallback never silently picks the wrong record. That
-            // remaining ambiguity is the open follow-up tracked in
-            // the next-step note at the end of §6.18.
+            // §6.19 closure: for canonical Delphi pointer aliases
+            // (P<X>=^T<X>) the inter-segment context priming binds
+            // Member.PointerTargetTypeIdx directly to the target
+            // record's TypeIdx, so this fallback is no longer the
+            // primary path -- the new branch above bypasses it
+            // entirely. This fallback now serves as the backup for
+            // non-canonical aliases (e.g. PFoo = ^TBar that breaks
+            // the strict naming convention); the unique-match guard
+            // still protects those from silent wrong-record picks.
             if ObjPtr = 0 then Exit;
             var FbFoundIdx  : Integer := -1;
             var FbMatchCount: Integer := 0;
@@ -2955,8 +2958,40 @@ begin
         // or a class (class-hop next); built-in-typed terminal
         // fields have TypeIdx = 0 and the loop just exits with
         // FieldAddr pointing at their bytes.
-        if (Member.TypeIdx <> 0) and
-           (FLocalsReader.FindStructByTypeIdx(Member.TypeIdx) >= 0) then
+        //
+        // §6.19 pointer-to-record short-circuit. When the just-
+        // resolved field is a pointer-to-record bound via the
+        // P<X>=^T<X> convention (Format-A linker populated
+        // Member.PointerTargetTypeIdx, Member.TypeIdx stayed 0),
+        // dereference FieldAddr in place so the next iteration's
+        // record-hop branch operates on the pointed-to record's
+        // base address. This bypasses the §6.18 name-based
+        // fallback (whose unique-match guard bails on member-name
+        // collisions like TFW's Land on multiple records) and
+        // produces a deterministic record-hop driven by the alias's
+        // declared target type.
+        //
+        // Only deref when the current segment is NOT terminal --
+        // the deref is purely there to prime the NEXT iteration's
+        // record-hop. Doing it on the last segment would point
+        // FieldAddr at the dereferenced record's base instead of
+        // the field's slot, and the post-loop ReadProcessMemory
+        // would then read the record's first bytes for a
+        // user-typed read of the pointer itself (so
+        // `evaluate Self.FAd (int)` would return the record's
+        // first DWORD instead of the FAd pointer value).
+        if (I < High(Segments)) and
+           (Member.PointerTargetTypeIdx <> 0) and
+           (FLocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx) >= 0) then
+        begin
+          var PtrVal: UIntPtr := ReadTargetPointer(FieldAddr);
+          if PtrVal = 0 then Exit;
+          FieldAddr := Pointer(PtrVal);
+          PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx);
+          ContextIsRecord := True;
+        end
+        else if (Member.TypeIdx <> 0) and
+                (FLocalsReader.FindStructByTypeIdx(Member.TypeIdx) >= 0) then
         begin
           PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.TypeIdx);
           ContextIsRecord :=

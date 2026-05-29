@@ -154,6 +154,23 @@ type
     procedure TestTfwClassInstanceFieldResolves;
 
     /// <summary>
+    ///   §6.19 closure pin: TFormAd.FAd's
+    ///   <c>Member.PointerTargetTypeIdx</c> must resolve to the
+    ///   <c>TAd</c> record after the Format-A linker's pointer-alias
+    ///   bridge runs (the <c>BindPointerAliasMembersByNameConvention</c>
+    ///   pass). TFW exposes the §6.19 closure path the small
+    ///   DebugTarget fixture can't: strict-private F-prefix fields
+    ///   on a class have NO <c>$2C</c> record in TFW.rsm, so the
+    ///   binding has to fire via the F-name + matching P-alias
+    ///   convention rather than via the $2C linker. Without the
+    ///   convention bridge, <c>evaluate Self.FAd.Land</c> falls into
+    ///   the §6.18 name-based record fallback and bails on the
+    ///   <c>Land</c>-on-TAd-and-Anschrift-siblings ambiguity.
+    /// </summary>
+    [Test]
+    procedure TestTfwPointerAliasFAdBindsToTAd;
+
+    /// <summary>
     ///   Pin test for §6.4 (originally "elaborate record header,
     ///   TAppCaps-style nested sub-record shape" -- refuted). The
     ///   simple-shape record header documented in §4.13 covers every
@@ -747,6 +764,56 @@ begin
   Assert.IsFalse(FReader.FindClassMember('TFormAd', 'FPriorityInfoGUID', M),
     '§6.16 leakage guard: FPriorityInfoGUID belongs to the TAdPriorityInfo ' +
     'helper, not TFormAd -- it must not leak in after the cap raise.');
+end;
+
+procedure TRsmTfwTests.TestTfwPointerAliasFAdBindsToTAd;
+// §6.19 closure pin against TFW.rsm. The fix has three pieces:
+//   1. ScanTypeRegistry captures P-prefix $2A entries (relaxed
+//      first-byte filter from 'T' only to 'T' or 'P').
+//   2. FAliasToTargetTypeIdx[PAd_id] = TAd.TypeIdx via the strict
+//      P<X> = ^T<X> name-stripping convention.
+//   3. BindPointerAliasMembersByNameConvention populates
+//      Member.PointerTargetTypeIdx for TFormAd.FAd via the F-name
+//      bridge (FAd has no $2C record in TFW so the $2C-driven path
+//      that closes DebugTarget can't see it).
+//
+// If this pin fails, the message names which piece broke. The
+// DebugTarget sibling
+// Test.DPT.MCP.Server.TestMcpEvaluateAmbiguousMemberNameDisambiguation
+// covers the $2C path with a poison-sentinel leakage guard.
+var
+  M       : TRsmClassMember;
+  TAdIdx  : Integer;
+  StructIx: Integer;
+begin
+  if ShouldSkip then Exit;
+
+  TAdIdx := FReader.FindClassByName('TAd');
+  Assert.IsTrue(TAdIdx >= 0,
+    'TAd must be discovered as a record/class for the §6.19 binding ' +
+    'to work. -1 means StructDiscoverer regressed on TFW.');
+
+  Assert.IsTrue(FReader.FindTypeIdByName('PAd') <> 0,
+    'ScanTypeRegistry must capture the PAd $2A entry (relaxed ' +
+    'first-byte filter). 0 means the P-prefix gate regressed.');
+
+  Assert.IsTrue(FReader.FindClassMember('TFormAd', 'FAd', M),
+    'TFormAd.FAd must be captured (closed by §6.16). Without it ' +
+    'the §6.19 bridge has nothing to bind.');
+  Assert.AreNotEqual<UInt32>(0, M.PointerTargetTypeIdx,
+    'TFormAd.FAd.PointerTargetTypeIdx must be populated by the ' +
+    'BindPointerAliasMembersByNameConvention pass (FAd has no ' +
+    '$2C record in TFW, so the $2C-driven path can''t close this).');
+  StructIx := FReader.FindStructByTypeIdx(M.PointerTargetTypeIdx);
+  Assert.AreEqual(TAdIdx, StructIx,
+    'TFormAd.FAd.PointerTargetTypeIdx must resolve back to the ' +
+    'same TAd index FindClassByName returns. A mismatch means the ' +
+    'P-alias bridge picked a different record than the FClasses ' +
+    'lookup.');
+  Assert.AreEqual(skRecord, FReader.Classes[StructIx].Kind,
+    'TFormAd.FAd''s target type must be a record (skRecord). ' +
+    'Anything else means the strip-P-prepend-T convention bound ' +
+    'to the wrong shape.');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

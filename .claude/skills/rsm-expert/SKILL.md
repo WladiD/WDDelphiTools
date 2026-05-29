@@ -188,7 +188,28 @@ new shape, fix a misparse, or change the meaning of a captured field:
   `TestRsmFilePresent` is the guard.
 - **Always build via the project's batch files**, not raw
   `msbuild`. The batches drive the same RECENT-based build host the
-  user uses, so any failure you see is the failure they will see:
+  user uses, so any failure you see is the failure they will see.
+  **Capture full output to a file, then filter the file** — never
+  re-run the BuildAndRun batch just to look at output you missed.
+  Both BuildAndRun batches take ≥2 minutes (Win32 + Win64 builds
+  + TFW.rsm load); shell pipes truncate at 30000 chars so the
+  important earlier summary line (Win32) is silently dropped while
+  the last one (Win64) survives. Pattern:
+
+  ```
+  cmd.exe /c _Test.DptDebugger.BuildAndRun.bat > /tmp/r.log 2>&1
+  grep -E 'Tests Found|Tests Failed|Tests Passed|Tests Errored|error E|Build (successful|failed)|Gefundene Tests|Bestandene Tests|Fehlgeschlagene Tests|Fehlerhafte Tests' /tmp/r.log
+  grep -B2 -A20 'Failures|Failed Tests|Fehlgeschlagen' /tmp/r.log   # if any failure surfaces
+  ```
+
+  DUnitX prints the per-platform summary in the SYSTEM LOCALE: on a
+  German Windows the first platform's block is `Gefundene Tests` /
+  `Bestandene Tests` / `Fehlgeschlagene Tests`, the second is the
+  English `Tests Found` / `Tests Passed` / `Tests Failed`. A grep
+  pattern that only looks for English silently drops one platform.
+
+  Re-greps off the same file are free; the batch run is the cost.
+  Same lesson applies to any expensive build/test/realtest run:
     * [Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat](../../../Projects/DPT/Test/_Test.DptDebugger.BuildAndRun.bat)
       — builds + runs **both Win32 and Win64** in sequence. Use as
       the final pre-commit check.
@@ -735,8 +756,8 @@ change without a test is.
   bugs.
 - Don't tighten the `IsPrintableAscii` charset without checking the
   whole identifier alphabet (dotted names, generics with `<>` and
-  `,`, `$ActRec` closures, `@`-aliases). The current charset is
-  documented in [DPT.Rsm.BufferIO.pas:74-98](../../../Projects/DPT/Source/DPT.Rsm.BufferIO.pas#L74-L98).
+  `,`, `$ActRec` closures, `@`-aliases). The current charset is in
+  [DPT.Rsm.BufferIO.pas](../../../Projects/DPT/Source/DPT.Rsm.BufferIO.pas) — `RsmIsPrintableAscii` (impl) and `RsmReadIdentifier` (the validator that calls it per-byte).
 - Don't change `TRsmTag` constants. Their values are wire-format —
   `Test.DPT.Rsm.Model.TestTagConstants` pins each one and a typo
   silently breaks every dispatch.
@@ -751,30 +772,30 @@ change without a test is.
 
 ## Quick-reference pointers
 
-Tag dispatch dispatcher: [DPT.Rsm.Scanner.pas:1069-1146](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L1069-L1146)
+Tag dispatch dispatcher: [DPT.Rsm.Scanner.pas `ScanSymbolStream`](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas)
 
-Per-tag handlers:
+Per-tag handlers (all in [DPT.Rsm.Scanner.pas](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas) unless noted; jump via "Go to symbol" in the IDE):
 
-| Tag    | Handler                                                                                                |
-|--------|--------------------------------------------------------------------------------------------------------|
-| `$28`  | `HandleProcRecord` + `DecodeProcAddrPayload` ([Scanner.pas:342-522](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L342-L522)) |
-| `$22`  | `HandleParamRecord` ([Scanner.pas:524-584](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L524-L584))                          |
-| `$21`  | `HandleRegVarRecord` ([Scanner.pas:586-625](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L586-L625))                         |
-| `$20`  | `HandleLocalRecord` ([Scanner.pas:627-713](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L627-L713)) / `HandleModuleGlobalLocalTagRecord` ([715-737](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L715-L737)) |
-| `$27`  | `HandleGlobalPrimRecord` ([Scanner.pas:739-789](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L739-L789))                      |
-| `$25`  | `HandleEnumConstantRecord` ([Scanner.pas:791-915](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L791-L915))                   |
-| `$03`  | `HandleEnumDefRecord` ([Scanner.pas:917-997](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L917-L997))                        |
-| `$2A`  | `HandleTypeRegistryRecord` ([Scanner.pas:999-1067](../../../Projects/DPT/Source/DPT.Rsm.Scanner.pas#L999-L1067)) + `ScanTypeRegistry` ([FormatALinker.pas:458-513](../../../Projects/DPT/Source/DPT.Rsm.FormatALinker.pas#L458-L513)) |
-| `$2C`  | `LinkFieldsFromFormatA` ([FormatALinker.pas:515-707](../../../Projects/DPT/Source/DPT.Rsm.FormatALinker.pas#L515-L707))           |
+| Tag    | Handler                                                                       |
+|--------|-------------------------------------------------------------------------------|
+| `$28`  | `HandleProcRecord` + `DecodeProcAddrPayload`                                  |
+| `$22`  | `HandleParamRecord`                                                           |
+| `$21`  | `HandleRegVarRecord`                                                          |
+| `$20`  | `HandleLocalRecord` / `HandleModuleGlobalLocalTagRecord`                      |
+| `$27`  | `HandleGlobalPrimRecord`                                                      |
+| `$25`  | `HandleEnumConstantRecord`                                                    |
+| `$03`  | `HandleEnumDefRecord`                                                         |
+| `$2A`  | `HandleTypeRegistryRecord` + `ScanTypeRegistry` in [DPT.Rsm.FormatALinker.pas](../../../Projects/DPT/Source/DPT.Rsm.FormatALinker.pas) |
+| `$2C`  | `LinkFieldsFromFormatA` in [DPT.Rsm.FormatALinker.pas](../../../Projects/DPT/Source/DPT.Rsm.FormatALinker.pas) (plus the §6.19 `BindPointerAliasMembersByNameConvention` post-process pass in the same unit) |
 
 Class trailer / record sentinel discovery:
-[DPT.Rsm.StructDiscoverer.pas:448-655](../../../Projects/DPT/Source/DPT.Rsm.StructDiscoverer.pas#L448-L655)
+[DPT.Rsm.StructDiscoverer.pas](../../../Projects/DPT/Source/DPT.Rsm.StructDiscoverer.pas) — `ScanFieldsBackwardFromClassName` (classes) and `ScanFieldsForwardFromRecordName` (records), driven by `Run`.
 
 Post-process pipeline (reader-orchestrated):
-[DPT.Rsm.Reader.pas:367-392](../../../Projects/DPT/Source/DPT.Rsm.Reader.pas#L367-L392)
+[DPT.Rsm.Reader.pas](../../../Projects/DPT/Source/DPT.Rsm.Reader.pas) — `RunPostProcess` enumerates the passes in the exact order they fire (`FormatALinker.Run`, then the parent-derivation, cross-unit, scope-local-enum, field-alias-enum, and property-linker passes).
 
 Tag constants:
-[DPT.Rsm.Model.pas:159-201](../../../Projects/DPT/Source/DPT.Rsm.Model.pas#L159-L201)
+[DPT.Rsm.Model.pas](../../../Projects/DPT/Source/DPT.Rsm.Model.pas) — `TRsmTag` record (`PROC_TAG`, `PARAM_TAG`, `TYPE_REGISTRY_TAG`, `SCOPE_END`, …).
 
 Test fixtures:
 - `DebugTarget.dpr` — small, fully controlled. Extend this when you

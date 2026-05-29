@@ -677,6 +677,43 @@ procedure TPtrToRecHost.Probe;
 begin
   Writeln('PtrToRec ', FRecPtr^.FMixedInt); Flush(Output);  // Line 678 - ptr-to-rec bp here
 end;
+// §6.19 fixture: ambiguous member-name in the §6.18 record fallback.
+// Two records (TAmbig619Target, TAmbig619Sibling) BOTH carry a
+// field named FShared619. Once both are in the .rsm, the §6.18 name-
+// based unique-match guard (FbMatchCount > 1) bails on
+// `Self.FAmbig619Ptr.FShared619` and the chain returns "Failed to
+// evaluate". Mirrors TFW's `TFormAd.FAd.Land` shape, where `Land`
+// appears on TAd plus several Anschrift-style sibling records.
+// The §6.19 closure populates Member.TypeIdx for pointer-to-record
+// fields with the TARGET record's class idx so the next iteration's
+// context-priming routes straight into a record-hop and the fallback
+// is bypassed entirely.
+//
+// Sentinel layout: target = $19191919 (visible in the green case);
+// sibling = $DEADBEEF (poison -- a wrong-record pick would surface
+// $DEADBEEF and the pin would notice).
+type
+  TAmbig619Target = record
+    FShared619       : Integer;
+    FUniqueTarget619 : Integer;
+  end;
+  TAmbig619Sibling = record
+    FShared619        : Integer;
+    FUniqueSibling619 : Integer;
+  end;
+  PAmbig619Target = ^TAmbig619Target;
+  TAmbig619Host = class
+    FAmbig619Ptr : PAmbig619Target;
+    procedure Probe;
+  end;
+var
+  GGlobalAmbig619Host    : TAmbig619Host;
+  GGlobalAmbig619Target  : TAmbig619Target;
+  GGlobalAmbig619Sibling : TAmbig619Sibling;
+procedure TAmbig619Host.Probe;
+begin
+  Writeln('Ambig619 ', FAmbig619Ptr^.FShared619); Flush(Output);  // Line 715 - §6.19 ambig-fallback bp here
+end;
 var
   GGlobalInt64       : Int64       = Int64($1122334455667788);
   GGlobalAnsi        : AnsiString  = 'Hello Ansi';
@@ -864,6 +901,18 @@ begin
     GGlobalPtrToRecHost := TPtrToRecHost.Create;
     GGlobalPtrToRecHost.FRecPtr := @GGlobalPtrToRecRec;
     GGlobalPtrToRecHost.Probe;
+    // §6.19 fixture: reach TAmbig619Host.Probe with FAmbig619Ptr pointing
+    // at GGlobalAmbig619Target. Both target ($19191919) and sibling
+    // ($DEADBEEF poison) records carry FShared619 so the §6.18 fallback's
+    // unique-match guard would bail without the §6.19 alias->target
+    // resolution in the Format-A linker.
+    GGlobalAmbig619Target.FShared619       := Integer($19191919);
+    GGlobalAmbig619Target.FUniqueTarget619 := Integer($A9A9A9A9);
+    GGlobalAmbig619Sibling.FShared619        := Integer($DEADBEEF);
+    GGlobalAmbig619Sibling.FUniqueSibling619 := Integer($CAFEBABE);
+    GGlobalAmbig619Host := TAmbig619Host.Create;
+    GGlobalAmbig619Host.FAmbig619Ptr := @GGlobalAmbig619Target;
+    GGlobalAmbig619Host.Probe;
     // Reach the body of TouchRtlInheritedComp with AComp live as a
     // register-passed reference. Drives the inherited-RTL-field
     // navigation test (Name / Tag declared on TComponent, walked
@@ -894,5 +943,6 @@ begin
     GGlobalPropHost.Free;
     GGlobalStaleSelf.Free;
     GGlobalPtrToRecHost.Free;
+    GGlobalAmbig619Host.Free;
   end;
 end.

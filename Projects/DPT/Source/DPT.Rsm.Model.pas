@@ -100,6 +100,21 @@ type
     /// the <c>type</c> argument, this id is mapped to a formatter
     /// name through a fixed compiler-built-in table.
     PrimitiveTypeId: UInt16;
+    /// File-offset-based <c>TypeIdx</c> of the record this field's
+    /// declared type POINTS AT, for pointer-to-record fields like
+    /// <c>FRecPtr: PMixedRec</c> or <c>FAd: PAd</c>. Zero for every
+    /// other shape (class-typed, inline-record-typed, primitive-typed).
+    /// Populated by <c>TRsmFormatALinker.ScanTypeRegistry</c> /
+    /// <c>LinkFieldsFromFormatA</c> when the field's declared type
+    /// resolves to a Delphi pointer alias following the
+    /// <c>P&lt;X&gt; = ^T&lt;X&gt;</c> naming convention. Drives the
+    /// §6.19 closure in <c>DPT.Debugger.EvaluateVariable</c>: when the
+    /// inter-segment context-priming sees this field is non-zero, it
+    /// performs the pointer dereference and routes the next segment
+    /// through the record-hop branch directly, bypassing the §6.18
+    /// name-based fallback (whose unique-match guard would bail on
+    /// member-name collisions like TFW's <c>Land</c>).
+    PointerTargetTypeIdx: UInt32;
   end;
 
   /// <summary>

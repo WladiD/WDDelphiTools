@@ -1174,13 +1174,66 @@ confirmed (see §4.9 and
 > address and the hop proceeds as a record-hop. Pinned by
 > `Test.DPT.MCP.Server.TestMcpEvaluateClassFieldPointerToRecordDeref`
 > against `TPtrToRecHost.Probe` (DebugTarget.dpr:678,
-> `FMixedInt = $1F2E3D4C`). The unique-match guard prevents the
-> fallback from silently picking the wrong record when the same field
-> name appears on several records (e.g. TFW's `Land`, present on
-> `TAd` *and* on Anschrift-style siblings — that ambiguity is
-> deferred until a stronger disambiguator, e.g. file-offset
-> proximity or a richer pointer-kind signal in the type registry,
-> lands).
+> `FMixedInt = $1F2E3D4C`). After the §6.19 closure (see below)
+> the fallback is no longer reached for canonical Delphi pointer
+> aliases — it now serves as the backup for non-canonical aliases
+> (e.g. a hypothetical `PFoo = ^TBar` that breaks the strict
+> `P<X> = ^T<X>` naming convention) so the unique-match guard still
+> protects against silent wrong-record picks for those.
+>
+> **§6.19 closure — pointer-alias TypeIdx binding via the
+> `P<X> = ^T<X>` convention.** Two pins:
+> `Test.DPT.MCP.Server.TestMcpEvaluateAmbiguousMemberNameDisambiguation`
+> (DebugTarget, `$2C`-driven path) and
+> `Test.DPT.Rsm.Tfw.TestTfwPointerAliasBindingDiagnoses` (TFW,
+> name-convention bridge for `$2C`-less strict-private fields).
+> Three pieces of work, all needed:
+>
+> 1. **`ScanTypeRegistry` captures pointer aliases.** The first-byte
+>    filter now accepts both `T` and `P`. For each `P`-prefixed
+>    entry whose name is followed by an uppercase letter — the
+>    Delphi-canonical shape — the linker strips the leading `P`,
+>    prepends `T`, looks the result up in `FClassByName`, and stores
+>    the alias's raw id → target record's `TypeIdx` in a new
+>    `FAliasToTargetTypeIdx` map. `FRsmTypeIdToClassIdx` is
+>    intentionally NOT touched here so a pointer-to-record field's
+>    `TypeIdx` stays 0 (the dotted walk uses that to distinguish
+>    pointer-to-record from inline record).
+> 2. **`LinkFieldsFromFormatA` populates `PointerTargetTypeIdx` for
+>    fields whose `$2C` body carries a pointer-alias id.** When
+>    `FindClassIdxForRawId` fails the linker consults
+>    `FAliasToTargetTypeIdx` and writes the matched target's
+>    `TypeIdx` to `Member.PointerTargetTypeIdx`. Covers DebugTarget's
+>    `TPtrToRecHost.FRecPtr: PMixedRec` and any field of any class
+>    whose `$2C` record the linker actually sees.
+> 3. **`BindPointerAliasMembersByNameConvention` covers the
+>    `$2C`-less case.** TFW's strict-private F-prefixed instance
+>    fields (`TFormAd.FAd: PAd`) are NOT emitted as `$2C` records —
+>    only the backward Format-B scan picks them up, and that carries
+>    no type information. A new post-process pass after
+>    `LinkFieldsFromFormatA` walks every Member where TypeIdx /
+>    PrimitiveTypeId / PointerTargetTypeIdx are all 0 and the name
+>    starts with `F` + uppercase. If `FTypeIdByName[lower('P' +
+>    suffix)]` returns a hit AND that alias has a registered target
+>    in `FAliasToTargetTypeIdx`, the member's `PointerTargetTypeIdx`
+>    is set to that target. The combined F-name + matching P-alias
+>    condition is what keeps the pass from over-binding (`FName:
+>    AnsiString`, `FCount: Integer`, etc. have no matching P-alias
+>    in the registry).
+>
+> The consumer in `DPT.Debugger.EvaluateVariable` sees
+> `PointerTargetTypeIdx != 0` between segments AND
+> `I < High(Segments)` (non-terminal — the terminal-segment guard is
+> what makes `evaluate Self.FAd (int)` correctly return the FAd
+> pointer value rather than the first DWORD of the dereferenced
+> record). On a non-terminal hit it dereferences `FieldAddr` via
+> `ReadTargetPointer`, sets `PrevContextIdx` from the target
+> record's `TypeIdx`, and the next segment goes through the normal
+> record-hop branch — the §6.18 name-based fallback is bypassed
+> entirely for canonical aliases. TFW's `Self.FAd.Land` resolves
+> through this path now: live `evaluate Self.FAd.Land (type=int)`
+> returns `0` = `ltInland` ordinal, matching the manual
+> `read_memory` ground-truth byte at `[FAd + 0x169D]`.
 
 **Terminal-field byte width** (design limitation). Unlike records
 which carry a size DWORD between the name and the field stream
@@ -1407,13 +1460,14 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 shapes, and §5 for the cross-record state machines.*
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
-> sequence positions. The last entry used was §6.17 (Win64 proc-
-> boundary off-by-one, closed and folded into §4.1). The next gap
-> discovered MUST be numbered **§6.18**, not §6.1. Numbers are never
-> reused or recycled — commit messages, code comments, and pin
-> docstrings reference closed §6.N entries by their original number
-> long after the §6 entry itself is gone, and renumbering would
-> silently invalidate those references.
+> sequence positions. The last entry used was §6.19 (pointer-to-
+> record ambiguous member-name fallback, closed and folded into
+> §4.14 as the `P<X> = ^T<X>` alias-binding closure). The next gap
+> discovered MUST be numbered **§6.20**, not §6.1. Numbers are
+> never reused or recycled — commit messages, code comments, and
+> pin docstrings reference closed §6.N entries by their original
+> number long after the §6 entry itself is gone, and renumbering
+> would silently invalidate those references.
 
 ---
 
