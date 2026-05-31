@@ -1266,7 +1266,21 @@ begin
   // Sanity cap. Real enums rarely exceed ~256 elements; cap
   // generously to bail on a coincidental $03 byte hit.
   if (ElemCount < 1) or (ElemCount > 512) then Exit;
-  var CursorPos: NativeInt := P + 2 + NameLen + 13;
+  // The element list follows a VARIABLE-LENGTH zero padding after the
+  // `$01 $00 $00 $00 $00 <MaxOrd>` 6-byte prefix. Different Delphi
+  // toolchains emit different pad widths: DebugTarget's build emits 7
+  // pad bytes (first element at +13), but DPT.exe's build emits 11
+  // (first element at +17). Hard-coding +13 made HandleEnumDefRecord
+  // read a $00 ElemLen and bail on DPT.rsm, so NONE of its $03 records
+  // parsed -- every enum fell through to the lossy $25/$2A synthesis
+  // (§6.25). Skip the zero run to the first real ElemLen instead of
+  // assuming a fixed header size. The first element's length byte is
+  // always in [1, 64] and never $00, so a zero is unambiguously padding.
+  var CursorPos: NativeInt := P + 2 + NameLen + 6;
+  var PadStop: NativeInt := CursorPos + 32;
+  if PadStop > FSz then PadStop := FSz;
+  while (CursorPos < PadStop) and (ByteAt(CursorPos) = $00) do
+    Inc(CursorPos);
   var Elements: IList<TRsmEnumElement> :=
     Collections.NewPlainList<TRsmEnumElement>;
   for var EI: Integer := 0 to ElemCount - 1 do
@@ -1306,6 +1320,7 @@ begin
   Def.TypeName := Name;
   Def.UnitName := UnitName;
   Def.Elements := Elements;
+  Def.Synthesized := False;  // authoritative $03 ENUM_DEF source
   FEnumDecoder.RecordEnumDef(Def);
 end;
 

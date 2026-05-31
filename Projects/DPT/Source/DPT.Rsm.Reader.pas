@@ -108,7 +108,7 @@ type
     function  GetEnumDefs: IList<TRsmEnumDef>;
     function  GetUnitUseSegments: IList<TRsmUnitUseSegment>;
     procedure RunPostProcess;
-    procedure FilterStructNamedEnumDefs;
+    procedure FilterPhantomEnumDefs;
   public
     constructor Create;
     destructor Destroy; override;
@@ -517,16 +517,15 @@ begin
   FScopeLocalTypeIdToEnumDef.Clear;
   if (FScanner.Buf = nil) or (FScanner.Sz < 8) then Exit;
   ReportPhase := FScanner.OnPhase;
-  // §6.25 R1: drop synthesised EnumDefs whose type name is actually a
-  // known class/record. MUST run FIRST -- the scope-local and
-  // field-alias enum bridges below store INDICES into EnumDefs, so
-  // deleting entries after they run would invalidate those indices
-  // (observed: tpHigher / cross-unit TStatus resolved to the wrong
-  // element). The scanner already populated both EnumDefs and FClasses
-  // (StructDiscoverer runs inside FScanner.LoadFromFile), and no
+  // §6.25 R1: drop phantom synthesised EnumDefs. MUST run FIRST -- the
+  // scope-local and field-alias enum bridges below store INDICES into
+  // EnumDefs, so deleting entries after they run would invalidate those
+  // indices (observed: tpHigher / cross-unit TStatus resolved to the
+  // wrong element). The scanner already populated EnumDefs (both $03 and
+  // synthesised) and FClasses inside FScanner.LoadFromFile, and no
   // post-process pass adds EnumDefs, so filtering here is complete.
-  FilterStructNamedEnumDefs;
-  Report('FilterStructNamedEnumDefs');
+  FilterPhantomEnumDefs;
+  Report('FilterPhantomEnumDefs');
   FFormatALinker.Run(FScanner.Buf, FScanner.Sz);
   Report('LinkMemberTypeIdsFromFormatA');
   FClassParentDeriver.Run;
@@ -549,40 +548,109 @@ begin
   Report('done');
 end;
 
-procedure TRsmReader.FilterStructNamedEnumDefs;
-// §6.25 R1 (partial closure). The same-compilation $2A flush
-// synthesises an EnumDef from whatever $25 enum constants are pending
-// when a $2A surfaces -- even when that $2A is a non-enum type. When
-// the type is a real CLASS the StructDiscoverer has already captured it
-// in FClasses as skClass, so we can recognise and drop the phantom
-// "enum". RsmDesk surfaced these as bogus entries: e.g.
-// <c>TPublishableVariantType</c> (a class in System.TypInfo) carrying
-// TTypeKind's 22 values, or <c>TObjectList</c> (a class) as an "enum".
-// A real enum is never a class, so no legitimate enum is removed.
-// Two non-enum $2A categories still leak as phantom enums: (1) records
-// -- because the record-discovery heuristic and the property linker's
-// synthetic empty records register some genuine enum names as skRecord,
-// so a record match is NOT safe to filter on (it would delete real
-// enums like TThreadPriority/TUnicodeBreak); (2) interfaces,
-// exceptions, external Win-API structs/proc-types the discoverer never
-// captures. Closing those needs the undecoded "is this $2A an enum?"
-// oracle (see §6.25).
+procedure TRsmReader.FilterPhantomEnumDefs;
+// §6.25 R1 closure. The same-compilation $2A flush synthesises an
+// EnumDef from whatever $25 enum constants are pending when a $2A
+// surfaces -- even when that $2A is a non-enum type (a class / record /
+// interface). The constants it grabs actually belong to ANOTHER enum;
+// the result is a phantom (RsmDesk's <c>TPublishableVariantType</c>, a
+// class in System.TypInfo, carrying TTypeKind's element names). The flush
+// ALSO produces a redundant synthesised duplicate of every contiguous
+// enum that already has a $03.
+//
+// Drops a SYNTHESISED def (never a $03-sourced one) on either condition:
+//   (a) its type name is a real VMT class (skClass) -- a class is not an
+//       enum. This catches class phantoms whose borrowed constants are
+//       NOT in any $03 (named consts / sparse-enum elements), which (b)
+//       can't see. skClass only, never skRecord: the record-discovery
+//       heuristic and the property linker mis-register genuine enum names
+//       (TThreadPriority, TUnicodeBreak) as skRecord, and a real enum is
+//       never a class regardless.
+//   (b) all its elements map to ONE $03-sourced enum. The $03 ENUM_DEF is
+//       the authoritative enum oracle (RE probe, §6.25: every contiguous
+//       enum has exactly one $03, no class/record has any). A different
+//       $03 type name => a phantom that borrowed those constants
+//       (TPublishableVariantType <- TTypeKind); the SAME name => a
+//       redundant synthesised duplicate of a contiguous enum. Both are
+//       superseded by the $03 def and removed.
+// Sparse enums survive: the linker emits no $03 for them, so their
+// elements map to no $03 and their name is not a class. They are exactly
+// why the synthesis must stay. The residual still leaking after this:
+// record/interface/struct phantoms (not in FClasses) that borrowed
+// non-$03 constants -- fenced only by the dup-ordinal guard in
+// TRsmEnumDecoder.RecordTypeRegistry when the borrow spans families.
+//
+// NB: the bulk win here is upstream -- the $03 reading-gap fix in
+// HandleEnumDefRecord (variable header padding) that made DPT.rsm's 730
+// $03 enums parse at all; before it, this filter had nothing to dedup
+// against (every DPT enum was synthesised).
 var
-  Defs: IList<TRsmEnumDef>;
-  I, Ci: Integer;
+  Defs       : IList<TRsmEnumDef>;
+  ElemToType : IKeyValue<String, String>;  // lc element name -> owning $03 type name
+  I, J, Ci   : Integer;
+  Lc, Common : String;
+  AllMapped  : Boolean;
+  OwnerName  : String;
 begin
   Defs := FScanner.EnumDefs;
+  // Map every $03-sourced element name to its owning type (first-wins,
+  // stable). Synthesised defs are excluded -- only $03 is authoritative.
+  ElemToType := Collections.NewPlainKeyValue<String, String>;
+  for I := 0 to Defs.Count - 1 do
+    if (not Defs[I].Synthesized) and (Defs[I].Elements <> nil) then
+      for J := 0 to Defs[I].Elements.Count - 1 do
+      begin
+        Lc := LowerCase(Defs[I].Elements[J].Name);
+        if not ElemToType.ContainsKey(Lc) then
+          ElemToType[Lc] := Defs[I].TypeName;
+      end;
+  // Drop a synthesised def whose elements ALL map to one and the same
+  // $03 type. Two sub-cases, both redundant against the authoritative
+  // $03 def and therefore removed:
+  //   * SAME type name  -> a synthesised duplicate of a contiguous enum
+  //     that also has a $03 (the $03 is authoritative; keep only it).
+  //   * DIFFERENT name  -> a phantom that borrowed that enum's constants
+  //     under a non-enum $2A (TPublishableVariantType carrying TTypeKind).
+  // Genuine sparse enums survive: their elements appear in NO $03 (the
+  // linker emits none for sparse), so they never map to a Common type.
   for I := Defs.Count - 1 downto 0 do
   begin
+    if (not Defs[I].Synthesized) or (Defs[I].Elements = nil) or
+       (Defs[I].Elements.Count = 0) then Continue;
+    // (a) A synthesised def whose name is a real VMT CLASS is a phantom:
+    // a class is never an enum. Catches class phantoms that borrowed
+    // NON-$03 constants (named consts / sparse-enum elements), which the
+    // $03-coverage rule below cannot see (no $03 to map them to) -- e.g.
+    // TIdSchedulerOfThreadDefault. skClass only (never skRecord: the
+    // record heuristic / property linker mis-register genuine enum names
+    // as skRecord -- TThreadPriority/TUnicodeBreak -- and a real enum is
+    // never a class anyway).
     Ci := FindClassByName(Defs[I].TypeName);
-    // Only drop when the name matches a real VMT-anchored CLASS
-    // (skClass). Records are NOT used as the discriminator: the looser
-    // record-discovery heuristic AND TRsmPropertyLinker's synthetic
-    // empty-member records register some genuine ENUM names as
-    // skRecord (observed: TThreadPriority, TUnicodeBreak, the
-    // sibling-unit TStatus), so a record match would delete real enums.
-    // A real enum is never a class, so the skClass test is safe.
     if (Ci >= 0) and (FScanner.Classes[Ci].Kind = skClass) then
+    begin
+      Defs.Delete(I);
+      Continue;
+    end;
+    // (b) $03-coverage dedup.
+    AllMapped := True;
+    Common := '';
+    for J := 0 to Defs[I].Elements.Count - 1 do
+    begin
+      if not ElemToType.TryGetValue(LowerCase(Defs[I].Elements[J].Name),
+        OwnerName) then
+      begin
+        AllMapped := False;
+        Break;
+      end;
+      if Common = '' then
+        Common := OwnerName
+      else if not SameText(Common, OwnerName) then
+      begin
+        AllMapped := False;  // elements span multiple $03 enums -- not a clean cover
+        Break;
+      end;
+    end;
+    if AllMapped and (Common <> '') then
       Defs.Delete(I);
   end;
 end;

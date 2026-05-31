@@ -405,6 +405,7 @@ begin
         Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
         for FI := 0 to FPendingConstants.Count - 1 do
           Def.Elements.Add(FPendingConstants[FI]);
+        Def.Synthesized := True;  // guessed from the $2A flush, not $03
         FEnumDefs.Add(Def);
       end;
     end;

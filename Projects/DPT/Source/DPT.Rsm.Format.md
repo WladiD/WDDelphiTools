@@ -670,14 +670,27 @@ explicit ordinal values like `(a = 1, b = 100)` or sparse `(a = 128, ...)`.
 ```
 $03  <NL: u8>  <TypeName>
 $01 $00 $00 $00 $00  <MaxOrd: u8>
-$00 $00 $00 $00 $00 $00 $00         (12-byte header total)
+( $00 ) * P                          ← VARIABLE-length zero padding
 ( <ElemLen: u8>  <ElemName> ) * (MaxOrd + 1)
 <UnitLen: u8>  <UnitName>
 ```
 
-`NL` ∈ `[2, 40]`. The 12-byte header following the name is anchored on
-the `$01` at +0 and the run of zero bytes at +1..+4 and +6..+12; byte +5
-is the max-ordinal value.
+`NL` ∈ `[2, 40]`. The fixed header prefix after the name is
+`$01 $00 $00 $00 $00 <MaxOrd>` (6 bytes): the `$01` at +0, zero bytes at
++1..+4, and the max-ordinal at +5. **It is followed by a
+VARIABLE-length run of zero bytes `P` before the first element.** The
+pad width is toolchain-dependent: DebugTarget's build emits `P = 7`
+(first element at +13, the historically-assumed fixed offset), but
+DPT.exe's build emits `P = 11` (first element at +17). The reader
+**skips the zero run to the first non-zero `ElemLen`** rather than
+assuming a fixed +13 — hard-coding +13 made `HandleEnumDefRecord` read a
+`$00` length on DPT.rsm and bail, so NONE of its `$03` records parsed
+and all ~730 of its enums fell through to the lossy `$25`/`$2A`
+synthesis (§6.25). The anchor (`$01`, zeros at +1..+4 and +6..+12) still
+holds for both widths since +6..+12 are within the pad run. Pinned by
+[Test.DPT.Rsm.Scanner.TestEnumDefParsesWithVariableHeaderPadding](../Test/Test.DPT.Rsm.Scanner.pas)
+(synthetic CSH7 buffer, both 7- and 11-pad). A zero is unambiguously
+padding because `ElemLen` ∈ `[1, 64]` is never `$00`.
 
 Element count is capped at 512 to defend against coincidental `$03`
 byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
@@ -2195,29 +2208,19 @@ The duplicate-ordinal guard (§4.8 job 4) suppresses the **multi-family**
 over-collections (the egregious `TColorRef = 285 elements` case), but
 three residuals remain undecoded:
 
-* **R1 — clean-ordinal mis-attribution (partially closed).** A single
-  const family with unique ordinals attributed to a wrong non-enum
-  `$2A` produces a bogus `EnumDef` the ordinal guard can't see
-  (`TPublishableVariantType`, a class in `System.TypInfo`, carrying
-  `TTypeKind`'s 22 values; `TObjectList`, a class, as an "enum").
-  **Closed for VMT class names** by the reader post-process
-  `TRsmReader.FilterStructNamedEnumDefs` (§7, runs first): any `EnumDef`
-  whose `TypeName` resolves via `FindClassByName` to a known **`skClass`**
-  is dropped — a real enum is never a class, so no legit enum is removed
-  (DPT.rsm 51→44; pin
-  `Test.DPT.Rsm.Reader.TestEnumDefsExcludeClassNames`). The filter keys
-  on `skClass` **only, not `skRecord`**: the record-discovery heuristic
-  AND `TRsmPropertyLinker`'s synthetic empty-member records register
-  some genuine ENUM names as `skRecord` (`TThreadPriority`,
-  `TUnicodeBreak`, the sibling-unit `TStatus`), so filtering on a record
-  match would delete real enums (verified — it broke
-  `tpHigher`/`TStatus`/field-alias resolution before the `skClass`
-  restriction). **Still leaking:** non-enum `$2A` types that are NOT
-  VMT classes — records (`TWMNotifyRE`), interfaces (`IRichChunk`,
-  `IPropertySystem`), exceptions (`EMaskException`), external Win-API
-  structs/proc-types (`QOS_OBJECT_HDR`, `tagXFORM`, `GETTEXTEX`) —
-  survive as phantom enums. Closing those needs the undecoded "is this
-  `$2A` an enum?" oracle (below).
+* **R1 — clean-ordinal mis-attribution (closed for the common case).**
+  A const family attributed to a wrong non-enum `$2A` produces a bogus
+  `EnumDef` the ordinal guard can't see (`TPublishableVariantType`, a
+  class, carrying `TTypeKind`'s values; `TObjectList` as an "enum").
+  Closed by `TRsmReader.FilterPhantomEnumDefs` (§7), which became
+  effective only after the `$03` reading-gap fix gave it authoritative
+  `$03` defs to compare against — see the detailed write-up further down
+  ("the actual reading gap"). It drops a synthesised def that is either a
+  real `skClass` or fully covered by a single `$03` enum. **Residual:**
+  record / interface / external-struct phantoms (`QOS_OBJECT_HDR`,
+  `IRichChunk`, `tagXFORM`) that borrowed NON-`$03` constants — not in
+  `FClasses`, no `$03` to map to. Pinned by
+  `Test.DPT.Rsm.Reader.TestEnumDefsExcludeClassNames`.
 * **R2 — mislabeled unit names (largely closed).** The forward scan
   used to grab the first dotted proc after the `$2A`, which is a class
   method (`TDcuDiff.ListEntries`), not the unit-init proc — so the
@@ -2279,13 +2282,64 @@ enums; it cannot be deleted. So the filters are NOT merely covering a
 "we-fail-to-read-an-existing-record" gap — for sparse enums there is no
 clean record to read; the format itself carries only loose `$25`
 constants plus a collision-prone `$2A`, and the synthesis must guess.
-The remaining genuinely-undecoded byte is the **`$2A` enum-vs-other
-discriminator** (the body-flag is shape-not-kind, §4.8): decoding it
-would let the flush fire only for real-enum `$2A` entries and replace
-the `skClass` filter wholesale. That is the one principled root-cause
-lever left; the `$25`/`$2A` owning-type linkage (to replace the
-dup-ordinal guard) is the other. Both are real RE work, not reading
-gaps. Until then the filters stand as the pragmatic mitigation.
+
+**RE round — the authoritative enum oracle is `$03`, not a `$2A` byte.**
+A direct probe of DPT.rsm (`TestDiagnose2AKindBytes32`, removed after
+use) settled where the kind lives. The `$2A` body carries NO
+position-stable kind byte — eight DPT enums all show flag `$A8`, but so
+do most DPT classes, confirming §4.8 (the flag is shape, not kind).
+What DOES discriminate cleanly is the **presence of a `$03 ENUM_DEF`
+record**:
+
+```
+kind     name                  $2A   $03(ENUM_DEF)
+ENUM     TDebugState/TStepType/TRsmStructKind/... (×8)   1   1   (all)
+CLASS    TDebugger/TDcuDiff/TBreakpoint/...        (×6)   1   0   (all)
+RECORD   TStackFrame/TRegisters/TLocalVar/...      (×6)   1   0   (all)
+```
+
+Every (contiguous) enum has exactly one `$03`; no class or record has
+any. So the discriminator was never a missing byte to decode — it is the
+`$03` record. But wiring it in exposed the REAL root cause:
+
+**The actual reading gap — DPT.rsm's `$03` records never parsed.** On
+DPT.rsm the reader produced **51 EnumDefs, ALL synthesised, ZERO from
+`$03`** — yet the raw probe found valid `$03` records with valid anchors
+for every DPT enum. The cause: `$03`'s element list follows a
+VARIABLE-length zero padding (§4.7) — DebugTarget emits 7 pad bytes
+(elements at +13), DPT.exe emits 11 (+17). `HandleEnumDefRecord`
+hard-coded the element offset at +13, so on DPT.rsm it read a `$00`
+length and bailed for EVERY `$03`. So this WAS a "we-fail-to-read-an-
+existing-record" gap after all — exactly the original suspicion — just
+not the one first guessed. Fixing it (skip the zero run to the first
+`ElemLen`) took DPT.rsm from **51 → 756 EnumDefs**, with **730 now
+authoritatively `$03`-sourced** (DebugTarget unaffected: still 7-pad).
+Pinned by `TestEnumDefParsesWithVariableHeaderPadding`.
+
+**Closure (implemented).** Two parts:
+1. **`$03` reading-gap fix** (`HandleEnumDefRecord`, §4.7): the bulk win.
+   Real enums now come from the authoritative `$03` channel.
+2. **`TRsmReader.FilterPhantomEnumDefs`**: with `$03` defs finally
+   present, the reader drops a SYNTHESISED def when (a) its name is a
+   real `skClass` (a class is not an enum — catches class phantoms whose
+   borrowed constants are not in any `$03`), or (b) all its elements map
+   to a single `$03` enum (a phantom that borrowed those constants, OR a
+   redundant synthesised duplicate of a contiguous enum). `$03`-sourced
+   defs are never removed; sparse enums (no `$03`, name not a class)
+   survive. `TRsmEnumDef.Synthesized` carries the source tag.
+
+Result on DPT.rsm: the class phantoms (`TPublishableVariantType`,
+`TObjectList`, `TIdSchedulerOfThreadDefault`, …) and the synthesised
+duplicates are gone; the 730 real `$03` enums + genuine sparse enums
+remain. **Residual** (still leaking as phantom enums): record / interface
+/ external-struct `$2A` types (`QOS_OBJECT_HDR`, `IRichChunk`,
+`tagXFORM`, `PFNSHGETFOLDERPATHA`) that borrowed NON-`$03` constants
+(named `const`s or sparse-enum elements) — not in `FClasses`, no `$03`
+to map to. Multi-family borrows of that kind are still caught by the
+dup-ordinal guard; single-family ones with unique ordinals are the
+irreducible remainder until a `$25` const-vs-enum-element signal is
+decoded. `TTokenKind` also still doubles (a `$03` plus a synthesised
+variant whose element set only partially overlaps the `$03`).
 
 ---
 
@@ -2318,12 +2372,12 @@ gaps. Until then the filters stand as the pragmatic mitigation.
 4. Runs `ScanSymbolStream` → `RecomputeProcSizes` →
    `TRsmStructDiscoverer.Run`.
 5. Runs the post-process passes in `RunPostProcess`, in order:
-   `FilterStructNamedEnumDefs` (drops synthesized `EnumDef`s whose name
-   is a known VMT `skClass` — §6.25 R1; `skClass` only, not `skRecord`,
-   which would catch enum names the record heuristic mis-registers. Runs
-   **first** because the enum bridges below store indices into
-   `EnumDefs`, so deleting entries afterwards would invalidate them —
-   `FClasses` is already populated by the StructDiscoverer in step 4) →
+   `FilterPhantomEnumDefs` (drops synthesized phantom `EnumDef`s — those
+   named after a VMT `skClass`, or fully covered by a single authoritative
+   `$03` enum — §6.25 R1. Runs **first** because the enum bridges below
+   store indices into `EnumDefs`, so deleting entries afterwards would
+   invalidate them — `FClasses` and the `$03`-sourced defs are already
+   populated by step 4) →
    `TRsmFormatALinker.Run` →
    `TRsmClassParentDeriver.Run` →
    `TRsmCrossUnitParentResolver.Run` →

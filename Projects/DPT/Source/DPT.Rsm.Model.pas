@@ -374,6 +374,19 @@ type
     UnitName: String;
     Elements: IList<TRsmEnumElement>;
     /// <summary>
+    ///   True when this def was SYNTHESIZED by the same-compilation
+    ///   <c>$2A</c> flush (<c>TRsmEnumDecoder.RecordTypeRegistry</c>)
+    ///   rather than parsed from an authoritative <c>$03 ENUM_DEF</c>
+    ///   record. The synthesis is necessary for sparse same-comp enums
+    ///   (which the linker emits no <c>$03</c> for) but it also guesses,
+    ///   so it can attribute another enum's pending <c>$25</c> constants
+    ///   to a non-enum <c>$2A</c> (a class/record/interface), producing a
+    ///   phantom enum. <c>$03</c>-sourced defs leave this False and are
+    ///   authoritative; the reader's post-process drops synthesized defs
+    ///   already covered by a <c>$03</c> (§6.25 R1).
+    /// </summary>
+    Synthesized: Boolean;
+    /// <summary>
     ///   Returns the element whose <see cref="TRsmEnumElement.Ordinal"/>
     ///   matches <paramref name="AOrdinal"/>, or False when no
     ///   element has that ordinal (the value is out of the enum's

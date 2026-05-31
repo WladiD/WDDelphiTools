@@ -105,10 +105,10 @@ type
     /// pending $25 constant buffer -- RsmDesk surfaced e.g.
     /// TPublishableVariantType (a class in System.TypInfo) carrying
     /// TTypeKind's values. FilterStructNamedEnumDefs drops every EnumDef
-    /// whose name is a known skClass. Leakage guards: real enums survive
-    /// -- including TThreadPriority / TUnicodeBreak, which the record
-    /// heuristic / property linker register as skRecord under the same
-    /// name (so the filter keys on skClass only, never skRecord).
+    /// whose name is a known skClass. Leakage guards key on CONTROLLED
+    /// fixture enums (TLightStatus, TStatus) that the linker never
+    /// dead-code-eliminates -- NOT on incidental RTL enums, whose
+    /// presence depends on which System units happen to be linked.
     [Test]
     procedure TestEnumDefsExcludeClassNames;
   end;
@@ -524,17 +524,18 @@ procedure TRsmReaderTests.TestEnumDefsExcludeClassNames;
 var
   R          : TRsmReader;
   I, Ci      : Integer;
-  HasLight, HasStatus, HasThreadPriority, HasUnicodeBreak: Boolean;
+  HasLight, HasStatus: Boolean;
 begin
   R := TRsmReader.Create;
   try
     R.LoadFromFile(ResolveExePath(False));
     Assert.IsTrue(R.EnumDefs.Count > 0, 'no EnumDefs from DebugTarget');
     HasLight := False; HasStatus := False;
-    HasThreadPriority := False; HasUnicodeBreak := False;
     for I := 0 to R.EnumDefs.Count - 1 do
     begin
-      // No surviving EnumDef may share its name with a real VMT class.
+      // Core invariant: no surviving EnumDef shares its name with a real
+      // VMT class (skClass). DCE-independent -- holds for whatever set of
+      // enums the linker actually emitted.
       Ci := R.FindClassByName(R.EnumDefs[I].TypeName);
       Assert.IsFalse((Ci >= 0) and (R.Classes[Ci].Kind = skClass),
         Format('EnumDef "%s" (%s) is a known class, not an enum -- ' +
@@ -542,19 +543,22 @@ begin
           [R.EnumDefs[I].TypeName, R.EnumDefs[I].UnitName]));
       if SameText(R.EnumDefs[I].TypeName, 'TLightStatus') then HasLight := True;
       if SameText(R.EnumDefs[I].TypeName, 'TStatus') then HasStatus := True;
-      if SameText(R.EnumDefs[I].TypeName, 'TThreadPriority') then HasThreadPriority := True;
-      if SameText(R.EnumDefs[I].TypeName, 'TUnicodeBreak') then HasUnicodeBreak := True;
     end;
-    // Leakage guards: real enums survive -- including ones the record
-    // heuristic / property linker register as skRecord under the SAME
-    // name (TThreadPriority, TUnicodeBreak). Filtering on skClass only
-    // (not skRecord) is what keeps these.
+    // Leakage guards keyed on CONTROLLED fixture enums only. TLightStatus
+    // and TStatus are declared in DebugTarget and referenced by evaluated
+    // globals (GGlobalLight, GStatusAlpha/Beta/Gamma), so the linker
+    // never dead-code-eliminates them -- asserting their presence is
+    // DCE-safe. (We deliberately do NOT assert incidental RTL enums like
+    // TThreadPriority/TUnicodeBreak: those are only in the .rsm because a
+    // System unit happens to be linked, so a future build could omit them
+    // and the assertion would fail with no real regression.) TStatus is
+    // also the enum the StructDiscoverer/property linker register as
+    // skRecord under the same name, so its survival here is exactly what
+    // proves the filter keys on skClass only, not skRecord; the live
+    // cross-unit MCP tests (GStatusAlpha/GStatusBeta) are the primary
+    // guard for that.
     Assert.IsTrue(HasLight, 'legit TLightStatus dropped by the class filter');
     Assert.IsTrue(HasStatus, 'legit same-comp TStatus dropped by the class filter');
-    Assert.IsTrue(HasThreadPriority,
-      'legit TThreadPriority dropped -- skRecord false-positive leaked into the filter');
-    Assert.IsTrue(HasUnicodeBreak,
-      'legit TUnicodeBreak dropped -- skRecord false-positive leaked into the filter');
   finally
     R.Free;
   end;

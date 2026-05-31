@@ -83,6 +83,17 @@ type
     [Test]
     procedure TestEnumDefsNotOverCollected32;
 
+    /// §6.25 pin: $03 ENUM_DEF records carry a VARIABLE-length zero
+    /// padding between the `$01 00 00 00 00 <MaxOrd>` prefix and the
+    /// element list. DebugTarget's toolchain emits 7 pad bytes (elements
+    /// at +13), DPT.exe's emits 11 (elements at +17). HandleEnumDefRecord
+    /// must skip the zero run, not assume a fixed +13 -- otherwise
+    /// DPT.rsm's $03 records (and the ~730 enums they declare) silently
+    /// fail to parse and every enum falls through to the lossy $25/$2A
+    /// synthesis. Synthetic CSH7 buffer pins BOTH pad widths.
+    [Test]
+    procedure TestEnumDefParsesWithVariableHeaderPadding;
+
     /// Pins the finding for the $2A "KindFlag" byte at body offset +0
     /// (RSM format reference, gap 6.6). It is NOT a type-kind
     /// discriminator: classes, records and enums each appear with
@@ -348,6 +359,93 @@ begin
   Result := ExpandFileName('Projects\DPT\Test\' + Sub + '\DebugTarget.exe');
   if not TFile.Exists(Result) then
     Result := ExpandFileName(Sub + '\DebugTarget.exe');
+end;
+
+procedure TRsmScannerTests.TestEnumDefParsesWithVariableHeaderPadding;
+var
+  S   : TRsmScanner;
+  Buf : TBytes;
+  Len : Integer;
+
+  procedure AddByte(B: Byte);
+  begin
+    if Len >= Length(Buf) then SetLength(Buf, (Len + 16) * 2);
+    Buf[Len] := B;
+    Inc(Len);
+  end;
+
+  procedure AddStr(const AStr: String);  // length-prefixed identifier
+  var
+    K: Integer;
+  begin
+    AddByte(Length(AStr));
+    for K := 1 to Length(AStr) do AddByte(Byte(Ord(AStr[K])));
+  end;
+
+  // $03 NL Name $01 00 00 00 00 <MaxOrd> (APad zeros) (elem)* <unit>
+  procedure AddEnum(const ATypeName: String; AMaxOrd: Byte;
+    const AElems: array of String; APad: Integer; const AUnit: String);
+  var
+    K: Integer;
+  begin
+    AddByte($03);
+    AddStr(ATypeName);
+    AddByte($01); AddByte($00); AddByte($00); AddByte($00); AddByte($00);
+    AddByte(AMaxOrd);
+    for K := 1 to APad do AddByte($00);
+    for K := 0 to High(AElems) do AddStr(AElems[K]);
+    AddStr(AUnit);
+  end;
+
+  function FindEnum(const AName: String; out ADef: TRsmEnumDef): Boolean;
+  var
+    K: Integer;
+  begin
+    Result := False;
+    for K := 0 to S.EnumDefs.Count - 1 do
+      if SameText(S.EnumDefs[K].TypeName, AName) then
+      begin
+        ADef := S.EnumDefs[K];
+        Exit(True);
+      end;
+  end;
+
+var
+  Def: TRsmEnumDef;
+begin
+  Len := 0;
+  SetLength(Buf, 64);
+  AddByte($43); AddByte($53); AddByte($48); AddByte($37);  // CSH7 magic
+  // 7-pad (DebugTarget-style header: elements at +13).
+  AddEnum('TBarSeven', 1, ['barX', 'barY'], 7, 'UnitSeven');
+  AddByte($00); AddByte($00);
+  // 11-pad (DPT.exe-style header: elements at +17) -- the case that
+  // regressed before the fix.
+  AddEnum('TFooEleven', 2, ['fooA', 'fooB', 'fooC'], 11, 'UnitEleven');
+  AddByte($00); AddByte($00);
+  SetLength(Buf, Len);
+
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromBytes(Buf);
+
+    Assert.IsTrue(FindEnum('TBarSeven', Def), 'TBarSeven ($03 7-pad) not parsed');
+    Assert.AreEqual<Integer>(2, Def.Elements.Count, 'TBarSeven element count');
+    Assert.AreEqual('barX', Def.Elements[0].Name);
+    Assert.AreEqual('barY', Def.Elements[1].Name);
+    Assert.AreEqual('UnitSeven', Def.UnitName, 'TBarSeven unit');
+    Assert.IsFalse(Def.Synthesized, 'TBarSeven must be $03-sourced, not synthesised');
+
+    Assert.IsTrue(FindEnum('TFooEleven', Def), 'TFooEleven ($03 11-pad) not parsed -- ' +
+      'HandleEnumDefRecord did not skip the extra header padding');
+    Assert.AreEqual<Integer>(3, Def.Elements.Count, 'TFooEleven element count');
+    Assert.AreEqual('fooA', Def.Elements[0].Name);
+    Assert.AreEqual('fooC', Def.Elements[2].Name);
+    Assert.AreEqual('UnitEleven', Def.UnitName, 'TFooEleven unit');
+    Assert.IsFalse(Def.Synthesized, 'TFooEleven must be $03-sourced, not synthesised');
+  finally
+    S.Free;
+  end;
 end;
 
 procedure TRsmScannerTests.TestEnumDefsNotOverCollected32;
