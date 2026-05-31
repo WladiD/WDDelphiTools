@@ -1,0 +1,11 @@
+object FormMain: TFormMain
+  Left = 0
+  Top = 0
+  Caption = 'RsmDesk - RSM Symbol Visualizer'
+  ClientHeight = 640
+  ClientWidth = 1024
+  FormFactor.Width = 320
+  FormFactor.Height = 480
+  FormFactor.Devices = [Desktop]
+  DesignerMasterStyle = 0
+end

@@ -573,15 +573,22 @@ function TRsmScanner.DecodeProcAddrPayload(AStartOff: NativeInt): NativeUInt;
     Result := 0;
     if AOff + 4 >= FSz then Exit;
     if (ByteAt(AOff) and $7F) <> $03 then Exit;
-    // Marker layout "04 ?? ?? 2E ??": only bytes 0 (`$04`) and 3
-    // (`$2E`) are structurally stable -- they form the anchor
-    // confirming the slot is a proc-address marker rather than
-    // incidental bytes. Byte 2 is a per-binary counter (varies
-    // build-to-build per linker module layout). Bytes 1 and 4 vary
-    // per-proc: byte 1 carries a flag (high bits set when the proc
-    // has register-passed parameters like Self -- `$10` for plain
-    // procedures, `$98` for instance methods); byte 4 carries
-    // per-proc data (count / offset / hash, encoding TBD).
+    // Marker layout "04 ?? ?? 2E ??": this 4-byte form is what the
+    // Win64 proc-address payload's trailer looks like, and only bytes
+    // 0 (`$04`) and 3 (`$2E`) are reliably stable in practice. See
+    // Format.md §4.1 for the full per-proc marker shape (variable
+    // length, ends with `<platform-anchor> $2E <owner-ref>`).
+    //
+    // §6.22 finding: the "$2E" here ISN'T a constant -- it's the HI
+    // byte of a 2-byte LE owner-id pair pointing at the owning
+    // class's $2A registry entry. Every observed class on
+    // DebugTarget + TFW lands in the $2E00..$2FFF range so the HI
+    // byte is always $2E or $2F and the sanity check works
+    // coincidence-based. A linker build that scattered class type
+    // ids across a wider range would break this check; the
+    // appropriate fix when that surfaces is to also accept $2F here
+    // and/or move the anchor onto the platform-anchor byte at +2
+    // ($11 on Win32, $3D on Win64).
     //
     // §6.17 closure: the earlier `byte 1 = $10 AND byte 4 = $00`
     // restriction matched only no-Self procs like LocalsProcedure;
@@ -1341,35 +1348,113 @@ begin
       (UInt32(ByteAt(P + 2 + NameLen + 8)) shl 8);
   // Locate the OWNING UNIT via forward-scan only when same-comp
   // $25 constants are actually pending; otherwise the unit name
-  // has no consumer and the 1024-byte scan would be wasted work.
-  // The registry entry is immediately followed by the unit's
-  // standard initialisation sequence -- one or two PROC_TAGs
-  // (often including a "Finalization" stub without a dot) and
-  // then the dotted unit-init proc, e.g. "DebugTarget.EnumAlpha".
+  // has no consumer and the scan would be wasted work.
+  //
+  // The unit-init proc carries the owning unit name (a dotted
+  // NAMESPACE, e.g. "DPT.Dcu.Diff", "System.Variants"), but it sits at
+  // the END of the unit's symbol block -- after the unit's method PROC
+  // records. So the FIRST dotted proc after the $2A is usually a class
+  // METHOD ("TDcuDiff.ListEntries"), NOT the unit. Grabbing that method
+  // as the unit name was the RsmDesk "UnitName: TDcuDiff.ListEntries"
+  // defect (§6.25).
+  //
+  // The unit-init proc is the first dotted proc that is a clean dotted
+  // NAMESPACE -- distinguished from the noise between it and the $2A by
+  // two rules (verified against DPT.rsm):
+  //   * first segment is NOT a Delphi type identifier (T-class,
+  //     E-exception or I-interface followed by an uppercase letter),
+  //     which rejects method names like "TDcuDiff.ListEntries";
+  //   * the name carries no generic angle brackets, which rejects
+  //     specialization procs like "Collections.NewList<System.string>".
+  // The current unit's methods/specializations all precede its init
+  // proc, so the FIRST clean namespace encountered IS the owning unit
+  // (no overshoot into the next unit). The window is generous because a
+  // large class pushes the init proc far out (TMcpServer ~21 KB). If no
+  // clean namespace turns up we fall back to the first dotted proc so
+  // the enum is NEVER dropped -- an earlier attempt that dropped the
+  // def when no clean unit name was found collapsed DPT.rsm 95 -> 22.
   UnitNameSparse := '';
   if (Primary <> 0) and FEnumDecoder.HasPendingConstants then
   begin
-    var Q: NativeInt := P + 2 + NameLen + 5;
-    var QStop: NativeInt := Q + 1024;
-    if QStop > FSz - 2 then QStop := FSz - 2;
-    while Q < QStop do
+    var Start: NativeInt := P + 2 + NameLen + 5;
+
+    // SYNTHESIS GATE (tight, 1 KB). Synthesise an EnumDef only when a
+    // dotted proc sits within 1 KB of the $2A. This is the original
+    // gate and it must stay tight: widening it lets many non-enum $2A
+    // entries (whose nearest proc is far) flush their pending const
+    // pile into a bogus EnumDef -- a 1 KB->64 KB widening alone took
+    // DebugTarget 132 -> 166 synthesised defs. The gate is decoupled
+    // from the name search below precisely so name quality can improve
+    // without changing WHICH entries synthesise.
+    var GateName: String := '';
+    var Qg: NativeInt := Start;
+    var GateStop: NativeInt := Start + 1024;
+    if GateStop > FSz - 2 then GateStop := FSz - 2;
+    while Qg < GateStop do
     begin
-      if ByteAt(Q) = TRsmTag.PROC_TAG then
+      if ByteAt(Qg) = TRsmTag.PROC_TAG then
       begin
-        var ProcNL: Byte := ByteAt(Q + 1);
-        if (ProcNL >= 2) and (ProcNL <= 64) and
-           (Q + 2 + ProcNL <= FSz) then
+        var GNL: Byte := ByteAt(Qg + 1);
+        if (GNL >= 2) and (GNL <= 64) and (Qg + 2 + GNL <= FSz) then
         begin
-          var ProcName: String;
-          if ReadIdentifier(Q + 1, ProcName) and
-             ProcName.Contains('.') then
+          var GName: String;
+          if ReadIdentifier(Qg + 1, GName) and GName.Contains('.') then
           begin
-            UnitNameSparse := ProcName;
+            GateName := GName;
             Break;
           end;
         end;
       end;
-      Inc(Q);
+      Inc(Qg);
+    end;
+
+    if GateName <> '' then
+    begin
+      // NAME SEARCH (wide, 64 KB). The unit-init proc carries the owning
+      // unit name (a dotted NAMESPACE, e.g. "DPT.Dcu.Diff",
+      // "System.Variants") but sits at the END of the unit's symbol
+      // block -- after all its method PROC records. The nearby GateName
+      // is therefore usually a class METHOD ("TDcuDiff.ListEntries"),
+      // which surfaced in RsmDesk as a wrong UnitName (§6.25). Search
+      // wider for the first dotted proc that is a clean dotted NAMESPACE:
+      //   * first segment is NOT a Delphi type identifier (T-class,
+      //     E-exception, I-interface + uppercase) -- rejects methods;
+      //   * no generic angle brackets -- rejects specialization procs
+      //     like "Collections.NewList<System.string>".
+      // The unit's own methods/specializations all precede its init
+      // proc, so the FIRST clean namespace IS the owning unit (no
+      // overshoot). A big class pushes the init proc far out (TMcpServer
+      // ~21 KB), hence the wide window. Fall back to GateName (the
+      // nearby method) so the enum is never dropped.
+      UnitNameSparse := GateName;
+      var Qn: NativeInt := Start;
+      var NameStop: NativeInt := Start + 1048576;
+      if NameStop > FSz - 2 then NameStop := FSz - 2;
+      while Qn < NameStop do
+      begin
+        if ByteAt(Qn) = TRsmTag.PROC_TAG then
+        begin
+          var NNL: Byte := ByteAt(Qn + 1);
+          if (NNL >= 2) and (NNL <= 64) and (Qn + 2 + NNL <= FSz) then
+          begin
+            var NName: String;
+            if ReadIdentifier(Qn + 1, NName) and NName.Contains('.') then
+            begin
+              var DotI: Integer := Pos('.', NName);
+              var Seg : String  := Copy(NName, 1, DotI - 1);
+              var IsTypeIdent: Boolean := (Length(Seg) >= 2) and
+                CharInSet(Seg[1], ['T', 'E', 'I']) and
+                CharInSet(Seg[2], ['A'..'Z']);
+              if (not IsTypeIdent) and (not NName.Contains('<')) then
+              begin
+                UnitNameSparse := NName;
+                Break;
+              end;
+            end;
+          end;
+        end;
+        Inc(Qn);
+      end;
     end;
   end;
   // Pass P (the $2A tag's file offset) so the EnumDecoder can

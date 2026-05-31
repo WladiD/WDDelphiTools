@@ -230,18 +230,68 @@ byte 2: VA bits 13..20 (full 8 bits)
 byte 3,4: encoded proc-size / local-layout info (not used for address)
 ```
 
-A trailer `04 ?? ?? 2E ??` must follow within the next 1-2 bytes. Only
-bytes 0 (`$04`) and 3 (`$2E`) are structurally stable. Byte 2 is a
-per-binary counter (varies build-to-build with linker module layout).
-Bytes 1 and 4 vary **per-proc**:
+A variable-length marker `$04 <middle: N bytes> <platform-anchor>
+$2E <owner-ref>` follows the address payload (§6.22 closure). The
+marker is emitted for every `$28` PROC record on both platforms; only
+its final `<platform-anchor> $2E ??` tail is structurally rigid, the
+middle bytes carry per-proc parameter-signature data whose decoding
+is not currently consumed by any reader path.
 
-| byte | role                                              | example values                                  |
-|------|---------------------------------------------------|-------------------------------------------------|
-| 0    | constant `$04` — marker start                     | `$04`                                           |
-| 1    | flag: high bits set when proc has register params | `$10` for plain procs, `$98` for instance methods (Self/RegParam present) |
-| 2    | per-binary counter                                | varies build-to-build, constant within a build  |
-| 3    | constant `$2E` — marker tail                      | `$2E`                                           |
-| 4    | per-proc data (count / offset / hash, TBD)        | `$00` for plain procs; non-zero (`$E1`, `$65`, …) for instance methods |
+```
+$04  <middle: 2..5 bytes>  <platform-anchor>  $2E  <owner-ref>
+                                                    \____ next record begins immediately after
+```
+
+| Position                            | Win32 | Win64 | Meaning                                                                                     |
+|-------------------------------------|-------|-------|---------------------------------------------------------------------------------------------|
+| +0                                  | `$04` | `$04` | marker start                                                                                |
+| middle (length varies per-proc)     | 2..5 bytes | 0..3 bytes | parameter signature shape — `$9C 02` primitive-count prefix observed, plus type-id-shaped sub-references. Not decoded. |
+| platform anchor (just before `$2E`) | `$11` | `$3D` | platform fingerprint byte                                                                   |
+| platform-anchor + 1                 | `$2E` | `$2E` | end-of-middle marker — see "structural-stability caveat" below                              |
+| `<owner-ref>`                       | 1 byte or 2 bytes | 1 byte or 2 bytes | **plain proc**: `$00`; **instance method**: 2 bytes LE = owning class's `$2A` raw type-id (matches `Reader.FindTypeIdByName(<ClassName>)`). |
+
+Concrete Win32 evidence (`Projects/DPT/Test/Win32/DebugTarget.rsm`,
+pinned by `Test.DPT.Rsm.Scanner.TestProcMarkerOwnerRefDecodes32`):
+
+| Proc | bytes from `$04` onward | owner-ref |
+|---|---|---|
+| `TargetProcedure` (plain) | `04 81 03 02 10 11 2E 00` | `$00` → no owner |
+| `LocalsProcedure` (plain) | `04 A1 05 02 10 11 2E 00` | `$00` → no owner |
+| `TDerived.TouchSelf` | `04 F0 02 98 11 2E 21 2E` | `$2E21` LE = `TDerived` ✓ |
+| `TStaleSelfHost.Probe` | `04 F1 02 02 98 11 2E E5 2E` | `$2EE5` LE = `TStaleSelfHost` ✓ |
+| `TPropHost.Create` | `04 01 02 02 31 03 11 2E D5 2E` | `$2ED5` LE = `TPropHost` ✓ |
+| `TPropHost.GetCalcInt` | `04 34 02 9C 02 D5 2E` *(short form)* | `$2ED5` LE = `TPropHost` ✓ (same class, no `$11 2E` middle anchor) |
+
+Win64 differs only in the platform-anchor byte (`$3D` instead of
+`$11`); owner-ref shape identical (pinned by sibling 64 test).
+
+**Structural-stability caveat (§6.22 finding).** The `$2E` immediately
+after the platform anchor IS NOT a constant — it is the HI byte of a
+2-byte LE owner-id pair (`$2Exx` / `$2Fxx`), which happens to fall in
+the `$2E00..$2FFF` range for every class observed in the current
+DebugTarget + TFW corpora. The `TryWin64` sanity check (`Buf[MOff] =
+$04 AND Buf[MOff+3] = $2E`) works in practice but is coincidence-
+based. A linker build that scattered class type-ids across a wider
+range (`$3Exx`, `$4Fxx`, …) would break the sanity check. Watch for
+this if the trailer-check ever starts rejecting valid procs.
+
+**Middle-byte `$9C` primitive prefix (§6.23 partial finding).** The
+short-form marker `TPropHost.GetCalcInt = 04 34 02 9C 02 D5 2E`
+includes `$9C` which is the §4.7 primitive-prefix tag — it correlates
+with the proc returning a primitive type (Integer here). However,
+the SAME information is then re-emitted in plain form by the
+subsequent `$20 LOCAL Result $66 $00 $00 $02 $F0` record (Integer's
+primitive id `$F002`). The marker middle bytes therefore SUMMARISE
+what the following `$21 REGVAR` / `$20 LOCAL` records say in full,
+adding no new information beyond what the §4.3 / §4.4 channels
+already carry. Decoding the middle bytes is workable but redundant;
+no current reader path consumes them.
+
+> This is a §6.23 Round-1 partial finding folded here so the
+> middle-byte observation isn't lost. §6.23 itself closed as
+> "decoded-but-not-useful for §6.20" — see §6.20 R9 for why
+> accessor-name-anchored binding via this signature is structurally
+> void on TFW (TAd has no methods, no accessor procs exist).
 
 §6.17 closure: the earlier marker check required `byte 1 = $10 AND
 byte 4 = $00`, which matched only no-Self procs like
@@ -604,6 +654,17 @@ The ordinal uses Delphi's LSB-as-continuation form:
 Also reaches `RecordCrossUnitSameCompConstant`. Used for enums with
 explicit ordinal values like `(a = 1, b = 100)` or sparse `(a = 128, ...)`.
 
+> **Named `const`s also emit `$25` records.** The `$25` tag is not
+> exclusive to enum *elements*: the linker emits the same record shape
+> for named ordinal **constants** (`crDefault`, `vkLButton`,
+> `CSIDL_APPDATA`, `mrYesToAll`, …). They are byte-indistinguishable
+> from enum elements here, so they land in the same pending buffer and
+> are flushed into `FEnumConstNames` like any other constant. The
+> over-collection this used to cause in the synthesized `EnumDef` list
+> is fenced off by the two guards documented in §4.8 (jobs 3–4) and
+> §5.1; the constants themselves remain available for `(typeId, ord)`
+> lookup.
+
 ### 4.7 `$03` ENUM_DEF_TAG — enum type definition
 
 ```
@@ -766,13 +827,37 @@ enum** — class names and record names also register here, populating
 `FTypeIdByName` (via the same pass).
 
 **Owning-unit forward scan** (only when same-comp $25 constants are
-pending): the scanner walks up to 1024 bytes forward looking for a
-`PROC_TAG` record whose name contains a dot
-(`'DebugTarget.EnumAlpha'`). That dotted proc name is the unit-init
-proc; its identifier IS the owning unit's name. This is the only known
-way to recover the `(unit, type)` pair for synthesized `EnumDef`s in
-the same-comp case. See
-[Scanner.pas:1259-1297](DPT.Rsm.Scanner.pas#L1259-L1297).
+pending). The owning unit name is the unit-init proc — a dotted
+PROC_TAG whose name is a NAMESPACE (`'DPT.Dcu.Diff'`,
+`'System.Variants'`, `'DebugTarget.EnumAlpha'`) — but it sits at the
+END of the unit's symbol block, after all the unit's method PROC
+records. So the scan uses two decoupled steps (`HandleTypeRegistryRecord`):
+
+* **Synthesis gate (tight, 1 KB):** synthesize an `EnumDef` only when a
+  dotted proc sits within 1 KB of the `$2A`. This keeps the synthesis
+  set tight — widening the gate floods the `EnumDef` list with non-enum
+  `$2A` entries whose nearest proc is far (a 1 KB→64 KB widening alone
+  took DebugTarget 132→166 synthesized defs).
+* **Name search (wide, 1 MB):** for a gated entry, search forward for
+  the first dotted proc that is a clean dotted NAMESPACE — first
+  segment NOT a Delphi type identifier (`T`-class / `E`-exception /
+  `I`-interface + uppercase, which rejects methods like
+  `'TDcuDiff.ListEntries'`) and no generic angle brackets (which
+  rejects specialization procs like `'Collections.NewList<…>'`). The
+  unit's own methods/specializations all precede its init proc, so the
+  FIRST clean namespace IS the owning unit (no overshoot into the next
+  unit). The window is wide because a large class pushes the init proc
+  far out (TFW/DPT's `TMcpServer` ~21 KB; JCL/Indy units up to ~1 MB).
+  If no clean namespace turns up the entry falls back to the nearby
+  gate proc (a method name) so the enum is **never dropped** — an
+  earlier attempt that dropped the def when no clean unit name was
+  found collapsed DPT.rsm 95→22 (§6.25).
+
+Pinned by
+[Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32](../Test/Test.DPT.Rsm.Scanner.pas)
+(no `EnumDef.UnitName` is a `TClass.Method`). The residual — a unit
+whose init proc is >1 MB out or absent still falls back to a method
+name — is tracked in §6.25.
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
@@ -795,7 +880,19 @@ re-walks; harmless under tight shape checks).
 3. Flush every pending same-comp $25 constant under the primary id, so
    `FEnumConstNames[primary:ordinal] := name`.
 4. Synthesise an `EnumDef` from the pending buffer when the forward-scan
-   recovered an owning unit name.
+   recovered an owning unit name — **but only if the buffered constants
+   carry unique ordinals**. A genuine Delphi enum cannot have two
+   elements sharing an ordinal, so a buffer with duplicate ordinals is
+   not one enum but an over-collection of unrelated named-`const`
+   families (e.g. `Winapi.SHFolder`'s `CSIDL_*` and `SHGFP_*` both start
+   at ordinal 0; `Vcl.Controls`/`System.UITypes`' `cr*`/`mr*`/`vk*` runs
+   merged under a `LongWord` alias `$2A` like `TColorRef`). Such a buffer
+   is still flushed into `FEnumConstNames` (job 3) for `(typeId, ord)`
+   lookup but produces **no** `EnumDef`. This duplicate-ordinal guard is
+   the sole over-collection fence (the class-method unit-name rejection
+   that once accompanied it was reverted — see the forward-scan note
+   above and §6.25). Pinned by
+   [Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32](../Test/Test.DPT.Rsm.Scanner.pas).
 
 ### 4.9 `$2C` Format-A field record (no separate `TRsmTag` constant)
 
@@ -1536,6 +1633,26 @@ only way same-comp enums get an `EnumDef` (the `$03 ENUM_DEF` records
 exist for them too in principle, but the scanner picks them up
 independently and the synthesis is a belt-and-braces fallback).
 
+**A duplicate-ordinal guard keeps the synthesis from over-collecting**
+(see §4.8 job 4 for the byte-level detail). The pending buffer is keyed
+only by a collision-prone secondary id, so named-`const` families that
+the linker emits as `$25` records (cursor/modal-result/virtual-key
+constants, the `CSIDL_*`/`SHGFP_*` shell ids, …) accumulate in it and
+never match an enum `$2A` of their own — they sit there until some
+unrelated non-enum `$2A` (a `LongWord` alias like `TColorRef`, a
+function-pointer type like `PFNSHGETFOLDERPATHA`) flushes the whole
+pile. Without a guard the synthesis dumped that pile into one bogus
+`TRsmEnumDef` (RsmDesk's `TColorRef = 285 elements`). The guard: skip
+the synthesis when the buffer carries **duplicate ordinals** — a real
+Delphi enum can't, so duplicates prove the buffer is a multi-family
+over-collection. The constants are still flushed into `FEnumConstNames`
+for `(typeId, ordinal)` lookup; only the spurious `EnumDef` is
+suppressed. Pinned by
+[Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32](../Test/Test.DPT.Rsm.Scanner.pas).
+The residual cases the ordinal guard cannot reach (a clean-ordinal
+const family attributed to a wrong non-enum `$2A`, and mislabeled
+`TClass.Method` unit names on legit survivors) are tracked in §6.25.
+
 ### 5.2 Class parent resolution (three-stage)
 
 Inheritance is **not** explicitly emitted as a class → parent
@@ -1940,14 +2057,247 @@ decoder is necessary infrastructure for future investigation
 of cross-unit consumer paths, but it is not by itself
 sufficient.
 
+**R9 (Round 5, via §6.23 — `$28` marker middle-bytes
+decode-via-accessor path).** The accessor-name-anchored idea
+(`T<X>.SetLand` carrying TLandTyp as a parameter signature in
+its `$28` marker middle bytes) is structurally void on TFW.
+Two refutations stack:
+* **R9a — TFW has zero `$28` procs whose dotted name starts
+  with `TAd.`** (PowerShell IndexOf scan over the full
+  848 MB TFW.rsm tested 14 plausible accessor naming
+  variants, all hit count = 0). `TAd` is a plain Delphi
+  record with no methods; no accessor proc exists for any
+  signature decoder to read.
+* **R9b — Where `*.SetLand` procs DO exist in TFW** (3 of
+  them: `TAdApFormSlimFixture.SetLand`,
+  `TAdFormSlimFixture.SetLand`,
+  `TAdFormScriptSlimFixture.SetLand`), they are FitNesse slim-
+  fixture wrappers around TAd-shaped logic — their owning class
+  is the fixture, NOT TAd. Binding via accessor convention
+  would attribute TLandTyp to the wrong owner.
+* The signature decode itself was workable (the marker's `$9C`
+  byte is the §4.7 primitive-prefix tag), but the type info
+  is redundant with §4.3 REGVAR / §4.4 LOCAL records that
+  immediately follow the marker — see §4.1's `$9C`-prefix
+  footnote. Even with a perfect middle-byte decoder, there's
+  no accessor proc to consume it on TAd.
+
+Path forward for the user-visible defect (`evaluate Self.FAd.Land`
+returning the nil-pointer error instead of the enum name): **Pfad
+2** — lift the nil-refusal in `EvaluateVariable`'s auto-detect when
+the resolved Member is a non-class primitive slot. That doesn't
+deliver the enum NAME (the encoding still doesn't bind TAd.Land →
+TLandTyp), but it eliminates the misleading "nil pointer" error
+message and prints the raw ordinal `0`. The non-heuristic
+ceiling for now.
+
+**Pfad 2 implemented** (this round). The nil-refusal discrimination
+now lives in
+[DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas) (the block
+immediately before the `BuildAutoDetectHint` call), backed by the
+nested helper `TerminalMemberResolvesToClass` and the new
+function-scope flag `DottedTerminalIsRecordField`. The flag is set at
+the top of every dotted-walk iteration to
+`ContextIsRecord and (PrevContextIdx >= 0)`, so after the loop it
+reports the TERMINAL segment's hop kind. The discrimination:
+
+* **Refuse** (keep the "possible nil class pointer" hint) when the
+  terminal member could be a class reference — its `TypeIdx` resolves
+  to an `skClass` in `FClasses`, OR the terminal segment was reached
+  through the class-hop branch (a field slot in a live class instance,
+  where nil is a legitimate nil object).
+* **Emit raw bytes as `int`** when the terminal member was reached
+  through the record-hop branch AND carries no type metadata
+  (`PointerTargetTypeIdx = 0`, `TypeIdx` not a class, and
+  `PrimitiveTypeId = 0` is implied because Path-1 auto-detect would
+  otherwise have formatted it). This is exactly the TAd.Land shape:
+  `evaluate Self.FAd.Land` now returns `0` (the ordinal of
+  `ltInland`) typed as `int` instead of the misleading nil-pointer
+  error.
+
+This does NOT close §6.20 — the encoding still does not bind
+TAd.Land → TLandTyp, so the enum NAME is unavailable. §6.20 stays
+open as the undecodable structural gap. Recovering the NAME would
+require the heuristic late-binding pass tracked in **§6.24**.
+
+---
+
+### 6.24 Pfad 3.5 — heuristic name-convention enum late-binding for record fields (`GAP`)
+
+[DPT.Rsm.FormatALinker.pas `BindPointerAliasMembersByNameConvention`](DPT.Rsm.FormatALinker.pas)
+(the §4.15 / §6.19 F-prefix late-binding family this would extend) —
+**documentation-only; not implemented.** This is the last-resort
+option for recovering the enum NAME for record-field members that the
+encoding does not bind structurally (the canonical case being TFW's
+`TAd.Land: TLandTyp`). It is opened ONLY after five rounds of
+structural decode were refuted across §6.20 (R6–R9) and §6.23 — see
+those entries for why no pure-structural path closes the binding. The
+implemented **Pfad 2** (§6.20, this round) already removes the
+user-visible *misleading error* by surfacing the raw ordinal as
+`int`; §6.24 would go further and surface the enum *name*
+(`ltInland`), at the cost of a name-convention heuristic.
+
+**Rationale.** Last-resort heuristic AFTER structural decode is
+exhausted. The `$2A` type registry DOES contain a `TLandTyp` enum
+entry; the gap is purely that no record-field `$2C` / `$67` record
+ties `TAd.Land` to it. A name-convention match (`Land` → `TLandTyp`)
+is the only remaining signal, so it must be gated hard to avoid
+phantom bindings.
+
+**Proposed shape.** Extend the §4.15 `TRsmFieldAliasEnumBridge`-style
+post-process pass to also bind record-field members by name
+convention, BUT only when ALL of these hold (the leakage guards):
+
+* `Member.Name = <X>` (any case; e.g. `Land`).
+* `<X>` does NOT start with `F` (otherwise §4.15's F-prefix bridge
+  already covers it).
+* `FTypeIdByName['t' + LowerCase(X)]` returns a non-zero id, OR the
+  TFW-style suffixed `FTypeIdByName['t' + LowerCase(X) + 'typ']`
+  does.
+* That `$2A` registry id resolves to an `$03 ENUM_DEF` — verify it is
+  genuinely an enum, not merely any type with a matching name.
+* Genuine UNIQUE match: skip when more than one candidate name
+  resolves (no ambiguous overshoot / collision).
+* `Member.PrimitiveTypeId`, `Member.TypeIdx`, and
+  `Member.PointerTargetTypeIdx` are ALL zero — never clobber an
+  existing structural binding.
+
+**Note.** Pure structural decode is exhausted per §6.20 R6–R9 and
+§6.23 R9. This entry exists because the user may later want the enum
+name displayed; until then Pfad 2 is the non-heuristic ceiling.
+
+**Closure plan.** When implemented:
+
+* Pin against TFW: `Reader.FindClassMember('TAd', 'Land', M)` binds
+  `M.PrimitiveTypeId` to `TLandTyp`, and bare `evaluate Self.FAd.Land`
+  (no `type=`) resolves to `ltInland` via the auto-detect enum path.
+* Pin against DebugTarget as the leakage guard: a record field whose
+  name has no matching `T<Name>` / `T<Name>Typ` enum (e.g.
+  `TMixedRec.FMixedInt`) stays `Integer`, NOT a phantom enum, and no
+  ambiguous-name field gets bound.
+* Both pins live in `Test.DPT.Rsm.Tfw.pas` (TFW probe) and
+  `Test.DPT.Rsm.LocalsReader.pas` / `Test.DPT.Rsm.Reader.pas`
+  (DebugTarget guard), per the §4 widening-needs-leakage-guard rule.
+
+### 6.25 Same-comp `$25` pending buffer pollutes / mis-attributes synthesized `EnumDef`s (`GAP`)
+
+[DPT.Rsm.EnumDecoder.pas `RecordTypeRegistry`](DPT.Rsm.EnumDecoder.pas)
++ the owning-unit forward scan in
+[DPT.Rsm.Scanner.pas `HandleTypeRegistryRecord`](DPT.Rsm.Scanner.pas).
+The same-compilation enum flow buffers every `$25` constant until the
+next `$2A` flushes it (§5.1). But the linker emits the **same** `$25`
+shape for named ordinal **`const`s** (`cr*`/`mr*`/`vk*`/`CSIDL_*`/…,
+see §4.6 note), which are byte-indistinguishable from enum elements, so
+they accumulate in the buffer and — having no enum `$2A` of their own —
+get flushed under whatever unrelated non-enum `$2A` surfaces next
+(`TColorRef` = `LongWord`, `PFNSHGETFOLDERPATHA` = function pointer).
+The duplicate-ordinal guard (§4.8 job 4) suppresses the **multi-family**
+over-collections (the egregious `TColorRef = 285 elements` case), but
+three residuals remain undecoded:
+
+* **R1 — clean-ordinal mis-attribution (partially closed).** A single
+  const family with unique ordinals attributed to a wrong non-enum
+  `$2A` produces a bogus `EnumDef` the ordinal guard can't see
+  (`TPublishableVariantType`, a class in `System.TypInfo`, carrying
+  `TTypeKind`'s 22 values; `TObjectList`, a class, as an "enum").
+  **Closed for VMT class names** by the reader post-process
+  `TRsmReader.FilterStructNamedEnumDefs` (§7, runs first): any `EnumDef`
+  whose `TypeName` resolves via `FindClassByName` to a known **`skClass`**
+  is dropped — a real enum is never a class, so no legit enum is removed
+  (DPT.rsm 51→44; pin
+  `Test.DPT.Rsm.Reader.TestEnumDefsExcludeClassNames`). The filter keys
+  on `skClass` **only, not `skRecord`**: the record-discovery heuristic
+  AND `TRsmPropertyLinker`'s synthetic empty-member records register
+  some genuine ENUM names as `skRecord` (`TThreadPriority`,
+  `TUnicodeBreak`, the sibling-unit `TStatus`), so filtering on a record
+  match would delete real enums (verified — it broke
+  `tpHigher`/`TStatus`/field-alias resolution before the `skClass`
+  restriction). **Still leaking:** non-enum `$2A` types that are NOT
+  VMT classes — records (`TWMNotifyRE`), interfaces (`IRichChunk`,
+  `IPropertySystem`), exceptions (`EMaskException`), external Win-API
+  structs/proc-types (`QOS_OBJECT_HDR`, `tagXFORM`, `GETTEXTEX`) —
+  survive as phantom enums. Closing those needs the undecoded "is this
+  `$2A` an enum?" oracle (below).
+* **R2 — mislabeled unit names (largely closed).** The forward scan
+  used to grab the first dotted proc after the `$2A`, which is a class
+  method (`TDcuDiff.ListEntries`), not the unit-init proc — so the
+  `UnitName` came out as a `TClass.Method` (the RsmDesk report
+  `TDcuDiffStatus → TDcuDiff.ListEntries`). Fixed by the wide
+  clean-namespace name search (§4.8): DPT.rsm now resolves all 51 enums
+  to real units (`DPT.Dcu.Diff`, `DPT.MCP.Server`, `System.Variants`).
+  Residual: a unit whose init proc is >1 MB past the `$2A` (or absent)
+  still falls back to the nearby method name. The robust closure is an
+  offset-indexed post-process (collect every unit-init proc offset in
+  one pass, assign each synthesized def the next unit boundary after its
+  `$2A`) — deferred; the 1 MB window covers all observed units.
+* **R3 — dropped polluted enums.** A legit enum whose buffer got
+  polluted by a preceding const run inherits duplicate ordinals and is
+  therefore dropped by the guard (its element list was already corrupt,
+  so dropping is the lesser evil — but the type is then absent from
+  `EnumDefs`).
+
+The root cause is the absence of a byte-level signal separating
+enum-element `$25` records from named-`const` `$25` records, and of a
+reliable "is this `$2A` an enum?" oracle (the `$2A` body-flag is shape,
+not kind — §4.8). Closing it needs either such a signal (RE the `$25`
+const-vs-element bytes, or the `$2A` enum-vs-other discriminator) or
+gating the flush on the primary→secondary bridge having fired for
+*this* `$2A`. **Refuted approach:** rejecting class-method forward-scan
+unit names — it dropped legit same-comp enums wholesale on real
+binaries (DPT.rsm 95 → 22), reverted in favour of the ordinal-only
+guard (DPT.rsm settles at 51, all clean-ordinal enums kept). Pin:
+`Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32` holds the
+duplicate-ordinal invariant + an over-removal floor on DebugTarget; a
+real-binary guard is still missing because DebugTarget is too clean to
+exhibit R2/R3 (the over-removal regression was invisible there — it
+only showed on DPT.rsm).
+
+**Decisive root-cause question — ANSWERED.** Every fix above (dup-ordinal
+guard, `skClass` filter, clean-namespace unit scan) is a downstream
+cleanup of the SYNTHESIS path, which exists only because the same-comp
+`$2A` flush GUESSES the (type, unit, element-set) tuple. The question
+was whether the whole synthesis — and therefore all these filters —
+could be removed by sourcing enums from the authoritative `$03 ENUM_DEF`
+channel instead. **It cannot.** Two experiments settled it:
+
+1. **Raw `$03` probe** (DebugTarget, removed after use): the linker DOES
+   emit a `$03 ENUM_DEF` record for **contiguous** same-comp enums and
+   our anchor accepts them — `TStatus` (EnumAlpha), `TLightStatus`,
+   `TSyncDirection`, `TFieldStatusKind`, `TFieldUnregKind` each have a
+   valid `$03` record (`anchorOK=True`). So for contiguous enums the
+   synthesis is REDUNDANT with `$03`.
+2. **Synthesis-disabled regression**: turning off the `EnumDef`
+   synthesis broke exactly one case —
+   `TestMcpEvaluateCrossUnitEnumWithSameTypeName` on **`GStatusBeta`**
+   (`DebugTarget.EnumBeta.TStatus`, **sparse**: `sbStopped = 10`),
+   which then "could not be auto-typed". **Sparse enums skip the `$03`
+   channel** (§4.7) — the linker emits NO `$03` for them, so the
+   `$25`→`$2A` synthesis is their ONLY source.
+
+**Conclusion.** The synthesis is unavoidable for *sparse* same-comp
+enums; it cannot be deleted. So the filters are NOT merely covering a
+"we-fail-to-read-an-existing-record" gap — for sparse enums there is no
+clean record to read; the format itself carries only loose `$25`
+constants plus a collision-prone `$2A`, and the synthesis must guess.
+The remaining genuinely-undecoded byte is the **`$2A` enum-vs-other
+discriminator** (the body-flag is shape-not-kind, §4.8): decoding it
+would let the flush fire only for real-enum `$2A` entries and replace
+the `skClass` filter wholesale. That is the one principled root-cause
+lever left; the `$25`/`$2A` owning-type linkage (to replace the
+dup-ordinal guard) is the other. Both are real RE work, not reading
+gaps. Until then the filters stand as the pragmatic mitigation.
+
 ---
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
-> sequence positions. The last entry used was §6.21 (the cross-unit
-> symbol-import table decoder — opened and closed in a single turn;
-> canonical encoding moved into §4.17, residual consumer-side
-> TAd.Land binding remains tracked in §6.20).
-> The next gap discovered MUST be numbered **§6.22**, not §6.1.
+> sequence positions. The last entry used was §6.25 (the same-comp
+> `$25`-pending-buffer pollution / `EnumDef` mis-attribution gap). §6.24
+> is the documentation-only Pfad-3.5 heuristic enum late-binding option
+> for record fields. §6.23 was the `$28` marker middle-bytes
+> investigation — opened and closed in a single Round-1,
+> decoded-but-not-useful-for-§6.20 per R9, the `$9C` primitive-prefix
+> observation folded into §4.1 as a footnote.
+> The next gap discovered MUST be numbered **§6.26**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code
 > comments, and pin docstrings reference closed §6.N entries by
 > their original number long after the §6 entry itself is gone, and
@@ -1967,11 +2317,19 @@ sufficient.
 3. Verifies the first 4 bytes are `CSH7`; bails silently otherwise.
 4. Runs `ScanSymbolStream` → `RecomputeProcSizes` →
    `TRsmStructDiscoverer.Run`.
-5. Runs the four post-process passes:
+5. Runs the post-process passes in `RunPostProcess`, in order:
+   `FilterStructNamedEnumDefs` (drops synthesized `EnumDef`s whose name
+   is a known VMT `skClass` — §6.25 R1; `skClass` only, not `skRecord`,
+   which would catch enum names the record heuristic mis-registers. Runs
+   **first** because the enum bridges below store indices into
+   `EnumDefs`, so deleting entries afterwards would invalidate them —
+   `FClasses` is already populated by the StructDiscoverer in step 4) →
    `TRsmFormatALinker.Run` →
    `TRsmClassParentDeriver.Run` →
    `TRsmCrossUnitParentResolver.Run` →
-   `TRsmScopeLocalEnumBridge.Run`.
+   `TRsmScopeLocalEnumBridge.Run` →
+   `TRsmFieldAliasEnumBridge.Run` →
+   `TRsmPropertyLinker.Run`.
 6. Reports each phase via `OnPhase: TProc<String>` when assigned.
 
 Failure modes are **silent** by design:

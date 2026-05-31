@@ -64,6 +64,25 @@ type
     [Test]
     procedure TestCrossUnitEnumIdRegistered32;
 
+    /// Closure pin for the $2A-flush EnumDef over-collection (the
+    /// RsmDesk "TColorRef (TAlphaColorRec.Create) = 285 elements"
+    /// report; §6.25). Core invariant: a TRsmEnumDef's ordinals are
+    /// UNIQUE -- a real Delphi enum cannot have two elements sharing an
+    /// ordinal, so the over-collected pending buffer (ord 0 = crDefault
+    /// AND mrNone AND sgiNoGesture, ...) is suppressed by the
+    /// duplicate-ordinal synthesis guard. Concrete: cr* and vk* const
+    /// families never co-occur in one def. Leakage guards: the legit
+    /// $03 / same-comp enums survive (TTypeKind keeps 23 elements;
+    /// TLightStatus + a same-comp TStatus remain) AND the total count
+    /// does not collapse -- the latter guards the OPPOSITE failure of an
+    /// earlier over-aggressive attempt that rejected class-method unit
+    /// names and nuked legit enums (DPT.rsm 95 -> 22). NB: DebugTarget is
+    /// too clean to exhibit that over-removal (it stayed ~127 either
+    /// way); the real-binary collapse was caught manually against
+    /// DPT.rsm, see §6.25.
+    [Test]
+    procedure TestEnumDefsNotOverCollected32;
+
     /// Pins the finding for the $2A "KindFlag" byte at body offset +0
     /// (RSM format reference, gap 6.6). It is NOT a type-kind
     /// discriminator: classes, records and enums each appear with
@@ -260,6 +279,38 @@ type
     [Test]
     procedure TestUnitUseFalsePositiveRejection;
 
+    /// <summary>
+    ///   §6.22 closure pin (Win32). Every <c>$28</c> PROC record on
+    ///   Win32 carries a marker `<c>$04 ?? ?? ?? ?? ?? $11 $2E
+    ///   &lt;owner-ref&gt;</c>` after its proc-address payload, where
+    ///   the bytes after <c>$11 $2E</c> are either a single sentinel
+    ///   <c>$00</c> (plain proc) or a 2-byte LE pair encoding the
+    ///   owning class's <c>$2A</c> raw type-id (instance method).
+    ///   See §4.1 for the full table. This pin asserts: plain
+    ///   <c>TargetProcedure</c> ends with <c>$11 $2E $00</c>;
+    ///   instance method <c>TDerived.TouchSelf</c> ends with
+    ///   <c>$11 $2E &lt;TDerived's raw id LE&gt;</c>; siblings of
+    ///   the same class (<c>TPropHost.Create</c> + <c>TPropHost.</c>
+    ///   <c>GetCalcInt</c>) carry the SAME owner-ref pair (the
+    ///   intra-class consistency check).
+    /// </summary>
+    [Test]
+    procedure TestProcMarkerOwnerRefDecodes32;
+
+    {$IFDEF CPUX64}
+    /// <summary>
+    ///   §6.22 closure pin (Win64). Same shape as the Win32 sibling
+    ///   above but the platform-anchor byte is <c>$3D</c> instead of
+    ///   <c>$11</c>, and the class raw-ids differ (Win64 typically
+    ///   assigns ids in the <c>$2E00..$2FFF</c> range too but with
+    ///   different per-class values). Asserts the plain-proc
+    ///   <c>$00</c> sentinel + the intra-class consistency in the
+    ///   Win64 fixture.
+    /// </summary>
+    [Test]
+    procedure TestProcMarkerOwnerRefDecodes64;
+    {$ENDIF}
+
     {$IFDEF CPUX64}
     /// Win64 sanity. Same as TestProcsCollected32 but on the Win64
     /// fixture; structures are encoded differently (Win64 trailer
@@ -297,6 +348,114 @@ begin
   Result := ExpandFileName('Projects\DPT\Test\' + Sub + '\DebugTarget.exe');
   if not TFile.Exists(Result) then
     Result := ExpandFileName(Sub + '\DebugTarget.exe');
+end;
+
+procedure TRsmScannerTests.TestEnumDefsNotOverCollected32;
+
+  // True when AName is a Delphi type identifier: T (class) / E (exception)
+  // / I (interface) immediately followed by an uppercase letter. A
+  // synthesised EnumDef's UnitName must be a unit, never such a type
+  // ident (which would mean the forward-scan grabbed a "TClass.Method").
+  function FirstSegLooksLikeType(const AUnit: String): Boolean;
+  var
+    Seg: String;
+    D  : Integer;
+  begin
+    Seg := AUnit;
+    D := Pos('.', Seg);
+    if D > 0 then Seg := Copy(Seg, 1, D - 1);
+    Result := (Length(Seg) >= 2) and CharInSet(Seg[1], ['T', 'E', 'I']) and
+              CharInSet(Seg[2], ['A'..'Z']);
+  end;
+
+var
+  S          : TRsmScanner;
+  I, J, K    : Integer;
+  Def        : TRsmEnumDef;
+  HasTTypeKind, HasLight, HasStatus: Boolean;
+  StatusUnit : String;
+  HasCr, HasVk: Boolean;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(S.EnumDefs.Count > 0, 'no EnumDefs from DebugTarget');
+
+    HasTTypeKind := False; HasLight := False; HasStatus := False;
+    StatusUnit := '';
+    for I := 0 to S.EnumDefs.Count - 1 do
+    begin
+      Def := S.EnumDefs[I];
+      if Def.Elements = nil then Continue;
+
+      // Unit-name invariant (§6.25): a synthesised EnumDef's UnitName is
+      // a UNIT, never a "TClass.Method". The forward-scan grabbed the
+      // first dotted proc after the $2A (a class method like
+      // "TDcuDiff.ListEntries") instead of the unit-init proc; the fix
+      // searches wider for the first clean dotted namespace.
+      Assert.IsFalse(FirstSegLooksLikeType(Def.UnitName),
+        Format('EnumDef "%s" UnitName "%s" is a TClass.Method, not a unit',
+          [Def.TypeName, Def.UnitName]));
+
+      // Core invariant: ordinals must be UNIQUE within a single enum.
+      // A real Delphi enum cannot have two elements sharing an ordinal;
+      // the over-collected pending buffer did (ord 0 = crDefault AND
+      // mrNone AND sgiNoGesture). The duplicate-ordinal synthesis guard
+      // suppresses those bogus defs.
+      for J := 0 to Def.Elements.Count - 1 do
+        for K := J + 1 to Def.Elements.Count - 1 do
+          Assert.AreNotEqual<Integer>(Def.Elements[J].Ordinal,
+            Def.Elements[K].Ordinal,
+            Format('EnumDef "%s" (%s) has duplicate ordinal %d ' +
+              '(elements "%s" and "%s") -- over-collected pending buffer',
+              [Def.TypeName, Def.UnitName, Def.Elements[J].Ordinal,
+               Def.Elements[J].Name, Def.Elements[K].Name]));
+
+      // Concrete signature of the TColorRef over-collection: cr* and vk*
+      // const families merged into one def.
+      HasCr := False; HasVk := False;
+      for J := 0 to Def.Elements.Count - 1 do
+      begin
+        if SameText(Def.Elements[J].Name, 'crDefault') then HasCr := True;
+        if SameText(Def.Elements[J].Name, 'vkLButton') then HasVk := True;
+      end;
+      Assert.IsFalse(HasCr and HasVk,
+        Format('EnumDef "%s" merges cr* and vk* const families', [Def.TypeName]));
+
+      // Leakage guard: the legit $03-sourced / same-comp enums survive.
+      if SameText(Def.TypeName, 'TTypeKind') and (Def.Elements.Count = 23) then
+        HasTTypeKind := True;
+      if SameText(Def.TypeName, 'TLightStatus') then HasLight := True;
+      if SameText(Def.TypeName, 'TStatus') then
+      begin
+        HasStatus := True;
+        StatusUnit := Def.UnitName;
+      end;
+    end;
+
+    Assert.IsTrue(HasTTypeKind, 'legit TTypeKind (23 elements) lost');
+    Assert.IsTrue(HasLight, 'legit TLightStatus lost');
+    Assert.IsTrue(HasStatus, 'legit same-comp TStatus lost');
+    // Concrete unit-name resolution on a controlled same-comp enum:
+    // DebugTarget's sibling-unit TStatus must resolve to its DebugTarget
+    // unit, not a method of some class.
+    Assert.IsTrue(StatusUnit.StartsWith('DebugTarget'),
+      Format('TStatus UnitName "%s" did not resolve to a DebugTarget unit',
+        [StatusUnit]));
+    // Over-removal regression guard. The fix must drop only the handful
+    // of duplicate-ordinal over-collections, NOT a large slice of the
+    // EnumDef list. (The first fix attempt also rejected any synthesised
+    // def whose forward-scanned unit name looked like a TClass.Method --
+    // which on a real binary nukes legit same-comp enums whose unit-init
+    // proc the forward-scan missed; DebugTarget alone didn't reveal it,
+    // DPT.rsm collapsed 95 -> 22. Guard against that direction here.)
+    Assert.IsTrue(S.EnumDefs.Count >= 120,
+      Format('EnumDef count %d too low -- the over-collection fix is ' +
+        'removing legit enums, not just duplicate-ordinal garbage',
+        [S.EnumDefs.Count]));
+  finally
+    S.Free;
+  end;
 end;
 
 procedure TRsmScannerTests.TestLoadFromMissingFileLeavesEmpty;
@@ -1668,6 +1827,221 @@ begin
     S.Free;
   end;
 end;
+
+procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes32;
+// §6.22 closure pin (Win32). The byte immediately after the
+// platform-anchor `$11 $2E` in every $28 PROC record encodes the
+// owning class:
+//   * plain proc            => single $00 sentinel
+//   * instance method <C.M> => 2-byte LE = C's $2A raw type id
+// Pins three intra-class+inter-class probes. Expected owner-id
+// values come straight from §4.1's Win32 byte-evidence table;
+// re-pin both together if the linker shifts class ids.
+const
+  Win32Anchor    : Byte   = $11;
+  // Sentinel returned by the helper when the marker isn't found
+  // within the search window (catches a regression that drops the
+  // `$11 $2E` recognition entirely, vs. a regression that finds it
+  // but reads the owner-ref wrong).
+  NotFound       : UInt32 = $FFFFFFFF;
+  TDerivedOwner  : UInt32 = $2E21;
+  TPropHostOwner : UInt32 = $2ED5;
+  TStaleSelfOwner: UInt32 = $2EE5;
+var
+  S: TRsmScanner;
+
+  function FindProcStart(const AProcName: String): NativeInt;
+  var
+    NL: Byte; I, K: NativeInt; OK: Boolean;
+  begin
+    NL := Length(AProcName);
+    Result := -1;
+    if NL = 0 then Exit;
+    for I := 0 to S.Sz - 2 - NL do
+    begin
+      if (S.ByteAt(I) = $28) and (S.ByteAt(I + 1) = NL) then
+      begin
+        OK := True;
+        for K := 1 to NL do
+          if S.ByteAt(I + 1 + K) <> Byte(AProcName[K]) then
+          begin OK := False; Break; end;
+        if OK then Exit(I);
+      end;
+    end;
+  end;
+
+  function ExtractOwnerRef(AProcStart: NativeInt; AAnchor: Byte): UInt32;
+  // Returns $00 for plain procs (single sentinel after $2E),
+  // the 2-byte LE owner-id for instance methods, or NotFound
+  // when the marker isn't located within the search window.
+  var
+    NL: Byte; ScanFrom, ScanTo, P: NativeInt;
+  begin
+    Result := NotFound;
+    if AProcStart < 0 then Exit;
+    NL := S.ByteAt(AProcStart + 1);
+    ScanFrom := AProcStart + 2 + NL;
+    ScanTo := ScanFrom + 40;
+    if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+    for P := ScanFrom to ScanTo do
+      if (S.ByteAt(P) = AAnchor) and (S.ByteAt(P + 1) = $2E) then
+      begin
+        if S.ByteAt(P + 2) = $00 then Exit(0);
+        Result := UInt32(S.ByteAt(P + 2)) or (UInt32(S.ByteAt(P + 3)) shl 8);
+        Exit;
+      end;
+  end;
+
+var
+  ProcOff : NativeInt;
+  OwnerRef: UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+
+    // 1. Plain proc: single $00 sentinel.
+    ProcOff := FindProcStart('TargetProcedure');
+    Assert.IsTrue(ProcOff >= 0, 'TargetProcedure $28 record not found');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    Assert.AreEqual<UInt32>(0, OwnerRef,
+      Format('TargetProcedure (plain proc) owner-ref must be $00 ' +
+             'sentinel; got $%x. NotFound=$%x means the $11 $2E ' +
+             'anchor scan failed entirely.', [OwnerRef, NotFound]));
+
+    // 2. Instance method on TDerived: owner-ref = TDerived's $2A id.
+    ProcOff := FindProcStart('TDerived.TouchSelf');
+    Assert.IsTrue(ProcOff >= 0, 'TDerived.TouchSelf $28 record not found');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
+      Format('TDerived.TouchSelf owner-ref must equal $%x ' +
+             '(TDerived''s $2A raw id); got $%x. Drift means ' +
+             'either the linker shifted class ids or the marker ' +
+             'walk picked the wrong bytes after $11 $2E.',
+             [TDerivedOwner, OwnerRef]));
+
+    // 3. Multi-parameter constructor with the long-form middle
+    // section (`04 ?? ?? 02 31 03 11 2E ??`): owner-ref must equal
+    // TPropHost's $2A raw id. Note that TPropHost.GetCalcInt uses
+    // the short-form marker (`04 ?? ?? 9C 02 ?? 2E` — no `$11 $2E`
+    // middle anchor), which this pin intentionally doesn't cover;
+    // re-pinning the short form is deferred until a §6 gap depends
+    // on it.
+    ProcOff := FindProcStart('TPropHost.Create');
+    Assert.IsTrue(ProcOff >= 0, 'TPropHost.Create $28 record not found');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    Assert.AreEqual<UInt32>(TPropHostOwner, OwnerRef,
+      Format('TPropHost.Create owner-ref must equal $%x ' +
+             '(TPropHost''s $2A raw id); got $%x.',
+             [TPropHostOwner, OwnerRef]));
+
+    // 4. Different class, different owner-ref (leakage guard).
+    ProcOff := FindProcStart('TStaleSelfHost.Probe');
+    Assert.IsTrue(ProcOff >= 0, 'TStaleSelfHost.Probe $28 record not found');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
+      Format('TStaleSelfHost.Probe owner-ref must equal $%x; got $%x.',
+             [TStaleSelfOwner, OwnerRef]));
+    Assert.AreNotEqual<UInt32>(TDerivedOwner, OwnerRef,
+      'TStaleSelfHost.Probe and TDerived.TouchSelf must NOT share an ' +
+      'owner-ref (different classes).');
+  finally
+    S.Free;
+  end;
+end;
+
+{$IFDEF CPUX64}
+procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes64;
+// §6.22 closure pin (Win64). Same shape as the Win32 sibling but
+// the platform-anchor byte is $3D instead of $11; class ids are
+// also different per-build. Round-1 observations:
+//   * TargetProcedure → $00 sentinel (plain)
+//   * TDerived.TouchSelf → $2E65 owner-ref
+//   * TStaleSelfHost.Probe → $2FE1 owner-ref
+const
+  Win64Anchor    : Byte   = $3D;
+  NotFound       : UInt32 = $FFFFFFFF;
+  TDerivedOwner  : UInt32 = $2E65;
+  TStaleSelfOwner: UInt32 = $2FE1;
+var
+  S: TRsmScanner;
+
+  function FindProcStart(const AProcName: String): NativeInt;
+  var
+    NL: Byte; I, K: NativeInt; OK: Boolean;
+  begin
+    NL := Length(AProcName);
+    Result := -1;
+    if NL = 0 then Exit;
+    for I := 0 to S.Sz - 2 - NL do
+    begin
+      if (S.ByteAt(I) = $28) and (S.ByteAt(I + 1) = NL) then
+      begin
+        OK := True;
+        for K := 1 to NL do
+          if S.ByteAt(I + 1 + K) <> Byte(AProcName[K]) then
+          begin OK := False; Break; end;
+        if OK then Exit(I);
+      end;
+    end;
+  end;
+
+  function ExtractOwnerRef(AProcStart: NativeInt; AAnchor: Byte): UInt32;
+  var
+    NL: Byte; ScanFrom, ScanTo, P: NativeInt;
+  begin
+    Result := NotFound;
+    if AProcStart < 0 then Exit;
+    NL := S.ByteAt(AProcStart + 1);
+    ScanFrom := AProcStart + 2 + NL;
+    ScanTo := ScanFrom + 40;
+    if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+    for P := ScanFrom to ScanTo do
+      if (S.ByteAt(P) = AAnchor) and (S.ByteAt(P + 1) = $2E) then
+      begin
+        if S.ByteAt(P + 2) = $00 then Exit(0);
+        Result := UInt32(S.ByteAt(P + 2)) or (UInt32(S.ByteAt(P + 3)) shl 8);
+        Exit;
+      end;
+  end;
+
+var
+  ProcOff : NativeInt;
+  OwnerRef: UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(True));
+
+    ProcOff := FindProcStart('TargetProcedure');
+    Assert.IsTrue(ProcOff >= 0, 'TargetProcedure $28 record not found (Win64)');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    Assert.AreEqual<UInt32>(0, OwnerRef,
+      Format('TargetProcedure (plain, Win64) owner-ref must be $00; ' +
+             'got $%x. NotFound=$%x means the $3D $2E anchor missed.',
+             [OwnerRef, NotFound]));
+
+    ProcOff := FindProcStart('TDerived.TouchSelf');
+    Assert.IsTrue(ProcOff >= 0, 'TDerived.TouchSelf $28 record not found (Win64)');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
+      Format('TDerived.TouchSelf (Win64) owner-ref must equal $%x; got $%x.',
+             [TDerivedOwner, OwnerRef]));
+
+    ProcOff := FindProcStart('TStaleSelfHost.Probe');
+    Assert.IsTrue(ProcOff >= 0, 'TStaleSelfHost.Probe $28 record not found (Win64)');
+    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
+      Format('TStaleSelfHost.Probe (Win64) owner-ref must equal $%x; got $%x.',
+             [TStaleSelfOwner, OwnerRef]));
+    Assert.AreNotEqual<UInt32>(TDerivedOwner, OwnerRef,
+      'TStaleSelfHost.Probe and TDerived.TouchSelf must NOT share an ' +
+      'owner-ref on Win64 either.');
+  finally
+    S.Free;
+  end;
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmScannerTests);

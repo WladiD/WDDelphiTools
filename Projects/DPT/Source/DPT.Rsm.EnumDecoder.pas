@@ -372,12 +372,41 @@ begin
     // TRsmEnumDef.TryFindByOrdinal.
     if AUnitNameSparse <> '' then
     begin
-      Def.TypeName := ATypeName;
-      Def.UnitName := AUnitNameSparse;
-      Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
+      // Duplicate-ordinal guard. A genuine Delphi enum has strictly
+      // unique ordinals; when the pending buffer carries duplicates it
+      // is not one enum but an over-collection of unrelated named-const
+      // families that the linker emitted as $25 records and that never
+      // matched their own enum $2A. Example: Winapi.SHFolder's CSIDL_*
+      // and SHGFP_* both start at ordinal 0, so they cannot belong to
+      // one enum. Synthesising a def from such a buffer produced
+      // RsmDesk's bogus multi-family "enum" entries; suppress it. The
+      // constants were already flushed into FEnumConstNames above for
+      // (typeId, ordinal) lookup -- only the EnumDef synthesis is
+      // skipped. (The scanner's unit-name forward-scan rejects
+      // class-method names up front; this guard catches the residual
+      // case where the grabbed unit name looks legitimate but the
+      // buffer still spans multiple families.) See §5.1 of
+      // DPT.Rsm.Format.md.
+      var OrdSeen: IKeyValue<Integer, Boolean> :=
+        Collections.NewPlainKeyValue<Integer, Boolean>;
+      var HasDupOrd: Boolean := False;
       for FI := 0 to FPendingConstants.Count - 1 do
-        Def.Elements.Add(FPendingConstants[FI]);
-      FEnumDefs.Add(Def);
+        if OrdSeen.ContainsKey(FPendingConstants[FI].Ordinal) then
+        begin
+          HasDupOrd := True;
+          Break;
+        end
+        else
+          OrdSeen[FPendingConstants[FI].Ordinal] := True;
+      if not HasDupOrd then
+      begin
+        Def.TypeName := ATypeName;
+        Def.UnitName := AUnitNameSparse;
+        Def.Elements := Collections.NewPlainList<TRsmEnumElement>;
+        for FI := 0 to FPendingConstants.Count - 1 do
+          Def.Elements.Add(FPendingConstants[FI]);
+        FEnumDefs.Add(Def);
+      end;
     end;
   end;
   FPendingConstants.Clear;

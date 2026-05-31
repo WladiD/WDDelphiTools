@@ -108,6 +108,7 @@ type
     function  GetEnumDefs: IList<TRsmEnumDef>;
     function  GetUnitUseSegments: IList<TRsmUnitUseSegment>;
     procedure RunPostProcess;
+    procedure FilterStructNamedEnumDefs;
   public
     constructor Create;
     destructor Destroy; override;
@@ -516,6 +517,16 @@ begin
   FScopeLocalTypeIdToEnumDef.Clear;
   if (FScanner.Buf = nil) or (FScanner.Sz < 8) then Exit;
   ReportPhase := FScanner.OnPhase;
+  // §6.25 R1: drop synthesised EnumDefs whose type name is actually a
+  // known class/record. MUST run FIRST -- the scope-local and
+  // field-alias enum bridges below store INDICES into EnumDefs, so
+  // deleting entries after they run would invalidate those indices
+  // (observed: tpHigher / cross-unit TStatus resolved to the wrong
+  // element). The scanner already populated both EnumDefs and FClasses
+  // (StructDiscoverer runs inside FScanner.LoadFromFile), and no
+  // post-process pass adds EnumDefs, so filtering here is complete.
+  FilterStructNamedEnumDefs;
+  Report('FilterStructNamedEnumDefs');
   FFormatALinker.Run(FScanner.Buf, FScanner.Sz);
   Report('LinkMemberTypeIdsFromFormatA');
   FClassParentDeriver.Run;
@@ -536,6 +547,44 @@ begin
   FPropertyLinker.Run(FScanner.Buf, FScanner.Sz);
   Report('LinkPropertiesFromFormatA');
   Report('done');
+end;
+
+procedure TRsmReader.FilterStructNamedEnumDefs;
+// §6.25 R1 (partial closure). The same-compilation $2A flush
+// synthesises an EnumDef from whatever $25 enum constants are pending
+// when a $2A surfaces -- even when that $2A is a non-enum type. When
+// the type is a real CLASS the StructDiscoverer has already captured it
+// in FClasses as skClass, so we can recognise and drop the phantom
+// "enum". RsmDesk surfaced these as bogus entries: e.g.
+// <c>TPublishableVariantType</c> (a class in System.TypInfo) carrying
+// TTypeKind's 22 values, or <c>TObjectList</c> (a class) as an "enum".
+// A real enum is never a class, so no legitimate enum is removed.
+// Two non-enum $2A categories still leak as phantom enums: (1) records
+// -- because the record-discovery heuristic and the property linker's
+// synthetic empty records register some genuine enum names as skRecord,
+// so a record match is NOT safe to filter on (it would delete real
+// enums like TThreadPriority/TUnicodeBreak); (2) interfaces,
+// exceptions, external Win-API structs/proc-types the discoverer never
+// captures. Closing those needs the undecoded "is this $2A an enum?"
+// oracle (see §6.25).
+var
+  Defs: IList<TRsmEnumDef>;
+  I, Ci: Integer;
+begin
+  Defs := FScanner.EnumDefs;
+  for I := Defs.Count - 1 downto 0 do
+  begin
+    Ci := FindClassByName(Defs[I].TypeName);
+    // Only drop when the name matches a real VMT-anchored CLASS
+    // (skClass). Records are NOT used as the discriminator: the looser
+    // record-discovery heuristic AND TRsmPropertyLinker's synthetic
+    // empty-member records register some genuine ENUM names as
+    // skRecord (observed: TThreadPriority, TUnicodeBreak, the
+    // sibling-unit TStatus), so a record match would delete real enums.
+    // A real enum is never a class, so the skClass test is safe.
+    if (Ci >= 0) and (FScanner.Classes[Ci].Kind = skClass) then
+      Defs.Delete(I);
+  end;
 end;
 
 /// <summary>

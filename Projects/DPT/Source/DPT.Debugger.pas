@@ -2612,6 +2612,25 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
     end;
   end;
 
+  // True when ATypeIdx (a Member's file-offset-based TypeIdx) resolves
+  // to a class-kind struct in FClasses. Used by the Pfad-2 nil-refusal
+  // discrimination to keep the "possible nil class pointer" hint for
+  // genuine class-typed terminal members. (In practice auto-detect's
+  // ClassLookup would already have formatted such a member as 'object'
+  // before we reach the discrimination site, so this is a defensive
+  // restatement of rule (a) rather than the load-bearing check -- the
+  // load-bearing check is the record-hop branch flag.)
+  function TerminalMemberResolvesToClass(ATypeIdx: UInt32): Boolean;
+  var
+    ClsIdx: Integer;
+  begin
+    Result := False;
+    if (ATypeIdx = 0) or (not Assigned(FLocalsReader)) then Exit;
+    ClsIdx := FLocalsReader.FindStructByTypeIdx(ATypeIdx);
+    Result := (ClsIdx >= 0) and
+              (FLocalsReader.Classes[ClsIdx].Kind = skClass);
+  end;
+
 var
   Segments       : TArray<String>;
   Locals         : TArray<TLocalVar>;
@@ -2638,11 +2657,24 @@ var
   /// be derived from the offset chain alone -- both cases fall back
   /// to the user-requested type's width.
   FieldKnownSize : Integer;
+  /// True when the dotted walk's TERMINAL segment was resolved through
+  /// the record-hop branch -- i.e. the final member is inline data
+  /// sitting within a record, never a class-instance pointer slot.
+  /// Drives the Pfad-2 nil-refusal discrimination (§6.20 R6-R9): a
+  /// zero-valued record-field member that carries no RSM type metadata
+  /// (TFW's strict-private TAd.Land -> TLandTyp is structurally
+  /// undecodable per §6.20's five refuted rounds) is surfaced as a
+  /// plain int instead of being mislabelled a possible nil class
+  /// pointer. Stays False for non-dotted lookups and for terminal
+  /// segments reached via a class-hop (where nil genuinely could be a
+  /// nil object reference).
+  DottedTerminalIsRecordField: Boolean;
 begin
   Result := False;
   AValue := '';
   AHint  := '';
   FieldKnownSize := 0;
+  DottedTerminalIsRecordField := False;
   FLastEnumTypeId := 0;
   Phase('begin');
 
@@ -2848,6 +2880,12 @@ begin
       end;
       for I := 1 to High(Segments) do
       begin
+        // Record which branch resolves THIS segment. After the loop the
+        // flag reflects the terminal segment's hop kind and feeds the
+        // Pfad-2 nil-refusal discrimination below: a member reached via
+        // the record-hop branch is inline record data (never a nil-able
+        // class-instance pointer slot).
+        DottedTerminalIsRecordField := ContextIsRecord and (PrevContextIdx >= 0);
         if ContextIsRecord and (PrevContextIdx >= 0) then
         begin
           var Resolved: Boolean := False;
@@ -3178,6 +3216,42 @@ begin
   //     but its type wasn't recorded in the RSM Format-A registry
   //     and the value doesn't dereference cleanly. Suggest the
   //     usual primitive types.
+  // Pfad 2 (§6.20 R6-R9): lift the nil-refusal for record-field
+  // primitive/enum slots that carry no RSM type metadata. The five
+  // refuted investigation rounds in Format.md §6.20 established that
+  // TFW's strict-private record fields (the canonical case being
+  // TAd.Land: TLandTyp) are NOT structurally bound to their type --
+  // such a member resolves with Member.TypeIdx = PrimitiveTypeId =
+  // PointerTargetTypeIdx all zero, so every auto-detect path above
+  // declines and the value bytes (0 = ordinal of the first enum
+  // element) look exactly like a nil pointer. The old behaviour
+  // emitted the misleading "nil class pointer" hint here.
+  //
+  // Discrimination rule: refuse with that hint ONLY when the member
+  // could genuinely be a class reference --
+  //   (a) its TypeIdx resolves to a class in FClasses, OR
+  //   (b) the terminal segment was reached through a class-hop (the
+  //       member is a field slot in a live class instance and nil is a
+  //       legitimate nil object).
+  // For a terminal member reached through the record-hop branch it is
+  // inline record data, never a nil-able class slot, so we surface the
+  // raw bytes as a plain int. That doesn't recover the enum NAME (the
+  // encoding still doesn't bind TAd.Land -> TLandTyp -- see §6.24 for
+  // the future heuristic option), but it replaces the confusing error
+  // with the usable ordinal the user can interpret manually.
+  if (AType = '') and DottedTerminalIsRecordField and
+     (Member.PointerTargetTypeIdx = 0) and
+     (not TerminalMemberResolvesToClass(Member.TypeIdx)) then
+  begin
+    if FFormatters.TryGetValue('int', Formatter) and
+       Formatter(RawBytes, Addr, FieldKnownSize, AValue) then
+    begin
+      AType  := 'int';
+      Result := True;
+      Exit;
+    end;
+  end;
+
   if AType = '' then
     AHint := BuildAutoDetectHint(AName, RawBytes);
 end;

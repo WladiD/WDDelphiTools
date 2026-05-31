@@ -98,6 +98,19 @@ type
     /// </summary>
     [Test]
     procedure TestUnitsDeclaringTypeAggregatesAcrossSegments;
+
+    /// §6.25 R1 partial-closure pin: after RunPostProcess, no EnumDef's
+    /// TypeName is a known VMT CLASS (skClass). The same-comp $2A flush
+    /// synthesises a phantom "enum" whenever a non-enum $2A consumes the
+    /// pending $25 constant buffer -- RsmDesk surfaced e.g.
+    /// TPublishableVariantType (a class in System.TypInfo) carrying
+    /// TTypeKind's values. FilterStructNamedEnumDefs drops every EnumDef
+    /// whose name is a known skClass. Leakage guards: real enums survive
+    /// -- including TThreadPriority / TUnicodeBreak, which the record
+    /// heuristic / property linker register as skRecord under the same
+    /// name (so the filter keys on skClass only, never skRecord).
+    [Test]
+    procedure TestEnumDefsExcludeClassNames;
   end;
 
 implementation
@@ -502,6 +515,46 @@ begin
     Idx := R.FindBestRecordForGlobalAndField('GGlobalEnumRec', 'FLight');
     Assert.IsTrue(Idx >= 0, 'No record matched for GGlobalEnumRec.FLight');
     Assert.IsTrue(R.Classes[Idx].Kind = skRecord, 'Matched class is not a record');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestEnumDefsExcludeClassNames;
+var
+  R          : TRsmReader;
+  I, Ci      : Integer;
+  HasLight, HasStatus, HasThreadPriority, HasUnicodeBreak: Boolean;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(R.EnumDefs.Count > 0, 'no EnumDefs from DebugTarget');
+    HasLight := False; HasStatus := False;
+    HasThreadPriority := False; HasUnicodeBreak := False;
+    for I := 0 to R.EnumDefs.Count - 1 do
+    begin
+      // No surviving EnumDef may share its name with a real VMT class.
+      Ci := R.FindClassByName(R.EnumDefs[I].TypeName);
+      Assert.IsFalse((Ci >= 0) and (R.Classes[Ci].Kind = skClass),
+        Format('EnumDef "%s" (%s) is a known class, not an enum -- ' +
+          'phantom synthesised def should have been filtered',
+          [R.EnumDefs[I].TypeName, R.EnumDefs[I].UnitName]));
+      if SameText(R.EnumDefs[I].TypeName, 'TLightStatus') then HasLight := True;
+      if SameText(R.EnumDefs[I].TypeName, 'TStatus') then HasStatus := True;
+      if SameText(R.EnumDefs[I].TypeName, 'TThreadPriority') then HasThreadPriority := True;
+      if SameText(R.EnumDefs[I].TypeName, 'TUnicodeBreak') then HasUnicodeBreak := True;
+    end;
+    // Leakage guards: real enums survive -- including ones the record
+    // heuristic / property linker register as skRecord under the SAME
+    // name (TThreadPriority, TUnicodeBreak). Filtering on skClass only
+    // (not skRecord) is what keeps these.
+    Assert.IsTrue(HasLight, 'legit TLightStatus dropped by the class filter');
+    Assert.IsTrue(HasStatus, 'legit same-comp TStatus dropped by the class filter');
+    Assert.IsTrue(HasThreadPriority,
+      'legit TThreadPriority dropped -- skRecord false-positive leaked into the filter');
+    Assert.IsTrue(HasUnicodeBreak,
+      'legit TUnicodeBreak dropped -- skRecord false-positive leaked into the filter');
   finally
     R.Free;
   end;

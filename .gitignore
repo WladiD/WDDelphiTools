@@ -38,6 +38,15 @@ Win32
 /Projects/DPT/Test/Test.DptDebugger.res
 /Projects/ParseTree/Test/Test.ParseTree.exe
 /Projects/ParseTree/Test/Test.ParseTree.res
+/Projects/RsmDesk/Source/RsmDesk.res
+/Projects/RsmDesk/RsmDesk.exe
+/Projects/RsmDesk/RsmDesk.rsm
+/Projects/RsmDesk/_RsmDesk_Builder.exe
+/Projects/RsmDesk/_RsmDesk_Runner.exe
+/Projects/RsmDesk/DCU/
+/Projects/RsmDesk/*.tvsconfig
+/Projects/RsmDesk/Win64/
+
 /.DptAiWorkflow-Example
 /.gemini/settings.json
 /.vscode/settings.json
