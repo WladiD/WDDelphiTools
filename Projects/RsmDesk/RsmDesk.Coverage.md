@@ -116,7 +116,16 @@ any view** but enable richer navigation (cross-links, jump-to-type):
   THREE id spaces and they must not be cross-looked-up.
   - **Members** use the file-offset space (`FindStructByTypeIdx`, plus
     `PrimitiveTypeId` / `PointerTargetTypeIdx`) — globally unique and
-    **trustworthy**; members show their resolved type.
+    **trustworthy**; members show their resolved type. **Caveat: a
+    `TypeIdx` of `$0` is the "no token assigned" sentinel, NOT id 0.**
+    Many structs carry it, and `FindStructByTypeIdx` is a linear
+    first-match scan, so resolving `$0` returned whichever zero-TypeIdx
+    class came first (`TCacheDescriptor`) and mislabelled *every*
+    untyped member — e.g. all of `TVariantManager`'s procedure-pointer
+    fields (`TypeIdx=$0 Prim=$0 PtrTgt=$0`). `ResolveStructType` now
+    short-circuits `$0` → unresolved (blank), the honest result for a
+    raw/untyped pointer field. Same "a plausible name is not a correct
+    one" trap as §6.27, different id.
   - **Local/param `TypeIdx` is a per-proc local-ref index, NOT a type
     id** — routing it through the registry gave confident WRONG names
     (`TFormMain.Create`'s `Self`=$84 → an unrelated class

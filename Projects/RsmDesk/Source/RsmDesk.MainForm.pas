@@ -587,7 +587,13 @@ function TFormMain.ResolveStructType(ATypeIdx: UInt32): String;
 var
   Idx: Integer;
 begin
-  // File-offset token space (class/record members).
+  // File-offset token space (class/record members). $0 is the
+  // "no token assigned" sentinel, NOT a real id -- many structs carry
+  // it, so FindStructByTypeIdx(0) would return whichever zero-TypeIdx
+  // class comes first (e.g. TCacheDescriptor) and mislabel every
+  // untyped member (procedure-pointer fields like TVariantManager's).
+  // Treat it as unresolved.
+  if ATypeIdx = 0 then Exit('');
   Idx := FReader.FindStructByTypeIdx(ATypeIdx);
   if Idx >= 0 then
     Result := Format('%s (%s)',
