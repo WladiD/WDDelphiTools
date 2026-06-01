@@ -289,9 +289,10 @@ no current reader path consumes them.
 
 > This is a §6.23 Round-1 partial finding folded here so the
 > middle-byte observation isn't lost. §6.23 itself closed as
-> "decoded-but-not-useful for §6.20" — see §6.20 R9 for why
-> accessor-name-anchored binding via this signature is structurally
-> void on TFW (TAd has no methods, no accessor procs exist).
+> "decoded-but-not-useful": accessor-name-anchored type binding via
+> this signature is structurally void on TFW — `TAd` is a plain record
+> with no methods, so no accessor proc exists whose signature could
+> carry the type. That refutation is summarised in §4.15 Pass 3.
 
 §6.17 closure: the earlier marker check required `byte 1 = $10 AND
 byte 4 = $00`, which matched only no-Self procs like
@@ -1449,7 +1450,13 @@ which asserts `IsEnumTypeId($0671) = True` and resolves ordinals
 
 #### Pass 3 — zero-id record/class fields by enum name convention (§6.24 closure)
 
-Passes 1–2 above bridge fields/params that **already carry** a non-zero alias id. A different shape exists in TFW: a record field that no structural channel ties to its type at all — the canonical case is `TAd.Land: TLandTyp`, a strict-private pointer-to-record field whose enum type has **no `$2C` field record and no `$67` use-site** that identifies the owning field (five refuted decode rounds — see §6.20 R6–R9 / §6.23). Such a member arrives with `PrimitiveTypeId = TypeIdx = PointerTargetTypeIdx = 0`, so before this pass the live evaluator could only surface the raw ordinal (the §6.20 Pfad-2 ceiling: `evaluate Self.FAd.Land` → `0` typed `int`, not `ltInland`).
+Passes 1–2 above bridge fields/params that **already carry** a non-zero alias id. A different shape exists in TFW: a record field that **no structural channel ties to its type at all** — the canonical case is `TAd.Land: TLandTyp`, a strict-private field on a plain record. Such a member arrives with `PrimitiveTypeId = TypeIdx = PointerTargetTypeIdx = 0`, and an exhaustive search established that **no purely-structural decode can recover its type** (the conclusions that retired the original `$67`-decode gap):
+
+* there is **no `$2C` field record** binding `Land` to a type id, and **no `$67` use-site** that identifies the *owning field* — the `$67 'ltInland'` use-sites are back-references to the canonical `$25` enum block (their RVA equals the canonical block's, byte-identical across every importer), so they carry the enum identity but not *which* class's `Land` field is being read;
+* the importing-unit attribution (§4.17 `$70`/`SourceFiles`) is too coarse — 68 distinct importer scopes use `TLandTyp`, so "unit X imports TLandTyp" cannot single out `TAd.Land`;
+* `TAd` is a plain record with **no accessor proc** (`TAd.SetLand` etc. do not exist in TFW), so there is no `$28` proc whose parameter signature could carry the type either.
+
+So the enum **name** is unrecoverable structurally; a name convention is the only remaining signal.
 
 `BindZeroIdFieldsByEnumNameConvention` recovers the enum **name** via the only remaining signal — Delphi's identifier convention that a field `<X>` of an enum type is usually named after that type (`<X>` → `T<X>`, or `T<X>Typ` in TFW's suffix convention). It is a **last-resort heuristic**, gated hard so it never invents a phantom binding. For every class/record member it fires only when ALL hold:
 
@@ -1464,6 +1471,22 @@ On a hit it sets `Member.PrimitiveTypeId` to the enum's 2-byte `$2A` id (`RawIdK
 (`TAd.Land` → `TLandTyp`, ordinals 0 / 1 → `ltInland` / `ltAusland`; leakage guards: neighbour `TAd.Waehrung` stays unbound, F-prefix `TFormAd.FAd` keeps its §6.19 pointer-target) and against the clean DebugTarget fixture by
 [Test.DPT.Rsm.Reader.TestRecordFieldEnumNameConventionDoesNotPhantomBind32](../Test/Test.DPT.Rsm.Reader.pas)
 (no `TMixedInt` enum exists, so `TMixedRec.FMixedInt` stays non-enum; TLightStatus still resolves). The TFW heuristic also legitimately binds sibling domain enums on the same convention (`TAd.Lng`, `TAd.Lf`, `TAd.LicenseKind`).
+
+> **Complementary fallback (the raw-ordinal ceiling).** When Pass 3
+> does NOT fire — a record-field terminal whose name has no unique
+> `$03` enum match — the dotted-walk evaluator still must not mislabel
+> it. `EvaluateVariable` (the discrimination just before
+> `BuildAutoDetectHint`, via the nested `TerminalMemberResolvesToClass`
+> helper and the `DottedTerminalIsRecordField` flag) emits the raw
+> bytes **as `int`** for a terminal reached through the *record-hop*
+> branch that carries no type metadata
+> (`PointerTargetTypeIdx = 0`, `TypeIdx` not a class, `PrimitiveTypeId
+> = 0`), instead of the misleading "possible nil class pointer" hint
+> (which is kept only when the terminal could genuinely be a class
+> reference — `TypeIdx` resolves to an `skClass`, or it was reached
+> through the class-hop branch where nil is a legitimate nil object).
+> So a structurally-untyped `Self.FAd.Land` that Pass 3 cannot name
+> still reads as its ordinal (`0`), never as a phantom nil pointer.
 
 ### 4.16 `$31` PROPERTY_TAG — property declaration
 
@@ -1615,11 +1638,12 @@ hundreds-of-segments scale table dominated by `'System'` /
 queries, generic-argument bindings, default-value initialisers).
 A record-field-of-type-TLandTyp **declaration** does NOT cause the
 owning unit to emit a `$66 'TLandTyp'` or `$67 'ltInland'` entry
-against the field's typed slot. Round 3 of §6.20 verified this
-experimentally.
+against the field's typed slot — verified experimentally (one of the
+structural-decode refutations summarised in §4.15 Pass 3, which is why
+`TAd.Land` needs the name-convention heuristic).
 
-**Segment-name semantics — the importer IS encoded (§6.20 R6,
-Round-6)**. The `$64 <UnitName>` is the **imported** unit, not the
+**Segment-name semantics — the importer IS encoded.** The
+`$64 <UnitName>` is the **imported** unit, not the
 importer. Each segment lists symbols that the surrounding
 byte-stream scope imports FROM `<UnitName>`. The IMPORTING
 unit-of-scope is carried explicitly by a `$70 <SourceFile>` record
@@ -1796,538 +1820,6 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 ---
 
 ## 6. Identified gaps and uncertainties
-
-### 6.20 Undecoded `$67` tag carries enum use-site bindings (`GAP`)
-
-> **Round-3 update:** the Round-2 claim "TFW's compiler does NOT
-> emit a bindable type record for TAd.Land" is REFUTED. The
-> enum-element strings ARE in TFW.rsm in abundance — `ltInland`
-> appears 36 times, `ltAusland` 26×, `ltEUNetto` 32×, `ltEUBrutto`
-> 22×, `ltBLNetto` 30×, `TLandTyp` 76×. The first occurrence at
-> file offset 54816766 is the canonical `$25 ENUM_CONSTANT` block
-> (followed by `$2A TLandTyp` at 54816881 and `$27 TLandTypName`
-> for the const-array). The **35 other ltInland occurrences are
-> prefixed with the tag byte `$67`** — and `$67` is not in
-> `TRsmTag` in `DPT.Rsm.Model.pas`, so the scanner walks past
-> them. THAT is the actual missing decode. See Round-3 evidence
-> at the end of this entry, and the surviving Round-1/2 logs for
-> the path we walked through to get here.
-
-> **Round-2 update:** the original "BlockOwner misroutes" framing
-> further below is REFUTED. BlockOwner is innocent. See the
-> Round-2 log later in this entry.
-
-
-
-[DPT.Rsm.FormatALinker.pas `LinkFieldsFromFormatA` / `BuildBlockOwnerIndex` / `FindBlockOwnerAt`](DPT.Rsm.FormatALinker.pas)
-— terminal-segment auto-detection on enum-typed record fields fails
-whenever the linker's BlockOwner index routes the field's `$2C` to a
-class that doesn't actually own it. The canonical observation:
-TFW's `TAd.Land: TLandTyp` ends up with
-`Member.PrimitiveTypeId = 0`, `Member.TypeIdx = 0` even though all
-the encoding ingredients are intact, so live
-`evaluate Self.FAd.Land` returns the raw ordinal (`0` = `ltInland`)
-with the formatter chain refusing to pick a name.
-
-**Investigation log (Round 1).** Two hypotheses about a potentially
-undecoded type id in the per-field byte stream were both **refuted**
-via `Test.DPT.Rsm.Reader.TestDiagnoseRecordFieldTypeBytes`:
-
-1. *Per-field bytes carry a type id at a fixed offset after the
-   6-byte typeinfo anchor.* No. The 6-byte anchor `$02 $00 <flag>
-   $00 $00 $00` is byte-identical between integer fields
-   (`TMixedRec.FMixedInt`) and enum fields (`TEnumHostRec.FLight`).
-   The 4 bytes after it are the next-field-offset DWORD, not a type
-   id. The per-field record genuinely carries only `name + offset +
-   next-link`.
-2. *The record header between the size DWORD and the first field
-   carries per-field type ids.* No. The §4.13 simple-shape header
-   carries only a managed-field count, an optional sequence of
-   `<4-zero bytes> <DWORD offset>` per managed field, then the
-   declared field count. No type-id bytes anywhere.
-
-The type information for record fields therefore lives ONLY in
-`$2C` records (Format-A) — exactly as for class fields.
-`Reader.FindClassMember('TAd', 'Land', M)` confirms Land is in the
-Members list with the correct offset (`$169D`); the discovery
-machinery is fine.
-
-**The real defect (Round 1 finding).** TFW.rsm has **16** `$2C`
-records named `Land`. Production-instrumenting
-`LinkFieldsFromFormatA` to log each routing (`SameText(Name, 'Land')`
-branch, removed) gave the BlockOwner verdict for every one. Of
-those 16:
-* 6 route to a class that HAS a Land member (TWhg, TLetterPos in
-  the broader name set, TEBhLf, TDatevBuchung, TRhAd,
-  TDatevDebKred, TBuKeyEntry — 7 with hits across multiple types).
-* 4 of those 6 actually land a `Member.PrimitiveTypeId` /
-  `Member.TypeIdx` update (TEBhLf=$911C, TDatevBuchung=$8126,
-  TDatevDebKred TypeIdx=$2A3C68, TBuKeyEntry TypeIdx=$3A799D).
-* The other 10 route to classes that have **no** Land member
-  (TGeoCoordExt, TItem, TWinRegionBuilder, TEvent, TFileDialogEvents,
-  TPvsAd, TZvBeleg, …). The inner `for M := 0 to Members.Count-1`
-  loop never finds the matching name and the update is silently
-  dropped.
-* TAd is NOT in the routing list at all. 9 of the 15 TFW records
-  with a Land member (TAd, TAnschrift, TPvsBh, TKdAZ,
-  TLetterAdressPos, TVBhKd, TVBhSo, TZvAd, TFibuAd) remain
-  unbound.
-
-**The math.** 16 `$2C[Land]` records, 15 TFW records with a Land
-member. The expected steady state is roughly one $2C per Land field,
-but BlockOwner mismaps ≥10 of the 16. The mismaps are not random
-noise: they route to RTL/VCL framework classes (TEvent,
-TFileDialogEvents, TWinRegionBuilder) that obviously can't own a
-"Land" field. That is *exactly* the failure mode the existing
-BlockOwner comment warns about for the `UserKonsOutlook` case
-("unit-local parent id collides with other units' classes in the
-registry") — except here the narrow form (`Hi=$FF`) is supposed to
-DODGE the registry collision via the file-offset-based
-BlockOwner walk, and that walk itself is misattributing.
-
-Hypotheses for Round 2:
-* `BuildBlockOwnerIndex` pairs `$2C` blocks with `$0E` records in
-  source-declaration order — but the matching may be losing
-  synchronisation when a unit's class-trailer scan window misses an
-  anchor (§6.16 territory) or when records and classes interleave
-  in unexpected order on the wire.
-* A simpler closure path: when the inner field-name loop on a
-  BlockOwner-resolved `ParentIdx` finds NO matching member name,
-  try a fallback scan over a wider neighbourhood of records (e.g.,
-  the next K `$0E` records whose anchor offset is `<= TagOff`)
-  picking the closest record that HAS the field name in its
-  Members. This is the §6.10 block-owner pattern extended with a
-  field-name unique-match guard.
-* Investigate whether the misrouting correlates with field-offset
-  width (the §6.9 two-byte-vs-one-byte separator splits between
-  records with field offsets `>= 256`) — if BlockOwner's block
-  boundaries depend on a heuristic that breaks down for
-  wide-offset blocks, that could explain the systematic skew toward
-  framework classes.
-
-Pin shape once closed:
-`Test.DPT.Rsm.Tfw.TestTfwRecordFieldEnumTypeBinds` asserts
-`Reader.FindClassMember('TAd', 'Land', M)` returns a Member with
-`PrimitiveTypeId` resolving to TLandTyp (probably via the §6.9
-secondary-alias bridge since `$2C[Land] body+5 = $03` not `$0C`).
-Cross-validates against the 9 currently-unbound records: each
-must get the correct enum's primary id, while the 6 already-bound
-records keep theirs. Leakage guard: a non-enum field on the same
-record (e.g. an Integer or string field of TAd) must still get the
-right primitive id and not collide with TLandTyp's.
-
-Stage-1 diagnostic asset retained:
-`Test.DPT.Rsm.Reader.TestDiagnoseRecordFieldTypeBytes` (DebugTarget
-header + per-field byte dump — the refutation evidence).
-
-**Round-2 findings (BlockOwner is innocent — re-framing needed).**
-
-* **F1.** 17 `$2C[Land]` records exist in TFW.rsm, not 16: 9 narrow
-  (`ParentHi=$FF`) + 8 wide (`ParentHi=$02/$03/$06`). Round 1's count
-  was off because it didn't separate the forms.
-* **F2.** Every Round-1 "RTL/VCL misrouting" (TEvent,
-  TFileDialogEvents, TWinRegionBuilder, …) came from the **`$2A`
-  registry path**, not from BlockOwner. The narrow-form records
-  fall through to BlockOwner but their resolutions land on
-  reasonable TFW domain classes — not RTL framework classes.
-  Round-1's diagnostic was logging the `ParentIdx` value AFTER
-  whichever path resolved it, mixing the two together.
-* **F3.** `ScanTypeRegistry` (`DPT.Rsm.FormatALinker.pas`)
-  unconditionally last-wins-clobbers `FRsmTypeIdToClassIdx[id]` on
-  collisions. Real TFW IDs collide 30–38 times: 38 `$2A` entries
-  share raw id `$023D`, 36 share `$02F9`, 37 share `$0335`, 24
-  share `$0341`. **Even TAd's own slot `$15C5` is overwritten by an
-  unrelated TNotify `$2A` entry** sitting later in the byte stream.
-* **F4.** No `$2C[Land]` record in TFW.rsm is structurally
-  attributable to TAd. None of the 17 carries `parent_id = $15C5`
-  (TAd's raw id). The two wide-form Lands inside TAd's byte-stream
-  unit range (offsets `179052365`, `179060804`) carry parent ids
-  `$023D` and `$02F9` — IDs that no `$2A` entry within the TAd
-  unit's byte range declares.
-* **F5.** The TAd-unit's `$0E`/`$2C` asymmetry: in one FLUSH event,
-  the diagnostic counted **3 narrow `$2C` blocks paired against 67
-  `$0E` record markers** in the same byte range. The 3 blocks
-  carry fields `RecHeader` / `Path` / `ArtVkNr` — none of them
-  Land. So 64 of 67 records in that unit, TAd among them, get **no
-  narrow `$2C` binding at all**. Similar imbalances elsewhere
-  (5:66, 8:126, 3:10). This is not slot drift — it's the compiler
-  emitting far fewer `$2C` blocks per unit than declared record
-  types.
-* **F6.** Continuation prefix `$FF` ≠ wide-form ParentHi `$FF`. A
-  `$FF $2C` continuation marker can prefix a record whose own
-  parent-id-Hi is `$02`/`$03`/etc. So a single contiguous `$2C`
-  block can contain MIXED narrow/wide field records routed via
-  different paths.
-
-**Refuted hypotheses (Round 2).**
-
-* **R1.** "BlockOwner-index misroutes to RTL/VCL framework
-  classes." → Refuted by F2.
-* **R2.** "TAd's `$2C[Land]` exists but is mis-paired by
-  `BuildBlockOwnerIndex`." → Refuted by F4 and F5.
-* **R3.** "Unique-name fallback in `LinkFieldsFromFormatA` would
-  let TAd.Land find its `$2C` via neighbourhood scan." → Refuted
-  by F4: no `$2C[Land]` exists for TAd to find under any routing
-  scheme.
-* **R4.** "Wide-form `$2A` IDs should be globally unique." →
-  Refuted by F3: 30–38× collisions per common wide id.
-* **R5.** "Per-unit `$2C` blocks are contiguous and precede the
-  unit's `$0E` records." → Refuted by F6.
-
-**Recommendation for Round 3.** Pivot from "fix BlockOwner" to
-"find where TAd.Land's type info actually lives, if anywhere".
-Three concrete sub-questions, ordered by cost:
-
-1. **Coincidence check on the 4 already-working bindings.** Are
-   TEBhLf, TDatevBuchung, TDatevDebKred, TBuKeyEntry hitting
-   PrimitiveTypeId / TypeIdx via structural attribution (their
-   `$2C[Land]` sitting in-unit) or via opportunistic `$2A`
-   collisions? Look up the file offset of each binding `$2C` and
-   compare against the owning record's `$0E` offset. If
-   in-unit → there IS a structural mechanism worth investigating.
-   If coincidental → the encoding genuinely doesn't carry per-
-   field type info for these records.
-2. **Are there `$2C` sub-forms the current filter rejects?**
-   `LinkFieldsFromFormatA`'s field-record filter (around line 654)
-   requires the `$00 $02 $00` anchor after the name. If the
-   compiler emits a strict-private variant with a different
-   suffix, we'd miss it. Scan TFW.rsm for `$2C $04 Land` followed
-   by something OTHER than `$00 $02 $00` and see if any hits
-   exist.
-3. **Failing those, accept that the encoding doesn't reach
-   TAd.Land structurally and design a name-anchored late-binding
-   pass.** Extends the §6.19 family: when `Member.PrimitiveTypeId
-   = 0` AND a `$2A` entry exists for `T<MemberName>` (or
-   `T<MemberName>Typ` for TFW's `Typ` suffix convention) AND the
-   `T<...>` entry is an enum, bind `PrimitiveTypeId` to it. The
-   leakage guard is straightforward: skip when multiple `$2A`
-   entries match the candidate name (collision dodging).
-
-Stage-2 assets (Round-2's `TestDiagnoseBlockOwnerPairingRound2` and
-its `rsm-6.20-r2-blockowner.tsv` dump) were removed in Round 4 once
-the §6.21 decoder superseded the BlockOwner hypothesis chain — the
-refutation evidence above is the surviving record of that
-investigation.
-
-The §6.20 entry's title in §6's index above is now misleading and
-should be relabelled if the recommendation pivot lands.
-
-**Round-3 findings (the actual encoding lives in `$67`).**
-
-* **F7.** PowerShell `IndexOf` scan of TFW.rsm for the raw enum
-  identifier strings: `ltInland` 36×, `ltAusland` 26×, `ltEUNetto`
-  32×, `ltEUBrutto` 22×, `ltBLNetto` 30×, `TLandTyp` 76×. The
-  encoding is anything but absent — Round 2's pessimism that "the
-  encoding doesn't reach TAd.Land structurally" missed an entire
-  tag family.
-* **F8.** The FIRST occurrence at file offset `54816766` is the
-  canonical `$25 ENUM_CONSTANT` block: five `$25 NL '<ltX>'
-  <12-byte tail>` records (ordinals 0, 2, 4, 6, 8 — the §6.9
-  same-comp-cross-unit doubled-ordinal shape) followed at
-  `54816881` by `$2A 08 'TLandTyp' <body>` (registry entry,
-  primary alias) and a `$2A 03 ':61' <body>` synthetic secondary
-  marker, and at `54816925` by `$27 0C 'TLandTypName' <body>`
-  (the const-array global emitted alongside the enum). EnumDecoder
-  already handles this block — that's not the gap.
-* **F9.** All 35 OTHER ltInland occurrences are prefixed with the
-  tag byte `$67`. Sample bytes at offset `177000703`:
-
-  ```
-  67 08 'ltInland' 81 39 A4 10
-  67 0A 'ltEUBrutto' 8A 39 A4 10
-  63                               ← SCOPE_END
-  64 13 'Base.Types.DateTime' …
-  ```
-
-  At offset `216433606`:
-
-  ```
-  67 08 'ltInland'  81 39 A4 10
-  67 09 'ltEUNetto' 87 39 A4 10
-  67 09 'ltAusland' 84 39 A4 10
-  ```
-
-  Pattern: `$67 <NL: u8> <name-bytes> <4-byte payload>`, several
-  records in a row, often terminated by `$63 SCOPE_END`. The
-  4-byte payload's first byte varies across the elements
-  (`81` / `84` / `87` / `8A` / `8D` — same +3 progression as the
-  canonical `$25` block's body bytes, indexed by the element's
-  doubled ordinal) and the remaining `39 A4 10` is conserved.
-* **F10.** `$67` is not in `TRsmTag` (`DPT.Rsm.Model.pas`).
-  The scanner's main loop walks past it byte-by-byte. No
-  decoder, no consumer.
-* **F11.** Math: 35 `$67 ltInland` use-site records ÷ 15 TFW
-  records-with-Land-member ≈ 2.3 use-sites per record. That maps
-  to `case Land of ltInland: ... ltAusland: ... end` arms inside
-  procedures that read the field, or default-value initializers,
-  or both. The 4-byte payload almost certainly references the
-  canonical block at `54816766` (or its `$2A TLandTyp` at
-  `54816881`) — the bytes `XX 39 A4 10` shared with the canonical
-  block's body strongly suggest that.
-
-**Round-3 next step.** Decode `$67`:
-
-1. Write a Stage-1 diagnostic that walks TFW.rsm for every `$67
-   NL <name>` record and dumps `<offset, name, 4-byte payload,
-   enclosing-record-tag-before-this>`. The enclosing context
-   tells us whether `$67` lives inside `$28` (proc), inside a
-   `$2A` (type registry), or as a top-level scope-entry. The
-   payload distribution across records is what tells us if the
-   payload is a back-pointer to the canonical block or
-   something else (an instruction RVA, a member offset, …).
-2. With the enclosing context known, identify the binding from
-   `$67 ltInland` use-site to the OWNING `Land`-field. The most
-   likely link is the enclosing `$28` proc record (e.g.
-   `TAd.Setter_Land` or `TAd.GetLand` or just a `case` arm
-   inside a TblAdDataChange-like method) — its `$28` already
-   tells the scanner which class owns the proc.
-3. Pin shape: `Test.DPT.Rsm.Tfw.TestTfw67TagBindsLandToTLandTyp`
-   — after the new decode, `Reader.FindClassMember('TAd', 'Land',
-   M)` returns a Member with `PrimitiveTypeId` = `TLandTyp`'s
-   primary alias id. Leakage guard: non-enum fields stay
-   PrimitiveTypeId=0, AND records whose Land legitimately points
-   to a different enum (e.g. an alias) keep theirs.
-
-**Round-4 follow-up (§6.21 decoder lands; honest negative on the
-TAd.Land closure).** The `$64`/`$66`/`$67`/`$70` tag family is now
-decoded — see §4.17 for the canonical encoding write-up. The
-decoder produces 68 `$66 'TLandTyp'` references and 35 `$67
-'ltInland'` references across TFW.rsm, byte-exactly matching the
-Round-3 finding. But the **decoder alone does not close the
-§6.20 binding**, for three concrete reasons:
-
-* **R6.** The `$64 <UnitName>` is the IMPORTED unit, not the
-  importer. Every `$66 'TLandTyp'` reference sits in a segment
-  whose `Seg.UnitName` is the unit DECLARING TLandTyp
-  (e.g. `'Base.Types'` in TFW). To find which units IMPORT
-  TLandTyp, the segment must be attributed to its enclosing
-  byte-stream unit-of-scope by file-offset proximity — not yet
-  implemented.
-* **R7.** Even if (R6) is solved, knowing "unit X imports
-  TLandTyp" is too coarse a signal: 68 distinct importer scopes
-  use the type, so a unit-level boolean cannot disambiguate
-  "TAd.Land binds to TLandTyp" from "TPvsBh.Land binds to some
-  other enum that happens to live in the same unit". The
-  unit-uses table answers `unit-level` queries; the §6.20 closure
-  needs `field-level` evidence.
-* **R8.** The 35 `$67 'ltInland'` use-sites: their payloads are
-  byte-identical to the canonical `$25 'ltInland'` block's body
-  RVA (pinned by `Test.DPT.Rsm.Tfw.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock`),
-  which means each $67 entry is a back-reference to the same
-  canonical declaration — NOT a per-use-site marker carrying
-  field-identifying context. A `case Land of ltInland: …` arm
-  inside `TAd.GetLandName` emits the SAME 4-byte payload as the
-  same case arm inside `TPvsBh.GetLandName`. So even associating
-  a `$67 'ltInland'` use-site to its enclosing proc and walking
-  to the proc's class doesn't isolate which class's `Land` field
-  is being read — only that ONE OF the importing classes reads
-  it that way.
-
-The unit-uses table closes the "what bytes live where" question
-(`GAP`), but the residual TAd.Land → TLandTyp binding is a
-consumer-side defect that no straightforward extension of the
-decoded segments resolves. The remaining candidate paths — none
-yet implemented:
-
-* **C1.** Walk every TFW `$28` proc record whose name matches
-  `T<X>.SetLand` / `T<X>.GetLand` / `T<X>.Setter_Land` /
-  `T<X>.Get<X>Name` and whose body contains a `$67 'ltInland'`
-  use-site, then bind `T<X>.Land` to TLandTyp. The §6.19
-  name-anchored late-binding pass is the closest existing
-  pattern (it binds pointer-to-record aliases). Cost: O(procs)
-  scan, narrow.
-* **C2.** Name-anchored heuristic (the §6.20 Round-2
-  Recommendation 3): "if member is named `Land` AND a `$2A`
-  entry exists for `TLandTyp` AND the type is an enum, bind
-  it". Cheap; weakest evidence. Leakage guard would skip when
-  multiple `T<MemberName>Typ` matches exist, which presumably
-  protects against benign overshooting. Cost: O(members), one
-  pass.
-* **C3.** Drop the closure as not worth the heuristic cost.
-  TFW production already runs without this binding (the
-  formatter chain returns the raw ordinal); the cost-benefit
-  may have tilted past chasing it.
-
-This is a confident negative on "§6.21 closes §6.20". The
-decoder is necessary infrastructure for future investigation
-of cross-unit consumer paths, but it is not by itself
-sufficient.
-
-**Round-6 (R6 RESOLVED + IMPLEMENTED — the importing unit IS
-explicitly encoded, now decoded into the `SourceFiles` table; see
-§4.17 and the closure note at the end of this round).** R6 above claimed
-the importer "is NOT stored — only heuristically recoverable via
-`StartOffset` proximity (unimplemented)". **That is now refuted.**
-The importing unit is carried explicitly by a `$70 <SourceFile>`
-record that sits as an INTRODUCER immediately *before* each run of
-`$64` segments, not as an inner entry *inside* a segment. The
-user's stronger hypothesis ("a marker introduces a unit and the
-following `$64` segments belong to it") is CONFIRMED with
-byte-exact evidence on two fixtures.
-
-*Wire shape of the introducer* (DebugTarget.rsm @ `0005ED4C`,
-the `SysInit` unit):
-
-```
-84 00 02 07 'SysInit'           ; unit-name sub-record (see caveat)
-FE 27 FE F7 07                  ; 5 fixed bytes
-96 00 02 3C                     ; 4 bytes (byte+2 varies: 02 / 06)
-70 0B 'SysInit.pas'             ; $70 <NL> <SourceFile>  <-- the importer
-E0 68 38 5C 00                  ; $70 4-byte RVA ($5C3868E0) + one 00
-64 06 'System' 00 00 00 ...     ; first $64 segment of this unit's block
-```
-
-*Attribution rule (CONFIRMED).* The segments between one `$70
-<File>` introducer and the next `$70` introducer all belong to
-the unit named by that introducer. The importing unit name =
-the `$70` source-file name with any directory prefix and the
-`.pas`/`.inc` extension stripped (e.g. `Winapi.ImageHlp.pas` →
-`Winapi.ImageHlp`; `..\..\..\sys\\i18n\de\System.SysConst.pas`
-→ `System.SysConst`).
-
-*Structural classification (both fixtures).* Of every `$70 …pas`
-record, the byte immediately after its 4-byte RVA payload + one
-`$00` trailer is `$64`: **30 of 31 in DebugTarget.rsm**, **362 of
-363 in DPT.rsm** are introducers (`<RVA:4> 00 $64`). The single
-non-introducer in each is the very first `System.pas` record (the
-System unit imports nothing, so no `$64` follows it). **Zero `$70
-…pas` records appear as an inner entry inside an open `$64`
-segment** (next-byte `$66`/`$67`/`$70`/`$63`: 0 in both files). So
-§4.17's framing of `$70` as a segment-INNER source-file ref is
-inverted: in practice `$70` is the segment-block INTRODUCER.
-`HandleUnitUseIntroRecord` never mis-decodes one because the
-standalone `$70` has no open `$64` before it and is walked past
-byte-by-byte; the residual cost is only that `Seg.StartOffset`
-is not yet associated with the introducer.
-
-*Sanity: 0 orphans.* In DPT.rsm no `$64` segment occurs before
-the first `$70` introducer, and the largest single block is 37
-consecutive `$64` segments (one unit importing 37 units) — no
-unattributable runs.
-
-*Two concrete proofs.*
-
-* **DebugTarget.rsm** @ file offset `2041753`:
-  `$70 13 'Winapi.ImageHlp.pas' 47 7A 2D 5C 00` introduces the
-  block at `2041779` = `$64 'System'`, `2041970` = `$64 'SysInit'`,
-  `2041983` = `$64 'Winapi.Windows'`. Decoded importer
-  `Winapi.ImageHlp` matches the real `uses` (the RTL ImageHlp
-  unit uses Winapi.Windows). ✓
-* **DPT.rsm** @ file offset `56486628`:
-  `$70 13 'DPT.Application.pas' …` introduces the block at
-  `56486654` = `$64 'System'`, `56488100` = `$64 'SysInit'`,
-  `56488113` = `$64 'mormot.core.collections'`,
-  `56488562` = `$64 'DPT.Task'`, `56488638` = `$64 'DPT.Types'`,
-  `56489045` = `$64 'DPT.Workflow'`. Decoded importer
-  `DPT.Application` matches the application unit's `uses`. ✓
-
-*Caveat on the `84 00 02 <NL> <UnitName>` sub-record.* It is NOT a
-reliable importer name: for the `System.Types.pas` introducer the
-sub-record's name reads `'System'`, not `'System.Types'`, and the
-leading `$84` byte is not stable across the corpus (a literal
-`84 00 02` anchor scan of DPT.rsm finds 0 hits — the byte before
-`00 02` varies). **The `$70 <SourceFile>` name is the authoritative
-importer identity**; the `00 02 <NL> <Name>` token preceding it is
-decoded-but-not-reliable for this purpose.
-
-*Consequence for R7/C-paths.* R7's "unit-level is too coarse for
-field-level TAd.Land binding" still stands — knowing the importer
-unit doesn't disambiguate which class's field uses the type. But
-R6's specific obstacle ("importer not stored") is removed: a
-consumer CAN now attribute every `$64`/`$66`/`$67` reference to
-its exact importing unit. This is a real upgrade to the unit-uses
-table's expressiveness even though it does not by itself close the
-TAd.Land enum-binding (which remains a field-level problem).
-
-*Reader change — IMPLEMENTED (see §4.17 for the full write-up).*
-A dedicated `HandleSourceFileIntroRecord` recognises the standalone
-`$70 <SourceFile> <RVA:4> $00 $64` introducer; each becomes one
-**deduplicated** `TRsmSourceFile` entry (the importer stored ONCE,
-not per segment) and every following `$64` segment carries a
-`SourceFileIdx` foreign key. `TRsmReader.UnitsImporting` is the
-exact inverse of `UnitsDeclaringType`. Pinned on Win32 + Win64 by
-`Test.DPT.Rsm.Reader.TestSourceFileAttribution32/64` (the chosen
-pin asserts the `Winapi.ImageHlp → Winapi.Windows` uses-edge and
-`UnitsImporting('Boolean')` by name/relationship rather than the
-build-specific offsets `2041779` / `56486654`, so it survives a
-fixture rebuild).
-
-R6 is RESOLVED and the importer-attribution sub-question is closed
-into §4.17. The §6.20 entry stays open only on its ORIGINAL subject
-(the TAd.Land field→enum binding, R7's field-level gap), which the
-§4.17 SourceFiles table does NOT close — R7 still stands: knowing
-the importing unit is too coarse to bind a specific class's field
-to its enum.
-
-**R9 (Round 5, via §6.23 — `$28` marker middle-bytes
-decode-via-accessor path).** The accessor-name-anchored idea
-(`T<X>.SetLand` carrying TLandTyp as a parameter signature in
-its `$28` marker middle bytes) is structurally void on TFW.
-Two refutations stack:
-* **R9a — TFW has zero `$28` procs whose dotted name starts
-  with `TAd.`** (PowerShell IndexOf scan over the full
-  848 MB TFW.rsm tested 14 plausible accessor naming
-  variants, all hit count = 0). `TAd` is a plain Delphi
-  record with no methods; no accessor proc exists for any
-  signature decoder to read.
-* **R9b — Where `*.SetLand` procs DO exist in TFW** (3 of
-  them: `TAdApFormSlimFixture.SetLand`,
-  `TAdFormSlimFixture.SetLand`,
-  `TAdFormScriptSlimFixture.SetLand`), they are FitNesse slim-
-  fixture wrappers around TAd-shaped logic — their owning class
-  is the fixture, NOT TAd. Binding via accessor convention
-  would attribute TLandTyp to the wrong owner.
-* The signature decode itself was workable (the marker's `$9C`
-  byte is the §4.7 primitive-prefix tag), but the type info
-  is redundant with §4.3 REGVAR / §4.4 LOCAL records that
-  immediately follow the marker — see §4.1's `$9C`-prefix
-  footnote. Even with a perfect middle-byte decoder, there's
-  no accessor proc to consume it on TAd.
-
-Path forward for the user-visible defect (`evaluate Self.FAd.Land`
-returning the nil-pointer error instead of the enum name): **Pfad
-2** — lift the nil-refusal in `EvaluateVariable`'s auto-detect when
-the resolved Member is a non-class primitive slot. That doesn't
-deliver the enum NAME (the encoding still doesn't bind TAd.Land →
-TLandTyp), but it eliminates the misleading "nil pointer" error
-message and prints the raw ordinal `0`. The non-heuristic
-ceiling for now.
-
-**Pfad 2 implemented** (this round). The nil-refusal discrimination
-now lives in
-[DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas) (the block
-immediately before the `BuildAutoDetectHint` call), backed by the
-nested helper `TerminalMemberResolvesToClass` and the new
-function-scope flag `DottedTerminalIsRecordField`. The flag is set at
-the top of every dotted-walk iteration to
-`ContextIsRecord and (PrevContextIdx >= 0)`, so after the loop it
-reports the TERMINAL segment's hop kind. The discrimination:
-
-* **Refuse** (keep the "possible nil class pointer" hint) when the
-  terminal member could be a class reference — its `TypeIdx` resolves
-  to an `skClass` in `FClasses`, OR the terminal segment was reached
-  through the class-hop branch (a field slot in a live class instance,
-  where nil is a legitimate nil object).
-* **Emit raw bytes as `int`** when the terminal member was reached
-  through the record-hop branch AND carries no type metadata
-  (`PointerTargetTypeIdx = 0`, `TypeIdx` not a class, and
-  `PrimitiveTypeId = 0` is implied because Path-1 auto-detect would
-  otherwise have formatted it). This is the fallback for record fields
-  the encoding leaves untyped AND whose name gives no enum convention
-  to bind against.
-
-The encoding still does not bind TAd.Land → TLandTyp **structurally** —
-that remains the refuted negative (R6–R9). The user-visible enum NAME
-is now recovered by a **last-resort name-convention heuristic**,
-implemented as Pass 3 of the §4.15 field-alias bridge
-(`BindZeroIdFieldsByEnumNameConvention`, formerly tracked as the
-documentation-only §6.24): `evaluate Self.FAd.Land` now resolves to
-`ltInland` (not the raw ordinal), because `TAd.Land.PrimitiveTypeId`
-is bound to `TLandTyp`'s `$2A` id via the `Land → TLandTyp` convention.
-The Pfad-2 raw-`int` fallback above still covers untyped record fields
-whose name has no unique `$03` enum match.
-
----
 
 ### 6.25 Same-comp `$25` pending buffer pollutes / mis-attributes synthesized `EnumDef`s (`GAP`)
 
@@ -2619,8 +2111,13 @@ local/param `TypeIdx`).
 > `TestTfwRecordFieldEnumNameConventionBindsLand` +
 > `TestRecordFieldEnumNameConventionDoesNotPhantomBind32`. §6.23 was the `$28` marker middle-bytes
 > investigation — opened and closed in a single Round-1,
-> decoded-but-not-useful-for-§6.20 per R9, the `$9C` primitive-prefix
-> observation folded into §4.1 as a footnote.
+> decoded-but-not-useful, the `$9C` primitive-prefix
+> observation folded into §4.1 as a footnote. §6.20 (the `$67`
+> enum-use-site / `TAd.Land` saga) was **closed and removed**: `$67`
+> and the importer attribution decoded into §4.17, the structural
+> `TAd.Land → TLandTyp` decode refuted (folded into §4.15 Pass 3), and
+> the enum NAME delivered by the §6.24 heuristic — nothing open
+> remained.
 > The next gap discovered MUST be numbered **§6.28**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code
 > comments, and pin docstrings reference closed §6.N entries by
