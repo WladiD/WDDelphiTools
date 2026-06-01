@@ -2484,11 +2484,126 @@ single-family const-borrow phantoms (`QOS_OBJECT_HDR` / `IRichChunk` /
 (a `$03` plus a synthesised variant whose element set only partially
 overlaps the `$03`).
 
+### 6.27 Local/param `$21`/`$22` `TypeIdx` is a per-proc ref number, NOT a registry id — `FindClassIdxByRsmTypeId` mis-resolves it (`GAP` — no static resolution exists for class instances)
+
+[DPT.Rsm.Scanner.pas `DecodeTypeIdByStructuralLookahead`](DPT.Rsm.Scanner.pas)
+writes `TRsmLocal.TypeIdx`; consumers resolve it via
+[DPT.Rsm.Reader.pas `FindClassIdxByRsmTypeId`](DPT.Rsm.Reader.pas)
+keyed on the `$2A` registry's `FRsmTypeIdToClassIdx`
+([DPT.Rsm.FormatALinker.pas `ScanTypeRegistry`](DPT.Rsm.FormatALinker.pas)).
+A consumer (RsmDesk) resolved a register-param's `TypeIdx` to a type
+name this way and got wrong names. Byte-decoded against
+`C:\MSE-26.04-Mongo\TFW\TFW.rsm`, proc `TFormMain.Create`
+(`TFormMain.Create(AOwner: TComponent)`, RVA $57CB3AC). The byte-level
+truth, with three competing hypotheses tested and resolved:
+
+**The decode is correct; the resolver is the bug.** The proc record at
+file offset 843710232 is:
+
+```
+28 10 'TFormMain.Create' A0 00 00 <14-byte $A0 addr payload>
+21 04 'Self'   66 00 00  84 F8  21 ...   ← Self,   TypeIdx lo=$84 hi=$F8, next $21
+21 01 '.'      66 00 00  8A F6  21 ...   ← temp,   TypeIdx lo=$8A hi=$F6, next $21
+21 06 'AOwner' 66 00 00  10 E8  63 ...   ← AOwner, TypeIdx lo=$10 hi=$E8, next $63
+```
+
+For each, the structural-lookahead decoder sees a continuation tag at
+payload+5 (`$21`/`$21`/`$63`, all in `ContTags`) → takes the 1-byte
+path → `TypeIdx = byte+3` = `$84` / `$8A` / `$10`. **These are exactly
+the bytes the linker wrote.** The reader is faithful. (Note the byte at
++4 — `$F8`/`$F6`/`$E8` — is non-zero, so it is NOT clean padding; it is
+part of an un-modelled per-proc ref encoding. But neither the 1-byte
+value nor the 2-byte value `$F884`/`$F68A`/`$E810` is a registry id —
+see below.)
+
+**Hypothesis A (refuted): the value is a 2-byte registry id the decoder
+truncated.** `$F884`, `$F68A`, `$E810` are NOT registered by any T/P
+`$2A` entry in TFW (verified by an IndexOf-based registry reverse-map).
+So there is no wider id to recover.
+
+**Hypothesis B (refuted): the 1-byte id IS the type's registry primary,
+just colliding (15k-struct ambiguity).** Ground-truth `$2A` primaries:
+`TFormMain` = `$005A`, `TComponent` = `$0044`. The local/param values
+`$84`/`$10` are **not** those types' primaries at all — different
+numbering space, not a collision on the right number.
+
+**Hypothesis C (confirmed): the `$21`/`$22` `TypeIdx` low byte is a
+per-proc local type-reference index, unrelated to the global registry.**
+Decoding `Self`'s `TypeIdx` across methods of the SAME class proves it
+is not type-stable: `TFormMain.Create` Self lo=$84, `TComponent.Create`
+Self lo=$65, `TObject.Free` Self lo=$7E, `TStrings.Add` Self lo=$9D. If
+it were the type's id, every `TFormMain` method's `Self` would share one
+value (= $005A). It does not. The byte is an index into a per-proc /
+per-unit local type table the format does not expose globally.
+
+**Why `FindClassIdxByRsmTypeId` then returns plausible-but-wrong names.**
+The `$2A` registry id space in TFW is catastrophically small: **71,183
+distinct T/P type names register under only 256 distinct primary ids,
+every one ≤ `$00FF`** (the high byte is effectively always 0). That's
+~278 names per id, all colliding, and `FRsmTypeIdToClassIdx` is a plain
+last-wins dictionary. So id `$0084` resolves to whatever T/P type
+registered last at $0084 (`TLayerCollectionAccess` in this build),
+`$0010` → `TKonsEBpAct`, `$008A` → `TImageDosHeader`. The names are
+real types that happen to be the last writer of that 1-byte id — pure
+coincidence, no relation to the local's actual type.
+
+**Verdict on static resolution of a local/param `TypeIdx` → type name
+(from the `.rsm` alone):**
+* **(a) `Self`** — NOT resolvable via `TypeIdx`. The authoritative
+  static source is the **method's qualified proc name**:
+  `TFormMain.Create` → split at the last `.` before the method →
+  `Self : TFormMain`, then `FindClassByName('TFormMain')` (name-keyed,
+  unambiguous). Sound for all normal `TClass.Method` names; the only
+  edge cases are generics (`TList<TFoo>.Add` — split at the last `.`
+  outside `<>`) and `$ActRec` closure procs (no real `Self`). This is
+  the correct and reliable approach.
+* **(b) a class-typed param** like `AOwner: TComponent` — **NO reliable
+  static resolution exists from the `.rsm` alone.** The `$21`/`$22`
+  `TypeIdx` is the per-proc ref number (unusable), and the param's
+  declared type is not recorded anywhere name-resolvable. The only
+  authoritative source is the runtime VMT of the actual instance —
+  which is exactly the existing §4.2 consumer-note policy ("VMT trumps
+  RSM TypeIdx for class-instance dotted walks").
+* **(c) compiler temps** (the unnamed `.` local) — no static type is
+  recoverable; the value is a per-proc ref number into a table the
+  format does not expose.
+
+**Consumer note already in place:** §4.2's "VMT trumps RSM TypeIdx"
+note documents that the dotted-walk evaluator must NOT trust the
+`$21`/`$22` alias for class instances and must derive the class from
+the VMT (live) or the proc name (static). §6.27 is the static-viewer
+generalisation of that note: a viewer with no running process can only
+trust the proc-name split for `Self`; for class-typed params/temps it
+should show the raw id (and label it un-resolved), never route it
+through `FindClassIdxByRsmTypeId`.
+
+**MEMBER `TypeIdx` (via `FindStructByTypeIdx`) is a DIFFERENT, reliable
+space.** `FindStructByTypeIdx` matches `TRsmClassInfo.TypeIdx`, which
+`TRsmStructDiscoverer` sets to the struct's **file offset**
+(`Info.TypeIdx := UInt32(AClassNameOff/ARecordNameOff)` —
+[DPT.Rsm.StructDiscoverer.pas:316,515](DPT.Rsm.StructDiscoverer.pas)).
+File offsets are globally unique, so member-type resolution via
+`FindStructByTypeIdx` does NOT suffer the 256-id collision and is
+trustworthy — it is a third namespace, distinct from both the `$2A`
+registry primary id AND the `$21`/`$22` per-proc ref number. The three
+spaces must never be cross-looked-up.
+
+This entry is a `GAP` only in the narrow sense that the per-proc local
+type table is undecoded; it is effectively a **design limit** —
+class-instance local/param types are simply not statically resolvable
+from the `.rsm` and require the VMT, so no decoder work would close it
+for the consumer's purpose. No reader-code change is warranted: the
+fix belongs in the consumer (use proc-name split for `Self`, VMT for
+class params, raw-id for temps; never `FindClassIdxByRsmTypeId` on a
+local/param `TypeIdx`).
+
 ---
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
-> sequence positions. The last number used was §6.26 (the `$25`
-> const-vs-enum-element decode signal) — now **closed as a refuted
+> sequence positions. The last number used was §6.27 (the local/param
+> `$21`/`$22` `TypeIdx` per-proc-ref vs. registry-id confusion — a
+> consumer-side mis-resolution, no reader change). §6.26 was the `$25`
+> const-vs-enum-element decode signal — **closed as a refuted
 > premise**: the `$25` record carries no per-record const-vs-element
 > discriminator (enum-element and const bodies are byte-structurally
 > identical; the only signal is type-level `$03` presence), folded into
@@ -2506,7 +2621,7 @@ overlaps the `$03`).
 > investigation — opened and closed in a single Round-1,
 > decoded-but-not-useful-for-§6.20 per R9, the `$9C` primitive-prefix
 > observation folded into §4.1 as a footnote.
-> The next gap discovered MUST be numbered **§6.27**, not §6.1.
+> The next gap discovered MUST be numbered **§6.28**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code
 > comments, and pin docstrings reference closed §6.N entries by
 > their original number long after the §6 entry itself is gone, and

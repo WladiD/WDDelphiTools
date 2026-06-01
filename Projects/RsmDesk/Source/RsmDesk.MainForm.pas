@@ -106,6 +106,18 @@ type
     function  ImporterDetail(AGroupIdx: Integer): String;
     function  ElementLabel(AColl: TRsmColl; AIndex: Integer): String;
     function  ElementDetail(AColl: TRsmColl; AIndex: Integer): String;
+    // TypeIdx -> human-readable type name. Locals/globals are in the
+    // 2-byte RSM registry id space (FindClassIdxByRsmTypeId); class/
+    // record MEMBERS are in the file-offset space (FindStructByTypeIdx)
+    // -- the two must NOT be mixed (confirmed via rsm-expert).
+    function  PrimitiveName(AId: UInt16): String;
+    function  ResolveStructType(ATypeIdx: UInt32): String;
+    function  ResolveMemberType(const AMember: TRsmClassMember): String;
+    // Self's type comes from the method's qualified name, NOT its
+    // TypeIdx (which is a per-proc local-ref index, not a type id --
+    // §6.27). Validated via FindClassByName so a non-method proc or a
+    // generic edge case just yields '' (no annotation).
+    function  ResolveSelfType(const AProcName: String): String;
   public
     procedure PopulateNode(ANode: TRsmTreeItem);
     constructor Create(AOwner: TComponent); override;
@@ -141,7 +153,7 @@ end;
 /// Name = '.' (the linker's placeholder for record-result / with /
 /// temp slots, see DPT.Rsm.Format.md §4.4); relabel them as <temp> so
 /// the row is self-explanatory instead of a bare dot.
-function LocalLine(const L: TRsmLocal): String;
+function LocalLine(const L: TRsmLocal; const ATypeName: String): String;
 var
   Nm, Loc: String;
 begin
@@ -153,8 +165,35 @@ begin
     Nm := '<temp>'
   else
     Nm := L.Name;
-  Result := Format('    %-26s %-10s TypeIdx=$%x  (%s)',
-    [Nm, Loc, L.TypeIdx, LocalKindStr(L.Kind)]);
+  // A local/param TypeIdx is a per-proc local-ref index, NOT a global
+  // type id (§6.27) -- it must NOT be resolved via the type registry
+  // (that produced wrong names). So the trailing type column is filled
+  // ONLY for Self (derived reliably from the proc name by the caller);
+  // every other local shows just the raw id. Loc (reg#/bp) conveys kind.
+  Result := Format('    %-26s %-10s TypeIdx=$%-5x %s',
+    [Nm, Loc, L.TypeIdx, ATypeName]);
+end;
+
+/// The class/record part of a qualified method name: everything before
+/// the last top-level '.' (dots inside generic '<...>' are ignored).
+/// "TFormMain.Create" -> "TFormMain"; "Tfw.OpenFromUrl" -> "Tfw" (not a
+/// class -> caller's FindClassByName rejects it); returns '' if none.
+function ClassPartOfProcName(const AProcName: String): String;
+var
+  I, Depth, LastDot: Integer;
+begin
+  Depth := 0;
+  LastDot := 0;
+  for I := 1 to Length(AProcName) do
+    case AProcName[I] of
+      '<': Inc(Depth);
+      '>': if Depth > 0 then Dec(Depth);
+      '.': if Depth = 0 then LastDot := I;
+    end;
+  if LastDot > 1 then
+    Result := Copy(AProcName, 1, LastDot - 1)
+  else
+    Result := '';
 end;
 
 function StructKindStr(AKind: TRsmStructKind): String;
@@ -527,6 +566,67 @@ begin
   end;
 end;
 
+function TFormMain.PrimitiveName(AId: UInt16): String;
+begin
+  // Small, codebase-documented subset of the compiler built-in type ids
+  // (DPT.Rsm.Model.pas member doc + DPT.Debugger.pas formatter table).
+  // Conservative on purpose: an unknown id returns '' (no label) rather
+  // than a wrong guess. Extend as ids are confirmed.
+  case AId of
+    $03FD: Result := 'Integer';
+    $0415: Result := 'Word';
+    $041D: Result := 'Double';
+    $0401: Result := 'string';
+    $0425: Result := 'Boolean';
+  else
+    Result := '';
+  end;
+end;
+
+function TFormMain.ResolveStructType(ATypeIdx: UInt32): String;
+var
+  Idx: Integer;
+begin
+  // File-offset token space (class/record members).
+  Idx := FReader.FindStructByTypeIdx(ATypeIdx);
+  if Idx >= 0 then
+    Result := Format('%s (%s)',
+      [FReader.Classes[Idx].Name, StructKindStr(FReader.Classes[Idx].Kind)])
+  else
+    Result := '';
+end;
+
+function TFormMain.ResolveMemberType(const AMember: TRsmClassMember): String;
+begin
+  if AMember.PrimitiveTypeId <> 0 then
+  begin
+    Result := PrimitiveName(AMember.PrimitiveTypeId);
+    if Result = '' then Result := Format('prim $%x', [AMember.PrimitiveTypeId]);
+    Exit;
+  end;
+  if AMember.PointerTargetTypeIdx <> 0 then
+  begin
+    Result := ResolveStructType(AMember.PointerTargetTypeIdx);
+    if Result <> '' then Result := '^' + Result;
+    Exit;
+  end;
+  Result := ResolveStructType(AMember.TypeIdx);
+end;
+
+function TFormMain.ResolveSelfType(const AProcName: String): String;
+var
+  Cls: String;
+  Idx: Integer;
+begin
+  Result := '';
+  Cls := ClassPartOfProcName(AProcName);
+  if Cls = '' then Exit;
+  Idx := FReader.FindClassByName(Cls);
+  if Idx >= 0 then
+    Result := Format('%s (%s)',
+      [FReader.Classes[Idx].Name, StructKindStr(FReader.Classes[Idx].Kind)]);
+end;
+
 function TFormMain.ElementLabel(AColl: TRsmColl; AIndex: Integer): String;
 var
   C: TRsmClassInfo;
@@ -570,6 +670,7 @@ var
   R : TRsmUnitUseRef;
   J, PropCount, ElemCount: Integer;
   Importer: String;
+  SelfType: String;
 begin
   case AColl of
     rcProcs:
@@ -580,8 +681,12 @@ begin
                          'Size: %d bytes' + NL +
                          'Locals: %d',
                          [P.Name, P.SegmentOffset, P.Size, P.Locals.Count]);
+        SelfType := ResolveSelfType(P.Name);
         for J := 0 to P.Locals.Count - 1 do
-          Result := Result + NL + LocalLine(P.Locals[J]);
+          if P.Locals[J].Name = 'Self' then
+            Result := Result + NL + LocalLine(P.Locals[J], SelfType)
+          else
+            Result := Result + NL + LocalLine(P.Locals[J], '');
       end;
 
     rcClasses:
@@ -604,9 +709,9 @@ begin
         begin
           M := C.Members[J];
           Result := Result + NL +
-            Format('    +%-5d %-24s TypeIdx=$%x  Prim=$%x  Size=%d  PtrTgt=$%x',
+            Format('    +%-5d %-24s TypeIdx=$%x  Prim=$%x  Size=%d  PtrTgt=$%x  %s',
               [M.Offset, M.Name, M.TypeIdx, M.PrimitiveTypeId, M.Size,
-               M.PointerTargetTypeIdx]);
+               M.PointerTargetTypeIdx, ResolveMemberType(M)]);
         end;
         if PropCount > 0 then
         begin

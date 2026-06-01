@@ -167,6 +167,19 @@ new shape, fix a misparse, or change the meaning of a captured field:
     — only for tag-constant pins / model invariants.
 - Pin a concrete fixture value (e.g. "TLightStatus's ordinal 2 is
   `lsGreen`") rather than a vague existence check whenever possible.
+- **Pin names and relationships, NOT raw `.rsm` file offsets.** A
+  `StartOffset` / file position is **doubly fragile**: it differs
+  Win32 vs. Win64 (DebugTarget.rsm is ~7.7 MB Win32 vs. ~11.3 MB
+  Win64, so the same record sits at different offsets) AND it drifts
+  on every fixture rebuild. Assert the decoded *name* and the
+  *relationship* instead — e.g. the §4.17 `$70` pin asserts the
+  `Winapi.ImageHlp → Winapi.Windows` uses-edge and
+  `UnitsImporting('Boolean')` rather than the offset `2041779`, which
+  is exactly why one offset-free pin runs green on both platforms. If
+  a raw offset/byte-read is genuinely unavoidable, gate it per
+  `{$IFDEF CPUX64}` and call it out as build-specific. (Doc prose may
+  quote a concrete offset as evidence — that's fine; just don't make a
+  test *assert* on it.)
 - **Leakage guard for heuristic widenings.** When a fix widens a
   heuristic (raises a cap, enlarges a window, relaxes a filter,
   loosens an anchor) the pin MUST include a leakage guard — an
@@ -593,6 +606,17 @@ Playbook:
      "Executable is currently in use").
    - Run `_DPT.Build.bat` (NOT a test batch — DPT.exe lives in
      `Projects\DPT`, the test exes in `Projects\DPT\Test`).
+   - **The rebuild can also fail with `F2039: Ausgabedatei
+     '..\DPT.rsm' kann nicht erstellt werden` — the lock is on the
+     `-VR` `.rsm` SIDECAR, not the `.exe`.** And it can appear even
+     after your `Stop-Process`, because the MCP framework may
+     transiently **respawn** DPT.exe between the kill and the link
+     step and re-grab the sidecar. Fix: confirm no `Projects\DPT`
+     DPT.exe is running (`Get-Process DPT | where Path -like
+     'c:\WDC\WDDelphiTools\Projects\DPT\*'`) and simply **re-run the
+     build** — the lock is transient, the second build succeeds.
+     Watch for the German error line (`F2039` / `Fehler`), not just
+     the English "in use" string.
    - Make the next MCP call; the framework respawns DPT.exe with
      your rebuild. Verify the new PID's `StartTime` > build mtime
      before trusting any diagnostic output.
@@ -796,6 +820,26 @@ Post-process pipeline (reader-orchestrated):
 
 Tag constants:
 [DPT.Rsm.Model.pas](../../../Projects/DPT/Source/DPT.Rsm.Model.pas) — `TRsmTag` record (`PROC_TAG`, `PARAM_TAG`, `TYPE_REGISTRY_TAG`, `SCOPE_END`, …).
+
+Evaluate auto-detect consumer chain (how a decoded `Member` becomes a
+formatted value — the map to follow for any "make this field
+auto-resolve in `evaluate`" work, e.g. §6.24):
+[DPT.Rsm.Debugger.pas → `DPT.Debugger.pas`](../../../Projects/DPT/Source/DPT.Debugger.pas):
+- `EvaluateVariable` runs the dotted walk to a terminal `Member`, then
+  (when no explicit `type=`) calls `AutoDetectFormatterName(Member)`.
+- `AutoDetectFormatterName` tries, in order: **Path 1** `Member.PrimitiveTypeId`
+  → primitive-formatter table, else `EnumLookup`; **Path 2** `Member.TypeIdx`
+  → `ClassLookup` (`'object'`); **Path 3** whole-name local's `TypeIdx`.
+- `EnumLookup(id)` returns `'enum'` iff `FLocalsReader.IsEnumTypeId(id)`,
+  stashing `FLastEnumTypeId`; the `'enum'` formatter then resolves the
+  name via `TryGetEnumConstantName(FLastEnumTypeId, ord)`.
+- `IsEnumTypeId` / `TryGetEnumConstantName` both consult
+  `FScopeLocalTypeIdToEnumDef` (the shared map the `$1E` scope-local,
+  F-prefix `TRsmFieldAliasEnumBridge`, and §6.24 name-convention bridges
+  all write to). **So: to make a bare `evaluate X.Y` resolve an enum,
+  set `Member.PrimitiveTypeId` to the enum's `$2A` id AND register that
+  id → EnumDef index in `FScopeLocalTypeIdToEnumDef`** — Path 1 picks it
+  up before the §6.20 Pfad-2 raw-`int` fallback fires.
 
 Test fixtures:
 - `DebugTarget.dpr` — small, fully controlled. Extend this when you

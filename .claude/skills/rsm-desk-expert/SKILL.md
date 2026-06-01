@@ -210,6 +210,34 @@ and arch is detected from the `.exe`):
   collections. `TRsmClassInfo.Properties` **and** `TRsmEnumDef.Elements`
   can be **nil** — guard before `.Count`. mORMot `IList<T>` is best
   iterated by index (`for I := 0 to L.Count-1 do … L[I]`).
+- **TypeIdx is THREE different id spaces — NEVER cross-look-up
+  (§6.27).** This bit hard: resolving a *local*'s TypeIdx via the type
+  registry produced confident WRONG names (TFW `TFormMain.Create`'s
+  `Self`=$84 → "TLayerCollectionAccess"). The spaces:
+  1. **Class/record MEMBER `TypeIdx`** (and `PointerTargetTypeIdx`) =
+     **file-offset token**, globally unique → `FindStructByTypeIdx` /
+     `IsRecordTypeIdx`. **Trustworthy** — keep resolving members this
+     way (`ResolveStructType` / `ResolveMemberType`).
+  2. **`$2A` registry primary id** = a 2-byte value, key of
+     `FindClassIdxByRsmTypeId`. In a big binary it is **catastrophically
+     ambiguous** (TFW: 71k type names under 256 ids, last-wins) — do NOT
+     use it to name arbitrary ids.
+  3. **LOCAL/param `TRsmLocal.TypeIdx`** = a **per-proc local-ref
+     index**, NOT a global type id (Self's value differs per method).
+     There is **NO reliable static resolution** of a class-typed
+     local/param to its type from the `.rsm` (the runtime VMT is
+     authoritative). Show the raw id; do not route it through any
+     registry lookup.
+  The one reliable local win: **`Self`'s type = the class part of the
+  method's qualified name** (`TFormMain.Create` → `TFormMain`), via
+  `ClassPartOfProcName` + `FindClassByName` (`ResolveSelfType`).
+  `PrimitiveName` is a small, conservative built-in table
+  (Integer=$03FD, string=$0401, Boolean=$0425, Word=$0415,
+  Double=$041D; unknown → no label, never a guess). Enum *type name*
+  from an id is not exposed today → `RD-5` (Mode-B candidate).
+  **Lesson: a "plausible" resolved name is not a correct one — verify
+  against a known fixture (a method whose Self/params you know) before
+  trusting any TypeIdx resolver.**
 - **Locals rendering is kind-aware.** A `TRsmLocal` with
   `Kind = lkRegister` (Self, Sender, the first few params) lives in a
   CPU register — show `reg#<RegParamIdx>`, NOT a BP offset; printing

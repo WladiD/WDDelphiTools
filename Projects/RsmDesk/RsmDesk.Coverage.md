@@ -112,6 +112,17 @@ any view** but enable richer navigation (cross-links, jump-to-type):
   §4.17 + §6.20 R6, commissioned via rsm-expert Mode B). The `rnImporter`
   node kind extends the lazy machinery: an importer's segments are a
   contiguous `UnitUseSegments` range, so it reuses `MaterializeRange`.
+- **TypeIdx resolved to a name (done, carefully — §6.27):** there are
+  THREE id spaces and they must not be cross-looked-up.
+  - **Members** use the file-offset space (`FindStructByTypeIdx`, plus
+    `PrimitiveTypeId` / `PointerTargetTypeIdx`) — globally unique and
+    **trustworthy**; members show their resolved type.
+  - **Local/param `TypeIdx` is a per-proc local-ref index, NOT a type
+    id** — routing it through the registry gave confident WRONG names
+    (`TFormMain.Create`'s `Self`=$84 → an unrelated class). So locals
+    show the **raw id only**, except `Self`, whose type is derived
+    reliably from the **method's qualified name** (`ResolveSelfType`).
+  - Enum *type* names from an id remain unresolved (`RD-5`).
 - **Locals shown kind-aware (done):** register params render as
   `reg#N` (not a misleading `BP+0`), only `lkBpRel` locals show a `bp`
   offset; compiler-generated unnamed slots (`Name = '.'`, Format.md
@@ -130,7 +141,7 @@ any view** but enable richer navigation (cross-links, jump-to-type):
 
 ## 4. Identified gaps (stable IDs — never recycled)
 
-Use `RD-<next>` when adding an entry; the highest ever used is **RD-4**.
+Use `RD-<next>` when adding an entry; the highest ever used is **RD-5**.
 Remove an entry when it's closed and fold the explanation into §2/§3.
 
 ### RD-1 Per-element rich viewers (UI gap)
@@ -143,11 +154,13 @@ of the build-out.
 
 ### RD-2 Cross-navigation by TypeIdx (UI gap, reader already supports)
 
-Members/locals carry a `TypeIdx` (and `PointerTargetTypeIdx` for
-pointer-to-record fields). The reader can resolve these
-(`FindStructByTypeIdx`, `FindClassIdxByRsmTypeId`, `IsEnumTypeId`,
-`TryGetEnumConstantName`), but the UI shows them as raw hex. Make a
-`TypeIdx` a clickable link that selects the target type's tree node.
+Members resolve their `TypeIdx` to a **plain-text type name** next to
+the hex (`ResolveStructType` / `ResolveMemberType`, file-offset space);
+`Self` resolves via the method name. Local/param ids are not statically
+resolvable (§6.27, see §3). Still open: make a resolved name a
+**clickable link** that selects the target type's tree node (needs
+locating the node, which interacts with the lazy tree — a node may not
+be materialized yet).
 
 ### RD-3 Global variables not enumerable (reader limitation — candidate rsm-expert task)
 
@@ -170,6 +183,17 @@ visible. Likely low value once RD-1's enum grid lands, but recorded so
 the decision is explicit rather than forgotten. Confirm with
 `rsm-expert` whether `$25` carries anything `$03` doesn't before
 building a view for it.
+
+### RD-5 Enum type name not resolvable from a type id (reader limitation — Mode-B candidate)
+
+The reader can say a type id *is* an enum (`IsEnumTypeId`) and resolve a
+`(typeId, ordinal)` to a constant name (`TryGetEnumConstantName`), but
+there is **no read-only API that returns the enum's TYPE name from a
+type id** (works only when the enum also has a `$2A` registry entry,
+which RTL/cross-unit-aliased and sparse enums often lack). So a local /
+member typed as an enum currently shows just "enum" rather than e.g.
+"TLandTyp". Closing this needs a reader change (expose enum-type-name by
+id) — commission `rsm-expert` (Mode B) when the build-out needs it.
 
 ---
 
