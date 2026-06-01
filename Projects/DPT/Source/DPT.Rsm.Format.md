@@ -654,16 +654,40 @@ The ordinal uses Delphi's LSB-as-continuation form:
 Also reaches `RecordCrossUnitSameCompConstant`. Used for enums with
 explicit ordinal values like `(a = 1, b = 100)` or sparse `(a = 128, ...)`.
 
-> **Named `const`s also emit `$25` records.** The `$25` tag is not
+> **Named `const`s also emit `$25` records — and carry NO per-record
+> discriminator (§6.26 closure, refuted premise).** The `$25` tag is not
 > exclusive to enum *elements*: the linker emits the same record shape
 > for named ordinal **constants** (`crDefault`, `vkLButton`,
-> `CSIDL_APPDATA`, `mrYesToAll`, …). They are byte-indistinguishable
-> from enum elements here, so they land in the same pending buffer and
-> are flushed into `FEnumConstNames` like any other constant. The
-> over-collection this used to cause in the synthesized `EnumDef` list
-> is fenced off by the two guards documented in §4.8 (jobs 3–4) and
-> §5.1; the constants themselves remain available for `(typeId, ord)`
-> lookup.
+> `CSIDL_APPDATA`, `mrYesToAll`, `mrOk`, `IDOK`, …). They are not merely
+> "similar" — they are **byte-structurally identical** to genuine enum
+> elements. A direct dump of DebugTarget.rsm pins this: the enum element
+> `saReady` (`TStatus`) and the consts `mrOk` (`TModalResult`),
+> `crDefault` (`TCursor`), `vkReturn` all carry the same-comp body
+> `$8A $00 $00 <token: u32> <secId> $00 $00 <2*ord>` with the HiByte at
+> +8 == `$00` for the element AND the consts alike — i.e. they all
+> decode through §4.6.3's same-comp path. The only varying slots are the
+> opaque token (+3..+6, §4.6.2) and the 2-byte `secId` (+7), and the
+> `secId` is a **type identity, not a kind flag**: it differs between two
+> const families (`mrOk` `$20` vs `crDefault` `$7A`) AND collides across
+> distinct types (`vkReturn` shares `mrOk`'s `$20`). There is therefore
+> no byte at any fixed offset that the scanner could read to reject a
+> const up front. Win32 and Win64 bodies are byte-identical for these
+> probes. Pinned by
+> [Test.DPT.Rsm.Scanner.Test25NoConstVsEnumElementDiscriminator32/64](../Test/Test.DPT.Rsm.Scanner.pas).
+>
+> The **only** signal that separates a genuine enum element's type from a
+> const's subrange type is **type-level**: the enum's type has a
+> `$03 ENUM_DEF` record (`TStatus`, `TLightStatus`, `TMsgDlgBtn` each
+> have one), while a const's subrange type does not (`TModalResult`,
+> `TCursor` have none). That is exactly the discriminator
+> `TRsmReader.FilterPhantomEnumDefs` (§7) exploits downstream — it is not
+> a stopgap awaiting a per-record signal, because no such per-record
+> signal exists. Until the flush runs, the consts land in the same
+> pending buffer and are flushed into `FEnumConstNames` like any other
+> constant; the over-collection this causes in the synthesized `EnumDef`
+> list is fenced off by the guards documented in §4.8 (jobs 3–4), §5.1,
+> and the `$03`-coverage filter (§6.25). The constants themselves remain
+> available for `(typeId, ord)` lookup.
 
 ### 4.7 `$03` ENUM_DEF_TAG — enum type definition
 
@@ -1423,6 +1447,24 @@ The bridge is purely **name-based** so it fires only when at least one F-prefixe
 which asserts `IsEnumTypeId($0671) = True` and resolves ordinals
 0 / 4 / 6 to `tpIdle` / `tpHigher` / `tpTimeCritical`.
 
+#### Pass 3 — zero-id record/class fields by enum name convention (§6.24 closure)
+
+Passes 1–2 above bridge fields/params that **already carry** a non-zero alias id. A different shape exists in TFW: a record field that no structural channel ties to its type at all — the canonical case is `TAd.Land: TLandTyp`, a strict-private pointer-to-record field whose enum type has **no `$2C` field record and no `$67` use-site** that identifies the owning field (five refuted decode rounds — see §6.20 R6–R9 / §6.23). Such a member arrives with `PrimitiveTypeId = TypeIdx = PointerTargetTypeIdx = 0`, so before this pass the live evaluator could only surface the raw ordinal (the §6.20 Pfad-2 ceiling: `evaluate Self.FAd.Land` → `0` typed `int`, not `ltInland`).
+
+`BindZeroIdFieldsByEnumNameConvention` recovers the enum **name** via the only remaining signal — Delphi's identifier convention that a field `<X>` of an enum type is usually named after that type (`<X>` → `T<X>`, or `T<X>Typ` in TFW's suffix convention). It is a **last-resort heuristic**, gated hard so it never invents a phantom binding. For every class/record member it fires only when ALL hold:
+
+* `PrimitiveTypeId`, `TypeIdx`, `PointerTargetTypeIdx` are **all zero** — never clobber a structural binding;
+* the name does **not** match the `F<Upper>` field convention (those are Pass 1 / the §6.19 pointer-alias bridge's territory);
+* **exactly one** of `{T<X>, T<X>Typ}` resolves to a genuine, **non-synthesised `$03` `ENUM_DEF`** (a synthesised def may be a §6.25 phantom; the `$03` requirement is the "is it really an enum" oracle);
+* that enum type name is **unique** among the `$03` defs (two sibling units declaring the same enum name is ambiguous — the pass does not guess a unit);
+* the enum has a non-zero `$2A` registry id (looked up via `FTypeIdByName`).
+
+On a hit it sets `Member.PrimitiveTypeId` to the enum's 2-byte `$2A` id (`RawIdKey` is always ≤ 16 bits) and registers `(id → EnumDef)` in the same `FScopeLocalTypeIdToEnumDef` map Passes 1–2 use, so `TRsmReader.IsEnumTypeId` and `TryGetEnumConstantName` resolve it through the established path and the evaluator's `AutoDetectFormatterName` Path 1 picks `'enum'`. Pinned against TFW by
+[Test.DPT.Rsm.Tfw.TestTfwRecordFieldEnumNameConventionBindsLand](../Test/Test.DPT.Rsm.Tfw.pas)
+(`TAd.Land` → `TLandTyp`, ordinals 0 / 1 → `ltInland` / `ltAusland`; leakage guards: neighbour `TAd.Waehrung` stays unbound, F-prefix `TFormAd.FAd` keeps its §6.19 pointer-target) and against the clean DebugTarget fixture by
+[Test.DPT.Rsm.Reader.TestRecordFieldEnumNameConventionDoesNotPhantomBind32](../Test/Test.DPT.Rsm.Reader.pas)
+(no `TMixedInt` enum exists, so `TMixedRec.FMixedInt` stays non-enum; TLightStatus still resolves). The TFW heuristic also legitimately binds sibling domain enums on the same convention (`TAd.Lng`, `TAd.Lf`, `TAd.LicenseKind`).
+
 ### 4.16 `$31` PROPERTY_TAG — property declaration
 
 The Delphi compiler emits one `$31` record per `property <Name>: <Type>
@@ -2123,74 +2165,22 @@ reports the TERMINAL segment's hop kind. The discrimination:
   through the record-hop branch AND carries no type metadata
   (`PointerTargetTypeIdx = 0`, `TypeIdx` not a class, and
   `PrimitiveTypeId = 0` is implied because Path-1 auto-detect would
-  otherwise have formatted it). This is exactly the TAd.Land shape:
-  `evaluate Self.FAd.Land` now returns `0` (the ordinal of
-  `ltInland`) typed as `int` instead of the misleading nil-pointer
-  error.
+  otherwise have formatted it). This is the fallback for record fields
+  the encoding leaves untyped AND whose name gives no enum convention
+  to bind against.
 
-This does NOT close §6.20 — the encoding still does not bind
-TAd.Land → TLandTyp, so the enum NAME is unavailable. §6.20 stays
-open as the undecodable structural gap. Recovering the NAME would
-require the heuristic late-binding pass tracked in **§6.24**.
+The encoding still does not bind TAd.Land → TLandTyp **structurally** —
+that remains the refuted negative (R6–R9). The user-visible enum NAME
+is now recovered by a **last-resort name-convention heuristic**,
+implemented as Pass 3 of the §4.15 field-alias bridge
+(`BindZeroIdFieldsByEnumNameConvention`, formerly tracked as the
+documentation-only §6.24): `evaluate Self.FAd.Land` now resolves to
+`ltInland` (not the raw ordinal), because `TAd.Land.PrimitiveTypeId`
+is bound to `TLandTyp`'s `$2A` id via the `Land → TLandTyp` convention.
+The Pfad-2 raw-`int` fallback above still covers untyped record fields
+whose name has no unique `$03` enum match.
 
 ---
-
-### 6.24 Pfad 3.5 — heuristic name-convention enum late-binding for record fields (`GAP`)
-
-[DPT.Rsm.FormatALinker.pas `BindPointerAliasMembersByNameConvention`](DPT.Rsm.FormatALinker.pas)
-(the §4.15 / §6.19 F-prefix late-binding family this would extend) —
-**documentation-only; not implemented.** This is the last-resort
-option for recovering the enum NAME for record-field members that the
-encoding does not bind structurally (the canonical case being TFW's
-`TAd.Land: TLandTyp`). It is opened ONLY after five rounds of
-structural decode were refuted across §6.20 (R6–R9) and §6.23 — see
-those entries for why no pure-structural path closes the binding. The
-implemented **Pfad 2** (§6.20, this round) already removes the
-user-visible *misleading error* by surfacing the raw ordinal as
-`int`; §6.24 would go further and surface the enum *name*
-(`ltInland`), at the cost of a name-convention heuristic.
-
-**Rationale.** Last-resort heuristic AFTER structural decode is
-exhausted. The `$2A` type registry DOES contain a `TLandTyp` enum
-entry; the gap is purely that no record-field `$2C` / `$67` record
-ties `TAd.Land` to it. A name-convention match (`Land` → `TLandTyp`)
-is the only remaining signal, so it must be gated hard to avoid
-phantom bindings.
-
-**Proposed shape.** Extend the §4.15 `TRsmFieldAliasEnumBridge`-style
-post-process pass to also bind record-field members by name
-convention, BUT only when ALL of these hold (the leakage guards):
-
-* `Member.Name = <X>` (any case; e.g. `Land`).
-* `<X>` does NOT start with `F` (otherwise §4.15's F-prefix bridge
-  already covers it).
-* `FTypeIdByName['t' + LowerCase(X)]` returns a non-zero id, OR the
-  TFW-style suffixed `FTypeIdByName['t' + LowerCase(X) + 'typ']`
-  does.
-* That `$2A` registry id resolves to an `$03 ENUM_DEF` — verify it is
-  genuinely an enum, not merely any type with a matching name.
-* Genuine UNIQUE match: skip when more than one candidate name
-  resolves (no ambiguous overshoot / collision).
-* `Member.PrimitiveTypeId`, `Member.TypeIdx`, and
-  `Member.PointerTargetTypeIdx` are ALL zero — never clobber an
-  existing structural binding.
-
-**Note.** Pure structural decode is exhausted per §6.20 R6–R9 and
-§6.23 R9. This entry exists because the user may later want the enum
-name displayed; until then Pfad 2 is the non-heuristic ceiling.
-
-**Closure plan.** When implemented:
-
-* Pin against TFW: `Reader.FindClassMember('TAd', 'Land', M)` binds
-  `M.PrimitiveTypeId` to `TLandTyp`, and bare `evaluate Self.FAd.Land`
-  (no `type=`) resolves to `ltInland` via the auto-detect enum path.
-* Pin against DebugTarget as the leakage guard: a record field whose
-  name has no matching `T<Name>` / `T<Name>Typ` enum (e.g.
-  `TMixedRec.FMixedInt`) stays `Integer`, NOT a phantom enum, and no
-  ambiguous-name field gets bound.
-* Both pins live in `Test.DPT.Rsm.Tfw.pas` (TFW probe) and
-  `Test.DPT.Rsm.LocalsReader.pas` / `Test.DPT.Rsm.Reader.pas`
-  (DebugTarget guard), per the §4 widening-needs-leakage-guard rule.
 
 ### 6.25 Same-comp `$25` pending buffer pollutes / mis-attributes synthesized `EnumDef`s (`GAP`)
 
@@ -2337,21 +2327,39 @@ remain. **Residual** (still leaking as phantom enums): record / interface
 (named `const`s or sparse-enum elements) — not in `FClasses`, no `$03`
 to map to. Multi-family borrows of that kind are still caught by the
 dup-ordinal guard; single-family ones with unique ordinals are the
-irreducible remainder until a `$25` const-vs-enum-element signal is
-decoded. `TTokenKind` also still doubles (a `$03` plus a synthesised
-variant whose element set only partially overlaps the `$03`).
+**irreducible** remainder: §6.26 searched the `$25` record for a
+per-record const-vs-enum-element discriminator byte and **found none**
+(refuted — the const and enum-element bodies are byte-structurally
+identical; see the §4.6 callout). The type-level `$03`-coverage filter
+is therefore the permanent mechanism, not a stopgap, and these
+single-family const-borrow phantoms (`QOS_OBJECT_HDR` / `IRichChunk` /
+`tagXFORM`) cannot be pruned upstream. `TTokenKind` also still doubles
+(a `$03` plus a synthesised variant whose element set only partially
+overlaps the `$03`).
 
 ---
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
-> sequence positions. The last entry used was §6.25 (the same-comp
-> `$25`-pending-buffer pollution / `EnumDef` mis-attribution gap). §6.24
-> is the documentation-only Pfad-3.5 heuristic enum late-binding option
-> for record fields. §6.23 was the `$28` marker middle-bytes
+> sequence positions. The last number used was §6.26 (the `$25`
+> const-vs-enum-element decode signal) — now **closed as a refuted
+> premise**: the `$25` record carries no per-record const-vs-element
+> discriminator (enum-element and const bodies are byte-structurally
+> identical; the only signal is type-level `$03` presence), folded into
+> the §4.6 "Named `const`s also emit `$25`" callout and pinned by
+> `Test25NoConstVsEnumElementDiscriminator32/64`. §6.25 is the same-comp
+> `$25`-pending-buffer pollution / `EnumDef` mis-attribution gap (plus
+> the `$03` variable-header-padding reading-gap fix). §6.24 was the
+> Pfad-3.5 heuristic enum late-binding option for record fields — now
+> **implemented and closed**: it lives as Pass 3 of the §4.15 field-alias
+> bridge (`BindZeroIdFieldsByEnumNameConvention`), binds TFW's
+> `TAd.Land → TLandTyp` (and sibling domain enums) by name convention
+> under hard leakage guards, and is pinned by
+> `TestTfwRecordFieldEnumNameConventionBindsLand` +
+> `TestRecordFieldEnumNameConventionDoesNotPhantomBind32`. §6.23 was the `$28` marker middle-bytes
 > investigation — opened and closed in a single Round-1,
 > decoded-but-not-useful-for-§6.20 per R9, the `$9C` primitive-prefix
 > observation folded into §4.1 as a footnote.
-> The next gap discovered MUST be numbered **§6.26**, not §6.1.
+> The next gap discovered MUST be numbered **§6.27**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code
 > comments, and pin docstrings reference closed §6.N entries by
 > their original number long after the §6 entry itself is gone, and

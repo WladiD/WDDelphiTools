@@ -3645,7 +3645,14 @@ begin
   if Length(ARawBytes) < ReadSize then Exit;
   IntVal := 0;
   Move(ARawBytes[0], IntVal, ReadSize);
-  AValue := IntToStr(IntVal);
+  // Decimal first (the human-readable signed value), then the raw hex
+  // pattern of exactly ReadSize bytes -- so a pointer-valued int like
+  // -397207008 reads as "-397207008 (0xE8531A20)" without anyone having
+  // to do the two's-complement conversion by hand. IntToHex on the
+  // signed Integer already renders the bit pattern, and the ReadSize*2
+  // width makes a clamped Word/Byte field's true width visible
+  // (Word -> 0x0001, Byte -> 0xA5).
+  AValue := IntToStr(IntVal) + ' (0x' + IntToHex(IntVal, ReadSize * 2) + ')';
   Result := True;
 end;
 
@@ -3669,7 +3676,10 @@ begin
   if Length(ARawBytes) < ReadSize then Exit;
   Int64Val := 0;
   Move(ARawBytes[0], Int64Val, ReadSize);
-  AValue := IntToStr(Int64Val);
+  // Same decimal + raw-hex shape as FormatInt; the ReadSize*2 width
+  // gives a full-width Win64 pointer 16 hex digits and a clamped
+  // 4-byte Cardinal exactly 8.
+  AValue := IntToStr(Int64Val) + ' (0x' + IntToHex(Int64Val, ReadSize * 2) + ')';
   Result := True;
 end;
 

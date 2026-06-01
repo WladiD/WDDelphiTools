@@ -59,6 +59,19 @@ type
     [Test]
     procedure TestEnumOracleResolvesCrossUnitThreadPriority;
 
+    /// <summary>
+    ///   §6.24 DebugTarget leakage guard. The heuristic name-convention
+    ///   enum late-binding pass (TFW's TAd.Land -> TLandTyp, pinned in
+    ///   Test.DPT.Rsm.Tfw) must NOT invent a phantom enum on the clean
+    ///   DebugTarget fixture: <c>TMixedRec.FMixedInt</c> is an Integer
+    ///   field with no matching <c>TMixedInt</c> / <c>TMixedIntTyp</c>
+    ///   enum, so it must stay non-enum-typed. The genuine TLightStatus
+    ///   enum must still resolve (lsGreen at ordinal 2), proving the
+    ///   extended pass did not corrupt the shared scope-local map.
+    /// </summary>
+    [Test]
+    procedure TestRecordFieldEnumNameConventionDoesNotPhantomBind32;
+
     /// Record-typed global proximity resolution. GGlobalEnumRec is a
     /// record-typed module-level global; the dotted-walk uses
     /// FindBestRecordForGlobalAndField to recover its type from
@@ -495,6 +508,42 @@ begin
     Units := R.UnitsDeclaringType('');
     Assert.AreEqual<Integer>(0, Length(Units),
       'UnitsDeclaringType('''') must return empty array.');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestRecordFieldEnumNameConventionDoesNotPhantomBind32;
+var
+  R     : TRsmReader;
+  Member: TRsmClassMember;
+  TypeId: UInt32;
+  Name  : String;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+
+    // No-phantom guard: FMixedInt is a plain Integer field, and there is
+    // no TMixedInt / TMixedIntTyp enum, so the §6.24 name-convention pass
+    // must leave it non-enum-typed.
+    Assert.IsTrue(R.FindClassMember('TMixedRec', 'FMixedInt', Member),
+      'TMixedRec.FMixedInt must be discovered as a member.');
+    Assert.IsFalse(R.IsEnumTypeId(Member.PrimitiveTypeId),
+      'TMixedRec.FMixedInt must NOT be enum-typed -- the §6.24 heuristic ' +
+      'must not phantom-bind a field whose name has no matching enum.');
+    Assert.AreEqual<UInt32>(0, R.FindTypeIdByName('TMixedInt'),
+      'Premise check: there must be no TMixedInt enum for FMixedInt to ' +
+      'match -- otherwise this guard is not exercising the no-match path.');
+
+    // Regression guard: extending the FieldAliasEnumBridge with the
+    // §6.24 pass must not corrupt the shared scope-local map -- a genuine
+    // program-local enum still resolves.
+    TypeId := R.FindGlobalTypeIdx('GGlobalLight');
+    Assert.IsTrue(R.IsEnumTypeId(TypeId),
+      'TLightStatus must still be enum-typed after the §6.24 pass.');
+    Assert.IsTrue(R.TryGetEnumConstantName(TypeId, 2, Name) and (Name = 'lsGreen'),
+      'TLightStatus ordinal 2 must still resolve to lsGreen.');
   finally
     R.Free;
   end;

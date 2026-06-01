@@ -171,6 +171,30 @@ type
     procedure TestTfwPointerAliasFAdBindsToTAd;
 
     /// <summary>
+    ///   §6.24 closure pin. The heuristic name-convention enum
+    ///   late-binding pass (<c>BindZeroIdFieldsByEnumNameConvention</c>)
+    ///   recovers the enum NAME for record fields the structural decode
+    ///   leaves with no type id. The canonical case is
+    ///   <c>TAd.Land: TLandTyp</c>: no <c>$2C</c> / <c>$67</c> record
+    ///   ties it to its type (§6.20 R6-R9), so before this pass
+    ///   <c>Land.PrimitiveTypeId = 0</c> and <c>evaluate Self.FAd.Land</c>
+    ///   could only surface the raw ordinal (the §6.20 Pfad-2 ceiling).
+    ///   After the pass, <c>Land.PrimitiveTypeId</c> equals
+    ///   <c>TLandTyp</c>'s 2-byte <c>$2A</c> id, <c>IsEnumTypeId</c> is
+    ///   true, and ordinals 0 / 1 resolve to <c>ltInland</c> /
+    ///   <c>ltAusland</c> through the same scope-local bridge the
+    ///   §4.15 / §1E bridges use.
+    ///
+    ///   <para>Leakage guard: <c>Land</c>'s immediate neighbour
+    ///   <c>Waehrung</c> (no <c>TWaehrung</c> / <c>TWaehrungTyp</c>
+    ///   enum exists) MUST stay unbound (PrimitiveTypeId 0), and the
+    ///   F-prefix field <c>FAd</c> keeps its §6.19 pointer-target
+    ///   binding rather than being hijacked into an enum.</para>
+    /// </summary>
+    [Test]
+    procedure TestTfwRecordFieldEnumNameConventionBindsLand;
+
+    /// <summary>
     ///   Pin test for §6.4 (originally "elaborate record header,
     ///   TAppCaps-style nested sub-record shape" -- refuted). The
     ///   simple-shape record header documented in §4.13 covers every
@@ -857,6 +881,61 @@ begin
     'TFormAd.FAd''s target type must be a record (skRecord). ' +
     'Anything else means the strip-P-prepend-T convention bound ' +
     'to the wrong shape.');
+end;
+
+procedure TRsmTfwTests.TestTfwRecordFieldEnumNameConventionBindsLand;
+var
+  Land    : TRsmClassMember;
+  Waehrung: TRsmClassMember;
+  FAd     : TRsmClassMember;
+  LandTypId: UInt32;
+  EName   : String;
+begin
+  if ShouldSkip then Exit;
+
+  LandTypId := FReader.FindTypeIdByName('TLandTyp');
+  Assert.AreNotEqual<UInt32>(0, LandTypId,
+    'TLandTyp must have a $2A registry id for the §6.24 bridge to bind ' +
+    'against. 0 means ScanTypeRegistry regressed or the TFW build dropped ' +
+    'TLandTyp.');
+
+  // Positive: TAd.Land is bound to TLandTyp by name convention.
+  Assert.IsTrue(FReader.FindClassMember('TAd', 'Land', Land),
+    'TAd.Land must be discovered as a member.');
+  Assert.AreEqual<UInt16>(UInt16(LandTypId), Land.PrimitiveTypeId,
+    'TAd.Land.PrimitiveTypeId must equal TLandTyp''s 2-byte $2A id after ' +
+    'the §6.24 name-convention bridge (Land -> TLandTyp). 0 means the pass ' +
+    'did not fire; a different value means it bound the wrong enum.');
+  Assert.IsTrue(FReader.IsEnumTypeId(Land.PrimitiveTypeId),
+    'The bound id must be recognised as an enum (registered in the ' +
+    'scope-local map by the §6.24 pass).');
+  Assert.IsTrue(FReader.TryGetEnumConstantName(Land.PrimitiveTypeId, 0, EName)
+    and (EName = 'ltInland'),
+    'Land ordinal 0 must resolve to ltInland (got "' + EName + '").');
+  Assert.IsTrue(FReader.TryGetEnumConstantName(Land.PrimitiveTypeId, 1, EName)
+    and (EName = 'ltAusland'),
+    'Land ordinal 1 must resolve to ltAusland (got "' + EName + '").');
+
+  // Leakage guard 1: Land's immediate neighbour Waehrung has no
+  // T<Name>/T<Name>Typ enum and MUST stay unbound -- a widening that
+  // over-collects would pull it in.
+  Assert.IsTrue(FReader.FindClassMember('TAd', 'Waehrung', Waehrung),
+    'TAd.Waehrung must be discovered as a member.');
+  Assert.AreEqual<UInt16>(0, Waehrung.PrimitiveTypeId,
+    'TAd.Waehrung (no matching enum name) must stay unbound -- the §6.24 ' +
+    'heuristic must not bind a field whose name has no unique $03 enum.');
+  Assert.IsFalse(FReader.IsEnumTypeId(Waehrung.PrimitiveTypeId),
+    'TAd.Waehrung must not be enum-typed.');
+
+  // Leakage guard 2: the F-prefix field FAd keeps its §6.19
+  // pointer-target binding; the §6.24 pass must skip F<Upper> names.
+  Assert.IsTrue(FReader.FindClassMember('TFormAd', 'FAd', FAd),
+    'TFormAd.FAd must be discovered (§6.16).');
+  Assert.AreNotEqual<UInt32>(0, FAd.PointerTargetTypeIdx,
+    'TFormAd.FAd must keep its §6.19 PointerTargetTypeIdx -- the §6.24 pass ' +
+    'must not touch F-prefix fields.');
+  Assert.AreEqual<UInt16>(0, FAd.PrimitiveTypeId,
+    'TFormAd.FAd must not be given a primitive/enum id by the §6.24 pass.');
 end;
 
 procedure TRsmTfwTests.TestTfwSimpleRecordHeaderCoversTfwRecords;

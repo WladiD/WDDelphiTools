@@ -233,7 +233,7 @@ begin
     FScanner.GlobalByName, FScanner.EnumDefs, FScopeLocalTypeIdToEnumDef);
   FFieldAliasEnumBridge      := TRsmFieldAliasEnumBridge.Create(
     FScanner.Classes, FScanner.Procs, FScanner.EnumDefs,
-    FScopeLocalTypeIdToEnumDef);
+    FScopeLocalTypeIdToEnumDef, FTypeIdByName);
   FPropertyLinker            := TRsmPropertyLinker.Create(
     FScanner.Classes, FScanner.ClassByName, FRsmTypeIdToClassIdx);
 end;

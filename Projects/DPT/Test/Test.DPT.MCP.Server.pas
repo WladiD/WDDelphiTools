@@ -1621,9 +1621,10 @@ begin
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
     ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 15);
   try
-    // $1122334455667788 = 1234605616436508552 in decimal.
+    // $1122334455667788 = 1234605616436508552 in decimal. The int64
+    // formatter appends the raw 16-hex-digit pattern (full 8-byte read).
     Line := Fixture.Eval('DebugTarget.GGlobalInt64', 'int64');
-    ExpectContains(Line, '1234605616436508552', 'int64');
+    ExpectContains(Line, '1234605616436508552 (0x1122334455667788)', 'int64');
 
     Line := Fixture.Eval('DebugTarget.GGlobalAnsi', 'ansistring');
     ExpectContains(Line, 'Hello Ansi', 'ansistring');
@@ -2052,8 +2053,9 @@ begin
     // GGlobalMixed.FMixedInt = Integer($A1A1A1A1) sign-extends to
     // -1583242847.
     Line := Fixture.Eval('GGlobalMixed.FMixedInt', 'int');
-    Assert.IsTrue(Line.Contains('-1583242847'),
-      'GGlobalMixed.FMixedInt must equal -1583242847 ($A1A1A1A1), got: ' + Line);
+    Assert.IsTrue(Line.Contains('-1583242847 (0xA1A1A1A1)'),
+      'GGlobalMixed.FMixedInt must equal -1583242847 with raw hex ' +
+      '0xA1A1A1A1 appended, got: ' + Line);
 
     // GGlobalMixed.FMixedStr is a string at offset 16 (after Int +
     // 4 padding + Int64). Reading as a Delphi string evaluates the
@@ -2245,8 +2247,9 @@ begin
     // return 1 or ($1234 shl 16) = $12340001 = 305397761.
     // Width-clamped read returns 1.
     Line := Fixture.Eval('GGlobalNarrow.NiWord', 'int');
-    Assert.IsTrue(Line.Contains(': 1"'),
-      'GGlobalNarrow.NiWord must equal 1 (width-clamped read), got: ' + Line);
+    Assert.IsTrue(Line.Contains(': 1 (0x0001)"'),
+      'GGlobalNarrow.NiWord must equal 1 (width-clamped 2-byte read, ' +
+      'hex 0x0001), got: ' + Line);
     Assert.IsFalse(Line.Contains('305397761'),
       'NiWord must NOT carry NiWord2''s bytes into the high part: ' + Line);
 
@@ -2263,8 +2266,9 @@ begin
 
     // NiByte2 (Byte at offset 5) = $5A = 90.
     Line := Fixture.Eval('GGlobalNarrow.NiByte2', 'int');
-    Assert.IsTrue(Line.Contains(': 90"'),
-      'GGlobalNarrow.NiByte2 must equal 90 ($5A), got: ' + Line);
+    Assert.IsTrue(Line.Contains(': 90 (0x5A)"'),
+      'GGlobalNarrow.NiByte2 must equal 90 ($5A) (width-clamped 1-byte ' +
+      'read, hex 0x5A), got: ' + Line);
 
     // NiInteger (Integer at offset 6) = $DEADBEEF = -559038737.
     // Last member in the record -- its Size derivation from the
@@ -2848,14 +2852,14 @@ begin
   try
     // Integer (4-byte signed) — record-field path.
     Line := Fixture.EvalAuto('GGlobalMixed.FMixedInt');
-    Assert.IsTrue(Line.Contains('-1583242847'),
+    Assert.IsTrue(Line.Contains('-1583242847 (0xA1A1A1A1)'),
       'auto-detect must format GGlobalMixed.FMixedInt as int ' +
-      '($A1A1A1A1 = -1583242847), got: ' + Line);
+      '($A1A1A1A1 = -1583242847 with raw hex), got: ' + Line);
 
     // Word (2-byte, requires Member.Size width clamp).
     Line := Fixture.EvalAuto('GGlobalNarrow.NiWord');
-    Assert.IsTrue(Line.Contains(': 1"'),
-      'auto-detect must format GGlobalNarrow.NiWord as int=1, got: ' + Line);
+    Assert.IsTrue(Line.Contains(': 1 (0x0001)"'),
+      'auto-detect must format GGlobalNarrow.NiWord as int=1 (0x0001), got: ' + Line);
 
     // string (UnicodeString) — pointer with -4 length prefix.
     Line := Fixture.EvalAuto('GGlobalMixed.FMixedStr');

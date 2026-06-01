@@ -27,6 +27,7 @@ type
     procedure DoTestGlobalVADecodedFromGlobalRecord(AUse64Bit: Boolean);
     procedure DoTestNonFPrefixClassFieldsDiscovered(AUse64Bit: Boolean);
     procedure DoTestSimpleRecordHeaderFieldCount(AUse64Bit: Boolean);
+    procedure DoTest25NoConstVsEnumElementDiscriminator(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -226,6 +227,33 @@ type
     /// resolver path that doesn't rely on the EnumDef list.
     [Test]
     procedure TestSparseEnumResolvesViaEnumConstNames32;
+
+    /// <summary>
+    ///   §6.26 closure pin (REFUTED premise). The $25 enum-constant
+    ///   record carries NO per-record byte distinguishing a genuine
+    ///   enum element from a named ordinal const. A same-comp $8A-form
+    ///   enum element (saReady, TStatus) and same-comp $8A-form consts
+    ///   (mrOk/TModalResult, crDefault/TCursor, vkReturn) have
+    ///   byte-identical body STRUCTURE -- $8A $00 $00 &lt;token&gt;
+    ///   &lt;secId&gt; $00 $00 &lt;2*ord&gt;, with HiByte(+8)=$00 for the
+    ///   element AND the consts alike (all decode through the same
+    ///   same-comp path). The only varying slots are the opaque token
+    ///   (+3..+6) and the 2-byte secId(+7); the secId is a TYPE identity,
+    ///   not a kind flag -- it differs between two const families
+    ///   (mrOk $20 vs crDefault $7A) AND collides across distinct types
+    ///   (vkReturn shares mrOk's $20). The sole discriminator is
+    ///   TYPE-LEVEL: a real enum's type has a $03 ENUM_DEF (TStatus does)
+    ///   while a const's subrange type does not (TModalResult / TCursor
+    ///   do not) -- exactly the signal FilterPhantomEnumDefs (§6.25 / §7)
+    ///   exploits downstream. Platform-independent (Win32 + Win64 bodies
+    ///   are byte-identical for these probes).
+    /// </summary>
+    [Test]
+    procedure Test25NoConstVsEnumElementDiscriminator32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure Test25NoConstVsEnumElementDiscriminator64;
+    {$ENDIF}
 
     /// §6.15 PIN. Register-passed parameters carry their typeId in a
     /// $21 REGVAR record whose payload is `$66 $00 $00 <typeIdLo>
@@ -447,6 +475,142 @@ begin
     S.Free;
   end;
 end;
+
+procedure TRsmScannerTests.DoTest25NoConstVsEnumElementDiscriminator(
+  AUse64Bit: Boolean);
+// §6.26: the $25 record carries no const-vs-enum-element kind byte.
+// The discriminator is purely type-level ($03 ENUM_DEF presence).
+type
+  TBody = array[0..11] of Byte;
+var
+  S   : TRsmScanner;
+  Plat: String;
+
+  // Locate the canonical $25 record for AName whose body opens with the
+  // same-comp cross-unit $8A anchor, and capture its 12 body bytes.
+  function FindBody25(const AName: String; out AB: TBody): Boolean;
+  var
+    P, EndP: NativeInt;
+    K      : Integer;
+    Nm     : String;
+  begin
+    Result := False;
+    EndP := S.Sz - 14;
+    P := 4;
+    while P < EndP do
+    begin
+      if (S.ByteAt(P) = TRsmTag.ENUM_CONST_TAG) and
+         (S.ByteAt(P + 1) = Length(AName)) and
+         (S.ByteAt(P + 2 + Length(AName)) = $8A) and
+         S.ReadIdentifier(P + 1, Nm) and SameText(Nm, AName) then
+      begin
+        for K := 0 to 11 do AB[K] := S.ByteAt(P + 2 + Length(AName) + K);
+        Exit(True);
+      end;
+      Inc(P);
+    end;
+  end;
+
+  // True iff a $03 ENUM_DEF record for the named type exists in the
+  // stream (anchor: $01 $00 after the name -- see §4.7).
+  function HasEnumDef03(const AName: String): Boolean;
+  var
+    P, EndP: NativeInt;
+    Nm     : String;
+  begin
+    Result := False;
+    EndP := S.Sz - 14;
+    P := 4;
+    while P < EndP do
+    begin
+      if (S.ByteAt(P) = TRsmTag.ENUM_DEF_TAG) and
+         (S.ByteAt(P + 1) = Length(AName)) and
+         (S.ByteAt(P + 2 + Length(AName))     = $01) and
+         (S.ByteAt(P + 2 + Length(AName) + 1) = $00) and
+         S.ReadIdentifier(P + 1, Nm) and SameText(Nm, AName) then
+        Exit(True);
+      Inc(P);
+    end;
+  end;
+
+  procedure AssertSameCompForm(const AB: TBody; const ATag: String);
+  begin
+    Assert.AreEqual<Byte>($8A, AB[0], ATag + ' body+0 anchor (' + Plat + ')');
+    Assert.AreEqual<Byte>($00, AB[1], ATag + ' body+1 (' + Plat + ')');
+    Assert.AreEqual<Byte>($00, AB[2], ATag + ' body+2 (' + Plat + ')');
+    Assert.AreEqual<Byte>($00, AB[8], ATag + ' body+8 HiByte=same-comp (' + Plat + ')');
+    Assert.AreEqual<Byte>($00, AB[9], ATag + ' body+9 pad (' + Plat + ')');
+  end;
+
+var
+  Elem, ConstMr, ConstCr, ConstVk: TBody;
+begin
+  if AUse64Bit then Plat := 'Win64' else Plat := 'Win32';
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    Assert.IsTrue(S.Sz > 8, 'RSM buffer empty -- need DebugTarget.rsm (' + Plat + ')');
+
+    // One genuine enum element + three named consts from used RTL/VCL
+    // units, all in the same-comp $8A $25 form.
+    Assert.IsTrue(FindBody25('saReady',   Elem),    'saReady $25 ($8A form) not found (' + Plat + ')');
+    Assert.IsTrue(FindBody25('mrOk',      ConstMr), 'mrOk $25 ($8A form) not found (' + Plat + ')');
+    Assert.IsTrue(FindBody25('crDefault', ConstCr), 'crDefault $25 ($8A form) not found (' + Plat + ')');
+    Assert.IsTrue(FindBody25('vkReturn',  ConstVk), 'vkReturn $25 ($8A form) not found (' + Plat + ')');
+
+    // (1) The element AND the consts all decode through the SAME
+    //     same-comp body path: same anchor, HiByte(+8)=$00, pad(+9)=$00.
+    //     No fixed structural offset carries a const-vs-element value.
+    AssertSameCompForm(Elem,    'saReady(elem)');
+    AssertSameCompForm(ConstMr, 'mrOk(const)');
+    AssertSameCompForm(ConstCr, 'crDefault(const)');
+    AssertSameCompForm(ConstVk, 'vkReturn(const)');
+
+    // (2) The enum element and a const are byte-identical at every fixed
+    //     structural offset (+0,+1,+2,+8,+9). Only the opaque token
+    //     (+3..+6) and the secId (+7) vary.
+    Assert.AreEqual<Byte>(Elem[0], ConstMr[0], 'elem vs const +0');
+    Assert.AreEqual<Byte>(Elem[8], ConstMr[8], 'elem vs const +8');
+    Assert.AreEqual<Byte>(Elem[9], ConstMr[9], 'elem vs const +9');
+
+    // (3) The secId (+7) is a TYPE identity, not a kind flag:
+    //     - differs between the enum element and a const,
+    //     - differs between TWO const families (mrOk vs crDefault) -> no
+    //       single value marks "const",
+    //     - COLLIDES across distinct types (vkReturn shares mrOk's secId)
+    //       -> no single value marks a type either.
+    Assert.AreNotEqual<Byte>(Elem[7], ConstMr[7],
+      'secId: enum element vs const must differ (' + Plat + ')');
+    Assert.AreNotEqual<Byte>(ConstMr[7], ConstCr[7],
+      'secId: mrOk vs crDefault (both consts) must differ -- not a const flag (' + Plat + ')');
+    Assert.AreEqual<Byte>(ConstMr[7], ConstVk[7],
+      'secId: mrOk == vkReturn (cross-type collision -- not a type kind) (' + Plat + ')');
+
+    // (4) The ACTUAL discriminator is type-level: the enum element's type
+    //     has a $03 ENUM_DEF; the consts' subrange types do not. This is
+    //     the signal FilterPhantomEnumDefs (§6.25) exploits downstream.
+    Assert.IsTrue(HasEnumDef03('TStatus'),
+      'TStatus (saReady''s enum) must have a $03 ENUM_DEF (' + Plat + ')');
+    Assert.IsFalse(HasEnumDef03('TModalResult'),
+      'TModalResult (mr* consts) must have NO $03 ENUM_DEF (' + Plat + ')');
+    Assert.IsFalse(HasEnumDef03('TCursor'),
+      'TCursor (cr* consts) must have NO $03 ENUM_DEF (' + Plat + ')');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.Test25NoConstVsEnumElementDiscriminator32;
+begin
+  DoTest25NoConstVsEnumElementDiscriminator(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TRsmScannerTests.Test25NoConstVsEnumElementDiscriminator64;
+begin
+  DoTest25NoConstVsEnumElementDiscriminator(True);
+end;
+{$ENDIF}
 
 procedure TRsmScannerTests.TestEnumDefsNotOverCollected32;
 

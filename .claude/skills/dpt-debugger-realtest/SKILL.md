@@ -238,9 +238,11 @@ Validates the dotted-walk evaluator chain on a real
 TFW probe is `evaluate Self.FAd.Land` inside
 `TFormAd.TblAdDataChange`. This case is the user-visible payoff of
 several §6 closures (the `Self`-spill fix, the §6.16 strict-private
-field capture, the §6.18 pointer-to-record fallback); run it after
-any of them lands and the per-link verdict shows which segment(s)
-flipped green.
+field capture, the §6.18 pointer-to-record fallback, the §6.19
+`PAd → TAd` pointer-alias bind, and the §6.24 `Land → TLandTyp`
+enum name-convention bind that makes the bare auto-detect resolve
+the enum name); run it after any of them lands and the per-link
+verdict shows which segment(s) flipped green.
 
 ### Anchors
 
@@ -283,8 +285,9 @@ that drives TFW into `TblAdDataChange`.
 When `wait_until_paused` reports `paused_reason=breakpoint`,
 `unit=Tfw.Ad.Form`, `line=2274`,
 `procedure=Tfw.Ad.Form.TFormAd.TblAdDataChange`, on a real worker
-thread id (the FMX/Slim worker), run three evaluate probes in order
-and report each link's verdict:
+thread id (the FMX/Slim worker), run the evaluate probes in order
+(the leaf both bare and via `type=int`) and report each link's
+verdict:
 
 1. **`evaluate Self`** as `"object"` — must return
    `TFormAd @ <hex-addr>`. Validates the §4.2 spill-home recovery
@@ -298,38 +301,43 @@ and report each link's verdict:
    closed, suspect a TypeIdx regression.
 
    > **Heads-up on the signed/unsigned display.** The `int` formatter
-   > prints the 4-byte pointer slot as a **signed** Int32. When the
+   > prints the 4-byte pointer slot as a **signed** Int32, so when the
    > Win32 heap lands above `0x80000000` (high bit set, e.g. modern
-   > ASLR placing TFW objects in the `0xE8xxxxxx` band), the same
-   > byte pattern prints as a NEGATIVE number (`-393 150 320` is
-   > `0xE8910090`, a perfectly valid heap pointer). The verdict
-   > block therefore reports both forms — `<signed int> (= 0xHHHHHHHH)`
-   > — so a future reader doesn't mistake the negative sign for a
-   > decoder bug. Convert with: `unsigned = signed + 0x1_0000_0000`
-   > when the signed value is negative, otherwise `unsigned = signed`.
-   > Cross-check the hex against the live `read_memory(<Self>+0x0C5C, 4)`
-   > bytes (LE) — they MUST byte-match.
+   > ASLR placing TFW objects in the `0xE8xxxxxx` band) the decimal is
+   > NEGATIVE (`-373215744` is `0xE9C12E00`, a perfectly valid heap
+   > pointer) — not a decoder bug. **The `int`/`int64` formatter now
+   > appends the raw hex pattern automatically**, so the result already
+   > reads `-373215744 (0xE9C12E00)` — no hand conversion. (The hex
+   > width follows the field's read size: a clamped Word/Byte shows
+   > `0x0001`/`0xA5`.) Just cross-check that the `(0x…)` matches the
+   > live `read_memory(<Self>+0x0C5C, 4)` bytes (LE) — they MUST
+   > byte-match.
 
-3. **`evaluate Self.FAd.Land`** — expected GREEN after the §6.19
-   closure WHEN called with an explicit `type=int`. The Format-A
-   linker now binds the `PAd → TAd` alias at scan time (canonical
-   `P<X> = ^T<X>` convention), the `BindPointerAliasMembersByName`
-   `Convention` post-process pass populates
-   `Member.PointerTargetTypeIdx` on `FAd` (strict-private fields in
-   TFW have no `$2C` record, so the convention bridge is required),
-   the dotted-walk's inter-segment priming dereferences in place
-   between segments (gated to non-terminal segments only — the
-   terminal-segment guard keeps `evaluate Self.FAd (int)` returning
-   the pointer value rather than the first DWORD of the dereferenced
-   record), and the §6.18 name-based fallback (with its
-   `FbMatchCount > 1` bail on TFW's Land-on-TAd-plus-Anschrift-
-   siblings ambiguity) is no longer reached for this chain. Expected
-   result via `type=int`: ordinal `0` = `ltInland`. The bare
-   (auto-detect) call still returns `"Failed to evaluate: holds 0
-   (nil pointer or zero-valued primitive)"` — that's a separate
-   auto-detect gap (Land's `Member.TypeIdx` is 0 because TAd's `Land`
-   field also has no `$2C` record, so the auto-detector has no enum
-   binding to pick from; not a §6.19 regression).
+3. **`evaluate Self.FAd.Land`** — expected GREEN, **both** with an
+   explicit `type=int` AND bare (auto-detect). The Format-A linker
+   binds the `PAd → TAd` alias at scan time (canonical `P<X> = ^T<X>`
+   convention), the `BindPointerAliasMembersByNameConvention`
+   post-process pass populates `Member.PointerTargetTypeIdx` on `FAd`
+   (strict-private fields in TFW have no `$2C` record, so the
+   convention bridge is required), the dotted-walk's inter-segment
+   priming dereferences in place between segments (gated to
+   non-terminal segments only — the terminal-segment guard keeps
+   `evaluate Self.FAd (int)` returning the pointer value rather than
+   the first DWORD of the dereferenced record), and the §6.18
+   name-based fallback (with its `FbMatchCount > 1` bail on TFW's
+   Land-on-TAd-plus-Anschrift-siblings ambiguity) is no longer reached
+   for this chain.
+   - `type=int` → `0 (0x00)` (the raw ordinal, hex appended by the
+     formatter; `Land` is a 1-byte enum so the width is `0x00`).
+   - **bare (auto-detect) → `ltInland` with type `enum`.** This was the
+     §6.24 closure: `BindZeroIdFieldsByEnumNameConvention` (Pass 3 of
+     the field-alias bridge) binds `TAd.Land.PrimitiveTypeId` to
+     `TLandTyp`'s `$2A` id by the `Land → TLandTyp` name convention,
+     because no `$2C`/`$67` record ties the field to its type
+     structurally. Before §6.24 the bare call returned the misleading
+     `"Failed to evaluate: holds 0 (nil pointer or zero-valued
+     primitive)"`; a regression back to that string means the §6.24
+     pass stopped firing (verify `TestTfwRecordFieldEnumNameConventionBindsLand`).
 
 4. **Manual `read_memory` walk** to recover `Land` regardless of
    evaluator state — this part of the test always succeeds and
@@ -349,23 +357,27 @@ and report each link's verdict:
 
 #### 11'. Reporting format
 
-Produce a four-line verdict block for the user. The `Self.FAd`
-line MUST carry both the raw signed-int result AND the
-unsigned-hex equivalent so the signed-Int32 sign issue (see
-probe #2) doesn't read as a regression:
+Produce a five-line verdict block for the user. The `Self.FAd` line
+carries the formatter's native `<signed-int> (0x<hex>)` output (the
+formatter appends the hex itself — no manual conversion), and the
+bare-vs-`type=int` distinction on the leaf is reported on its own
+line since §6.24 made the bare call resolve the enum name:
 
 ```
 enum-evaluate (Tfw.Ad.Form:2274 / TFormAd.TblAdDataChange):
-  Self                : <object-result>                       -- <verdict>
-  Self.FAd            : <signed-int> (= 0x<8-hex-unsigned>)   -- <verdict>
-  Self.FAd.Land (int) : <ordinal>                             -- <verdict>
-  manual memory walk  : 0x<byte> = <enum identifier> (expected ltInland)
+  Self                 : <object-result>              -- <verdict>
+  Self.FAd             : <signed-int> (0x<hex>)        -- <verdict>
+  Self.FAd.Land (int)  : <ordinal> (0x<hex>)           -- <verdict>
+  Self.FAd.Land (auto) : <enum identifier>  [type=enum]-- <verdict>
+  manual memory walk   : 0x<byte> = <enum identifier> (expected ltInland)
 ```
 
 Plus a one-line cross-check note immediately under the block:
-`[Self + 0x0C5C]` live bytes (LE) MUST equal the unsigned-hex
-in the `Self.FAd` line, byte-for-byte. If they don't match,
-that's a real walker defect, not a display artefact.
+`[Self + 0x0C5C]` live bytes (LE) MUST equal the `(0x…)` hex in the
+`Self.FAd` line, byte-for-byte. Since the formatter now prints that
+hex directly, the check is a literal byte comparison — no
+arithmetic. If they don't match, that's a real walker defect, not a
+display artefact.
 
 When a probe that was previously red flips green, call it out
 explicitly — that's the gap-closure payoff for the user.
