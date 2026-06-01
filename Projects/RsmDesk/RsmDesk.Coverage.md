@@ -119,9 +119,24 @@ any view** but enable richer navigation (cross-links, jump-to-type):
     **trustworthy**; members show their resolved type.
   - **Local/param `TypeIdx` is a per-proc local-ref index, NOT a type
     id** — routing it through the registry gave confident WRONG names
-    (`TFormMain.Create`'s `Self`=$84 → an unrelated class). So locals
-    show the **raw id only**, except `Self`, whose type is derived
-    reliably from the **method's qualified name** (`ResolveSelfType`).
+    (`TFormMain.Create`'s `Self`=$84 → an unrelated class
+    `TLayerCollectionAccess`). So locals show the **raw id only**,
+    except `Self`, whose type is derived reliably from the **method's
+    qualified name** (`ResolveSelfType`).
+  - **Regime boundary — do NOT "fix" this to use the registry just
+    because DebugTarget resolves cleanly.** The `$21`/`$22` slot has
+    TWO regimes (rsm-expert verified both, June 2026): on a **small**
+    binary (DebugTarget) it carries the class's real `$2A` primary
+    (hi-byte `$2E`/`$2F`), so `FindClassIdxByRsmTypeId(local.TypeIdx)`
+    resolves *correctly* — `Self`=`$2E21`=`TDerived`. On a **large**
+    binary (TFW: 71k names under ≤256 ids) it collapses to a 1-byte
+    per-proc ref that mis-resolves. RsmDesk opens **both** (TFW
+    included), so the raw-id-only policy is the only universally safe
+    one; the clean-regime success on DebugTarget is a trap that would
+    pass local tests and break on TFW. Pinned reader-side by
+    `TestSelfTypeIdxResolvesInCleanRegime32/64` (clean) and
+    `TestTfwSelfTypeIdxIsPerProcRefNotRegistryId` (gap);
+    `DPT.Rsm.Format.md` §6.27.
   - Enum *type* names from an id remain unresolved (`RD-5`).
 - **Locals shown kind-aware (done):** register params render as
   `reg#N` (not a misleading `BP+0`), only `lkBpRel` locals show a `bp`

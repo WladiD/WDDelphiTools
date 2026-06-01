@@ -223,11 +223,25 @@ and arch is detected from the `.exe`):
      ambiguous** (TFW: 71k type names under 256 ids, last-wins) — do NOT
      use it to name arbitrary ids.
   3. **LOCAL/param `TRsmLocal.TypeIdx`** = a **per-proc local-ref
-     index**, NOT a global type id (Self's value differs per method).
+     index**, NOT a global type id (Self's value differs per class).
      There is **NO reliable static resolution** of a class-typed
      local/param to its type from the `.rsm` (the runtime VMT is
      authoritative). Show the raw id; do not route it through any
      registry lookup.
+     **Regime trap (verified June 2026 — do not get fooled):** the slot
+     has two regimes. On a SMALL binary (DebugTarget) it carries the
+     class's real `$2A` primary (hi-byte `$2E`/`$2F`), so
+     `FindClassIdxByRsmTypeId(local.TypeIdx)` resolves CORRECTLY
+     (`Self`=`$2E21`=`TDerived`, Win32+Win64). On a LARGE binary (TFW:
+     71k names under ≤256 ids) it collapses to a 1-byte per-proc ref
+     that mis-resolves to an unrelated class (`$84`→`TLayerCollectionAccess`).
+     RsmDesk opens TFW, so raw-id-only is the only universally safe
+     policy — **if you ever see the registry "work" on DebugTarget and
+     are tempted to wire it in for locals/params, DON'T**: it passes
+     local tests and silently breaks on TFW. Pins:
+     `Test.DPT.Rsm.LocalsReader.TestSelfTypeIdxResolvesInCleanRegime32/64`,
+     `Test.DPT.Rsm.Tfw.TestTfwSelfTypeIdxIsPerProcRefNotRegistryId`;
+     `DPT.Rsm.Format.md` §6.27.
   The one reliable local win: **`Self`'s type = the class part of the
   method's qualified name** (`TFormMain.Create` → `TFormMain`), via
   `ClassPartOfProcName` + `FindClassByName` (`ResolveSelfType`).

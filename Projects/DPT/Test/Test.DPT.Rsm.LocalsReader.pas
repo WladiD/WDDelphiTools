@@ -47,6 +47,7 @@ type
     procedure DoTestNonComponentRtlInheritance(AUse64Bit: Boolean);
     procedure DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
     procedure DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
+    procedure DoTestSelfTypeIdxResolvesInCleanRegime(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -88,6 +89,27 @@ type
     procedure TestOpenArrayParamRecognized32;
     [Test]
     procedure TestFindGlobalTypeIdx32;
+    /// §6.27 PIN (clean regime). On the SMALL DebugTarget binary the
+    /// `$21` Self register-param TypeIdx slot carries the owning class's
+    /// real 2-byte `$2A` registry primary (hi byte $2E/$2F → the
+    /// structural-lookahead 2-byte fast path), so:
+    ///   * Self.TypeIdx EQUALS FindTypeIdByName(<class>) -- it IS the
+    ///     registry id here, NOT a per-proc ref;
+    ///   * FindClassIdxByRsmTypeId(Self.TypeIdx) resolves to the CORRECT
+    ///     class; and
+    ///   * it is type-stable (TPropHost.Create and TPropHost.GetCalcInt
+    ///     share one Self id).
+    /// This is the boundary condition for §6.27: the mis-resolution the
+    /// gap documents is the LARGE-binary regime (see the TFW pin
+    /// TestTfwSelfTypeIdxIsPerProcRefNotRegistryId), NOT universal. The
+    /// proc-name split (Self : <class-before-last-dot>) is the reliable
+    /// path on both regimes and is asserted here too.
+    [Test]
+    procedure TestSelfTypeIdxResolvesInCleanRegime32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestSelfTypeIdxResolvesInCleanRegime64;
+    {$ENDIF}
     /// §6.15 PIN. After
     /// <see cref="TRsmFieldAliasEnumBridge.Run"/> has registered the
     /// per-binary RTL type alias <c>$0671</c> against TThreadPriority's
@@ -1238,6 +1260,96 @@ begin
     Reader.Free;
   end;
 end;
+
+function TRsmReaderLegacyTests_FindSelfTypeIdx(const AProc: TRsmProc;
+  out ATypeIdx: UInt32): Boolean;
+var
+  I: Integer;
+begin
+  ATypeIdx := 0;
+  for I := 0 to AProc.Locals.Count - 1 do
+    if (AProc.Locals[I].Kind = lkRegister) and
+       SameText(AProc.Locals[I].Name, 'Self') then
+    begin
+      ATypeIdx := AProc.Locals[I].TypeIdx;
+      Exit(True);
+    end;
+  Result := False;
+end;
+
+procedure TRsmReaderLegacyTests.DoTestSelfTypeIdxResolvesInCleanRegime(
+  AUse64Bit: Boolean);
+var
+  Reader   : TRsmReader;
+  ProcIdx  : Integer;
+  SelfIdx  : UInt32;
+  CreateId : UInt32;
+  GetterId : UInt32;
+  ClsIdx   : Integer;
+
+  function SelfIdxOf(const AProcName: String): UInt32;
+  var
+    PIdx: Integer;
+  begin
+    PIdx := Reader.FindProcByName(AProcName);
+    Assert.IsTrue(PIdx >= 0, AProcName + ' not found in procs');
+    Assert.IsTrue(TRsmReaderLegacyTests_FindSelfTypeIdx(Reader.Procs[PIdx], Result),
+      AProcName + ' has no Self register-param ($21 REGVAR)');
+  end;
+
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    // Clean regime: Self's $21 TypeIdx slot carries TDerived's real
+    // $2A registry primary, so it both EQUALS FindTypeIdByName AND
+    // round-trips through FindClassIdxByRsmTypeId to the right class.
+    ProcIdx := Reader.FindProcByName('TDerived.TouchSelf');
+    Assert.IsTrue(ProcIdx >= 0, 'TDerived.TouchSelf not found');
+    Assert.IsTrue(TRsmReaderLegacyTests_FindSelfTypeIdx(Reader.Procs[ProcIdx], SelfIdx),
+      'TDerived.TouchSelf has no Self register-param');
+
+    Assert.AreEqual<UInt32>(Reader.FindTypeIdByName('TDerived'), SelfIdx,
+      'Clean regime: Self.TypeIdx must EQUAL TDerived''s $2A registry ' +
+      'primary on the small DebugTarget binary (the slot carries the ' +
+      'registry id, not a per-proc ref). If this drifts, the small-binary ' +
+      'regime changed and §6.27 needs revisiting.');
+
+    ClsIdx := Reader.FindClassIdxByRsmTypeId(SelfIdx);
+    Assert.AreEqual(Reader.FindClassByName('TDerived'), ClsIdx,
+      'Clean regime: FindClassIdxByRsmTypeId(Self.TypeIdx) must resolve ' +
+      'to the TDerived class index here (unlike the TFW large-binary ' +
+      'regime, where the same call mis-resolves to an unrelated class).');
+
+    // Reliable path (works on BOTH regimes): proc-name split for Self.
+    Assert.IsTrue(Reader.FindClassByName('TDerived') >= 0,
+      'Proc-name-split target class TDerived must be present');
+
+    // Type-stable within a class: both TPropHost methods share one Self id.
+    CreateId := SelfIdxOf('TPropHost.Create');
+    GetterId := SelfIdxOf('TPropHost.GetCalcInt');
+    Assert.AreEqual<UInt32>(CreateId, GetterId,
+      'Self.TypeIdx must be identical across two methods of the same ' +
+      'class (TPropHost.Create vs TPropHost.GetCalcInt) in the clean regime.');
+    Assert.AreEqual<UInt32>(Reader.FindTypeIdByName('TPropHost'), CreateId,
+      'TPropHost methods'' Self id must equal TPropHost''s registry primary.');
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestSelfTypeIdxResolvesInCleanRegime32;
+begin
+  DoTestSelfTypeIdxResolvesInCleanRegime(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TRsmReaderLegacyTests.TestSelfTypeIdxResolvesInCleanRegime64;
+begin
+  DoTestSelfTypeIdxResolvesInCleanRegime(True);
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmReaderLegacyTests);

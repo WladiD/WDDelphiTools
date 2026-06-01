@@ -87,12 +87,14 @@ var
   Debugger: TDebugger;
 begin
   Debugger := Sender as TDebugger;
-  FBreakpointHit := True;
   try
     FStackTrace := Debugger.GetStackTrace(Debugger.LastThreadHit);
   except
     // GetStackTrace may fail, but we still need to resume
   end;
+  // Populate FStackTrace before signalling FBreakpointHit -- same
+  // cross-thread read-before-write race fixed in OnBreakpointForLocals.
+  FBreakpointHit := True;
   Debugger.ResumeExecution;
 end;
 
@@ -101,12 +103,17 @@ var
   Debugger: TDebugger;
 begin
   Debugger := Sender as TDebugger;
-  FBreakpointHit := True;
   try
     FCapturedLocals := Debugger.GetLocals(Debugger.LastThreadHit);
   except
     // Even if extraction fails we must resume so the test can finish.
   end;
+  // Publish the captured data BEFORE signalling the waiting main thread.
+  // The flag is polled cross-thread (callback runs on TDebuggerThread); if
+  // it flipped first, the main thread could read FCapturedLocals while
+  // GetLocals was still running and see 0 locals -- a load-dependent race
+  // that surfaced as the intermittent Win64 "got 0 locals" failure.
+  FBreakpointHit := True;
   Debugger.ResumeExecution;
 end;
 

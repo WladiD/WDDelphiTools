@@ -111,6 +111,29 @@ type
     procedure TestTfwLoadDiagnostic;
 
     /// <summary>
+    ///   §6.27 PIN (large-binary / gap regime). On TFW the `$21` Self
+    ///   register-param TypeIdx slot carries a 1-byte per-proc reference
+    ///   (the hi byte is truncated by the structural-lookahead 1-byte
+    ///   path), NOT the class's `$2A` registry primary. For
+    ///   `TFormMain.Create` Self.TypeIdx = $84 while TFormMain's primary
+    ///   is a wholly different id, so:
+    ///   <list type="bullet">
+    ///     <item>Self.TypeIdx ≠ FindTypeIdByName('TFormMain');</item>
+    ///     <item>FindClassIdxByRsmTypeId(Self.TypeIdx) mis-resolves to an
+    ///       UNRELATED class (the last writer of id $0084 —
+    ///       TLayerCollectionAccess in this build), NOT TFormMain;</item>
+    ///     <item>the proc-name split (FindClassByName('TFormMain')) is
+    ///       the reliable static path; and</item>
+    ///     <item>the per-proc ref is type-stable within the class
+    ///       (TFormMain.Create and TFormMain.AfterMenuRebuild agree).</item>
+    ///   </list>
+    ///   Contrast with the small-binary clean regime pinned by
+    ///   TestSelfTypeIdxResolvesInCleanRegime32. Skips when TFW absent.
+    /// </summary>
+    [Test]
+    procedure TestTfwSelfTypeIdxIsPerProcRefNotRegistryId;
+
+    /// <summary>
     ///   Developer-machine-only counterpart to TestFindGlobalTypeIdx32:
     ///   covers globals declared in the interface section of a real
     ///   large binary (TFW.exe), where the RSM encoder uses different
@@ -1461,6 +1484,65 @@ begin
            'spec''s structural mapping between $67 use-sites and the ' +
            '$25 canonical block requires byte-identity here.',
            [DecodedRva, CanonRva, CanonOff]));
+end;
+
+procedure TRsmTfwTests.TestTfwSelfTypeIdxIsPerProcRefNotRegistryId;
+
+  function SelfIdxOf(const AProcName: String): UInt32;
+  var
+    PIdx, I: Integer;
+    Proc   : TRsmProc;
+  begin
+    Result := 0;
+    PIdx := FReader.FindProcByName(AProcName);
+    Assert.IsTrue(PIdx >= 0, AProcName + ' not found in TFW procs');
+    Proc := FReader.Procs[PIdx];
+    for I := 0 to Proc.Locals.Count - 1 do
+      if (Proc.Locals[I].Kind = lkRegister) and
+         SameText(Proc.Locals[I].Name, 'Self') then
+        Exit(Proc.Locals[I].TypeIdx);
+    Assert.Fail(AProcName + ' has no Self register-param ($21 REGVAR)');
+  end;
+
+var
+  SelfId   : UInt32;
+  Primary  : UInt32;
+  MisIdx   : Integer;
+  ClassIdx : Integer;
+begin
+  if ShouldSkip then Exit;
+
+  SelfId := SelfIdxOf('TFormMain.Create');
+  Primary := FReader.FindTypeIdByName('TFormMain');
+  ClassIdx := FReader.FindClassByName('TFormMain');
+
+  Assert.IsTrue(Primary <> 0,
+    'TFormMain must have a $2A registry primary id');
+  Assert.IsTrue(ClassIdx >= 0,
+    'TFormMain must be a discovered class (proc-name-split reliable path)');
+
+  // Gap regime: the per-proc ref the slot carries is NOT the registry id.
+  Assert.IsTrue(SelfId <> Primary,
+    Format('Gap regime: TFormMain.Create Self.TypeIdx ($%x) must NOT equal ' +
+           'TFormMain''s $2A primary ($%x) on the large TFW binary -- the ' +
+           'slot carries a per-proc ref, not the registry id. If they now ' +
+           'match, the large-binary encoding changed; revisit §6.27.',
+           [SelfId, Primary]));
+
+  // The bug §6.27 documents: routing the per-proc ref through the
+  // registry lands on an UNRELATED class, never TFormMain.
+  MisIdx := FReader.FindClassIdxByRsmTypeId(SelfId);
+  Assert.IsTrue(MisIdx <> ClassIdx,
+    Format('FindClassIdxByRsmTypeId(Self.TypeIdx=$%x) must NOT resolve to ' +
+           'the TFormMain class (idx %d); on TFW it mis-resolves to whatever ' +
+           'type last registered the truncated 1-byte id. This is the §6.27 ' +
+           'mis-resolution the consumer must avoid for class instances.',
+           [SelfId, ClassIdx]));
+
+  // Type-stable within the class: a second TFormMain method agrees.
+  Assert.AreEqual<UInt32>(SelfId, SelfIdxOf('TFormMain.AfterMenuRebuild'),
+    'TFormMain.Create and TFormMain.AfterMenuRebuild must carry the same ' +
+    'Self per-proc ref (the ref is per-(unit,type), stable within a class).');
 end;
 
 initialization

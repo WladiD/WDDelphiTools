@@ -1976,7 +1976,7 @@ single-family const-borrow phantoms (`QOS_OBJECT_HDR` / `IRichChunk` /
 (a `$03` plus a synthesised variant whose element set only partially
 overlaps the `$03`).
 
-### 6.27 Local/param `$21`/`$22` `TypeIdx` is a per-proc ref number, NOT a registry id — `FindClassIdxByRsmTypeId` mis-resolves it (`GAP` — no static resolution exists for class instances)
+### 6.27 Local/param `$21`/`$22` `TypeIdx` is a per-proc ref number on large binaries, NOT a registry id — `FindClassIdxByRsmTypeId` mis-resolves it (`GAP` — large-binary per-proc local-type table undecoded; resolves cleanly on small binaries)
 
 [DPT.Rsm.Scanner.pas `DecodeTypeIdByStructuralLookahead`](DPT.Rsm.Scanner.pas)
 writes `TRsmLocal.TypeIdx`; consumers resolve it via
@@ -2020,13 +2020,38 @@ just colliding (15k-struct ambiguity).** Ground-truth `$2A` primaries:
 numbering space, not a collision on the right number.
 
 **Hypothesis C (confirmed): the `$21`/`$22` `TypeIdx` low byte is a
-per-proc local type-reference index, unrelated to the global registry.**
-Decoding `Self`'s `TypeIdx` across methods of the SAME class proves it
-is not type-stable: `TFormMain.Create` Self lo=$84, `TComponent.Create`
-Self lo=$65, `TObject.Free` Self lo=$7E, `TStrings.Add` Self lo=$9D. If
-it were the type's id, every `TFormMain` method's `Self` would share one
-value (= $005A). It does not. The byte is an index into a per-proc /
-per-unit local type table the format does not expose globally.
+per-(unit,type) local type-reference index, unrelated to the global
+registry.** It is **stable within a class** but **not equal to the
+class's registry id**: on this machine's TFW build, both
+`TFormMain.Create` and `TFormMain.AfterMenuRebuild` carry `Self` lo=$84
+(stable — it is a per-(unit,type) ref, not a per-method value), while
+`TFormVBh`'s methods carry a different ref, and `TComponent` / `TObject`
+/ `TStrings` each carry their own. Crucially `$84` is **not**
+`TFormMain`'s registry primary — `FindTypeIdByName('TFormMain')` =
+`$DBD0` on this build (`$005A` on the earlier Mongo build). So the value
+is type-stable enough to look like an id, but it indexes a per-unit
+local type table the format does not expose globally, not the `$2A`
+registry. Pinned by
+[Test.DPT.Rsm.Tfw.TestTfwSelfTypeIdxIsPerProcRefNotRegistryId](../Test/Test.DPT.Rsm.Tfw.pas)
+(skips when TFW absent).
+
+**Regime boundary (NEW — the mis-resolution is large-binary-only).** The
+per-proc-ref form is NOT universal. On the **small** DebugTarget binary
+the `$21` `Self` TypeIdx slot carries the owning class's **real 2-byte
+`$2A` registry primary** (hi byte `$2E`/`$2F`, so the §4.2 structural
+lookahead takes the 2-byte fast path), and it resolves **correctly**:
+`TDerived.TouchSelf` Self = `$2E21` = `FindTypeIdByName('TDerived')`, and
+`FindClassIdxByRsmTypeId($2E21)` returns the TDerived class index. Win64
+is identical bar the hi byte (`$2E65`/`$2F91`). So on small binaries a
+local/param class TypeIdx IS statically resolvable; the per-proc-ref
+collapse (1-byte hi-truncated id) only appears in the **large-binary
+regime** once the registry id space is exhausted into 1-byte ids (TFW:
+71,183 names under ≤256 primaries). Pinned by
+[Test.DPT.Rsm.LocalsReader.TestSelfTypeIdxResolvesInCleanRegime32/64](../Test/Test.DPT.Rsm.LocalsReader.pas).
+The consumer policy (use the proc-name split for `Self`, never
+`FindClassIdxByRsmTypeId` on a local/param TypeIdx) is correct because it
+must work on **both** regimes — but the "never statically resolvable"
+rationale below is the large-binary truth, not universal.
 
 **Why `FindClassIdxByRsmTypeId` then returns plausible-but-wrong names.**
 The `$2A` registry id space in TFW is catastrophically small: **71,183
@@ -2041,8 +2066,11 @@ coincidence, no relation to the local's actual type.
 
 **Verdict on static resolution of a local/param `TypeIdx` → type name
 (from the `.rsm` alone):**
-* **(a) `Self`** — NOT resolvable via `TypeIdx`. The authoritative
-  static source is the **method's qualified proc name**:
+* **(a) `Self`** — NOT reliably resolvable via `TypeIdx` (it works on
+  small binaries — see the regime-boundary note above — but collapses to
+  a colliding per-proc ref on large ones, so a consumer that must handle
+  both cannot trust it). The authoritative static source is the
+  **method's qualified proc name**:
   `TFormMain.Create` → split at the last `.` before the method →
   `Self : TFormMain`, then `FindClassByName('TFormMain')` (name-keyed,
   unambiguous). Sound for all normal `TClass.Method` names; the only
@@ -2080,14 +2108,17 @@ trustworthy — it is a third namespace, distinct from both the `$2A`
 registry primary id AND the `$21`/`$22` per-proc ref number. The three
 spaces must never be cross-looked-up.
 
-This entry is a `GAP` only in the narrow sense that the per-proc local
-type table is undecoded; it is effectively a **design limit** —
-class-instance local/param types are simply not statically resolvable
-from the `.rsm` and require the VMT, so no decoder work would close it
-for the consumer's purpose. No reader-code change is warranted: the
-fix belongs in the consumer (use proc-name split for `Self`, VMT for
-class params, raw-id for temps; never `FindClassIdxByRsmTypeId` on a
-local/param `TypeIdx`).
+This entry is a `GAP` only in the narrow sense that the large-binary
+per-proc local type table (the hi-truncated 1-byte ref) is undecoded;
+it is effectively a **design limit** — in the large-binary regime
+class-instance local/param types are not statically resolvable from the
+`.rsm` and require the VMT, so no decoder work would close it for the
+consumer's purpose. No reader-code change is warranted: the fix belongs
+in the consumer (use proc-name split for `Self`, VMT for class params,
+raw-id for temps; never `FindClassIdxByRsmTypeId` on a local/param
+`TypeIdx`). The regime boundary and both behaviours are now pinned:
+`TestSelfTypeIdxResolvesInCleanRegime32/64` (DebugTarget clean regime)
+and `TestTfwSelfTypeIdxIsPerProcRefNotRegistryId` (TFW gap regime).
 
 ---
 
