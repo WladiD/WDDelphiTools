@@ -69,8 +69,16 @@ shared memo · **rich** = dedicated viewer (grid / hex / navigable).
 | └ `TRsmClassInfo.Properties` : `TRsmClassProperty` | Name, TargetId, PrimitiveTypeId, UnderlyingField | text | inline in class detail |
 | `EnumDefs` : `IList<TRsmEnumDef>` | TypeName, UnitName, Elements[] | text | "Enum types (N)" → per enum |
 | └ `TRsmEnumDef.Elements` : `TRsmEnumElement` | Name, Ordinal | text | inline in enum detail |
-| `UnitUseSegments` : `IList<TRsmUnitUseSegment>` | UnitName, StartOffset, Refs[] | text | "Unit-use segments (N)" → per segment |
+| `SourceFiles` : `IList<TRsmSourceFile>` | SourceFile, UnitName, StartOffset, Rva | text | drives the "Imports by unit" grouping (the importing-unit nodes) |
+| `UnitUseSegments` : `IList<TRsmUnitUseSegment>` | UnitName (declaring), StartOffset, SourceFileIdx, Refs[] | text | "Imports by unit (N)" → per importing unit → per declaring unit |
 | └ `TRsmUnitUseSegment.Refs` : `TRsmUnitUseRef` | Kind, Name, Rva | text | inline in segment detail |
+
+The imports branch is **grouped by importing unit**: the root lists one
+node per importing unit (resolved via `SourceFileIdx` →
+`SourceFiles[].UnitName`, the §4.17 `$70` introducer), each expands to
+the declaring units it imports from (`UnitName` + used-symbol count),
+each of those to the `$66`/`$67`/`$70` refs. Grouping is precomputed
+once into `FImporterGroups` (contiguous-run scan of `SourceFileIdx`).
 
 Query / lookup methods the reader exposes that are **not yet wired into
 any view** but enable richer navigation (cross-links, jump-to-type):
@@ -78,8 +86,8 @@ any view** but enable richer navigation (cross-links, jump-to-type):
 `TryGetEnumConstantName`, `IsEnumTypeId`, `IsRecordTypeIdx`,
 `FindTypeIdByName`, `FindRecordsByMemberName`,
 `FindBestRecordForGlobalAndField`, `UnitsDeclaringType`,
-`FindGlobalTypeIdx`, `TryGetGlobalVa`, `FindProcContaining`,
-`FindProcByName`.
+`UnitsImporting`, `FindGlobalTypeIdx`, `TryGetGlobalVa`,
+`FindProcContaining`, `FindProcByName`.
 
 ---
 
@@ -98,6 +106,16 @@ any view** but enable richer navigation (cross-links, jump-to-type):
   `CHUNK` children — this scales to `TFW.rsm` (~800 MB Win32 / ~1.17 GB
   Win64) without ever building tens of thousands of items at once. Leaf
   detail is built on selection, not pre-rendered.
+- **Imports grouped by importing unit (done):** the imports branch now
+  answers "which unit imports what". Backed by the reader's `$70`
+  introducer attribution (`SourceFileIdx` / `SourceFiles`, Format.md
+  §4.17 + §6.20 R6, commissioned via rsm-expert Mode B). The `rnImporter`
+  node kind extends the lazy machinery: an importer's segments are a
+  contiguous `UnitUseSegments` range, so it reuses `MaterializeRange`.
+- **Locals shown kind-aware (done):** register params render as
+  `reg#N` (not a misleading `BP+0`), only `lkBpRel` locals show a `bp`
+  offset; compiler-generated unnamed slots (`Name = '.'`, Format.md
+  §4.4) are relabeled `<temp>` rather than shown as a bare dot.
 - **High-DPI (done):** Per-Monitor-V2 manifest embedded via the
   `.dproj` (`Manifest_File` + `AppDPIAwarenessMode`) and linked through
   `{$R *.res}`, so the window renders crisply instead of being

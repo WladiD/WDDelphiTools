@@ -107,6 +107,7 @@ type
     function  GetClasses: IList<TRsmClassInfo>;
     function  GetEnumDefs: IList<TRsmEnumDef>;
     function  GetUnitUseSegments: IList<TRsmUnitUseSegment>;
+    function  GetSourceFiles: IList<TRsmSourceFile>;
     procedure RunPostProcess;
     procedure FilterPhantomEnumDefs;
   public
@@ -181,6 +182,14 @@ type
     /// </summary>
     property  UnitUseSegments: IList<TRsmUnitUseSegment> read GetUnitUseSegments;
     /// <summary>
+    ///   §4.17 source-file (`$70`) records, one per distinct importing
+    ///   unit. A <see cref="TRsmUnitUseSegment.SourceFileIdx"/> indexes
+    ///   into this list -- the importing unit's name is stored ONCE
+    ///   here, not copied per segment. Read-only forwarding of
+    ///   <c>Scanner.SourceFiles</c>.
+    /// </summary>
+    property  SourceFiles: IList<TRsmSourceFile> read GetSourceFiles;
+    /// <summary>
     ///   Returns the deduplicated list of unit name(s) that DECLARE
     ///   the given type, derived from the cross-unit symbol-import
     ///   table: walks every <c>$64</c> segment and returns the
@@ -190,13 +199,28 @@ type
     ///   so a hit means the imported-from unit is the result, e.g.
     ///   <c>UnitsDeclaringType('TLandTyp')</c> returns
     ///   <c>['Base.Types']</c>. The INVERSE question -- "which units
-    ///   import this type?" -- the table does NOT directly answer;
-    ///   that needs file-offset-proximity attribution of each
-    ///   <c>$64</c> segment to its enclosing unit-of-scope, tracked
-    ///   under §6.20 as a follow-up. Names are deduplicated
-    ///   case-insensitively while preserving first-seen order.
+    ///   IMPORT this type?" -- is answered exactly by
+    ///   <see cref="UnitsImporting"/> via the <c>$70</c> source-file
+    ///   attribution (§4.17), no longer only heuristically. Names are
+    ///   deduplicated case-insensitively while preserving first-seen
+    ///   order.
     /// </summary>
     function  UnitsDeclaringType(const ATypeName: String): TArray<String>;
+    /// <summary>
+    ///   The exact inverse of <see cref="UnitsDeclaringType"/>: returns
+    ///   the deduplicated unit name(s) that IMPORT <paramref
+    ///   name="ATypeName"/>. Walks every <c>$64</c> segment whose
+    ///   <c>$66</c> entries include the type and returns the
+    ///   <c>UnitName</c> of the <c>$70</c> source-file record that
+    ///   introduced each such segment's block
+    ///   (<c>SourceFiles[Seg.SourceFileIdx].UnitName</c>, §4.17). E.g.
+    ///   <c>UnitsImporting('TLandTyp')</c> returns every TFW unit whose
+    ///   <c>uses</c> pulls in <c>TLandTyp</c>. Segments with no
+    ///   introducer (<c>SourceFileIdx &lt; 0</c>) are skipped. Names are
+    ///   deduplicated case-insensitively while preserving first-seen
+    ///   order.
+    /// </summary>
+    function  UnitsImporting(const ATypeName: String): TArray<String>;
     /// <summary>
     ///   Optional progress callback fired by the scanner at each
     ///   major parsing phase. Lets callers surface what the parser
@@ -280,6 +304,11 @@ begin
   Result := FScanner.UnitUseSegments;
 end;
 
+function TRsmReader.GetSourceFiles: IList<TRsmSourceFile>;
+begin
+  Result := FScanner.SourceFiles;
+end;
+
 /// <summary>
 ///   Walks every cross-unit symbol-import segment (<c>$64</c>) the
 ///   scanner collected and returns the declaring-unit names whose
@@ -330,6 +359,60 @@ begin
     if Seen.ContainsKey(LowerUnit) then Continue;
     Seen[LowerUnit] := True;
     Hits.Add(Seg.UnitName);
+  end;
+  SetLength(Result, Hits.Count);
+  for I := 0 to Hits.Count - 1 do
+    Result[I] := Hits[I];
+end;
+
+function TRsmReader.UnitsImporting(const ATypeName: String): TArray<String>;
+// Inverse of UnitsDeclaringType: same segment/$66 match, but returns
+// the IMPORTING unit (the $70 source-file record that introduced the
+// segment's block, SourceFiles[Seg.SourceFileIdx].UnitName) instead of
+// the declaring unit (Seg.UnitName). See §4.17.
+var
+  Segments  : IList<TRsmUnitUseSegment>;
+  SrcFiles  : IList<TRsmSourceFile>;
+  Seen      : IKeyValue<String, Boolean>;
+  Hits      : IList<String>;
+  I, J      : Integer;
+  Seg       : TRsmUnitUseSegment;
+  Ref       : TRsmUnitUseRef;
+  LowerName : String;
+  Importer  : String;
+  LowerImp  : String;
+  Match     : Boolean;
+begin
+  Result := nil;
+  Segments := FScanner.UnitUseSegments;
+  SrcFiles := FScanner.SourceFiles;
+  if (Segments = nil) or (Segments.Count = 0) or (ATypeName = '') then Exit;
+  LowerName := LowerCase(ATypeName);
+  Seen := Collections.NewPlainKeyValue<String, Boolean>;
+  Hits := Collections.NewPlainList<String>;
+  for I := 0 to Segments.Count - 1 do
+  begin
+    Seg := Segments[I];
+    if Seg.Refs = nil then Continue;
+    // Only segments attributed to a $70 introducer can name an importer.
+    if (Seg.SourceFileIdx < 0) or (SrcFiles = nil) or
+       (Seg.SourceFileIdx >= SrcFiles.Count) then Continue;
+    Match := False;
+    for J := 0 to Seg.Refs.Count - 1 do
+    begin
+      Ref := Seg.Refs[J];
+      if (Ref.Kind = uukType) and (LowerCase(Ref.Name) = LowerName) then
+      begin
+        Match := True;
+        Break;
+      end;
+    end;
+    if not Match then Continue;
+    Importer := SrcFiles[Seg.SourceFileIdx].UnitName;
+    LowerImp := LowerCase(Importer);
+    if Seen.ContainsKey(LowerImp) then Continue;
+    Seen[LowerImp] := True;
+    Hits.Add(Importer);
   end;
   SetLength(Result, Hits.Count);
   for I := 0 to Hits.Count - 1 do

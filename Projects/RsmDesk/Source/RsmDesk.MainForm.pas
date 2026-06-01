@@ -36,12 +36,26 @@ uses
 
 type
   /// Which reader collection a tree node draws from.
-  TRsmColl = (rcProcs, rcClasses, rcEnums, rcUnitUses);
+  /// Which data a tree node draws from. rcProcs/rcClasses/rcEnums index
+  /// the matching reader collection directly. rcUnitUses indexes
+  /// UnitUseSegments (the leaf level of the imports branch). rcImporters
+  /// indexes FImporterGroups -- the synthetic "one entry per importing
+  /// unit" grouping that drives the imports branch's top level.
+  TRsmColl = (rcProcs, rcClasses, rcEnums, rcUnitUses, rcImporters);
 
   /// Role of a tree node. rnRoot/rnRange are lazy containers spanning
   /// the half-open index interval [Lo, Hi) of their collection;
-  /// rnElement is a leaf for the single element at index Lo.
-  TRsmNodeKind = (rnRoot, rnRange, rnElement);
+  /// rnImporter is a lazy container for one importing unit (its segment
+  /// block); rnElement is a leaf for the single element at index Lo.
+  TRsmNodeKind = (rnRoot, rnRange, rnImporter, rnElement);
+
+  /// A run of consecutive UnitUseSegments that share one $70 importer.
+  /// Segments are contiguous per importer in the stream (each $70
+  /// introduces a block), so an importer maps to one [Lo, Hi) range.
+  TImporterGroup = record
+    SrcIdx: Integer;   // index into Reader.SourceFiles, or -1
+    Lo, Hi: Integer;   // [Lo, Hi) into Reader.UnitUseSegments
+  end;
 
   TFormMain = class;
 
@@ -71,10 +85,12 @@ type
     FDetail    : TMemo;
     FReader    : TRsmReader;
     FOpenDialog: TOpenDialog;
+    FImporterGroups: TArray<TImporterGroup>;
     procedure BuildUI;
     procedure DoOpenClick(Sender: TObject);
     procedure DoTreeChange(Sender: TObject);
     procedure LoadRsm(const AExePath: String);
+    procedure BuildImporterGroups;
     procedure PopulateRoots;
     // Lazy materialization.
     function  CollCount(AColl: TRsmColl): Integer;
@@ -85,6 +101,9 @@ type
       AParent: TFmxObject);
     // Labels (cheap, built at materialization) and detail (built on select).
     function  RootLabel(AColl: TRsmColl): String;
+    function  ImporterUnitName(AGroupIdx: Integer): String;
+    function  ImporterLabel(AGroupIdx: Integer): String;
+    function  ImporterDetail(AGroupIdx: Integer): String;
     function  ElementLabel(AColl: TRsmColl; AIndex: Integer): String;
     function  ElementDetail(AColl: TRsmColl; AIndex: Integer): String;
   public
@@ -116,6 +135,28 @@ begin
   end;
 end;
 
+/// One formatted locals row, kind-aware. Register params (Self, Sender,
+/// ...) live in a CPU register, NOT at a BP offset -- show "reg#N", not
+/// a misleading "BP+0". Compiler-generated unnamed slots arrive with
+/// Name = '.' (the linker's placeholder for record-result / with /
+/// temp slots, see DPT.Rsm.Format.md §4.4); relabel them as <temp> so
+/// the row is self-explanatory instead of a bare dot.
+function LocalLine(const L: TRsmLocal): String;
+var
+  Nm, Loc: String;
+begin
+  if L.Kind = lkRegister then
+    Loc := Format('reg#%d', [L.RegParamIdx])
+  else
+    Loc := Format('bp%+d', [L.BpOffset]);
+  if L.Name = '.' then
+    Nm := '<temp>'
+  else
+    Nm := L.Name;
+  Result := Format('    %-26s %-10s TypeIdx=$%x  (%s)',
+    [Nm, Loc, L.TypeIdx, LocalKindStr(L.Kind)]);
+end;
+
 function StructKindStr(AKind: TRsmStructKind): String;
 begin
   case AKind of
@@ -142,7 +183,8 @@ end;
 procedure TRsmTreeItem.SetIsExpanded(const Value: Boolean);
 begin
   inherited;
-  if Value and (FNodeKind in [rnRoot, rnRange]) and not FPopulated then
+  if Value and (FNodeKind in [rnRoot, rnRange, rnImporter]) and
+     not FPopulated then
   begin
     // Set first: PopulateNode mutates children and must not re-enter.
     FPopulated := True;
@@ -241,6 +283,8 @@ begin
   case Node.FNodeKind of
     rnElement:
       FDetail.Text := ElementDetail(Node.FColl, Node.FLo);
+    rnImporter:
+      FDetail.Text := ImporterDetail(Node.FLo);
     rnRoot:
       FDetail.Text := RootLabel(Node.FColl) + NL +
         'Expand to load items on demand.';
@@ -256,6 +300,7 @@ begin
   Application.ProcessMessages;
   try
     FReader.LoadFromFile(AExePath);
+    BuildImporterGroups;
     PopulateRoots;
     FPathLabel.Text := AExePath;
     FDetail.Text :=
@@ -263,7 +308,8 @@ begin
       Format('Procedures: %d'  + NL, [FReader.Procs.Count]) +
       Format('Classes/Records: %d' + NL, [FReader.Classes.Count]) +
       Format('Enum types: %d' + NL, [FReader.EnumDefs.Count]) +
-      Format('Unit-use segments: %d' + NL + NL, [FReader.UnitUseSegments.Count]) +
+      Format('Imports: %d segments from %d importing unit(s)' + NL + NL,
+        [FReader.UnitUseSegments.Count, Length(FImporterGroups)]) +
       'Expand a branch on the left to load its items.';
   except
     on E: Exception do
@@ -275,13 +321,41 @@ begin
   end;
 end;
 
+procedure TFormMain.BuildImporterGroups;
+var
+  I, J  : Integer;
+  Cur   : Integer;
+  Grp   : TImporterGroup;
+begin
+  // Segments are contiguous per importer ($70 introduces a block), so a
+  // single forward pass that breaks on every SourceFileIdx change yields
+  // one group per importing unit -- the top level of the imports branch.
+  // Inline var keeps the mORMot IList type unnamed (no extra uses).
+  FImporterGroups := nil;
+  var Segs := FReader.UnitUseSegments;
+  if Segs = nil then Exit;
+  I := 0;
+  while I < Segs.Count do
+  begin
+    Cur := Segs[I].SourceFileIdx;
+    J := I + 1;
+    while (J < Segs.Count) and (Segs[J].SourceFileIdx = Cur) do Inc(J);
+    Grp.SrcIdx := Cur;
+    Grp.Lo := I;
+    Grp.Hi := J;
+    FImporterGroups := FImporterGroups + [Grp];
+    I := J;
+  end;
+end;
+
 function TFormMain.CollCount(AColl: TRsmColl): Integer;
 begin
   case AColl of
-    rcProcs   : Result := FReader.Procs.Count;
-    rcClasses : Result := FReader.Classes.Count;
-    rcEnums   : Result := FReader.EnumDefs.Count;
-    rcUnitUses: Result := FReader.UnitUseSegments.Count;
+    rcProcs    : Result := FReader.Procs.Count;
+    rcClasses  : Result := FReader.Classes.Count;
+    rcEnums    : Result := FReader.EnumDefs.Count;
+    rcUnitUses : Result := FReader.UnitUseSegments.Count;
+    rcImporters: Result := Length(FImporterGroups);
   else
     Result := 0;
   end;
@@ -312,19 +386,27 @@ begin
 end;
 
 procedure TFormMain.PopulateRoots;
-var
-  Coll: TRsmColl;
-  Root: TRsmTreeItem;
+
+  procedure AddRoot(AColl: TRsmColl);
+  var
+    Root: TRsmTreeItem;
+  begin
+    Root := NewNode(FTree, AColl, rnRoot, 0, CollCount(AColl), RootLabel(AColl));
+    if CollCount(AColl) > 0 then
+      AddPlaceholder(Root);
+  end;
+
 begin
   FTree.BeginUpdate;
   try
     FTree.Clear;
-    for Coll := Low(TRsmColl) to High(TRsmColl) do
-    begin
-      Root := NewNode(FTree, Coll, rnRoot, 0, CollCount(Coll), RootLabel(Coll));
-      if CollCount(Coll) > 0 then
-        AddPlaceholder(Root);
-    end;
+    // Four visible roots. rcUnitUses is NOT a root -- the imports branch
+    // is driven by rcImporters (grouped by importing unit); rcUnitUses
+    // only supplies the segment leaves under each importer.
+    AddRoot(rcProcs);
+    AddRoot(rcClasses);
+    AddRoot(rcEnums);
+    AddRoot(rcImporters);
   finally
     FTree.EndUpdate;
   end;
@@ -339,7 +421,13 @@ begin
     // Drop the placeholder (and any prior children, defensively).
     for I := ANode.Count - 1 downto 0 do
       ANode.Items[I].Free;
-    MaterializeRange(ANode.FColl, ANode.FLo, ANode.FHi, ANode);
+    if ANode.FNodeKind = rnImporter then
+      // An importer node lists its block's segments (a contiguous range
+      // of UnitUseSegments).
+      MaterializeRange(rcUnitUses, FImporterGroups[ANode.FLo].Lo,
+        FImporterGroups[ANode.FLo].Hi, ANode)
+    else
+      MaterializeRange(ANode.FColl, ANode.FLo, ANode.FHi, ANode);
   finally
     FTree.EndUpdate;
   end;
@@ -356,9 +444,16 @@ begin
 
   if Span <= CHUNK then
   begin
-    // Leaf level: one element node per item.
-    for I := ALo to AHi - 1 do
-      NewNode(AParent, AColl, rnElement, I, I + 1, ElementLabel(AColl, I));
+    if AColl = rcImporters then
+      // Importer level: each entry is itself an expandable container for
+      // one importing unit's segment block, so give it a placeholder.
+      for I := ALo to AHi - 1 do
+        AddPlaceholder(NewNode(AParent, AColl, rnImporter, I, I + 1,
+          ImporterLabel(I)))
+    else
+      // Leaf level: one element node per item.
+      for I := ALo to AHi - 1 do
+        NewNode(AParent, AColl, rnElement, I, I + 1, ElementLabel(AColl, I));
     Exit;
   end;
 
@@ -382,12 +477,53 @@ end;
 function TFormMain.RootLabel(AColl: TRsmColl): String;
 begin
   case AColl of
-    rcProcs   : Result := Format('Procedures (%d)', [CollCount(AColl)]);
-    rcClasses : Result := Format('Classes & Records (%d)', [CollCount(AColl)]);
-    rcEnums   : Result := Format('Enum types (%d)', [CollCount(AColl)]);
-    rcUnitUses: Result := Format('Unit-use segments (%d)', [CollCount(AColl)]);
+    rcProcs    : Result := Format('Procedures (%d)', [CollCount(AColl)]);
+    rcClasses  : Result := Format('Classes & Records (%d)', [CollCount(AColl)]);
+    rcEnums    : Result := Format('Enum types (%d)', [CollCount(AColl)]);
+    rcImporters: Result := Format('Imports by unit (%d)', [CollCount(AColl)]);
+    rcUnitUses : Result := Format('Unit-use segments (%d)', [CollCount(AColl)]);
   else
     Result := '?';
+  end;
+end;
+
+function TFormMain.ImporterUnitName(AGroupIdx: Integer): String;
+var
+  Idx: Integer;
+begin
+  Idx := FImporterGroups[AGroupIdx].SrcIdx;
+  if (Idx >= 0) and (FReader.SourceFiles <> nil) and
+     (Idx < FReader.SourceFiles.Count) then
+    Result := FReader.SourceFiles[Idx].UnitName
+  else
+    Result := '(no $70 introducer)';
+end;
+
+function TFormMain.ImporterLabel(AGroupIdx: Integer): String;
+var
+  Grp: TImporterGroup;
+begin
+  Grp := FImporterGroups[AGroupIdx];
+  Result := Format('%s  (%d)', [ImporterUnitName(AGroupIdx), Grp.Hi - Grp.Lo]);
+end;
+
+function TFormMain.ImporterDetail(AGroupIdx: Integer): String;
+var
+  Grp: TImporterGroup;
+  S  : TRsmUnitUseSegment;
+  J  : Integer;
+begin
+  Grp := FImporterGroups[AGroupIdx];
+  Result := Format('Importing unit: %s' + NL, [ImporterUnitName(AGroupIdx)]);
+  if (Grp.SrcIdx >= 0) and (FReader.SourceFiles <> nil) and
+     (Grp.SrcIdx < FReader.SourceFiles.Count) then
+    Result := Result + Format('Source file: %s' + NL,
+      [FReader.SourceFiles[Grp.SrcIdx].SourceFile]);
+  Result := Result + Format('Imports from %d unit(s):', [Grp.Hi - Grp.Lo]);
+  for J := Grp.Lo to Grp.Hi - 1 do
+  begin
+    S := FReader.UnitUseSegments[J];
+    Result := Result + NL + Format('    %-32s %d used', [S.UnitName, S.Refs.Count]);
   end;
 end;
 
@@ -412,8 +548,10 @@ begin
       end;
     rcUnitUses:
       begin
+        // Under an importer node this reads as "imports <N> symbols
+        // from <declaring unit>".
         S := FReader.UnitUseSegments[AIndex];
-        Result := Format('%s (%d refs)', [S.UnitName, S.Refs.Count]);
+        Result := Format('%s  (%d used)', [S.UnitName, S.Refs.Count]);
       end;
   else
     Result := '?';
@@ -423,7 +561,6 @@ end;
 function TFormMain.ElementDetail(AColl: TRsmColl; AIndex: Integer): String;
 var
   P : TRsmProc;
-  L : TRsmLocal;
   C : TRsmClassInfo;
   M : TRsmClassMember;
   Pr: TRsmClassProperty;
@@ -432,6 +569,7 @@ var
   S : TRsmUnitUseSegment;
   R : TRsmUnitUseRef;
   J, PropCount, ElemCount: Integer;
+  Importer: String;
 begin
   case AColl of
     rcProcs:
@@ -443,13 +581,7 @@ begin
                          'Locals: %d',
                          [P.Name, P.SegmentOffset, P.Size, P.Locals.Count]);
         for J := 0 to P.Locals.Count - 1 do
-        begin
-          L := P.Locals[J];
-          Result := Result + NL +
-            Format('    %-24s BP%+d  TypeIdx=$%x  kind=%s  regIdx=%d',
-              [L.Name, L.BpOffset, L.TypeIdx, LocalKindStr(L.Kind),
-               L.RegParamIdx]);
-        end;
+          Result := Result + NL + LocalLine(P.Locals[J]);
       end;
 
     rcClasses:
@@ -510,10 +642,16 @@ begin
     rcUnitUses:
       begin
         S := FReader.UnitUseSegments[AIndex];
-        Result := Format('UnitName: %s' + NL +
+        if (S.SourceFileIdx >= 0) and (FReader.SourceFiles <> nil) and
+           (S.SourceFileIdx < FReader.SourceFiles.Count) then
+          Importer := FReader.SourceFiles[S.SourceFileIdx].UnitName
+        else
+          Importer := '(no $70 introducer)';
+        Result := Format('Importing unit:  %s' + NL +
+                         'Declaring unit:  %s' + NL +
                          'StartOffset: $%x' + NL +
-                         'Refs: %d',
-                         [S.UnitName, S.StartOffset, S.Refs.Count]);
+                         'Used symbols: %d',
+                         [Importer, S.UnitName, S.StartOffset, S.Refs.Count]);
         for J := 0 to S.Refs.Count - 1 do
         begin
           R := S.Refs[J];

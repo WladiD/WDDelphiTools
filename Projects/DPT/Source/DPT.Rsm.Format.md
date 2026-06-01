@@ -158,7 +158,7 @@ Tag constants live in [`TRsmTag`](DPT.Rsm.Model.pas).
 | `$64`  | `UNIT_USE_INTRO`    | Opens a cross-unit symbol-import segment (`$64 NL UnitName $00 $00 $00`); see §4.17                     |
 | `$66`  | `UNIT_USE_TYPE`     | Imported type reference inside a `$64` segment (`$66 NL TypeName <RVA: u32 LE>`); see §4.17             |
 | `$67`  | `UNIT_USE_SYMBOL`   | Imported symbol reference inside a `$64` segment (`$67 NL SymbolName <RVA: u32 LE>`); see §4.17         |
-| `$70`  | `UNIT_USE_FILE`     | Source-file reference inside a `$64` segment (`$70 NL FileName <RVA: u32 LE>`); see §4.17               |
+| `$70`  | `UNIT_USE_FILE`     | Source-file record (`$70 NL FileName <RVA: u32 LE>`); in practice the **introducer** of a unit's `$64` import block, decoded into the `SourceFiles` table — see §4.17                |
 
 `$28 PROC_TAG`, `$25`, `$03`, `$2A`, `$2C`, `$31` and the `$64`
 unit-use family are valid both inside and outside a proc scope —
@@ -1618,29 +1618,70 @@ owning unit to emit a `$66 'TLandTyp'` or `$67 'ltInland'` entry
 against the field's typed slot. Round 3 of §6.20 verified this
 experimentally.
 
-**Segment-name semantics — note for §6.20 follow-ups**. The `$64
-<UnitName>` is the **imported** unit, not the importer. Each
-segment lists symbols that the surrounding byte-stream scope
-imports FROM `<UnitName>`. Identifying the actual importing
-unit-of-scope requires file-offset-proximity attribution of the
-segment to whichever unit's record region it sits within — not
-yet implemented. As a consequence, the bridge "TAd's owning unit
-imports TLandTyp → bind TAd.Land to TLandTyp" cannot be evaluated
-purely from the data this decoder produces; the §6.20 closure
-needs additional structural work to associate `$64` segments with
-their enclosing units.
+**Segment-name semantics — the importer IS encoded (§6.20 R6,
+Round-6)**. The `$64 <UnitName>` is the **imported** unit, not the
+importer. Each segment lists symbols that the surrounding
+byte-stream scope imports FROM `<UnitName>`. The IMPORTING
+unit-of-scope is carried explicitly by a `$70 <SourceFile>` record
+that sits as an **introducer immediately before** each run of
+`$64` segments — NOT as an inner entry inside a segment (see the
+"Introducer vs. inner `$70`" note below). The importing unit name
+is the `$70` source-file basename with the directory prefix and
+`.pas`/`.inc` extension stripped. The attribution rule is: every
+`$64`/`$66`/`$67` reference between one `$70` introducer and the
+next belongs to that introducer's unit. Verified byte-exact on
+DebugTarget.rsm (`$70 'Winapi.ImageHlp.pas'` @ 2041753 → block at
+2041779) and DPT.rsm (`$70 'DPT.Application.pas'` @ 56486628 →
+block at 56486654). The decoder **captures** this association in a
+**normalized** form: each `$70` introducer becomes one
+[`TRsmSourceFile`](DPT.Rsm.Model.pas) entry in
+`TRsmScanner.SourceFiles` / `TRsmReader.SourceFiles` (`SourceFile`
+= raw `…pas` name, `UnitName` = `StripDirAndExt`, plus `StartOffset`
++ `Rva`), and every `$64` segment carries a `SourceFileIdx`
+**foreign key** into that list — so the importing unit's name is
+stored **once** (deduplicated by name via the scanner's
+`FSourceFileByName` map) rather than copied onto every segment of a
+block. `HandleSourceFileIntroRecord` recognises the standalone
+introducer (`$70 <…pas> <RVA:4> $00 $64`), records/dedups the
+source file, and stamps `FCurrentSourceFileIdx` onto the segments
+that follow. `TRsmReader.UnitsImporting(<type>)` is the exact
+inverse of `UnitsDeclaringType`, resolving each matching segment to
+`SourceFiles[Seg.SourceFileIdx].UnitName`. Pinned by
+[Test.DPT.Rsm.Reader.TestSourceFileAttribution32/64](../Test/Test.DPT.Rsm.Reader.pas)
+(Win32 + Win64): SourceFiles deduped, `Winapi.ImageHlp.pas` →
+`Winapi.ImageHlp` with the uses-edge to `Winapi.Windows`
+attributable via the FK, no orphan segments, the lone `System.pas`
+not recorded, and `UnitsImporting('Boolean')` returning many
+importers vs. `UnitsDeclaringType('Boolean')`'s single declarer.
 
-Decoder lives in
-[`TRsmScanner.HandleUnitUseIntroRecord`](DPT.Rsm.Scanner.pas);
-the segments are exposed via `TRsmReader.UnitUseSegments`. A
-convenience reverse-lookup is available as
-[`TRsmReader.UnitsDeclaringType`](DPT.Rsm.Reader.pas), which
-returns the deduplicated declaring-unit names of segments whose
-`$66` entries include the requested type. Name reflects the wire
-direction: a segment's `UnitName` is the unit that DECLARES the
-listed `$66`/`$67`/`$70` symbols; the INVERSE question -- "which
-units import this type" -- is not directly answered by this table
-and remains tracked under §6.20 as a follow-up.
+**Introducer vs. inner `$70`**. Although the inner-entry grammar
+above lists `$70` as a within-segment source-file ref, in practice
+**every** `$70 <…pas>` record is a segment-block introducer: it is
+followed by `<RVA:4> $00 $64` and opens the next unit's import
+block. Measured: 30/31 such records in DebugTarget.rsm and 362/363
+in DPT.rsm are introducers (the lone exception in each is the very
+first `System.pas`, after which no `$64` follows because the System
+unit imports nothing); **zero** `$70 …pas` records occur as an
+inner entry of an open `$64` segment. `HandleUnitUseIntroRecord`
+never mis-decodes a standalone `$70` because there is no open `$64`
+before it — the dispatcher walks the introducer's bytes singly.
+
+Decoders live in
+[`TRsmScanner.HandleUnitUseIntroRecord`](DPT.Rsm.Scanner.pas) (the
+`$64` segments) and
+[`TRsmScanner.HandleSourceFileIntroRecord`](DPT.Rsm.Scanner.pas)
+(the `$70` introducers / `SourceFiles` table); the segments are
+exposed via `TRsmReader.UnitUseSegments`, the source files via
+`TRsmReader.SourceFiles`, and the segment→importer link via
+`Seg.SourceFileIdx`. Two reverse-lookups close the loop, both
+deduplicated and case-insensitive:
+
+* [`TRsmReader.UnitsDeclaringType`](DPT.Rsm.Reader.pas) — units that
+  DECLARE a type (a segment's `UnitName` is the unit that declares
+  its `$66`/`$67`/`$70` symbols).
+* [`TRsmReader.UnitsImporting`](DPT.Rsm.Reader.pas) — its exact
+  inverse: units that IMPORT a type, resolved through the `$70`
+  source-file attribution.
 
 Pinned by:
 
@@ -2112,6 +2153,112 @@ decoder is necessary infrastructure for future investigation
 of cross-unit consumer paths, but it is not by itself
 sufficient.
 
+**Round-6 (R6 RESOLVED + IMPLEMENTED — the importing unit IS
+explicitly encoded, now decoded into the `SourceFiles` table; see
+§4.17 and the closure note at the end of this round).** R6 above claimed
+the importer "is NOT stored — only heuristically recoverable via
+`StartOffset` proximity (unimplemented)". **That is now refuted.**
+The importing unit is carried explicitly by a `$70 <SourceFile>`
+record that sits as an INTRODUCER immediately *before* each run of
+`$64` segments, not as an inner entry *inside* a segment. The
+user's stronger hypothesis ("a marker introduces a unit and the
+following `$64` segments belong to it") is CONFIRMED with
+byte-exact evidence on two fixtures.
+
+*Wire shape of the introducer* (DebugTarget.rsm @ `0005ED4C`,
+the `SysInit` unit):
+
+```
+84 00 02 07 'SysInit'           ; unit-name sub-record (see caveat)
+FE 27 FE F7 07                  ; 5 fixed bytes
+96 00 02 3C                     ; 4 bytes (byte+2 varies: 02 / 06)
+70 0B 'SysInit.pas'             ; $70 <NL> <SourceFile>  <-- the importer
+E0 68 38 5C 00                  ; $70 4-byte RVA ($5C3868E0) + one 00
+64 06 'System' 00 00 00 ...     ; first $64 segment of this unit's block
+```
+
+*Attribution rule (CONFIRMED).* The segments between one `$70
+<File>` introducer and the next `$70` introducer all belong to
+the unit named by that introducer. The importing unit name =
+the `$70` source-file name with any directory prefix and the
+`.pas`/`.inc` extension stripped (e.g. `Winapi.ImageHlp.pas` →
+`Winapi.ImageHlp`; `..\..\..\sys\\i18n\de\System.SysConst.pas`
+→ `System.SysConst`).
+
+*Structural classification (both fixtures).* Of every `$70 …pas`
+record, the byte immediately after its 4-byte RVA payload + one
+`$00` trailer is `$64`: **30 of 31 in DebugTarget.rsm**, **362 of
+363 in DPT.rsm** are introducers (`<RVA:4> 00 $64`). The single
+non-introducer in each is the very first `System.pas` record (the
+System unit imports nothing, so no `$64` follows it). **Zero `$70
+…pas` records appear as an inner entry inside an open `$64`
+segment** (next-byte `$66`/`$67`/`$70`/`$63`: 0 in both files). So
+§4.17's framing of `$70` as a segment-INNER source-file ref is
+inverted: in practice `$70` is the segment-block INTRODUCER.
+`HandleUnitUseIntroRecord` never mis-decodes one because the
+standalone `$70` has no open `$64` before it and is walked past
+byte-by-byte; the residual cost is only that `Seg.StartOffset`
+is not yet associated with the introducer.
+
+*Sanity: 0 orphans.* In DPT.rsm no `$64` segment occurs before
+the first `$70` introducer, and the largest single block is 37
+consecutive `$64` segments (one unit importing 37 units) — no
+unattributable runs.
+
+*Two concrete proofs.*
+
+* **DebugTarget.rsm** @ file offset `2041753`:
+  `$70 13 'Winapi.ImageHlp.pas' 47 7A 2D 5C 00` introduces the
+  block at `2041779` = `$64 'System'`, `2041970` = `$64 'SysInit'`,
+  `2041983` = `$64 'Winapi.Windows'`. Decoded importer
+  `Winapi.ImageHlp` matches the real `uses` (the RTL ImageHlp
+  unit uses Winapi.Windows). ✓
+* **DPT.rsm** @ file offset `56486628`:
+  `$70 13 'DPT.Application.pas' …` introduces the block at
+  `56486654` = `$64 'System'`, `56488100` = `$64 'SysInit'`,
+  `56488113` = `$64 'mormot.core.collections'`,
+  `56488562` = `$64 'DPT.Task'`, `56488638` = `$64 'DPT.Types'`,
+  `56489045` = `$64 'DPT.Workflow'`. Decoded importer
+  `DPT.Application` matches the application unit's `uses`. ✓
+
+*Caveat on the `84 00 02 <NL> <UnitName>` sub-record.* It is NOT a
+reliable importer name: for the `System.Types.pas` introducer the
+sub-record's name reads `'System'`, not `'System.Types'`, and the
+leading `$84` byte is not stable across the corpus (a literal
+`84 00 02` anchor scan of DPT.rsm finds 0 hits — the byte before
+`00 02` varies). **The `$70 <SourceFile>` name is the authoritative
+importer identity**; the `00 02 <NL> <Name>` token preceding it is
+decoded-but-not-reliable for this purpose.
+
+*Consequence for R7/C-paths.* R7's "unit-level is too coarse for
+field-level TAd.Land binding" still stands — knowing the importer
+unit doesn't disambiguate which class's field uses the type. But
+R6's specific obstacle ("importer not stored") is removed: a
+consumer CAN now attribute every `$64`/`$66`/`$67` reference to
+its exact importing unit. This is a real upgrade to the unit-uses
+table's expressiveness even though it does not by itself close the
+TAd.Land enum-binding (which remains a field-level problem).
+
+*Reader change — IMPLEMENTED (see §4.17 for the full write-up).*
+A dedicated `HandleSourceFileIntroRecord` recognises the standalone
+`$70 <SourceFile> <RVA:4> $00 $64` introducer; each becomes one
+**deduplicated** `TRsmSourceFile` entry (the importer stored ONCE,
+not per segment) and every following `$64` segment carries a
+`SourceFileIdx` foreign key. `TRsmReader.UnitsImporting` is the
+exact inverse of `UnitsDeclaringType`. Pinned on Win32 + Win64 by
+`Test.DPT.Rsm.Reader.TestSourceFileAttribution32/64` (the chosen
+pin asserts the `Winapi.ImageHlp → Winapi.Windows` uses-edge and
+`UnitsImporting('Boolean')` by name/relationship rather than the
+build-specific offsets `2041779` / `56486654`, so it survives a
+fixture rebuild).
+
+R6 is RESOLVED and the importer-attribution sub-question is closed
+into §4.17. The §6.20 entry stays open only on its ORIGINAL subject
+(the TAd.Land field→enum binding, R7's field-level gap), which the
+§4.17 SourceFiles table does NOT close — R7 still stands: knowing
+the importing unit is too coarse to bind a specific class's field
+to its enum.
+
 **R9 (Round 5, via §6.23 — `$28` marker middle-bytes
 decode-via-accessor path).** The accessor-name-anchored idea
 (`T<X>.SetLand` carrying TLandTyp as a parameter signature in
@@ -2425,7 +2572,8 @@ uniformly without nil checks.
 | `FRsmTypeIdToClassIdx` (reader)      | `TRsmFormatALinker.ScanTypeRegistry` | 2-byte primary id                       | `Classes` index                |
 | `FTypeIdByName` (reader)             | same                              | lower(type name)                        | 2-byte primary id              |
 | `FScopeLocalTypeIdToEnumDef` (reader)| `TRsmScopeLocalEnumBridge.Run`    | scope-local 2-byte id (`$1E` hi byte)   | `EnumDefs` index               |
-| `UnitUseSegments`                    | `HandleUnitUseIntroRecord` (§4.17)| (index)                                 | `TRsmUnitUseSegment { UnitName, StartOffset, Refs }` |
+| `UnitUseSegments`                    | `HandleUnitUseIntroRecord` (§4.17)| (index)                                 | `TRsmUnitUseSegment { UnitName, StartOffset, SourceFileIdx, Refs }` |
+| `SourceFiles`                        | `HandleSourceFileIntroRecord` (§4.17)| (index, deduped by unit name)        | `TRsmSourceFile { SourceFile, UnitName, StartOffset, Rva }` — the importing unit a segment's `SourceFileIdx` points at |
 
 ---
 

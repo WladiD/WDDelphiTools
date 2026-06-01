@@ -27,6 +27,7 @@ type
   TRsmReaderTests = class
   private
     function ResolveExePath(AUse64Bit: Boolean): String;
+    procedure DoTestSourceFileAttribution(AUse64Bit: Boolean);
   public
     /// Loading a missing file leaves all lookups returning their
     /// sentinel "not found" values.
@@ -124,6 +125,31 @@ type
     /// presence depends on which System units happen to be linked.
     [Test]
     procedure TestEnumDefsExcludeClassNames;
+
+    /// <summary>
+    ///   §4.17 pin: the `$70 <SourceFile>` introducer is decoded into
+    ///   the normalized <see cref="TRsmReader.SourceFiles"/> table, and
+    ///   each `$64` segment is attributed to its importing unit via the
+    ///   <see cref="TRsmUnitUseSegment.SourceFileIdx"/> foreign key (the
+    ///   importer name stored ONCE, not per segment). Asserts:
+    ///   (a) SourceFiles deduped (no repeated UnitName) and StripDirAndExt
+    ///   applied (`Winapi.ImageHlp.pas` -> `Winapi.ImageHlp`);
+    ///   (b) the `uses` relationship `Winapi.ImageHlp -> Winapi.Windows`
+    ///   is attributable (a segment imported by Winapi.ImageHlp that
+    ///   declares Winapi.Windows), with FK integrity;
+    ///   (c) leakage: the lone `System.pas` (System imports nothing, no
+    ///   `$64` follows) is NOT recorded as a SourceFile, and no segment
+    ///   is orphaned (SourceFileIdx >= 0);
+    ///   (d) UnitsImporting is the exact inverse of UnitsDeclaringType --
+    ///   `Boolean` has one declaring unit (System) but many importers.
+    ///   Offset-free / name-based, so it holds on Win32 and Win64 alike.
+    /// </summary>
+    [Test]
+    procedure TestSourceFileAttribution32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestSourceFileAttribution64;
+    {$ENDIF}
   end;
 
 implementation
@@ -132,6 +158,8 @@ uses
   System.Classes,
   System.IOUtils,
   System.SysUtils,
+
+  mormot.core.collections,
 
   DPT.Rsm.Model,
   DPT.Rsm.Reader;
@@ -612,6 +640,116 @@ begin
     R.Free;
   end;
 end;
+
+procedure TRsmReaderTests.DoTestSourceFileAttribution(AUse64Bit: Boolean);
+var
+  R        : TRsmReader;
+  Seen     : IKeyValue<String, Boolean>;
+  I        : Integer;
+  SF       : TRsmSourceFile;
+  Seg      : TRsmUnitUseSegment;
+  ImageHlpIdx: Integer;
+  UsesEdgeFound: Boolean;
+  Declarers, Importers: TArray<String>;
+  Plat     : String;
+  LowerName: String;
+begin
+  if AUse64Bit then Plat := 'Win64' else Plat := 'Win32';
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(AUse64Bit));
+    Assert.IsTrue(R.SourceFiles.Count > 0,
+      'No $70 SourceFiles decoded (' + Plat + ').');
+    Assert.IsTrue(R.UnitUseSegments.Count > 0,
+      'No $64 segments decoded (' + Plat + ').');
+
+    // (a) SourceFiles deduped (stored once) + StripDirAndExt applied +
+    //     leakage guard: no lone 'System' introducer.
+    Seen := Collections.NewPlainKeyValue<String, Boolean>;
+    ImageHlpIdx := -1;
+    for I := 0 to R.SourceFiles.Count - 1 do
+    begin
+      SF := R.SourceFiles[I];
+      LowerName := LowerCase(SF.UnitName);
+      Assert.IsFalse(Seen.ContainsKey(LowerName),
+        'SourceFiles must be deduped -- duplicate ' + SF.UnitName +
+        ' (' + Plat + ').');
+      Seen[LowerName] := True;
+      Assert.IsFalse(SameText(SF.UnitName, 'System'),
+        'The lone System.pas (no $64 follows) must NOT be recorded as a ' +
+        'SourceFile introducer (' + Plat + ').');
+      // UnitName must have the .pas/.inc stripped; SourceFile retains it.
+      Assert.IsFalse(SF.UnitName.ToLower.EndsWith('.pas'),
+        'UnitName must not keep the .pas extension: ' + SF.UnitName);
+      if SameText(SF.UnitName, 'Winapi.ImageHlp') then
+      begin
+        ImageHlpIdx := I;
+        Assert.IsTrue(SameText(SF.SourceFile, 'Winapi.ImageHlp.pas'),
+          'Winapi.ImageHlp SourceFile must be Winapi.ImageHlp.pas, got: ' +
+          SF.SourceFile);
+      end;
+    end;
+    Assert.IsTrue(ImageHlpIdx >= 0,
+      'Winapi.ImageHlp $70 introducer must be decoded into SourceFiles (' +
+      Plat + ').');
+
+    // (b) the uses-relationship Winapi.ImageHlp -> Winapi.Windows must be
+    //     attributable, with FK integrity; AND (c) no orphan segments.
+    UsesEdgeFound := False;
+    for I := 0 to R.UnitUseSegments.Count - 1 do
+    begin
+      Seg := R.UnitUseSegments[I];
+      Assert.IsTrue(Seg.SourceFileIdx >= 0,
+        Format('Segment @%d (declares %s) is orphaned -- every segment must ' +
+          'be attributed to a $70 introducer (' + Plat + ').',
+          [Seg.StartOffset, Seg.UnitName]));
+      Assert.IsTrue(Seg.SourceFileIdx < R.SourceFiles.Count,
+        'SourceFileIdx out of range (' + Plat + ').');
+      if SameText(R.SourceFiles[Seg.SourceFileIdx].UnitName, 'Winapi.ImageHlp')
+         and SameText(Seg.UnitName, 'Winapi.Windows') then
+      begin
+        UsesEdgeFound := True;
+        Assert.AreEqual(ImageHlpIdx, Seg.SourceFileIdx,
+          'FK integrity: the Winapi.ImageHlp-imported segment must point at ' +
+          'the Winapi.ImageHlp SourceFiles entry (' + Plat + ').');
+      end;
+    end;
+    Assert.IsTrue(UsesEdgeFound,
+      'The uses-edge Winapi.ImageHlp -> Winapi.Windows must be recoverable ' +
+      'from the $70/$64 attribution (' + Plat + ').');
+
+    // (d) UnitsImporting is the exact inverse of UnitsDeclaringType.
+    Declarers := R.UnitsDeclaringType('Boolean');
+    Importers := R.UnitsImporting('Boolean');
+    Assert.IsTrue(Length(Declarers) > 0,
+      'Boolean must have at least one declaring unit (' + Plat + ').');
+    Assert.IsTrue(Length(Importers) > 1,
+      'Boolean must have many importing units -- UnitsImporting returns the ' +
+      'importer side, the inverse of declarers (' + Plat + ').');
+    Assert.IsTrue(Length(Importers) > Length(Declarers),
+      'Boolean''s importer set must be larger than its declarer set -- ' +
+      'confirms the two queries are genuine inverses (' + Plat + ').');
+    // Negative probes.
+    Assert.AreEqual<Integer>(0, Length(R.UnitsImporting('TZzNoSuchType_4711')),
+      'UnitsImporting for a nonsense type must be empty (' + Plat + ').');
+    Assert.AreEqual<Integer>(0, Length(R.UnitsImporting('')),
+      'UnitsImporting('''') must be empty (' + Plat + ').');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestSourceFileAttribution32;
+begin
+  DoTestSourceFileAttribution(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TRsmReaderTests.TestSourceFileAttribution64;
+begin
+  DoTestSourceFileAttribution(True);
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmReaderTests);

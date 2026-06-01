@@ -92,6 +92,20 @@ type
     /// $66/$67/$70 entries that follow up to the next $63 SCOPE_END
     /// (or the first byte that's not in {$66,$67,$70,$63}).
     FUnitUseSegments : IList<TRsmUnitUseSegment>;
+    /// §4.17 source-file records (`$70 <SourceFile>` introducers), one
+    /// per distinct importing unit. Each `$64` segment's
+    /// `SourceFileIdx` indexes into this list, so the importing unit's
+    /// name is stored ONCE here rather than copied per segment.
+    /// Populated by `HandleSourceFileIntroRecord`.
+    FSourceFiles     : IList<TRsmSourceFile>;
+    /// Dedup index (lower(UnitName) -> FSourceFiles index) so a `$70`
+    /// introducer that recurs for the same unit reuses its entry
+    /// instead of appending a duplicate.
+    FSourceFileByName: IKeyValue<String, Integer>;
+    /// Scan-loop state: the FSourceFiles index of the most recent
+    /// `$70` introducer, stamped onto the `$64` segments that follow.
+    /// Reset to -1 at the start of each scan.
+    FCurrentSourceFileIdx: Integer;
     /// True when the loaded fixture targets x64 (PE Machine field
     /// `$8664`). Detected in `LoadFromFile` by reading the .exe's PE
     /// header; defaults to False (Win32) when only `LoadFromBytes`
@@ -143,6 +157,7 @@ type
     procedure HandleEnumDefRecord(P: NativeInt);
     procedure HandleTypeRegistryRecord(P: NativeInt);
     function  HandleUnitUseIntroRecord(var P: NativeInt): Boolean;
+    function  HandleSourceFileIntroRecord(var P: NativeInt): Boolean;
     procedure ScanSymbolStream;
   public
     constructor Create;
@@ -221,6 +236,9 @@ type
     /// §6.21 cross-unit symbol-import segments. See
     /// <c>FUnitUseSegments</c> for the per-segment shape.
     property UnitUseSegments    : IList<TRsmUnitUseSegment> read FUnitUseSegments;
+    /// §4.17 source-file (`$70`) records, one per distinct importing
+    /// unit. A `$64` segment's `SourceFileIdx` indexes into this list.
+    property SourceFiles        : IList<TRsmSourceFile> read FSourceFiles;
     property EnumConstNames     : IKeyValue<String, String> read GetEnumConstNames;
     property EnumTypeIds        : IKeyValue<UInt32, Boolean> read GetEnumTypeIds;
     property CrossUnitEnumIds   : IKeyValue<UInt32, Boolean> read GetCrossUnitEnumIds;
@@ -264,6 +282,8 @@ begin
   FGlobalFileOffset := Collections.NewPlainKeyValue<String, NativeInt>;
   FGlobalVa         := Collections.NewPlainKeyValue<String, UInt32>;
   FUnitUseSegments  := Collections.NewPlainList<TRsmUnitUseSegment>;
+  FSourceFiles      := Collections.NewPlainList<TRsmSourceFile>;
+  FSourceFileByName := Collections.NewPlainKeyValue<String, Integer>;
   FEnumDecoder      := TRsmEnumDecoder.Create;
   FStructDiscoverer := TRsmStructDiscoverer.Create(FClasses, FClassByName);
 end;
@@ -422,6 +442,8 @@ begin
   FGlobalFileOffset.Clear;
   FGlobalVa.Clear;
   FUnitUseSegments.Clear;
+  FSourceFiles.Clear;
+  FSourceFileByName.Clear;
   FEnumDecoder.Reset;
   FBuf := ABuf;
   FSz  := ASize;
@@ -1554,9 +1576,13 @@ begin
   // printable-ASCII walker.
   if not ReadIdentifier(P + 1, UnitName) then Exit;
 
-  Seg.UnitName    := UnitName;
-  Seg.StartOffset := NativeUInt(P);
-  Seg.Refs        := Collections.NewPlainList<TRsmUnitUseRef>;
+  Seg.UnitName      := UnitName;
+  Seg.StartOffset   := NativeUInt(P);
+  // §4.17: attribute this segment to the source-file (`$70`) record
+  // that most recently introduced the surrounding `$64` run. -1 when
+  // no `$70` preceded it (no orphans observed in practice -- see §4.17).
+  Seg.SourceFileIdx := FCurrentSourceFileIdx;
+  Seg.Refs          := Collections.NewPlainList<TRsmUnitUseRef>;
 
   Q := P + 2 + Integer(NameLen) + 3;
   while Q + 1 < FSz do
@@ -1603,6 +1629,90 @@ begin
   Result := True;
 end;
 
+function SourceFileToUnitName(const AFile: String): String;
+// §4.17: derive the Delphi unit name from a $70 source-file name by
+// stripping the directory prefix and the .pas/.inc extension. Dotted
+// unit names (System.SysConst.pas -> System.SysConst) survive because
+// only the exact trailing .pas/.inc is removed, never the last dot.
+var
+  D: Integer;
+begin
+  Result := AFile;
+  D := LastDelimiter('\/:', Result);
+  if D > 0 then
+    Result := Copy(Result, D + 1, MaxInt);
+  if Length(Result) >= 4 then
+  begin
+    var Ext: String := LowerCase(Copy(Result, Length(Result) - 3, 4));
+    if (Ext = '.pas') or (Ext = '.inc') then
+      SetLength(Result, Length(Result) - 4);
+  end;
+end;
+
+function TRsmScanner.HandleSourceFileIntroRecord(var P: NativeInt): Boolean;
+// §4.17: a standalone $70 <SourceFile> <RVA:4> $00 record that
+// INTRODUCES the run of $64 segments belonging to the unit whose
+// source file this is (its uses-block). Shape + tight anchor:
+//
+//   $70 <NL> <SourceFile ending .pas/.inc> <RVA:4 LE> $00 $64...
+//                                                          ^ next $64
+//
+// The trailing $00 then a $64 byte is what distinguishes an introducer
+// from (a) an incidental $70 byte and (b) the lone System.pas record
+// (System imports nothing, so no $64 follows -- left to the single-
+// byte fallback; it needs no segment attribution). On a hit we
+// record/dedup the source file, set FCurrentSourceFileIdx, and advance
+// P to the $64 so the dispatcher hands it to HandleUnitUseIntroRecord,
+// which stamps the segment's SourceFileIdx.
+var
+  NameLen   : Byte;
+  FileName  : String;
+  PayloadOff: NativeInt;
+  Rva       : UInt32;
+  UnitName  : String;
+  LowerKey  : String;
+  Idx       : Integer;
+  SF        : TRsmSourceFile;
+  ExtLower  : String;
+begin
+  Result := False;
+  NameLen := ByteAt(P + 1);
+  if (NameLen < 1) or (NameLen > 64) then Exit;
+  PayloadOff := P + 2 + Integer(NameLen);     // 4-byte RVA starts here
+  // Need RVA(4) + trailer(1) + the introducing $64 (1) in range.
+  if PayloadOff + 5 >= FSz then Exit;
+  if ByteAt(PayloadOff + 4) <> $00 then Exit;
+  if ByteAt(PayloadOff + 5) <> TRsmTag.UNIT_USE_INTRO then Exit;
+  if not ReadIdentifier(P + 1, FileName) then Exit;
+  // Tight extension gate: only a real .pas/.inc source file introduces
+  // a uses-block; rejects incidental $70 bytes with a printable run.
+  if Length(FileName) < 5 then Exit;
+  ExtLower := LowerCase(Copy(FileName, Length(FileName) - 3, 4));
+  if (ExtLower <> '.pas') and (ExtLower <> '.inc') then Exit;
+
+  Rva := UInt32(ByteAt(PayloadOff))             or
+         (UInt32(ByteAt(PayloadOff + 1)) shl 8)  or
+         (UInt32(ByteAt(PayloadOff + 2)) shl 16) or
+         (UInt32(ByteAt(PayloadOff + 3)) shl 24);
+  UnitName := SourceFileToUnitName(FileName);
+  LowerKey := LowerCase(UnitName);
+  if not FSourceFileByName.TryGetValue(LowerKey, Idx) then
+  begin
+    SF.SourceFile  := FileName;
+    SF.UnitName    := UnitName;
+    SF.StartOffset := NativeUInt(P);
+    SF.Rva         := Rva;
+    FSourceFiles.Add(SF);
+    Idx := FSourceFiles.Count - 1;
+    FSourceFileByName[LowerKey] := Idx;
+  end;
+  FCurrentSourceFileIdx := Idx;
+  // Advance to the introducing $64; the dispatcher handles it next
+  // (Continue, no Inc) and stamps the segment's SourceFileIdx.
+  P := PayloadOff + 5;
+  Result := True;
+end;
+
 procedure TRsmScanner.ScanSymbolStream;
 // Walk the RSM symbol stream and dispatch each record to its
 // per-tag handler. Handlers update P themselves when they
@@ -1632,6 +1742,7 @@ const
   TYPE_REGISTRY_TAG = TRsmTag.TYPE_REGISTRY_TAG;
   ENUM_DEF_TAG      = TRsmTag.ENUM_DEF_TAG;
   UNIT_USE_INTRO    = TRsmTag.UNIT_USE_INTRO;
+  UNIT_USE_FILE     = TRsmTag.UNIT_USE_FILE;
   SCOPE_END         = TRsmTag.SCOPE_END;
 var
   P  : NativeInt;
@@ -1641,6 +1752,7 @@ begin
   FScanSeenLocalSinceProc := False;
   FScanLocalIdx := 0;
   FScanRegParam := 0;
+  FCurrentSourceFileIdx := -1;
   P := 0;
   while P + 2 < FSz do
   begin
@@ -1673,6 +1785,8 @@ begin
         HandleTypeRegistryRecord(P);
       UNIT_USE_INTRO:
         if HandleUnitUseIntroRecord(P) then Continue;
+      UNIT_USE_FILE:
+        if HandleSourceFileIntroRecord(P) then Continue;
       SCOPE_END:
         if FScanSeenLocalSinceProc then
         begin

@@ -210,6 +210,19 @@ and arch is detected from the `.exe`):
   collections. `TRsmClassInfo.Properties` **and** `TRsmEnumDef.Elements`
   can be **nil** — guard before `.Count`. mORMot `IList<T>` is best
   iterated by index (`for I := 0 to L.Count-1 do … L[I]`).
+- **Locals rendering is kind-aware.** A `TRsmLocal` with
+  `Kind = lkRegister` (Self, Sender, the first few params) lives in a
+  CPU register — show `reg#<RegParamIdx>`, NOT a BP offset; printing
+  `BP%+d` for them is wrong (it shows a misleading `BP+0`). Only
+  `lkBpRel` locals have a real `BpOffset`. See `LocalLine`.
+- **`Name = '.'` locals are real, not a bug.** The linker emits
+  `$20 $01 $2E` records for compiler-generated unnamed slots (record-
+  result / `with` / temp), faithfully decoded as `Name = '.'` (rsm-expert
+  confirmed; Format.md §4.4). They carry valid `BpOffset`/`TypeIdx`.
+  RsmDesk relabels them `<temp>` (don't filter — the guardrail is show,
+  not hide). Any future "Name is a single placeholder char" you see is
+  almost certainly this, not a decode failure — confirm via Mode A
+  before treating as a bug.
 - **Search path:** the `.dproj` reaches the reader via
   `..\..\DPT\Source` and mORMot via `..\..\..\Lib\mORMot\src*`
   (RsmDesk sits at the same `Projects\X\Source` depth as DPT, so the
@@ -234,6 +247,15 @@ and arch is detected from the `.exe`):
     child nodes (ranges, elements, placeholder) are owned+parented by
     their parent node, so freeing a node cascades to its subtree and
     `FTree.Clear` resets everything.
+  - **Grouping levels reuse the range machinery.** When a branch needs
+    an extra grouping level (e.g. the imports branch groups segments by
+    importing unit), add a node kind like `rnImporter` and have
+    `SetIsExpanded` populate it too. If the grouped children form a
+    *contiguous* index range in a reader collection (segments per `$70`
+    importer do — precomputed into `FImporterGroups`), the group node
+    just calls `MaterializeRange(rcUnitUses, lo, hi)` — no new chunking
+    code. This is how the §4.17 importing-unit view was built on top of
+    the lazy tree.
   - **Detail is built on selection** (`DoTreeChange` → `ElementDetail`),
     NOT pre-rendered into `TagString` for the whole file. Keep the
     reader records as the model; the `RD-1` build-out swaps the shared

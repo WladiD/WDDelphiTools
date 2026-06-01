@@ -254,9 +254,43 @@ type
   ///   walk and the §6.9 nearest-$2A bridge already use).
   /// </summary>
   TRsmUnitUseSegment = record
+    UnitName     : String;
+    StartOffset  : NativeUInt;
+    /// Index into <see cref="TRsmScanner.SourceFiles"/> of the
+    /// <c>$70</c> source-file record that introduces this segment's
+    /// block (the unit whose <c>uses</c> this segment belongs to), or
+    /// <c>-1</c> when the segment was seen before any <c>$70</c>
+    /// introducer. This is a normalized foreign key: the importing
+    /// unit's name lives ONCE in <c>SourceFiles[SourceFileIdx]</c>, not
+    /// copied per segment. See §4.17.
+    SourceFileIdx: Integer;
+    Refs         : IList<TRsmUnitUseRef>;
+  end;
+
+  /// <summary>
+  ///   One <c>$70 &lt;SourceFile&gt;</c> record (§4.17). In the RSM
+  ///   stream each compilation unit is declared by its source-file
+  ///   name; when the unit has a <c>uses</c> clause, the <c>$70</c>
+  ///   record INTRODUCES the run of <c>$64</c> segments that follow
+  ///   (those segments' <c>SourceFileIdx</c> points back here). The
+  ///   record is named after what it carries on the wire -- a source
+  ///   file -- not after the importing role it plays relative to the
+  ///   following segments.
+  /// </summary>
+  TRsmSourceFile = record
+    /// The raw <c>$70</c> name including directory and extension, e.g.
+    /// <c>'DPT.Application.pas'</c> or
+    /// <c>'..\..\sys\System.SysConst.pas'</c>.
+    SourceFile : String;
+    /// The Delphi unit name derived from <c>SourceFile</c> (directory
+    /// prefix and <c>.pas</c>/<c>.inc</c> extension stripped), e.g.
+    /// <c>'DPT.Application'</c>, <c>'System.SysConst'</c>.
     UnitName   : String;
+    /// File offset of the <c>$70</c> tag byte.
     StartOffset: NativeUInt;
-    Refs       : IList<TRsmUnitUseRef>;
+    /// The 4-byte LE payload following the name (an image RVA of the
+    /// same family as the <c>$66</c>/<c>$67</c> ref payloads).
+    Rva        : UInt32;
   end;
 
   /// <summary>
