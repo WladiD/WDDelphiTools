@@ -428,6 +428,53 @@ FScanRegParam`.
 > VMT-derived class name. (Records by-reference still prime, because
 > the VMT walk fails on a non-class pointer.)
 
+> **The local/param `TypeIdx` is a per-proc ref, NOT statically
+> resolvable to a type name on large binaries (decided — design limit).**
+> The `<typeId-lo>` the structural lookahead reads is a per-(unit,type)
+> *reference number* into a per-proc local type table the format does
+> not expose, NOT the `$2A` registry primary. Verified by four
+> hypotheses against `C:\MSE\TFW\TFW.rsm` (proc `TFormMain.Create`,
+> `Self` lo `$84`):
+> - **(A) refuted** — not a hi-truncated 2-byte registry id (`$F884`
+>   isn't registered by any T/P `$2A` entry).
+> - **(B) refuted** — not the type's registry primary (`TFormMain`'s
+>   primary is `$DBD0` on this build, not `$84`).
+> - **(C) confirmed** — type-stable within a class (`TFormMain.Create`
+>   and `TFormMain.AfterMenuRebuild` both carry `Self` lo `$84`), so it
+>   indexes a per-(unit,type) table, but one not in the `.rsm`.
+> - **(D) refuted** — NOT an index into the §4.17 `$64`/`$66` unit-use
+>   (import) table. `AOwner: TComponent` carries lo `$10` in
+>   `TFormMain.Create` but `$66` in `TFormVBh.Create` (same type,
+>   different ref); `TComponent`'s actual unit-use index in
+>   `Tfw.Main.Form` is neither; and `TFormMain` (Self's type) is absent
+>   from its own unit's import table entirely yet `Self` still has a ref.
+>   Pinned by
+>   [Test.DPT.Rsm.Tfw.TestTfwPerProcRefIsNotUnitUseTableIndex](../Test/Test.DPT.Rsm.Tfw.pas).
+>
+> Consequence for any consumer (live debugger AND static viewer):
+> - **`Self`** — derive the class from the **VMT** (live) or the
+>   **qualified proc name** split at the last `.` outside `<>` (static).
+>   Never `FindClassIdxByRsmTypeId` on a local/param `TypeIdx`.
+> - **a class-typed param** (`AOwner: TComponent`) — **no reliable
+>   static source exists**; the VMT of the live instance is authoritative
+>   (the note above). A no-process viewer can only show the raw id,
+>   labelled un-resolved.
+> - **compiler temps** (the unnamed `.` local) — no static type.
+>
+> The three id namespaces must never be cross-looked-up: the `$2A`
+> registry primary, this `$21`/`$22` per-proc ref, and the
+> `FindStructByTypeIdx` file-offset key (`TRsmClassInfo.TypeIdx`, the
+> only globally-unique and trustworthy one for member-type resolution).
+> Small-binary regime contrast: on `DebugTarget` the slot carries the
+> owning class's real 2-byte registry primary (hi `$2E`/`$2F`) and
+> resolves correctly — pinned by
+> [TestSelfTypeIdxResolvesInCleanRegime32/64](../Test/Test.DPT.Rsm.LocalsReader.pas).
+> The large-binary per-proc collapse is pinned by
+> [TestTfwSelfTypeIdxIsPerProcRefNotRegistryId](../Test/Test.DPT.Rsm.Tfw.pas).
+> (Was tracked as §6.27; closed as a design limit once Hyp D — the last
+> decode lead — was refuted, since no reader change can recover a name
+> the format does not carry and the consumer doesn't need it.)
+
 ### 4.3 `$21` REGVAR_TAG — register-passed variable
 
 ```
@@ -1960,172 +2007,104 @@ Pinned by `TestEnumDefParsesWithVariableHeaderPadding`.
 Result on DPT.rsm: the class phantoms (`TPublishableVariantType`,
 `TObjectList`, `TIdSchedulerOfThreadDefault`, …) and the synthesised
 duplicates are gone; the 730 real `$03` enums + genuine sparse enums
-remain. **Residual** (still leaking as phantom enums): record / interface
-/ external-struct `$2A` types (`QOS_OBJECT_HDR`, `IRichChunk`,
-`tagXFORM`, `PFNSHGETFOLDERPATHA`) that borrowed NON-`$03` constants
-(named `const`s or sparse-enum elements) — not in `FClasses`, no `$03`
-to map to. Multi-family borrows of that kind are still caught by the
-dup-ordinal guard; single-family ones with unique ordinals are the
-**irreducible** remainder: §6.26 searched the `$25` record for a
-per-record const-vs-enum-element discriminator byte and **found none**
-(refuted — the const and enum-element bodies are byte-structurally
-identical; see the §4.6 callout). The type-level `$03`-coverage filter
-is therefore the permanent mechanism, not a stopgap, and these
-single-family const-borrow phantoms (`QOS_OBJECT_HDR` / `IRichChunk` /
-`tagXFORM`) cannot be pruned upstream. `TTokenKind` also still doubles
-(a `$03` plus a synthesised variant whose element set only partially
-overlaps the `$03`).
+remain.
 
-### 6.27 Local/param `$21`/`$22` `TypeIdx` is a per-proc ref number on large binaries, NOT a registry id — `FindClassIdxByRsmTypeId` mis-resolves it (`GAP` — large-binary per-proc local-type table undecoded; resolves cleanly on small binaries)
+**Re-investigation against TFW.rsm (the residual is LARGE, not a
+handful — this is the open part).** Probing every surviving synthesised
+`EnumDef` on `C:\MSE\TFW\TFW.rsm`
+([Test.DPT.Rsm.Tfw.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Tfw.pas))
+shows **114 synthesised survivors** (of 4140 total `EnumDef`s), the
+**majority clear phantoms** — far more than the "single-family
+const-borrow" remnant this entry previously implied. They cluster by a
+**definitively-non-enum naming convention** the filters don't yet use:
 
-[DPT.Rsm.Scanner.pas `DecodeTypeIdByStructuralLookahead`](DPT.Rsm.Scanner.pas)
-writes `TRsmLocal.TypeIdx`; consumers resolve it via
-[DPT.Rsm.Reader.pas `FindClassIdxByRsmTypeId`](DPT.Rsm.Reader.pas)
-keyed on the `$2A` registry's `FRsmTypeIdToClassIdx`
-([DPT.Rsm.FormatALinker.pas `ScanTypeRegistry`](DPT.Rsm.FormatALinker.pas)).
-A consumer (RsmDesk) resolved a register-param's `TypeIdx` to a type
-name this way and got wrong names. Byte-decoded against
-`C:\MSE-26.04-Mongo\TFW\TFW.rsm`, proc `TFormMain.Create`
-(`TFormMain.Create(AOwner: TComponent)`, RVA $57CB3AC). The byte-level
-truth, with three competing hypotheses tested and resolved:
+* **Pointer aliases `P<Upper>`** — `PtrInt`, `PCLSID`, `PBlobRef`,
+  `PAviFileInfoA`, `PKernelEntry`, `PNZWCH`, `PID3D10Blob`, …
+* **Interfaces `I<Upper>`** — `IRichChunk`, `IWICDevelopRawNotificationCallback`,
+  `IPropertySystem`, `IPenInputPanel`, `IAVIStream`, `ISpellChecker`, …
+* **Windows ALL_CAPS / `_`-leading / `tag<lower>` structs** —
+  `QOS_OBJECT_HDR`, `_QOS_SD_MODE`, `tagXFORM`, `NET_STRING`,
+  `GETTEXTEX`, `DXGI_COLOR_SPACE_TYPE`, `D3DVALUE` (a float typedef!), …
+* **Exception / static-class names `E<Upper>` / `C<Upper>`** —
+  `EAplError`, `EAppExec`, `CExcel`, `CBarcode`, `CMainForm`, … (these
+  are codebase-specific conventions, lower-confidence than `P*`/`I*`).
 
-**The decode is correct; the resolver is the bug.** The proc record at
-file offset 843710232 is:
+Genuine sparse enums (`TPictureFormat`, `TLngTyp`, `TKeyIndex`, `TZO`,
+`TProgressStatus`, …) are almost all `T<Name>`-prefixed and must
+survive. Only ~9 of the 114 are in `FClasses` at all, so a type-kind
+oracle can see only those few; the rest carry NON-`$03` constants
+(named `const`s / sparse-enum elements) with no `$03` and no `FClasses`
+entry — exactly the §6.26-refuted case (no per-record byte
+discriminator).
 
-```
-28 10 'TFormMain.Create' A0 00 00 <14-byte $A0 addr payload>
-21 04 'Self'   66 00 00  84 F8  21 ...   ← Self,   TypeIdx lo=$84 hi=$F8, next $21
-21 01 '.'      66 00 00  8A F6  21 ...   ← temp,   TypeIdx lo=$8A hi=$F6, next $21
-21 06 'AOwner' 66 00 00  10 E8  63 ...   ← AOwner, TypeIdx lo=$10 hi=$E8, next $63
-```
+**The `skRecord` kind-oracle is UNSAFE (corrects the stale
+`FilterPhantomEnumDefs` comment).** The code comment claims filter (a)
+must stay `skClass`-only because the record heuristic mis-registers
+`TThreadPriority` / `TUnicodeBreak` as `skRecord`. On current TFW that
+example is **refuted** — both are `<not-in-FClasses>`, not `skRecord`.
+The *real* counterexample is **`TZUGFeRDXMLObjectTyp`**: a genuine
+131-element enum (`xmlNone`, `xmlC…`) that the record discoverer ALSO
+registers as `skRecord` in `FClasses`. Extending filter (a) to
+`skRecord` would delete it. So `skClass`-only is correct, but for a
+different reason than the comment states.
 
-For each, the structural-lookahead decoder sees a continuation tag at
-payload+5 (`$21`/`$21`/`$63`, all in `ContTags`) → takes the 1-byte
-path → `TypeIdx = byte+3` = `$84` / `$8A` / `$10`. **These are exactly
-the bytes the linker wrote.** The reader is faithful. (Note the byte at
-+4 — `$F8`/`$F6`/`$E8` — is non-zero, so it is NOT clean padding; it is
-part of an un-modelled per-proc ref encoding. But neither the 1-byte
-value nor the 2-byte value `$F884`/`$F68A`/`$E810` is a registry id —
-see below.)
+**Closure (c) — naming-convention drop (IMPLEMENTED).**
+`FilterPhantomEnumDefs` now has a third drop condition
+([DPT.Rsm.Reader.pas `IsNonEnumTypeName`](DPT.Rsm.Reader.pas)): a
+SYNTHESISED `EnumDef` (never a `$03`-sourced one, never a name shadowing
+a real `$03`) whose name follows a high-confidence non-enum convention
+is dropped —
+* `I<Upper>` (interface alias): `IRichChunk`, `ISpellChecker`, …
+* `P<Upper>` (pointer alias): `PCLSID`, `PBlobRef`, … (`PtrInt` —
+  `P`+lowercase — is intentionally NOT matched; conservative.)
+* leading `_` (C-translated struct): `_QOS_SD_MODE`, …
+* `tag<Upper>` (Windows struct): `tagXFORM`, `tagMSG`.
+* ALL-CAPS API typedef (every char `A-Z`/`0-9`/`_`, ≥1 letter, len ≥ 4):
+  `QOS_OBJECT_HDR`, `NET_STRING`, `GETTEXTEX`, `D3DVALUE`,
+  `DXGI_COLOR_SPACE_TYPE`, …
 
-**Hypothesis A (refuted): the value is a 2-byte registry id the decoder
-truncated.** `$F884`, `$F68A`, `$E810` are NOT registered by any T/P
-`$2A` entry in TFW (verified by an IndexOf-based registry reverse-map).
-So there is no wider id to recover.
+Leakage guard — **`T<Upper>` is protected first**, so every genuine
+enum survives, including the dangerous all-caps `TZO`
+(`zoNone`/`zoBilanz`/`zoGuV`) and the dual-registered
+`TZUGFeRDXMLObjectTyp` (enum + `skRecord`). Pinned by
+[Test.DPT.Rsm.Tfw.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Tfw.pas)
+(asserts the representative phantoms are gone, that NO surviving synth
+def still matches a dropped convention, and the leakage guards above);
+`TestTfwRecordFieldEnumNameConventionBindsLand` /
+`TestTfwEnumTypedFieldResolvesToPrimary` confirm real enum binding is
+unaffected.
 
-**Hypothesis B (refuted): the 1-byte id IS the type's registry primary,
-just colliding (15k-struct ambiguity).** Ground-truth `$2A` primaries:
-`TFormMain` = `$005A`, `TComponent` = `$0044`. The local/param values
-`$84`/`$10` are **not** those types' primaries at all — different
-numbering space, not a collision on the right number.
-
-**Hypothesis C (confirmed): the `$21`/`$22` `TypeIdx` low byte is a
-per-(unit,type) local type-reference index, unrelated to the global
-registry.** It is **stable within a class** but **not equal to the
-class's registry id**: on this machine's TFW build, both
-`TFormMain.Create` and `TFormMain.AfterMenuRebuild` carry `Self` lo=$84
-(stable — it is a per-(unit,type) ref, not a per-method value), while
-`TFormVBh`'s methods carry a different ref, and `TComponent` / `TObject`
-/ `TStrings` each carry their own. Crucially `$84` is **not**
-`TFormMain`'s registry primary — `FindTypeIdByName('TFormMain')` =
-`$DBD0` on this build (`$005A` on the earlier Mongo build). So the value
-is type-stable enough to look like an id, but it indexes a per-unit
-local type table the format does not expose globally, not the `$2A`
-registry. Pinned by
-[Test.DPT.Rsm.Tfw.TestTfwSelfTypeIdxIsPerProcRefNotRegistryId](../Test/Test.DPT.Rsm.Tfw.pas)
-(skips when TFW absent).
-
-**Regime boundary (NEW — the mis-resolution is large-binary-only).** The
-per-proc-ref form is NOT universal. On the **small** DebugTarget binary
-the `$21` `Self` TypeIdx slot carries the owning class's **real 2-byte
-`$2A` registry primary** (hi byte `$2E`/`$2F`, so the §4.2 structural
-lookahead takes the 2-byte fast path), and it resolves **correctly**:
-`TDerived.TouchSelf` Self = `$2E21` = `FindTypeIdByName('TDerived')`, and
-`FindClassIdxByRsmTypeId($2E21)` returns the TDerived class index. Win64
-is identical bar the hi byte (`$2E65`/`$2F91`). So on small binaries a
-local/param class TypeIdx IS statically resolvable; the per-proc-ref
-collapse (1-byte hi-truncated id) only appears in the **large-binary
-regime** once the registry id space is exhausted into 1-byte ids (TFW:
-71,183 names under ≤256 primaries). Pinned by
-[Test.DPT.Rsm.LocalsReader.TestSelfTypeIdxResolvesInCleanRegime32/64](../Test/Test.DPT.Rsm.LocalsReader.pas).
-The consumer policy (use the proc-name split for `Self`, never
-`FindClassIdxByRsmTypeId` on a local/param TypeIdx) is correct because it
-must work on **both** regimes — but the "never statically resolvable"
-rationale below is the large-binary truth, not universal.
-
-**Why `FindClassIdxByRsmTypeId` then returns plausible-but-wrong names.**
-The `$2A` registry id space in TFW is catastrophically small: **71,183
-distinct T/P type names register under only 256 distinct primary ids,
-every one ≤ `$00FF`** (the high byte is effectively always 0). That's
-~278 names per id, all colliding, and `FRsmTypeIdToClassIdx` is a plain
-last-wins dictionary. So id `$0084` resolves to whatever T/P type
-registered last at $0084 (`TLayerCollectionAccess` in this build),
-`$0010` → `TKonsEBpAct`, `$008A` → `TImageDosHeader`. The names are
-real types that happen to be the last writer of that 1-byte id — pure
-coincidence, no relation to the local's actual type.
-
-**Verdict on static resolution of a local/param `TypeIdx` → type name
-(from the `.rsm` alone):**
-* **(a) `Self`** — NOT reliably resolvable via `TypeIdx` (it works on
-  small binaries — see the regime-boundary note above — but collapses to
-  a colliding per-proc ref on large ones, so a consumer that must handle
-  both cannot trust it). The authoritative static source is the
-  **method's qualified proc name**:
-  `TFormMain.Create` → split at the last `.` before the method →
-  `Self : TFormMain`, then `FindClassByName('TFormMain')` (name-keyed,
-  unambiguous). Sound for all normal `TClass.Method` names; the only
-  edge cases are generics (`TList<TFoo>.Add` — split at the last `.`
-  outside `<>`) and `$ActRec` closure procs (no real `Self`). This is
-  the correct and reliable approach.
-* **(b) a class-typed param** like `AOwner: TComponent` — **NO reliable
-  static resolution exists from the `.rsm` alone.** The `$21`/`$22`
-  `TypeIdx` is the per-proc ref number (unusable), and the param's
-  declared type is not recorded anywhere name-resolvable. The only
-  authoritative source is the runtime VMT of the actual instance —
-  which is exactly the existing §4.2 consumer-note policy ("VMT trumps
-  RSM TypeIdx for class-instance dotted walks").
-* **(c) compiler temps** (the unnamed `.` local) — no static type is
-  recoverable; the value is a per-proc ref number into a table the
-  format does not expose.
-
-**Consumer note already in place:** §4.2's "VMT trumps RSM TypeIdx"
-note documents that the dotted-walk evaluator must NOT trust the
-`$21`/`$22` alias for class instances and must derive the class from
-the VMT (live) or the proc name (static). §6.27 is the static-viewer
-generalisation of that note: a viewer with no running process can only
-trust the proc-name split for `Self`; for class-typed params/temps it
-should show the raw id (and label it un-resolved), never route it
-through `FindClassIdxByRsmTypeId`.
-
-**MEMBER `TypeIdx` (via `FindStructByTypeIdx`) is a DIFFERENT, reliable
-space.** `FindStructByTypeIdx` matches `TRsmClassInfo.TypeIdx`, which
-`TRsmStructDiscoverer` sets to the struct's **file offset**
-(`Info.TypeIdx := UInt32(AClassNameOff/ARecordNameOff)` —
-[DPT.Rsm.StructDiscoverer.pas:316,515](DPT.Rsm.StructDiscoverer.pas)).
-File offsets are globally unique, so member-type resolution via
-`FindStructByTypeIdx` does NOT suffer the 256-id collision and is
-trustworthy — it is a third namespace, distinct from both the `$2A`
-registry primary id AND the `$21`/`$22` per-proc ref number. The three
-spaces must never be cross-looked-up.
-
-This entry is a `GAP` only in the narrow sense that the large-binary
-per-proc local type table (the hi-truncated 1-byte ref) is undecoded;
-it is effectively a **design limit** — in the large-binary regime
-class-instance local/param types are not statically resolvable from the
-`.rsm` and require the VMT, so no decoder work would close it for the
-consumer's purpose. No reader-code change is warranted: the fix belongs
-in the consumer (use proc-name split for `Self`, VMT for class params,
-raw-id for temps; never `FindClassIdxByRsmTypeId` on a local/param
-`TypeIdx`). The regime boundary and both behaviours are now pinned:
-`TestSelfTypeIdxResolvesInCleanRegime32/64` (DebugTarget clean regime)
-and `TestTfwSelfTypeIdxIsPerProcRefNotRegistryId` (TFW gap regime).
+**Remaining residual (smaller, not high-confidence-droppable).** After
+(c), what still leaks is:
+* **`T<Upper>`-named const-borrow phantoms** (`TWMNotifyRE`,
+  `TThumbButtonState`, `TIdPortList`, … carrying named `const`s) — name
+  is byte- and convention-indistinguishable from a real enum, and §6.26
+  refuted any per-record byte discriminator, so these are the
+  **irreducible** remainder. The `skRecord` kind-oracle can't safely
+  prune them either (the `TZUGFeRDXMLObjectTyp` counterexample). The
+  multi-family subset is still caught by the dup-ordinal guard.
+* **`E<Upper>` / `C<Upper>` families** (`EAplError`, `CExcel`, …) —
+  droppable by extending the convention list, but **deferred by design**
+  (codebase-specific conventions, higher false-positive risk than
+  `I*`/`P*`/Windows-struct).
+* **R2 (unit names)** and **R3 (dropped polluted enums)** as before —
+  deferred (no current repro / lesser-evil tradeoff).
+* `TTokenKind` still doubles (a `$03` plus a synthesised variant whose
+  element set only partially overlaps the `$03`).
 
 ---
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
 > sequence positions. The last number used was §6.27 (the local/param
-> `$21`/`$22` `TypeIdx` per-proc-ref vs. registry-id confusion — a
-> consumer-side mis-resolution, no reader change). §6.26 was the `$25`
+> `$21`/`$22` `TypeIdx` per-proc-ref vs. registry-id confusion) — now
+> **closed and removed**: a re-investigation refuted the last decode
+> lead (Hypothesis D — that the per-proc ref indexes the §4.17
+> `$64`/`$66` unit-use table; see the §4.2 consumer note and
+> `Test.DPT.Rsm.Tfw.TestTfwPerProcRefIsNotUnitUseTableIndex`), leaving
+> a verified **design limit** (the per-proc local type table is not in
+> the `.rsm` and the consumer doesn't need it). The per-proc-ref facts
+> and the four-hypothesis history are folded into the §4.2 consumer
+> note; nothing open remains. §6.26 was the `$25`
 > const-vs-enum-element decode signal — **closed as a refuted
 > premise**: the `$25` record carries no per-record const-vs-element
 > discriminator (enum-element and const bodies are byte-structurally

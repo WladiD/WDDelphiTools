@@ -337,6 +337,58 @@ type
     /// </summary>
     [Test]
     procedure TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
+
+    /// <summary>
+    ///   §6.27 REFUTATION PIN (closed-as-design-limit). The per-proc
+    ///   `$21`/`$22` TypeIdx low byte is a per-(unit,type) ref number,
+    ///   NOT a registry id (Hypotheses A/B/C, pinned by
+    ///   TestTfwSelfTypeIdxIsPerProcRefNotRegistryId). This pin nails the
+    ///   last decode lead — Hypothesis D: "the ref is an INDEX into the
+    ///   owning unit's §4.17 `$64`/`$66` unit-use table" — as REFUTED, so
+    ///   no decoder work could make a class-typed local/param statically
+    ///   resolvable, and §6.27 is a design limit (not an open gap). Three
+    ///   refuting facts, all computed from the loaded reader so they
+    ///   survive rebuild drift:
+    ///   <list type="number">
+    ///     <item>AOwner is TComponent in BOTH TFormMain.Create and
+    ///       TFormVBh.Create, yet its per-proc ref differs ($10 vs $66) —
+    ///       not a stable type identifier.</item>
+    ///     <item>TComponent IS present in Tfw.Main.Form's unit-use refs,
+    ///       but at an index ≠ AOwner's ref ($10).</item>
+    ///     <item>TFormMain (Self's type) is NOT in Tfw.Main.Form's
+    ///       unit-use refs at all, yet Self carries a ref ($84) — so the
+    ///       ref cannot be sourced from the import table.</item>
+    ///   </list>
+    /// </summary>
+    [Test]
+    procedure TestTfwPerProcRefIsNotUnitUseTableIndex;
+
+    /// <summary>
+    ///   §6.25 CLOSURE PIN (naming-convention phantom drop). The
+    ///   synthesised-EnumDef phantom residual on TFW was LARGE (114
+    ///   survivors), not the "handful of irreducible const-borrows" the
+    ///   older write-up implied. The phantoms cluster by
+    ///   definitively-non-enum naming convention; FilterPhantomEnumDefs
+    ///   condition (c) now drops the high-confidence ones (interface
+    ///   I&lt;Upper&gt;, pointer P&lt;Upper&gt;, leading-underscore,
+    ///   tag&lt;Upper&gt;, ALL_CAPS Windows/API typedefs). This pin verifies:
+    ///   <list type="bullet">
+    ///     <item>DROPPED: QOS_OBJECT_HDR, tagXFORM, IRichChunk,
+    ///       NET_STRING, DXGI_COLOR_SPACE_TYPE no longer surface as
+    ///       EnumDefs.</item>
+    ///     <item>NO surviving synthesised EnumDef matches the dropped
+    ///       conventions (the pass left none behind).</item>
+    ///     <item>LEAKAGE GUARDS: genuine enums survive — TPictureFormat
+    ///       (T sparse), TZO (all-caps T-prefixed — the scariest case,
+    ///       protected by the T&lt;Upper&gt; guard), and
+    ///       TZUGFeRDXMLObjectTyp (genuine enum ALSO registered skRecord,
+    ///       which is why filter (a) stays skClass-only; the stale
+    ///       TThreadPriority example is refuted — it is not skRecord on
+    ///       current TFW).</item>
+    ///   </list>
+    /// </summary>
+    [Test]
+    procedure TestTfwSynthEnumPhantomResidual;
   end;
 
 implementation
@@ -1543,6 +1595,226 @@ begin
   Assert.AreEqual<UInt32>(SelfId, SelfIdxOf('TFormMain.AfterMenuRebuild'),
     'TFormMain.Create and TFormMain.AfterMenuRebuild must carry the same ' +
     'Self per-proc ref (the ref is per-(unit,type), stable within a class).');
+end;
+
+procedure TRsmTfwTests.TestTfwPerProcRefIsNotUnitUseTableIndex;
+
+  // TypeIdx of a named register-param/local in a named proc.
+  function ParamTypeIdx(const AProc, AParam: String): UInt32;
+  var
+    PIdx, I: Integer;
+    Proc   : TRsmProc;
+  begin
+    Result := 0;
+    PIdx := FReader.FindProcByName(AProc);
+    Assert.IsTrue(PIdx >= 0, AProc + ' not found in TFW procs');
+    Proc := FReader.Procs[PIdx];
+    for I := 0 to Proc.Locals.Count - 1 do
+      if SameText(Proc.Locals[I].Name, AParam) then
+        Exit(Proc.Locals[I].TypeIdx);
+    Assert.Fail(Format('%s has no param/local named %s', [AProc, AParam]));
+  end;
+
+  // Concatenated 0-based index of the first uukType ref named ATypeName
+  // among all unit-use segments whose IMPORTING unit is AUnit; -1 if
+  // absent (concatenated across the unit's segments in stream order --
+  // the natural "table index" Hyp D would require).
+  function UnitUseTypeIndex(const AUnit, ATypeName: String): Integer;
+  var
+    Segs: IList<TRsmUnitUseSegment>;
+    I, J: Integer;
+    Seg : TRsmUnitUseSegment;
+    SrcU: String;
+    Ctr : Integer;
+  begin
+    Result := -1;
+    Ctr := 0;
+    Segs := FReader.UnitUseSegments;
+    for I := 0 to Segs.Count - 1 do
+    begin
+      Seg := Segs[I];
+      if Seg.Refs = nil then Continue;
+      SrcU := '';
+      if (Seg.SourceFileIdx >= 0) and
+         (Seg.SourceFileIdx < FReader.SourceFiles.Count) then
+        SrcU := FReader.SourceFiles[Seg.SourceFileIdx].UnitName;
+      if not SameText(SrcU, AUnit) then Continue;
+      for J := 0 to Seg.Refs.Count - 1 do
+        if Seg.Refs[J].Kind = uukType then
+        begin
+          if SameText(Seg.Refs[J].Name, ATypeName) then Exit(Ctr);
+          Inc(Ctr);
+        end;
+    end;
+  end;
+
+var
+  AOwnerMain, AOwnerVBh, SelfMain: UInt32;
+  TComponentIdx, TFormMainIdx    : Integer;
+begin
+  if ShouldSkip then Exit;
+
+  AOwnerMain := ParamTypeIdx('TFormMain.Create', 'AOwner');
+  AOwnerVBh  := ParamTypeIdx('TFormVBh.Create', 'AOwner');
+  SelfMain   := ParamTypeIdx('TFormMain.Create', 'Self');
+
+  // (1) Same type (TComponent) in both procs, yet the per-proc ref
+  // differs -> it is not any stable (global/per-type) identifier.
+  Assert.AreNotEqual<UInt32>(AOwnerMain, AOwnerVBh,
+    Format('AOwner is TComponent in BOTH TFormMain.Create and ' +
+           'TFormVBh.Create, yet its per-proc ref differs ($%x vs $%x). ' +
+           'A unit-use/type table index would be stable for the same ' +
+           'type; differing values confirm a per-proc number (Hyp D ' +
+           'refuted).', [AOwnerMain, AOwnerVBh]));
+
+  // (2) TComponent IS an import of Tfw.Main.Form (so it has a unit-use
+  // index), but that index is NOT AOwner's ref -> the ref is not the
+  // §4.17 table index for the param's type.
+  TComponentIdx := UnitUseTypeIndex('Tfw.Main.Form', 'TComponent');
+  Assert.IsTrue(TComponentIdx >= 0,
+    'TComponent must appear in Tfw.Main.Form''s §4.17 unit-use type refs ' +
+    '(it is an import of that unit) for this refutation to be meaningful.');
+  Assert.AreNotEqual<Integer>(TComponentIdx, Integer(AOwnerMain),
+    Format('Hyp D refuted: AOwner''s per-proc ref ($%x = %d) does NOT ' +
+           'equal TComponent''s index (%d) in Tfw.Main.Form''s unit-use ' +
+           'type refs.', [AOwnerMain, AOwnerMain, TComponentIdx]));
+
+  // (3) TFormMain (Self's type) is NOT an import of its own unit, so it
+  // has no unit-use index at all -- yet Self carries a non-zero ref.
+  // The ref therefore cannot be sourced from the import table; it comes
+  // from the un-decoded per-proc local type table (the design limit).
+  TFormMainIdx := UnitUseTypeIndex('Tfw.Main.Form', 'TFormMain');
+  Assert.AreEqual<Integer>(-1, TFormMainIdx,
+    'TFormMain must NOT appear in its own unit''s (Tfw.Main.Form) ' +
+    'unit-use import refs -- it is the unit''s own type. If it does, the ' +
+    '§4.17 decode changed; revisit this refutation.');
+  Assert.AreNotEqual<UInt32>(0, SelfMain,
+    Format('TFormMain.Create Self carries a non-zero per-proc ref ($%x) ' +
+           'even though TFormMain is absent from the unit-use table -- so ' +
+           'the ref is sourced from the un-decoded per-proc local type ' +
+           'table, not the §4.17 import table (Hyp D refuted).', [SelfMain]));
+end;
+
+procedure TRsmTfwTests.TestTfwSynthEnumPhantomResidual;
+const
+  Dropped: array[0..4] of String = (
+    'QOS_OBJECT_HDR', 'tagXFORM', 'IRichChunk', 'NET_STRING',
+    'DXGI_COLOR_SPACE_TYPE');
+
+  function EnumDefIndex(const AName: String): Integer;
+  var
+    Defs: IList<TRsmEnumDef>;
+    I   : Integer;
+  begin
+    Result := -1;
+    Defs := FReader.EnumDefs;
+    for I := 0 to Defs.Count - 1 do
+      if SameText(Defs[I].TypeName, AName) then Exit(I);
+  end;
+
+  function ClassKind(const AName: String; out AFound: Boolean): TRsmStructKind;
+  var
+    Cx: Integer;
+  begin
+    Result := skClass;
+    Cx := FReader.FindClassByName(AName);
+    AFound := Cx >= 0;
+    if AFound then Result := FReader.Classes[Cx].Kind;
+  end;
+
+  // Mirror of Reader.pas IsNonEnumTypeName -- the conventions condition
+  // (c) drops. Used both to assert the dropped names are gone AND that
+  // NO survivor still matches (the pass left none behind).
+  function MatchesDroppedConvention(const AName: String): Boolean;
+  var
+    K        : Integer;
+    AllCaps  : Boolean;
+    HasLetter: Boolean;
+  begin
+    Result := False;
+    if Length(AName) < 2 then Exit;
+    if (AName[1] = 'T') and CharInSet(AName[2], ['A'..'Z']) then Exit;
+    if (AName[1] = 'I') and CharInSet(AName[2], ['A'..'Z']) then Exit(True);
+    if (AName[1] = 'P') and CharInSet(AName[2], ['A'..'Z']) then Exit(True);
+    if AName[1] = '_' then Exit(True);
+    if (Length(AName) >= 4) and (AName[1] = 't') and (AName[2] = 'a') and
+       (AName[3] = 'g') and CharInSet(AName[4], ['A'..'Z']) then Exit(True);
+    if Length(AName) >= 4 then
+    begin
+      AllCaps := True;
+      HasLetter := False;
+      for K := 1 to Length(AName) do
+        if CharInSet(AName[K], ['A'..'Z']) then HasLetter := True
+        else if not CharInSet(AName[K], ['0'..'9', '_']) then
+        begin AllCaps := False; Break; end;
+      if AllCaps and HasLetter then Exit(True);
+    end;
+  end;
+
+var
+  Defs   : IList<TRsmEnumDef>;
+  I      : Integer;
+  Zug    : Integer;
+  Found  : Boolean;
+  Kind   : TRsmStructKind;
+  Leaked : String;
+begin
+  if ShouldSkip then Exit;
+  Defs := FReader.EnumDefs;
+
+  // (1) The representative phantoms are DROPPED -- no longer EnumDefs.
+  for I := Low(Dropped) to High(Dropped) do
+    Assert.AreEqual<Integer>(-1, EnumDefIndex(Dropped[I]),
+      Format('§6.25 closure: phantom EnumDef "%s" must be dropped by the ' +
+             'naming-convention pass (condition (c)). Still present => the ' +
+             'drop regressed or the convention no longer matches it.',
+             [Dropped[I]]));
+
+  // (2) No SURVIVING synthesised EnumDef still matches a dropped
+  // convention -- the pass left none behind. (Real $03 enums are never
+  // synthesised, and T<Upper> names are protected, so any match here is
+  // a phantom the pass should have removed.)
+  Leaked := '';
+  for I := 0 to Defs.Count - 1 do
+    if Defs[I].Synthesized and MatchesDroppedConvention(Defs[I].TypeName) then
+    begin
+      Leaked := Defs[I].TypeName;
+      Break;
+    end;
+  Assert.AreEqual('', Leaked,
+    Format('§6.25 closure: a synthesised EnumDef ("%s") still matches a ' +
+           'dropped naming convention -- the (c) pass missed it.', [Leaked]));
+
+  // (3) LEAKAGE GUARDS -- genuine enums must survive.
+  // TPictureFormat: a plain T-prefixed sparse enum.
+  Assert.IsTrue(EnumDefIndex('TPictureFormat') >= 0,
+    'Leakage guard: genuine sparse enum TPictureFormat (pfBMP/pfGIF/...) ' +
+    'must survive -- the T<Upper> protection failed if it is gone.');
+  // TZO: all-caps T-prefixed real enum (zoNone/zoBilanz/zoGuV) -- the
+  // scariest case, caught by the ALL-CAPS rule WITHOUT the T<Upper>
+  // guard. Its survival proves the guard order is correct.
+  Assert.IsTrue(EnumDefIndex('TZO') >= 0,
+    'Leakage guard: all-caps T-prefixed enum TZO must survive -- if it is ' +
+    'gone, the ALL-CAPS rule fired before the T<Upper> protection.');
+
+  // (4) skRecord kind-oracle stays UNSAFE: TZUGFeRDXMLObjectTyp is a
+  // genuine large enum ALSO registered skRecord. It survives because (c)
+  // protects T<Upper> -- this is why filter (a) is skClass-only (the
+  // stale TThreadPriority example is refuted below).
+  Zug := EnumDefIndex('TZUGFeRDXMLObjectTyp');
+  Assert.IsTrue(Zug >= 0,
+    'Leakage guard: genuine enum TZUGFeRDXMLObjectTyp must survive ' +
+    '(T<Upper>-protected) despite also being skRecord.');
+  Assert.IsTrue((Defs[Zug].Elements <> nil) and (Defs[Zug].Elements.Count >= 50),
+    'TZUGFeRDXMLObjectTyp must carry its large enum element set (was 131).');
+  Kind := ClassKind('TZUGFeRDXMLObjectTyp', Found);
+  Assert.IsTrue(Found and (Kind = skRecord),
+    'TZUGFeRDXMLObjectTyp must ALSO be skRecord in FClasses -- the dual ' +
+    'registration that makes a skRecord-based phantom drop unsafe.');
+  Kind := ClassKind('TThreadPriority', Found);
+  Assert.IsFalse(Found and (Kind = skRecord),
+    'TThreadPriority must NOT be skRecord on current TFW (the old ' +
+    'FilterPhantomEnumDefs comment example is stale).');
 end;
 
 initialization

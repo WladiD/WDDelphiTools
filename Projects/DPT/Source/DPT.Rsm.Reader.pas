@@ -645,10 +645,15 @@ procedure TRsmReader.FilterPhantomEnumDefs;
 //   (a) its type name is a real VMT class (skClass) -- a class is not an
 //       enum. This catches class phantoms whose borrowed constants are
 //       NOT in any $03 (named consts / sparse-enum elements), which (b)
-//       can't see. skClass only, never skRecord: the record-discovery
-//       heuristic and the property linker mis-register genuine enum names
-//       (TThreadPriority, TUnicodeBreak) as skRecord, and a real enum is
-//       never a class regardless.
+//       can't see. skClass ONLY, never skRecord: a genuine enum can ALSO
+//       be registered skRecord by the record-discovery heuristic, so a
+//       skRecord drop would delete real enums. Concrete TFW
+//       counterexample: TZUGFeRDXMLObjectTyp is a real 131-element enum
+//       (xmlNone, xmlC...) that is also skRecord in FClasses -- dropping
+//       skRecord-named synth defs kills it. (The earlier rationale here
+//       cited TThreadPriority/TUnicodeBreak; that example is refuted --
+//       neither is skRecord on current TFW. The risk is real, the
+//       example was wrong. See §6.25 re-investigation.)
 //   (b) all its elements map to ONE $03-sourced enum. The $03 ENUM_DEF is
 //       the authoritative enum oracle (RE probe, §6.25: every contiguous
 //       enum has exactly one $03, no class/record has any). A different
@@ -667,9 +672,60 @@ procedure TRsmReader.FilterPhantomEnumDefs;
 // HandleEnumDefRecord (variable header padding) that made DPT.rsm's 730
 // $03 enums parse at all; before it, this filter had nothing to dedup
 // against (every DPT enum was synthesised).
+
+  // §6.25 closure (c). True when ANAME follows a definitively-non-enum
+  // naming convention, so a SYNTHESISED EnumDef carrying that name is a
+  // phantom (the $25 enum-constant run got flushed under a non-enum $2A
+  // -- an interface, a pointer alias, or a C/Windows struct). Genuine
+  // Delphi enums are T<Upper> WITHOUT exception on the corpus, so that
+  // shape is protected FIRST (TZO, TLandTyp, TZUGFeRDXMLObjectTyp). The
+  // matched conventions are the high-confidence ones only; E*/C* class
+  // families are intentionally left (codebase-specific, higher FP risk)
+  // and remain fenced by the dup-ordinal guard.
+  function IsNonEnumTypeName(const AName: String): Boolean;
+  var
+    K        : Integer;
+    AllCaps  : Boolean;
+    HasLetter: Boolean;
+  begin
+    Result := False;
+    if Length(AName) < 2 then Exit;
+    // Protect every genuine enum: T<Upper>. Must come first so all-caps
+    // T-names (TZO) never fall through to the ALL-CAPS rule below.
+    if (AName[1] = 'T') and CharInSet(AName[2], ['A'..'Z']) then Exit;
+    // Interface alias I<Upper> (IRichChunk, ISpellChecker).
+    if (AName[1] = 'I') and CharInSet(AName[2], ['A'..'Z']) then Exit(True);
+    // Pointer alias P<Upper> (PCLSID, PBlobRef). PtrInt (P + lowercase)
+    // is intentionally NOT matched -- stay conservative.
+    if (AName[1] = 'P') and CharInSet(AName[2], ['A'..'Z']) then Exit(True);
+    // C-translated struct with a leading underscore (_QOS_SD_MODE).
+    if AName[1] = '_' then Exit(True);
+    // Windows struct tag<Upper> (tagXFORM, tagMSG).
+    if (Length(AName) >= 4) and (AName[1] = 't') and (AName[2] = 'a') and
+       (AName[3] = 'g') and CharInSet(AName[4], ['A'..'Z']) then Exit(True);
+    // ALL-CAPS API typedef: every char A-Z/0-9/_, >=1 letter, len >= 4
+    // (QOS_OBJECT_HDR, NET_STRING, GETTEXTEX, D3DVALUE). T<Upper> is
+    // already excluded above.
+    if Length(AName) >= 4 then
+    begin
+      AllCaps := True;
+      HasLetter := False;
+      for K := 1 to Length(AName) do
+        if CharInSet(AName[K], ['A'..'Z']) then
+          HasLetter := True
+        else if not CharInSet(AName[K], ['0'..'9', '_']) then
+        begin
+          AllCaps := False;
+          Break;
+        end;
+      if AllCaps and HasLetter then Exit(True);
+    end;
+  end;
+
 var
   Defs       : IList<TRsmEnumDef>;
   ElemToType : IKeyValue<String, String>;  // lc element name -> owning $03 type name
+  Names03    : IKeyValue<String, Boolean>; // lc names of $03-sourced enums
   I, J, Ci   : Integer;
   Lc, Common : String;
   AllMapped  : Boolean;
@@ -678,15 +734,21 @@ begin
   Defs := FScanner.EnumDefs;
   // Map every $03-sourced element name to its owning type (first-wins,
   // stable). Synthesised defs are excluded -- only $03 is authoritative.
+  // Also collect the $03-sourced TYPE names so the (c) name-convention
+  // drop never removes a synth def that shadows a real $03 enum.
   ElemToType := Collections.NewPlainKeyValue<String, String>;
+  Names03    := Collections.NewPlainKeyValue<String, Boolean>;
   for I := 0 to Defs.Count - 1 do
     if (not Defs[I].Synthesized) and (Defs[I].Elements <> nil) then
+    begin
+      Names03[LowerCase(Defs[I].TypeName)] := True;
       for J := 0 to Defs[I].Elements.Count - 1 do
       begin
         Lc := LowerCase(Defs[I].Elements[J].Name);
         if not ElemToType.ContainsKey(Lc) then
           ElemToType[Lc] := Defs[I].TypeName;
       end;
+    end;
   // Drop a synthesised def whose elements ALL map to one and the same
   // $03 type. Two sub-cases, both redundant against the authoritative
   // $03 def and therefore removed:
@@ -704,12 +766,27 @@ begin
     // a class is never an enum. Catches class phantoms that borrowed
     // NON-$03 constants (named consts / sparse-enum elements), which the
     // $03-coverage rule below cannot see (no $03 to map them to) -- e.g.
-    // TIdSchedulerOfThreadDefault. skClass only (never skRecord: the
-    // record heuristic / property linker mis-register genuine enum names
-    // as skRecord -- TThreadPriority/TUnicodeBreak -- and a real enum is
-    // never a class anyway).
+    // TIdSchedulerOfThreadDefault. skClass only (never skRecord: a real
+    // enum can ALSO be discovered as skRecord, so a skRecord drop would
+    // delete it -- e.g. TFW's TZUGFeRDXMLObjectTyp, a 131-element enum
+    // also registered skRecord; §6.25). The big non-FClasses phantom
+    // residual (P*/I*/ALL_CAPS Windows-struct names) is handled by (c)
+    // below via a naming-convention drop.
     Ci := FindClassByName(Defs[I].TypeName);
     if (Ci >= 0) and (FScanner.Classes[Ci].Kind = skClass) then
+    begin
+      Defs.Delete(I);
+      Continue;
+    end;
+    // (c) §6.25 closure: a synth def whose NAME follows a
+    // definitively-non-enum convention (interface/pointer alias, C /
+    // Windows struct) is a phantom. These borrowed $25 records under a
+    // non-enum $2A; most are NOT in FClasses (so (a) can't see them) and
+    // carry non-$03 constants (so (b) can't either). Guards: T<Upper>
+    // names are never matched (IsNonEnumTypeName protects them), and a
+    // name shadowing a real $03 enum is never dropped.
+    if IsNonEnumTypeName(Defs[I].TypeName) and
+       not Names03.ContainsKey(LowerCase(Defs[I].TypeName)) then
     begin
       Defs.Delete(I);
       Continue;
