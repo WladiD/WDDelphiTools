@@ -28,6 +28,7 @@ type
     procedure DoTestNonFPrefixClassFieldsDiscovered(AUse64Bit: Boolean);
     procedure DoTestSimpleRecordHeaderFieldCount(AUse64Bit: Boolean);
     procedure DoTest25NoConstVsEnumElementDiscriminator(AUse64Bit: Boolean);
+    procedure DoTestProcDeclaringUnitResolves(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -362,6 +363,45 @@ type
     [Test]
     procedure TestGlobalsRegistered64;
     {$ENDIF}
+
+    /// §4.18 POSITIVE pin (SUPERSEDES the former §6.28 negative result).
+    /// The `.rsm` DOES carry a proc -> declaring-unit anchor: the
+    /// per-unit `$70` source-file introducer that immediately precedes
+    /// each unit's proc block. The prior round wrongly concluded "no
+    /// anchor" because HandleSourceFileIntroRecord REJECTED the program's
+    /// own source-file record -- the program/package main file is emitted
+    /// as a FULL-path `.dpr` record followed by `$00 $65` (used-unit
+    /// list) rather than the `.pas`/`$64` shape an imported unit uses --
+    /// so the cursor froze on the last imported `.pas`
+    /// (DebugTarget.EnumGamma) and mis-attributed every program proc.
+    /// Once the `.dpr`/`$65` introducer is accepted the cursor advances
+    /// onto DebugTarget and TargetProcedure resolves CORRECTLY to
+    /// `DebugTarget` (NOT the confident-wrong `DebugTarget.EnumGamma`).
+    /// Asserts both the positive resolution and the negative guard.
+    [Test]
+    procedure TestProcDeclaringUnitResolves32;
+    /// Win64 sibling of TestProcDeclaringUnitResolves32: same $70
+    /// `.dpr`/`$65` introducer shape, same TargetProcedure ->
+    /// DebugTarget resolution, against the Win64 fixture.
+    [Test]
+    procedure TestProcDeclaringUnitResolves64;
+    /// Per-statement line RVAs are NOT stored in the proc-entry address
+    /// wire form. Ground truth from DebugTarget.map: TargetProcedure
+    /// (declaring unit DebugTarget) has .text line entries 18 @ $DA004
+    /// (proc entry), 19 @ $DA00A, 20 @ $DA032. Encoding each as the
+    /// Win32 proc-addr wire form (VA shl 4) or $07 (VA = offset +
+    /// $401000) and scanning the whole .rsm buffer: ONLY the proc-entry
+    /// RVA $DA004 is present (it is the `$28` record's own address
+    /// payload); the per-statement RVAs are absent IN THAT ENCODING.
+    /// This pins a NARROW fact -- the line table, if present, is NOT a
+    /// run of proc-entry address tokens (it would be delta/RLE-encoded
+    /// in a dedicated section) -- and is the §6.29 open item. It does
+    /// NOT prove "no source navigation in the .rsm": the proc ->
+    /// declaring-unit edge IS recovered (see the sibling positive pin
+    /// and §4.18), and per-Embarcadero docs the address->line table is
+    /// present in some encoding still to be decoded.
+    [Test]
+    procedure TestRsmProcEntryRvaNotInLineTableWireForm32;
   end;
 
 implementation
@@ -374,7 +414,8 @@ uses
   mormot.core.collections,
 
   DPT.Rsm.Model,
-  DPT.Rsm.Scanner;
+  DPT.Rsm.Scanner,
+  DPT.Rsm.Reader;
 
 function TRsmScannerTests.ResolveExePath(AUse64Bit: Boolean): String;
 var
@@ -2304,6 +2345,150 @@ begin
   end;
 end;
 {$ENDIF}
+
+procedure TRsmScannerTests.DoTestProcDeclaringUnitResolves(AUse64Bit: Boolean);
+// §4.18 positive pin -- see the [Test] docstring. Loads the fixture
+// through the reader facade and asserts DeclaringUnitOfProcNamed
+// resolves the program proc TargetProcedure to its real declaring unit
+// `DebugTarget` (the program / .dpr main file), NOT the confident-wrong
+// `DebugTarget.EnumGamma` the former §6.28 cursor froze on. Also guards
+// that an import thunk (no Delphi declaring unit) yields the empty
+// string, so the widening can't silently attribute thunks to the
+// trailing program unit.
+var
+  R       : TRsmReader;
+  Unit_   : String;
+  Procs   : IList<TRsmProc>;
+  I       : Integer;
+  Probe   : String;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(AUse64Bit));
+    if R.Scanner.Sz = 0 then
+      Assert.Pass('RSM fixture missing -- skipped.');
+
+    Probe := 'TargetProcedure';      // declared in DebugTarget.dpr
+    Unit_ := R.DeclaringUnitOfProcNamed(Probe);
+
+    Assert.AreEqual('DebugTarget', Unit_,
+      Probe + ' must resolve to its real declaring unit DebugTarget ' +
+      '(the .dpr program main file), via the $70/$65 full-path ' +
+      'introducer §4.18 now accepts.');
+    Assert.AreNotEqual('DebugTarget.EnumGamma', Unit_,
+      'Must NOT be the trailing uses-introducer DebugTarget.EnumGamma -- ' +
+      'that was the confident-wrong former §6.28 result.');
+
+    // Leakage guard: ANY proc with SourceFileIdx < 0 (e.g. an import
+    // thunk that precedes the first $70 introducer) must resolve to ''
+    // -- the widening must never attribute such a proc to a unit. We
+    // do not require one to exist (DebugTarget may have none); we
+    // require that wherever one exists it resolves empty.
+    Procs := R.Procs;
+    for I := 0 to Procs.Count - 1 do
+      if Procs[I].SourceFileIdx < 0 then
+        Assert.AreEqual('', R.DeclaringUnitOfProc(I),
+          'A proc with SourceFileIdx < 0 must resolve to the empty ' +
+          'string, not be attributed to a unit.');
+    // Out-of-range index must also be empty (API robustness).
+    Assert.AreEqual('', R.DeclaringUnitOfProc(-1),
+      'DeclaringUnitOfProc(-1) must be empty.');
+    Assert.AreEqual('', R.DeclaringUnitOfProc(Procs.Count + 1000),
+      'DeclaringUnitOfProc(out-of-range) must be empty.');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestProcDeclaringUnitResolves32;
+begin
+  DoTestProcDeclaringUnitResolves(False);
+end;
+
+procedure TRsmScannerTests.TestProcDeclaringUnitResolves64;
+begin
+  DoTestProcDeclaringUnitResolves(True);
+end;
+
+procedure TRsmScannerTests.TestRsmProcEntryRvaNotInLineTableWireForm32;
+// §6.29 narrow pin -- see the [Test] docstring in the interface. Pins
+// that per-statement line RVAs are NOT stored as proc-entry address
+// tokens (the line table, if present, is delta/RLE-encoded in a
+// dedicated section, not a token run). Ground truth from
+// DebugTarget.map (segment .text), block
+// "Line numbers for DebugTarget(...DebugTarget.dpr)":
+//     18 0001:000DA004   (= TargetProcedure entry)
+//     19 0001:000DA00A
+//     20 0001:000DA032
+// These are .text segment offsets. The Win32 proc-address wire form is
+// (VA shl 4) or $07 with VA = offset + $401000 (image base + .text
+// RVA). We search the whole .rsm byte buffer for each encoded DWORD.
+// The proc-ENTRY RVA is present (it is the $28 record's own address
+// payload, $DB0047 LE = 47 00 DB 04); the two per-statement RVAs are
+// absent. NOTE: these are fixture-build offsets, not .rsm file offsets;
+// they are as stable as the rebuilt fixture (same class as the §6.6.1
+// decoded-VA pins) and are paired with the source line numbers, which
+// is the relationship being pinned.
+const
+  TextBase      = UInt32($401000);  // Win32 image base + .text RVA
+  EntryOffset   = UInt32($000DA004); // line 18 -- proc entry
+  Line19Offset  = UInt32($000DA00A);
+  Line20Offset  = UInt32($000DA032);
+var
+  S: TRsmScanner;
+
+  function EncodedFound(AOffset: UInt32): Boolean;
+  var
+    DW : UInt32;
+    B0, B1, B2, B3: Byte;
+    P  : NativeInt;
+  begin
+    DW := (UInt32(AOffset + TextBase) shl 4) or $07;
+    B0 := DW and $FF;
+    B1 := (DW shr 8) and $FF;
+    B2 := (DW shr 16) and $FF;
+    B3 := (DW shr 24) and $FF;
+    Result := False;
+    P := 0;
+    while P + 3 < S.Sz do
+    begin
+      if (S.ByteAt(P) = B0) and (S.ByteAt(P + 1) = B1) and
+         (S.ByteAt(P + 2) = B2) and (S.ByteAt(P + 3) = B3) then
+        Exit(True);
+      Inc(P);
+    end;
+  end;
+
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    if S.Sz = 0 then
+      Assert.Pass('RSM fixture missing -- skipped.');
+
+    // The proc-entry RVA IS in the .rsm (the $28 record's address slot).
+    Assert.IsTrue(EncodedFound(EntryOffset),
+      'TargetProcedure entry RVA $DA004 must be present in the .rsm ' +
+      '(it is the $28 proc record address payload).');
+
+    // The per-statement line RVAs are NOT stored in the proc-entry
+    // address wire form. This pins a NARROW fact (§6.29): the line
+    // table, if present, is NOT a run of (VA shl 4) or $07 proc-entry
+    // tokens -- it would be delta/RLE-encoded in a dedicated section.
+    // Absence in THIS encoding is not absence in the file. (The
+    // proc -> declaring-unit edge IS recovered; see §4.18 and the
+    // sibling positive pin.)
+    Assert.IsFalse(EncodedFound(Line19Offset),
+      'Line-19 RVA $DA00A must NOT appear in the proc-entry address ' +
+      'wire form -- a line table is delta-encoded, not a token run. ' +
+      'See §6.29.');
+    Assert.IsFalse(EncodedFound(Line20Offset),
+      'Line-20 RVA $DA032 must NOT appear in the proc-entry address ' +
+      'wire form -- see above (§6.29).');
+  finally
+    S.Free;
+  end;
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmScannerTests);

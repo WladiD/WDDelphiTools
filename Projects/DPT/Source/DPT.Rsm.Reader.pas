@@ -222,6 +222,35 @@ type
     /// </summary>
     function  UnitsImporting(const ATypeName: String): TArray<String>;
     /// <summary>
+    ///   §4.18: the declaring unit of the proc at index
+    ///   <paramref name="AProcIdx"/> in <see cref="Procs"/>, resolved
+    ///   through the proc's <c>SourceFileIdx</c> foreign key into
+    ///   <see cref="SourceFiles"/>. Each unit's proc block in the RSM
+    ///   symbol stream is immediately preceded by exactly one <c>$70</c>
+    ///   source-file introducer naming that unit's own source file
+    ///   (a <c>.pas</c>/<c>.inc</c> for a unit, the full-path
+    ///   <c>.dpr</c>/<c>.dpk</c> for the program/package main file);
+    ///   the scanner stamps the live introducer cursor onto every proc
+    ///   it creates. Returns the empty string for a proc whose
+    ///   <c>SourceFileIdx &lt; 0</c> — i.e. one that precedes the first
+    ///   introducer, which in practice is a linker-synthesised import
+    ///   thunk (<c>MoveFile</c>, <c>CloseHandle</c>, …) that genuinely
+    ///   has no Delphi declaring unit in the <c>.rsm</c>. Out-of-range
+    ///   indices also return the empty string. This SUPERSEDES the
+    ///   former §6.28 "no proc → declaring-unit edge" negative result,
+    ///   which was wrong: it had rejected the program's own
+    ///   <c>.dpr</c> introducer and so froze the cursor on the last
+    ///   imported unit.
+    /// </summary>
+    function  DeclaringUnitOfProc(AProcIdx: Integer): String;
+    /// <summary>
+    ///   Convenience overload of <see cref="DeclaringUnitOfProc"/> that
+    ///   resolves a proc by (case-insensitive) name first. Returns the
+    ///   empty string when the name is unknown or the proc has no
+    ///   declaring unit (see the index overload).
+    /// </summary>
+    function  DeclaringUnitOfProcNamed(const AProcName: String): String;
+    /// <summary>
     ///   Optional progress callback fired by the scanner at each
     ///   major parsing phase. Lets callers surface what the parser
     ///   is doing on very large RSM files, where a single phase can
@@ -417,6 +446,35 @@ begin
   SetLength(Result, Hits.Count);
   for I := 0 to Hits.Count - 1 do
     Result[I] := Hits[I];
+end;
+
+function TRsmReader.DeclaringUnitOfProc(AProcIdx: Integer): String;
+// §4.18: resolve a proc to its declaring unit through the
+// SourceFileIdx foreign key the scanner stamped from the live $70
+// source-file introducer cursor. Empty string for thunks (SourceFileIdx
+// < 0) and out-of-range indices.
+var
+  Procs   : IList<TRsmProc>;
+  SrcFiles: IList<TRsmSourceFile>;
+  Idx     : Integer;
+begin
+  Result := '';
+  Procs := FScanner.Procs;
+  if (Procs = nil) or (AProcIdx < 0) or (AProcIdx >= Procs.Count) then Exit;
+  Idx := Procs[AProcIdx].SourceFileIdx;
+  SrcFiles := FScanner.SourceFiles;
+  if (SrcFiles = nil) or (Idx < 0) or (Idx >= SrcFiles.Count) then Exit;
+  Result := SrcFiles[Idx].UnitName;
+end;
+
+function TRsmReader.DeclaringUnitOfProcNamed(const AProcName: String): String;
+var
+  Idx: Integer;
+begin
+  Result := '';
+  if AProcName = '' then Exit;
+  if not FScanner.ProcByName.TryGetValue(LowerCase(AProcName), Idx) then Exit;
+  Result := DeclaringUnitOfProc(Idx);
 end;
 
 /// <summary>

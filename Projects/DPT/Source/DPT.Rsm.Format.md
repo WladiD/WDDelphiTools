@@ -156,9 +156,10 @@ Tag constants live in [`TRsmTag`](DPT.Rsm.Model.pas).
 | `$31`  | `PROPERTY_TAG`      | Property declaration (read-source target); sits in the same Format-A block as the class's $2C records  |
 | `$63`  | `SCOPE_END`         | Closes the current proc scope (only effective after at least one local-shaped record has been seen)     |
 | `$64`  | `UNIT_USE_INTRO`    | Opens a cross-unit symbol-import segment (`$64 NL UnitName $00 $00 $00`); see §4.17                     |
+| `$65`  | `USED_UNIT_LIST`    | Opens a used-unit list. Follows the program/package main file's `$70` `.dpr`/`.dpk` introducer in place of `$64`; accepting it anchors the program module's procs to the program unit — see §4.18 |
 | `$66`  | `UNIT_USE_TYPE`     | Imported type reference inside a `$64` segment (`$66 NL TypeName <RVA: u32 LE>`); see §4.17             |
 | `$67`  | `UNIT_USE_SYMBOL`   | Imported symbol reference inside a `$64` segment (`$67 NL SymbolName <RVA: u32 LE>`); see §4.17         |
-| `$70`  | `UNIT_USE_FILE`     | Source-file record (`$70 NL FileName <RVA: u32 LE>`); in practice the **introducer** of a unit's `$64` import block, decoded into the `SourceFiles` table — see §4.17                |
+| `$70`  | `UNIT_USE_FILE`     | Source-file record (`$70 NL FileName <RVA: u32 LE>`); the **introducer** of a unit's uses block (`$64` for an imported `.pas`/`.inc`, `$65` for the program's full-path `.dpr`/`.dpk`), decoded into the `SourceFiles` table and used as the proc → declaring-unit anchor — see §4.17 / §4.18 |
 
 `$28 PROC_TAG`, `$25`, `$03`, `$2A`, `$2C`, `$31` and the `$64`
 unit-use family are valid both inside and outside a proc scope —
@@ -1737,6 +1738,20 @@ inner entry of an open `$64` segment. `HandleUnitUseIntroRecord`
 never mis-decodes a standalone `$70` because there is no open `$64`
 before it — the dispatcher walks the introducer's bytes singly.
 
+**Proc → declaring-unit IS recoverable from the `$70` introducer
+cursor — see §4.18 (this supersedes the former §6.28 negative
+result).** An earlier round concluded the cursor was unusable
+because it "froze" on the trailing imported `.pas`
+(`DebugTarget.EnumGamma`) and mis-attributed every program proc.
+That was a **decode bug, not a format limit**: the program's own
+source file is emitted as a full-path `.dpr` `$70` record followed
+by `$00 $65` (used-unit list), a shape the handler rejected (wrong
+extension + `$65` instead of `$64` trailer), so the cursor never
+advanced onto the program module. Once the `.dpr`/`$65` introducer
+is accepted the cursor lands on `DebugTarget` and the procs resolve
+correctly. The full decode and the supporting evidence live in
+§4.18.
+
 Decoders live in
 [`TRsmScanner.HandleUnitUseIntroRecord`](DPT.Rsm.Scanner.pas) (the
 `$64` segments) and
@@ -1776,8 +1791,136 @@ Pinned by:
   — `Reader.UnitsDeclaringType('Boolean')` returns a deduplicated
   non-empty list of declaring units.
 * [`Test.DPT.Rsm.Model.TestTagConstants`](../Test/Test.DPT.Rsm.Model.pas)
-  — `UNIT_USE_INTRO` / `UNIT_USE_TYPE` / `UNIT_USE_SYMBOL` /
-  `UNIT_USE_FILE` byte values pinned alongside the rest of `TRsmTag`.
+  — `UNIT_USE_INTRO` / `USED_UNIT_LIST` / `UNIT_USE_TYPE` /
+  `UNIT_USE_SYMBOL` / `UNIT_USE_FILE` byte values pinned alongside the
+  rest of `TRsmTag`.
+
+The proc → declaring-unit anchor that this same `$70` cursor provides
+is documented and pinned in §4.18.
+
+### 4.18 `$70` source-file introducer as the proc → declaring-unit anchor
+
+**Embarcadero's docs are right that the `.rsm` carries source-level
+information** (it is the *Remote Symbol File* deployed in place of the
+`.map` for remote debugging). A prior round concluded "the `.rsm` has
+no proc → declaring-unit edge" and "source navigation lives only in
+the `.map`" — **both claims were wrong** and are corrected here. The
+edge IS present; it is the same `$70` source-file introducer §4.17
+decodes, scoped to the proc stream.
+
+#### Stream layout
+
+The symbol stream is partitioned **per compilation unit**. Each unit's
+block of records (its `$28` procs, `$2A` types, `$25` consts, …) is
+immediately preceded by exactly **one `$70` source-file introducer**
+naming that unit's own source file, then a uses/used-unit list
+(`$35` module-dependency records) before the procs begin:
+
+```
+$70 <NL> <ThisUnit'sSourceFile> <RVA:4 LE> $00 (\$64|\$65)   ; introducer
+  ... uses-block ($35 module records / $64 import segments) ...
+$28 <NL> <ProcName> <addr payload> ...                       ; procs of ThisUnit
+$28 ...
+```
+
+Two introducer flavours, distinguished by extension **and** the
+trailing opener byte:
+
+| Source file | Extension | Trailer opener | Recorded by |
+|---|---|---|---|
+| an imported unit | `.pas` / `.inc` (basename) | `$00 $64` (`UNIT_USE_INTRO`) | §4.17 (already) |
+| the **program / package main file** | `.dpr` / `.dpk` (**full path**) | `$00 $65` (`USED_UNIT_LIST`) | §4.18 (new) |
+
+The program's own main file is the case the prior round missed: it is
+carried as a **full path** (e.g.
+`C:\WDC\…\Test\DebugTarget.dpr`, name-length `$36` = 54) and is
+followed by `$00 $65`, not `$00 $64`. The handler rejected it on
+three counts — the `.dpr` extension, the `$65` trailer, and the path
+characters (`\` `:` ` `) that the global identifier validator forbids
+— so the cursor froze on the last imported `.pas`
+(`DebugTarget.EnumGamma.pas`) and mis-attributed every program proc to
+`DebugTarget.EnumGamma`. The fixes
+([`HandleSourceFileIntroRecord`](DPT.Rsm.Scanner.pas)):
+
+* a **per-extension trailer gate** — `.pas`/`.inc` still require
+  `$64` (so the lone `System.pas`, which is followed by `$65` because
+  System imports nothing, stays UN-recorded exactly as §4.17 needs),
+  while `.dpr`/`.dpk` require `$65`. The widening is surgical: it
+  admits only the program/package main file, nothing else.
+* a **local path-aware name reader** that accepts `\ / : space ( ) -`
+  in addition to the identifier alphabet, kept local to this handler
+  so the global `RsmIsPrintableAscii` charset (used by every other
+  record) is unchanged.
+* `SourceFileToUnitName` strips the directory prefix and the
+  `.dpr`/`.dpk` extension too, so `C:\…\DebugTarget.dpr` →
+  `DebugTarget`.
+
+#### Proc binding
+
+`HandleProcRecord` stamps the live introducer cursor onto every proc
+it creates: `TRsmProc.SourceFileIdx := FCurrentSourceFileIdx` (and
+records `TRsmProc.StreamOffset` for reference). Because each unit's
+proc block sits between its own `$70` introducer and the next unit's,
+the cursor names the **declaring** unit, not "whose uses-block was
+seen last". A later definition `$28` patching a forward declaration
+refreshes the cursor (preferring a live `≥ 0` value).
+
+`TRsmProc.SourceFileIdx = -1` means the proc precedes the first `$70`
+introducer — in practice the linker-synthesised import **thunks**
+(`MoveFile`, `CloseHandle`, …), which genuinely have no Delphi
+declaring unit in the `.rsm`. `DeclaringUnitOfProc` returns the empty
+string for them.
+
+#### Reader facade
+
+* [`TRsmReader.DeclaringUnitOfProc(AProcIdx): String`](DPT.Rsm.Reader.pas)
+  — `SourceFiles[Procs[AProcIdx].SourceFileIdx].UnitName`, or `''`
+  for a thunk (`SourceFileIdx < 0`) or out-of-range index.
+* [`TRsmReader.DeclaringUnitOfProcNamed(AProcName): String`](DPT.Rsm.Reader.pas)
+  — name-keyed convenience overload.
+
+#### Verification (ground truth from the sibling `.map`)
+
+`DebugTarget.map` block `Line numbers for DebugTarget(…DebugTarget.dpr)`
+declares `TargetProcedure` in unit `DebugTarget`. The decode resolves
+it correctly on **both** platforms:
+
+| Fixture | nearest preceding `$70` | `DeclaringUnitOfProcNamed('TargetProcedure')` |
+|---|---|---|
+| Win32 | `…\DebugTarget.dpr` (full path, `$65`) | `DebugTarget` ✓ (was the wrong `DebugTarget.EnumGamma`) |
+| Win64 | `…\DebugTarget.dpr` (full path, `$65`) | `DebugTarget` ✓ |
+
+Generalises to large binaries: on `C:\MSE\TFW\TFW.rsm` the nearest
+preceding `$70` before `TFormMain.Create` is `Tfw.Main.Form.pas`
+(a normal `.pas`/`$64` introducer, already captured by §4.17) — the
+correct declaring unit, with no intervening source-file `$70` in the
+window.
+
+Pinned by
+[`Test.DPT.Rsm.Scanner.TestProcDeclaringUnitResolves32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
+(positive: `TargetProcedure → DebugTarget`; negative guard: NOT
+`DebugTarget.EnumGamma`; leakage guard: any `SourceFileIdx < 0` proc
+and out-of-range indices resolve to `''`). The former §6.28 negative
+pin `TestProcSourceFileCursorIsNotDeclaringUnit32` was replaced by
+this positive pin; the §4.17 `System.pas`-not-recorded invariant is
+still pinned by `TestSourceFileAttribution32/64` and is unaffected by
+the per-extension `$65` gate.
+
+> **What is still NOT decoded (§6.29).** The per-statement
+> address → line table (the `.map`'s `Line numbers` arrays) is present
+> in the `.rsm` per Embarcadero's docs but in an encoding not yet
+> isolated: it is **not** a run of proc-entry address tokens. Encoding
+> `TargetProcedure`'s line RVAs (`$DA00A`, `$DA032`, …) in the
+> `(VA shl 4) or $07` proc-address wire form and scanning the whole
+> file finds only the proc-entry RVA `$DA004` (the `$28` record's own
+> address), not the per-statement RVAs — confirming the line table is
+> delta/RLE-encoded in a dedicated section (the file is a TDS-style
+> container: a 32-byte header carrying the image base + link
+> timestamp, a source-path table near offset `$420`, the `$35`
+> module-dependency tree, the `$70` source-file records, and a
+> trailing data-segment `(VA,size)` table). Decoding the per-line
+> deltas is tracked as §6.29; the proc → **declaring-unit** anchor
+> this section delivers does not depend on it.
 
 ---
 
@@ -2095,7 +2238,34 @@ unaffected.
 ---
 
 > **Next-gap numbering:** §6 numbers are **stable identifiers**, not
-> sequence positions. The last number used was §6.27 (the local/param
+> sequence positions. §6.28 (the proc → declaring-unit attribution
+> gap) was reopened **three times** and is now **closed — RESOLVED,
+> not refuted.** The first two closures concluded "no proc → unit
+> anchor in the `.rsm`"; **both were wrong-premised.** Round 1 refuted
+> only the *uses-introducer* cursor reuse. Round 2 ("re-affirmed
+> closed: source navigation lives in the `.map`, the `.rsm` carries no
+> line table / no proc source index, the program's own source file is
+> not even a `$70` record") was the most wrong: its byte search looked
+> for line RVAs in the **proc-entry address wire form**
+> (`(VA shl 4) or $07`), which structurally cannot find a
+> delta-encoded line table even when present, and it missed the
+> program's own `$70` because that record is a **full path** with a
+> `.dpr` extension and a `$65` (not `$64`) trailer that the handler
+> rejected. Round 3 (this one, prompted by Embarcadero's RSM Debug
+> File docs) **found the anchor**: the per-unit `$70` source-file
+> introducer, scoped to the proc stream, names the declaring unit; the
+> handler now accepts the program's full-path `.dpr`/`$65` introducer
+> and `HandleProcRecord` stamps `TRsmProc.SourceFileIdx`. The full
+> decode, the per-extension `$65` gate, the path-aware name reader, the
+> `DeclaringUnitOfProc` facade, the Win32/Win64 `TargetProcedure →
+> DebugTarget` verification, and the TFW `TFormMain.Create →
+> Tfw.Main.Form` generalisation are in **§4.18**, pinned by
+> `Test.DPT.Rsm.Scanner.TestProcDeclaringUnitResolves32`/`…64`. This
+> RESOLVES RsmDesk `RD-6`: the declaring unit of a proc IS surfaceable
+> from the `.rsm`. (The `.map` remains DPT's source-line navigator for
+> breakpoints; that is a consumer choice, not a `.rsm` limit — the
+> per-statement line table does exist in the `.rsm` but in an
+> un-decoded encoding, now tracked as **§6.29** below.) §6.27 was the local/param
 > `$21`/`$22` `TypeIdx` per-proc-ref vs. registry-id confusion) — now
 > **closed and removed**: a re-investigation refuted the last decode
 > lead (Hypothesis D — that the per-proc ref indexes the §4.17
@@ -2128,11 +2298,44 @@ unaffected.
 > `TAd.Land → TLandTyp` decode refuted (folded into §4.15 Pass 3), and
 > the enum NAME delivered by the §6.24 heuristic — nothing open
 > remained.
-> The next gap discovered MUST be numbered **§6.28**, not §6.1.
-> Numbers are never reused or recycled — commit messages, code
-> comments, and pin docstrings reference closed §6.N entries by
-> their original number long after the §6 entry itself is gone, and
-> renumbering would silently invalidate those references.
+> The last number used is **§6.29** (the un-decoded per-statement
+> address → line table, an OPEN entry below). The next gap discovered
+> MUST be numbered **§6.30**, not §6.1. Numbers are never reused or
+> recycled — commit messages, code comments, and pin docstrings
+> reference closed §6.N entries by their original number long after
+> the §6 entry itself is gone, and renumbering would silently
+> invalidate those references.
+
+### 6.29 Per-statement address → line table encoding (`GAP`)
+
+[DPT.Rsm.Scanner.pas `HandleSourceFileIntroRecord`](DPT.Rsm.Scanner.pas)
+decodes the `$70` source-file records (incl. the proc → declaring-unit
+anchor, §4.18) but **not** the per-statement address → line table that
+Embarcadero's RSM Debug File docs say the container carries (the
+equivalent of the `.map`'s `Line numbers for <Unit>` arrays). What is
+known: it is **not** a run of proc-entry address tokens — encoding
+`TargetProcedure`'s `.map` line RVAs (`$DA00A`, `$DA032`, …) in the
+`(VA shl 4) or $07` wire form and scanning all of DebugTarget.rsm
+(Win32 + Win64) finds only the proc-entry RVA `$DA004` (the `$28`
+record's own address payload), so the table is delta/RLE-encoded in a
+dedicated section, not inline per-proc and not absolute-addressed.
+Structural context already mapped (see §4.18): the file is a TDS-style
+container — 32-byte header (`CSH7`, dir offset `$420`, header size
+`$20`, image base, link timestamp), a source-search-path table near
+`$420` (typed `{u16 type, u32 size, payload}` records, types 1–4), the
+`$35` module-dependency tree, the `$70` source-file records, and a
+trailing data-segment `(VA, size)` table (`$4DAF84/$55F4`, … in
+DebugTarget.Win32 — these are `.data`/`.bss` ranges, not the line
+table). **Next investigator's lead:** the line table most likely hangs
+off the `$70`/`$35` per-module records as a parallel
+`offsets[]`/`lines[]` pair (classic TDS `sstSrcModule` shape) — look
+for a run keyed on the unit's segment with line numbers as small words
+and address advances as deltas, in the region between a module's `$35`
+block and its first `$28`. Decoding it would let a consumer do
+address → line without the `.map`. The proc → **declaring-unit** edge
+(§4.18) does NOT depend on this and is already delivered. Pinned (the
+narrow known fact) by
+[`Test.DPT.Rsm.Scanner.TestRsmProcEntryRvaNotInLineTableWireForm32`](../Test/Test.DPT.Rsm.Scanner.pas).
 
 ---
 

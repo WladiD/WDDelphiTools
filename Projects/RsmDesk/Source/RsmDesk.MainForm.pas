@@ -677,16 +677,23 @@ var
   J, PropCount, ElemCount: Integer;
   Importer: String;
   SelfType: String;
+  DeclUnit: String;
 begin
   case AColl of
     rcProcs:
       begin
         P := FReader.Procs[AIndex];
-        Result := Format('Name: %s' + NL +
+        // §4.18 proc -> declaring unit via the $70 source-file introducer
+        // the scanner stamped onto SourceFileIdx. Empty for import thunks
+        // (no Delphi declaring unit) -- label that honestly rather than blank.
+        DeclUnit := FReader.DeclaringUnitOfProc(AIndex);
+        if DeclUnit = '' then DeclUnit := '(none -- import thunk / no source)';
+        Result := Format('Unit: %s' + NL +
+                         'Name: %s' + NL +
                          'RVA (SegmentOffset): $%x' + NL +
                          'Size: %d bytes' + NL +
                          'Locals: %d',
-                         [P.Name, P.SegmentOffset, P.Size, P.Locals.Count]);
+                         [DeclUnit, P.Name, P.SegmentOffset, P.Size, P.Locals.Count]);
         SelfType := ResolveSelfType(P.Name);
         for J := 0 to P.Locals.Count - 1 do
           if P.Locals[J].Name = 'Self' then

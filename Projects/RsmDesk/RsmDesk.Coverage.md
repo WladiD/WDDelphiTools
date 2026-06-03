@@ -62,7 +62,7 @@ shared memo · **rich** = dedicated viewer (grid / hex / navigable).
 
 | Reader output | Record fields | Fidelity | Tree node |
 |---|---|---|---|
-| `Procs` : `IList<TRsmProc>` | Name, SegmentOffset (RVA), Size, Locals[] | text | "Procedures (N)" → per proc |
+| `Procs` : `IList<TRsmProc>` | Name, SegmentOffset (RVA), Size, SourceFileIdx (→ declaring unit), Locals[] | text | "Procedures (N)" → per proc (detail shows declaring unit via `DeclaringUnitOfProc`) |
 | └ `TRsmProc.Locals` : `TRsmLocal` | Name, BpOffset, TypeIdx, Kind, RegParamIdx | text | inline in proc detail |
 | `Classes` : `IList<TRsmClassInfo>` | Name, TypeIdx, Kind, ParentName, ParentRawId | text | "Classes & Records (N)" → per type |
 | └ `TRsmClassInfo.Members` : `TRsmClassMember` | Name, Offset, TypeIdx, Size, PrimitiveTypeId, PointerTargetTypeIdx | text | inline in class detail |
@@ -106,6 +106,17 @@ any view** but enable richer navigation (cross-links, jump-to-type):
   `CHUNK` children — this scales to `TFW.rsm` (~800 MB Win32 / ~1.17 GB
   Win64) without ever building tens of thousands of items at once. Leaf
   detail is built on selection, not pre-rendered.
+- **Proc declaring unit shown (done — RD-6):** the proc detail view
+  shows a `Unit:` line *above* `Name:`, resolved via the reader's
+  `DeclaringUnitOfProc(AProcIdx)` (Format.md §4.18 `$70` source-file
+  introducer, stamped onto `TRsmProc.SourceFileIdx`). Import thunks
+  (`SourceFileIdx < 0`, e.g. `MoveFile`/`CloseHandle` — no Delphi
+  declaring unit) are **labelled** `(none -- import thunk / no source)`,
+  not hidden: RsmDesk's guardrail is *show, don't hide* (same policy as
+  `<temp>` locals). The user's "the IDE must know the unit for remote
+  debugging" insight was correct and overturned two earlier
+  wrong-premised "format limit" closures — the data was in the `.rsm`
+  all along (the `.map` is not needed for remote debugging).
 - **Imports grouped by importing unit (done):** the imports branch now
   answers "which unit imports what". Backed by the reader's `$70`
   introducer attribution (`SourceFileIdx` / `SourceFiles`, Format.md
@@ -165,7 +176,7 @@ any view** but enable richer navigation (cross-links, jump-to-type):
 
 ## 4. Identified gaps (stable IDs — never recycled)
 
-Use `RD-<next>` when adding an entry; the highest ever used is **RD-5**.
+Use `RD-<next>` when adding an entry; the highest ever used is **RD-6**.
 Remove an entry when it's closed and fold the explanation into §2/§3.
 
 ### RD-1 Per-element rich viewers (UI gap)
@@ -218,6 +229,35 @@ which RTL/cross-unit-aliased and sparse enums often lack). So a local /
 member typed as an enum currently shows just "enum" rather than e.g.
 "TLandTyp". Closing this needs a reader change (expose enum-type-name by
 id) — commission `rsm-expert` (Mode B) when the build-out needs it.
+
+### RD-6 Declaring unit of a procedure (RESOLVED — reader edge now available)
+
+**The proc → declaring-unit edge IS available** (rsm-expert Mode-B,
+Format.md §4.18; former §6.28 superseded). The proc detail view CAN now
+show a declaring unit. The two earlier "format limit" closures were
+wrong-premised: the program's own source file is emitted as a full-path
+`.dpr` `$70` record with a `$65` (not `$64`) trailer the handler
+rejected, so the cursor froze on the last imported `.pas`
+(`DebugTarget.EnumGamma`) and mis-attributed every program proc. Once
+the `.dpr`/`$65` introducer is accepted the cursor names the declaring
+unit.
+
+Reader API (use this for the proc detail view):
+
+* `TRsmReader.DeclaringUnitOfProc(AProcIdx): String`
+* `TRsmReader.DeclaringUnitOfProcNamed(AProcName): String`
+
+Both return `''` for an import thunk (`TRsmProc.SourceFileIdx < 0`,
+e.g. `MoveFile`/`CloseHandle` — genuinely no Delphi declaring unit) and
+for out-of-range indices. **Wired into the proc detail view** (§3): a
+`Unit:` line above `Name:`; the empty case is **labelled**
+`(none -- import thunk / no source)` rather than hidden, per RsmDesk's
+show-don't-hide guardrail. Verified `TargetProcedure → DebugTarget`
+on Win32 + Win64 and `TFormMain.Create → Tfw.Main.Form` on TFW. Detail
+in Format.md §4.18; pinned by
+`Test.DPT.Rsm.Scanner.TestProcDeclaringUnitResolves32`/`…64`. (The
+per-statement address → line table remains un-decoded — Format.md §6.29
+— but the declaring-unit edge does not need it.)
 
 ---
 

@@ -718,6 +718,14 @@ begin
       Proc.Size := $1000
     else
       Proc.Size := 0;
+    // §4.18: bind the proc to its declaring source file via the live
+    // $70 source-file introducer cursor. Each unit's proc block is
+    // immediately preceded by exactly one $70 record naming the unit's
+    // own source file; the cursor freezes on it until the next unit's
+    // introducer. -1 here means the proc precedes any $70 (the early-
+    // stream import thunks).
+    Proc.StreamOffset := NativeUInt(P);
+    Proc.SourceFileIdx := FCurrentSourceFileIdx;
     Proc.Locals := Collections.NewPlainList<TRsmLocal>;
     FProcByName[LowerCase(Name)] := FProcs.Count;
     // Linker-emitted "@Name" aliases should be findable by
@@ -736,6 +744,12 @@ begin
     Proc := FProcs[ExistingIdx];
     Proc.SegmentOffset := Decoded;
     Proc.Size := $1000;
+    // The definition record carries the authoritative declaring-unit
+    // cursor; prefer it over a forward declaration's (which may have
+    // preceded the unit's $70 introducer and so be -1).
+    Proc.StreamOffset := NativeUInt(P);
+    if FCurrentSourceFileIdx >= 0 then
+      Proc.SourceFileIdx := FCurrentSourceFileIdx;
     FProcs[ExistingIdx] := Proc;
   end;
   P := P + 2 + Length(Name);
@@ -1630,10 +1644,13 @@ begin
 end;
 
 function SourceFileToUnitName(const AFile: String): String;
-// §4.17: derive the Delphi unit name from a $70 source-file name by
-// stripping the directory prefix and the .pas/.inc extension. Dotted
-// unit names (System.SysConst.pas -> System.SysConst) survive because
-// only the exact trailing .pas/.inc is removed, never the last dot.
+// §4.17 / §4.18: derive the Delphi unit name from a $70 source-file
+// name by stripping the directory prefix and the source extension.
+// The program/package main file arrives as a FULL path with a .dpr /
+// .dpk extension, so the directory strip is what turns
+// C:\...\DebugTarget.dpr into DebugTarget. Dotted unit names
+// (System.SysConst.pas -> System.SysConst) survive because only the
+// exact trailing extension is removed, never the last dot.
 var
   D: Integer;
 begin
@@ -1644,24 +1661,36 @@ begin
   if Length(Result) >= 4 then
   begin
     var Ext: String := LowerCase(Copy(Result, Length(Result) - 3, 4));
-    if (Ext = '.pas') or (Ext = '.inc') then
+    if (Ext = '.pas') or (Ext = '.inc') or
+       (Ext = '.dpr') or (Ext = '.dpk') then
       SetLength(Result, Length(Result) - 4);
   end;
 end;
 
 function TRsmScanner.HandleSourceFileIntroRecord(var P: NativeInt): Boolean;
-// §4.17: a standalone $70 <SourceFile> <RVA:4> $00 record that
-// INTRODUCES the run of $64 segments belonging to the unit whose
-// source file this is (its uses-block). Shape + tight anchor:
+// §4.17 / §4.18: a standalone $70 <SourceFile> <RVA:4> $00 record that
+// INTRODUCES the run of records belonging to the unit whose source
+// file this is. Shape + tight anchor:
 //
-//   $70 <NL> <SourceFile ending .pas/.inc> <RVA:4 LE> $00 $64...
-//                                                          ^ next $64
+//   $70 <NL> <SourceFile .pas/.inc/.dpr/.dpk> <RVA:4 LE> $00 (\$64|\$65)...
+//                                                            ^ next opener
 //
-// The trailing $00 then a $64 byte is what distinguishes an introducer
-// from (a) an incidental $70 byte and (b) the lone System.pas record
-// (System imports nothing, so no $64 follows -- left to the single-
-// byte fallback; it needs no segment attribution). On a hit we
-// record/dedup the source file, set FCurrentSourceFileIdx, and advance
+// Two introducer flavours share this shape:
+//   * an IMPORTED unit's uses-block, followed by $00 $64 (the $64
+//     import-segment opener) — the §4.17 case;
+//   * the PROGRAM / package main file, carried as a FULL path with a
+//     .dpr / .dpk extension and followed by $00 $65 (the used-unit
+//     list opener) — the §4.18 case that anchors the program module's
+//     procs to the program unit. (The former §6.28 rejected this and
+//     so froze the cursor on the last imported .pas, mis-attributing
+//     every program proc.)
+//
+// The trailing $00 then a $64/$65 byte is what distinguishes an
+// introducer from (a) an incidental $70 byte and (b) the lone
+// System.pas record (System imports nothing, so neither follows --
+// left to the single-byte fallback; it needs no attribution). On a
+// hit we record/dedup the source file, set FCurrentSourceFileIdx, and
+// advance
 // P to the $64 so the dispatcher hands it to HandleUnitUseIntroRecord,
 // which stamps the segment's SourceFileIdx.
 var
@@ -1674,21 +1703,71 @@ var
   Idx       : Integer;
   SF        : TRsmSourceFile;
   ExtLower  : String;
+
+  // A source-file name may be a bare basename (an imported unit's
+  // .pas/.inc, all identifier chars) OR a FULL path (the program /
+  // package main file's .dpr/.dpk), which additionally contains
+  // path separators, a drive colon, and spaces (e.g.
+  // C:\Program Files (x86)\...). The global identifier validator
+  // rejects those, so read the name here with a path-aware charset.
+  // Kept LOCAL to this handler so the identifier alphabet used by
+  // every other record stays unchanged.
+  function ReadSourceFileName(ALen: Byte; out AName: String): Boolean;
+  var
+    I: Integer;
+    B: Byte;
+  begin
+    Result := False;
+    AName := '';
+    for I := 0 to ALen - 1 do
+    begin
+      B := ByteAt(P + 2 + I);
+      if RsmIsPrintableAscii(B) or (B = Ord('\')) or (B = Ord('/')) or
+         (B = Ord(':')) or (B = Ord(' ')) or (B = Ord('(')) or
+         (B = Ord(')')) or (B = Ord('-')) then
+        AName := AName + Chr(B)
+      else
+        Exit;
+    end;
+    Result := AName <> '';
+  end;
+
 begin
   Result := False;
   NameLen := ByteAt(P + 1);
   if (NameLen < 1) or (NameLen > 64) then Exit;
   PayloadOff := P + 2 + Integer(NameLen);     // 4-byte RVA starts here
-  // Need RVA(4) + trailer(1) + the introducing $64 (1) in range.
+  // Need RVA(4) + trailer(1) + the introducing $64/$65 (1) in range.
   if PayloadOff + 5 >= FSz then Exit;
   if ByteAt(PayloadOff + 4) <> $00 then Exit;
-  if ByteAt(PayloadOff + 5) <> TRsmTag.UNIT_USE_INTRO then Exit;
-  if not ReadIdentifier(P + 1, FileName) then Exit;
-  // Tight extension gate: only a real .pas/.inc source file introduces
-  // a uses-block; rejects incidental $70 bytes with a printable run.
+  if not ReadSourceFileName(NameLen, FileName) then Exit;
+  // Tight extension gate: only a real Delphi source file introduces a
+  // uses-block. .pas/.inc cover units/includes; .dpr/.dpk cover the
+  // program / package main file (carried as a full path).
   if Length(FileName) < 5 then Exit;
   ExtLower := LowerCase(Copy(FileName, Length(FileName) - 3, 4));
-  if (ExtLower <> '.pas') and (ExtLower <> '.inc') then Exit;
+  // The introducer-follower byte (at PayloadOff+5) distinguishes the
+  // two flavours and is gated PER EXTENSION so the widening is
+  // surgical:
+  //   * an IMPORTED unit's .pas/.inc uses-block is followed by a $64
+  //     import-segment opener (UNIT_USE_INTRO) -- the §4.17 case. The
+  //     lone System.pas (System imports nothing) is followed by $65,
+  //     NOT $64, so it stays UN-recorded exactly as §4.17 documents.
+  //   * the PROGRAM / package main file (.dpr/.dpk, full path) is
+  //     followed by a $65 used-unit list -- the §4.18 case that anchors
+  //     the program module's procs to the program unit. (The former
+  //     §6.28 rejected this and so froze the cursor on the last
+  //     imported .pas.)
+  if (ExtLower = '.pas') or (ExtLower = '.inc') then
+  begin
+    if ByteAt(PayloadOff + 5) <> TRsmTag.UNIT_USE_INTRO then Exit;
+  end
+  else if (ExtLower = '.dpr') or (ExtLower = '.dpk') then
+  begin
+    if ByteAt(PayloadOff + 5) <> TRsmTag.USED_UNIT_LIST then Exit;
+  end
+  else
+    Exit;
 
   Rva := UInt32(ByteAt(PayloadOff))             or
          (UInt32(ByteAt(PayloadOff + 1)) shl 8)  or

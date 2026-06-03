@@ -66,6 +66,20 @@ type
     SegmentOffset: NativeUInt;
     Size         : NativeUInt;
     Locals       : IList<TRsmLocal>;
+    /// File offset of this proc's <c>$28</c> tag byte in the RSM
+    /// symbol stream. Used to bind the proc to its declaring source
+    /// file by nearest-preceding-<c>$70</c> proximity — see
+    /// <c>TRsmReader.DeclaringUnitOfProc</c> and §4.18.
+    StreamOffset : NativeUInt;
+    /// Foreign key into <c>TRsmScanner.SourceFiles</c> naming the
+    /// source file (and therefore the declaring unit) this proc was
+    /// compiled from, stamped from the live <c>$70</c> source-file
+    /// introducer cursor at scan time. <c>-1</c> for procs that
+    /// precede the first <c>$70</c> introducer — in practice the
+    /// linker-synthesised import thunks (<c>MoveFile</c>,
+    /// <c>CloseHandle</c>, …), which genuinely have no Delphi
+    /// declaring unit in the <c>.rsm</c>. See §4.18.
+    SourceFileIdx: Integer;
   end;
 
   /// <summary>
@@ -367,9 +381,18 @@ type
     /// Same payload shape as $66; siblings of a single enum carry
     /// payloads stepping by +3 across the ordinals.
     UNIT_USE_SYMBOL  = $67;
-    /// Cross-unit source-file reference (§6.21). Sits adjacent to
-    /// $64 blocks and carries the imported unit's source-file name:
-    ///   $70 &lt;NL&gt; &lt;FileName.pas|.inc&gt; &lt;4-byte LE RVA&gt;
+    /// Used-unit list opener. Follows the program / package main
+    /// file's $70 introducer (the .dpr / .dpk full-path source-file
+    /// record) in place of the $64 import-segment opener that an
+    /// imported unit's $70 introducer carries. Accepting this as a
+    /// valid introducer-follower is what lets the source-file cursor
+    /// advance onto the program module so its procs resolve to the
+    /// program unit — see §4.18.
+    USED_UNIT_LIST   = $65;
+    /// Cross-unit source-file reference (§6.21) AND, in the proc
+    /// stream, the per-unit source-file introducer that anchors
+    /// proc → declaring-unit (§4.18). Carries the source-file name:
+    ///   $70 &lt;NL&gt; &lt;FileName.pas|.inc|.dpr|.dpk&gt; &lt;4-byte LE RVA&gt;
     UNIT_USE_FILE    = $70;
     /// CSH7 file-header signature: 'CSH7' on disk in LE byte order.
     SigCSH7          = UInt32($37485343);
