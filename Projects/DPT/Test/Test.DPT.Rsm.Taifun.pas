@@ -456,11 +456,23 @@ type
     ///   CJwksValidator.FExpectedTenantId in Test.Lib.rsm: After+3 is
     ///   the single-byte UnicodeString id ($04) and After+4 is 2x the
     ///   field's instance offset (positional, not a type-id byte). The
-    ///   end-to-end auto-type still hinges on the OPEN attribution
-    ///   defect §6.33-C, so this pins the byte shape only.
+    ///   end-to-end attribution that consumes this shape is pinned
+    ///   separately by TestWideBlockNameSetBindsCJwksValidatorStrings
+    ///   (§6.33-C); this pins the byte shape only.
     /// </summary>
     [Test]
     procedure TestExpectedTenantIdFieldRecordShapePinned;
+
+    /// <summary>
+    ///   §6.33-C PIN (large binary). The member-name-set pass attributes
+    ///   CJwksValidator's wide-$2C field block (unit-local parent id
+    ///   $0391, colliding across ~18 types) to the class via a unique
+    ///   sorted member-name-set match, so its string fields carry the
+    ///   single-byte UnicodeString id $04 and auto-type without type=.
+    ///   Leakage guard: the class-typed FCache stays unstamped.
+    /// </summary>
+    [Test]
+    procedure TestWideBlockNameSetBindsCJwksValidatorStrings;
   end;
 
 implementation
@@ -1972,13 +1984,13 @@ begin
   //     positional byte, NOT a type-id high byte. This is why folding
   //     it in produced the unmapped $2004 the old linker emitted.
   //   * BodyLen = 9, "$9C $01" marker at After+5..+6
-  // This is the decoded format result of §6.33. Note: bare
-  // `evaluate CTestJwksValidator.Validate_Success.V.FExpectedTenantId`
-  // auto-typing still depends on the OPEN attribution defect §6.33-C
-  // (the field record's parent id $0391 is a unit-local id colliding
-  // across ~18 unrelated types; the linker cannot map it to the
-  // C-prefixed, registry-id-$8297 class), so this test pins the byte
-  // shape ONLY, not the end-to-end member resolution.
+  // This is the decoded format result of §6.33 (the body=9 byte shape).
+  // The end-to-end member resolution that consumes it -- the field
+  // record's parent id $0391 is a unit-local id colliding across ~18
+  // unrelated types -- is closed by §6.33-C
+  // (BindUnresolvedWideBlocksByMemberNameSet) and pinned separately by
+  // TestWideBlockNameSetBindsCJwksValidatorStrings. This test pins the
+  // byte shape only.
   Sz    := FReader.Scanner.Sz;
   P     := 0;
   Found := False;
@@ -2024,6 +2036,40 @@ begin
   end;
   Assert.IsTrue(Found,
     'CJwksValidator.FExpectedTenantId $2C field record not found in Test.Lib.rsm');
+end;
+
+procedure TRsmTestLibTests.TestWideBlockNameSetBindsCJwksValidatorStrings;
+var
+  Member: TRsmClassMember;
+begin
+  if ShouldSkip then Exit;
+  // §6.33-C PIN (large binary). BindUnresolvedWideBlocksByMemberNameSet
+  // attributes CJwksValidator's wide-$2C field block to the class via
+  // the unique sorted member-name-set match (its wide parent id $0391 is
+  // a unit-local id colliding across ~18 unrelated types, so neither the
+  // registry path nor the block-owner index can). The three string
+  // fields now carry the single-byte UnicodeString id $04, so a bare
+  // `evaluate ...FExpectedTenantId` auto-types as 'string' without an
+  // explicit type=.
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FExpectedTenantId', Member),
+    'FExpectedTenantId resolves');
+  Assert.AreEqual<UInt16>($04, Member.PrimitiveTypeId,
+    'FExpectedTenantId -> UnicodeString $04 (attributed via member-name-set match)');
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FExpectedAudience', Member),
+    'FExpectedAudience resolves');
+  Assert.AreEqual<UInt16>($04, Member.PrimitiveTypeId, 'FExpectedAudience -> $04');
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FExpectedProductId', Member),
+    'FExpectedProductId resolves');
+  Assert.AreEqual<UInt16>($04, Member.PrimitiveTypeId, 'FExpectedProductId -> $04');
+
+  // Leakage guard: FCache is a class-typed field (body=10, marker@+6) --
+  // its FieldId is the unreliable unit-local id, so the pass deliberately
+  // skips the enum/class shapes and leaves FCache's PrimitiveTypeId at 0
+  // rather than stamping a bogus id.
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FCache', Member),
+    'FCache resolves as a member');
+  Assert.AreEqual<UInt16>(0, Member.PrimitiveTypeId,
+    'FCache (class-typed) must NOT be stamped with a primitive id');
 end;
 
 initialization

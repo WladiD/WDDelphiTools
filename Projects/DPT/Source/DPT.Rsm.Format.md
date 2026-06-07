@@ -447,9 +447,10 @@ FScanRegParam`.
 > `evaluate V.FExpectedTenantId` (`type=string`) returns `tenant-1`
 > live. The small-binary clean regime (§6.27) cannot reproduce the
 > alias collision, so this is verified against the live large-binary MCP
-> session rather than a DebugTarget unit pin. (`evaluate` without an
-> explicit `type=` still fails to *auto*-type these String fields — that
-> residual is §6.33.)
+> session rather than a DebugTarget unit pin. (Bare `evaluate` without an
+> explicit `type=` now *auto*-types these String fields too: §6.33's
+> three defects — the `$2C` guard, the body=9 offset-baked id, and the
+> unit-local-colliding parent-id attribution — are all closed; see §4.9.)
 
 > **The local/param `TypeIdx` is a per-proc ref, NOT statically
 > resolvable to a type name on large binaries (decided — design limit).**
@@ -1107,8 +1108,8 @@ Two encodings are observed:
   of `CJwksValidator`'s field records even though `CJwksValidator`'s
   own `$2A` registry id is `$8297`. When the wide parent id is a
   colliding unit-local id, `FindClassIdxForRawId` last-wins to the
-  wrong (or no) class. This is the still-open attribution gap — see
-  §6.33.
+  wrong (or no) class. The member-name-set fallback below recovers
+  these.
 * **Narrow encoding** (`parent-hi == $FF`): the parent id is a
   **unit-local** byte (`parent-lo`). These collide across units, so the
   linker falls back to a **block-owner index** that pairs each $2C
@@ -1185,7 +1186,44 @@ When the `FieldId` resolves to a known class/record (via
 class's `TypeIdx`. Otherwise `Member.PrimitiveTypeId` is populated
 through one of the body-shape rules above. **Members not confirmed by
 any Format-A record are pruned by `PruneSpuriousMembers`** to remove
-Format-B over-collection from the backward window scan.
+Format-B over-collection from the backward window scan (a class with
+*no* confirmed member is left untouched, not erased).
+
+#### §6.33-C: member-name-set attribution for colliding wide blocks
+
+When the wide parent id is a *unit-local colliding* id (above), neither
+the registry path nor the block-owner index (narrow / `$0E`-record
+only) can name the owning class, so the block's fields are left
+unlinked. `BindUnresolvedWideBlocksByMemberNameSet`
+([DPT.Rsm.FormatALinker.pas](DPT.Rsm.FormatALinker.pas)) recovers them
+after `PruneSpuriousMembers`:
+
+1. Index every discovered class/record by its **sorted** member-name
+   set (sorting makes the match independent of the block's stream order
+   vs the discoverer's offset order), tracking a collision count.
+2. Walk the byte stream grouping `$2C` records into contiguous **blocks**
+   (a block starts at a `$2C` *not* preceded by the `$FF` continuation
+   marker and runs through the `$FF $2C` records that follow).
+3. For a block whose sorted field-name set **uniquely** (collision
+   count = 1) matches a class that is **currently fully unlinked**,
+   attribute each record's primitive type to the matching member by
+   name. Ambiguous (>1 class shares the set) and no-match blocks are
+   skipped — the uniqueness + already-unlinked guards make the pass
+   never disturb anything the registry / block-owner paths resolved.
+
+The set is the disambiguator the colliding parent id cannot provide:
+`CJwksValidator`'s
+`FCache|FExpectedAudience|FExpectedIssuer|FExpectedProductId|FExpectedTenantId`
+is unique among 14 405 classes. On Test.Lib this attributes ~2 769
+otherwise-unlinkable classes; cost is one extra `$2C` walk + the index,
+~430 ms on the 814 MB TFW (`LinkMemberTypeIdsFromFormatA` phase 2.3 →
+2.8 s, budget 25 s). **Scope limit:** only the unambiguous primitive
+shapes are recovered (body=9 single byte at `After+3`; body=14/15 from
+the tail). The marker@+6/+7 enum/class shapes are skipped because their
+`FieldId` is the same unreliable unit-local id — see §6.34. Pinned by
+[Test.DPT.Rsm.Taifun.TestWideBlockNameSetBindsCJwksValidatorStrings](../Test/Test.DPT.Rsm.Taifun.pas)
+(CJwksValidator strings → `$04`; leakage guard: class-typed `FCache`
+stays unstamped).
 
 #### Enum-typed field bridge (LOW-byte + nearest-offset)
 
@@ -2531,14 +2569,17 @@ unaffected.
 > priming-skip now covers BP-relative/global object locals, folded into
 > the §4.2 consumer note; verified live (the four `V.FExpected*` fields
 > resolve on `Test.Lib`).
-> The last number used is **§6.33** (class `string`-field
-> `PrimitiveTypeId` not auto-typed on large binaries, an OPEN entry
-> above; §6.29 — the per-statement line table — is also still OPEN). The
-> next gap discovered MUST be numbered **§6.34**, not §6.1. Numbers are
-> never reused or recycled — commit messages, code comments, and pin
-> docstrings reference closed §6.N entries by their original number long
-> after the §6 entry itself is gone, and renumbering would silently
-> invalidate those references.
+> The last number used is **§6.34** (enum/class-typed fields of
+> unit-local-colliding convention classes, an OPEN entry below; §6.29 —
+> the per-statement line table — is also still OPEN. §6.33 — the
+> large-binary `string`-field auto-typing stack — is **closed**: all
+> three defects (the `$2C` guard, the body=9 offset-baked id, and the
+> unit-local-colliding wide-block attribution) are fixed, folded into
+> §4.9). The next gap discovered MUST be numbered **§6.35**, not §6.1.
+> Numbers are never reused or recycled — commit messages, code comments,
+> and pin docstrings reference closed §6.N entries by their original
+> number long after the §6 entry itself is gone, and renumbering would
+> silently invalidate those references.
 
 ### 6.29 Per-statement address → line table encoding (`GAP`)
 
@@ -2726,61 +2767,30 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.33 Convention-discovered classes' field type ids not attributed (unit-local colliding wide parent id) (`GAP`)
+### 6.34 Enum/class-typed fields of unit-local-colliding convention classes still unattributed (`GAP`)
 
-[DPT.Rsm.FormatALinker.pas `LinkFieldsFromFormatA`](DPT.Rsm.FormatALinker.pas) —
-bare `evaluate V.FExpectedTenantId` on
-`Test.Lib.CTestJwksValidator.Validate_Success` fails with *"could not be
-auto-typed (no RSM type metadata for this field)"* while an explicit
-`type=string` returns `tenant-1`. The dotted walk reaches the right
-`Member` (class `CJwksValidator`, field `FExpectedTenantId`, offset 16)
-but its `PrimitiveTypeId` / `TypeIdx` are 0. Investigation found this is
-a **stack of three defects**; the first two are fixed (folded into §4.9),
-the third remains open:
-
-* **Defect A (FIXED, §4.9).** The `$2C` field-record validation anchor
-  was hard-coded to `$00 $02 $00`, but the middle byte is a per-scope
-  discriminator that is `$02` only on DebugTarget; Test.Lib's
-  `CJwksValidator` strings carry `$10`, DebugTarget's own
-  property-backing `FBackingStr` carries `$00`. The guard now validates
-  the two zero bytes only (`$00 <scope> $00`).
-* **Defect B (FIXED, §4.9).** The body=9 managed-reference id was read
-  as 2 bytes `After+3 | (After+4 shl 8)`, but `After+4` is `2 × the
-  field offset`, baking the offset into the id. Only `After+3` (the
-  single-byte primitive id: `$04`/`$0C`/`$1C`/`$1E`) is the type. Fixed
-  + pinned on DebugTarget; bare evaluate now auto-types managed string
-  fields at any offset **whose owning class is attributable**.
-* **Defect C (OPEN).** `CJwksValidator` is a `'C'`-prefixed class
-  discovered structurally by the §6.31 convention-free path; its
-  `TypeIdx` is a file offset (`$0E37CEFC`), not a registry id. Its `$2C`
-  field records sit ~146 KB before the class name (far outside the
-  StructDiscoverer's 64 KB backward window — the members were built from
-  the nearby `<offset><NL><name> $02 00` form, which carries the offset
-  but **no type id**). The far `$2C` records carry the type id but are
-  attributed only by a **wide parent id `$0391`** — which is a
-  *unit-local* id reused by ~18 unrelated `$2A` types across the binary
-  (`TKey`, `TEvent`, `TButtonDisplay`, …). `FindClassIdxForRawId($0391)`
-  therefore last-wins to the wrong class (or none), and neither fallback
-  catches it: the block-owner index handles only **narrow**-encoded
-  (`Hi=$FF`) blocks paired with **`$0E` record** markers, whereas this
-  is a **wide**-encoded **class** block. Note `CJwksValidator`'s *own*
-  `$2A` registry id is `$8297`, unrelated to the `$0391` its field
-  records reference — and ScanTypeRegistry's `'T'`/`'P'` first-char gate
-  rejects the `'C'`-name entry anyway, so even the registry id is
-  absent from `FRsmTypeIdToClassIdx`.
-
-Next investigator: the fix is a positional pairing for wide-encoded
-class field blocks analogous to `BuildBlockOwnerIndex`'s narrow/`$0E`
-pairing — pair each contiguous wide-`$2C` block (keyed by its shared
-unit-local parent id) with the §6.31-discovered class whose member-name
-set matches the block's field names, scoped by file-offset proximity to
-avoid the cross-unit `$0391` collision. Must be perf-validated against
-the Taifun budgets (do not widen ScanTypeRegistry's gate naively — the
-§6.31 perf trap) and carry a leakage guard (a neighbouring class with a
-colliding unit-local id must not absorb the block). Until then these
-fields are fully evaluable with an explicit `type=`. The decoded `$2C`
-shape is pinned by
-[Test.DPT.Rsm.Taifun.TestExpectedTenantIdFieldRecordShapePinned](../Test/Test.DPT.Rsm.Taifun.pas).
+[DPT.Rsm.FormatALinker.pas `BindUnresolvedWideBlocksByMemberNameSet`](DPT.Rsm.FormatALinker.pas) —
+the §6.33-C member-name-set pass (see §4.9) recovers only the
+**primitive** field shapes of a convention-discovered class whose wide
+parent id is a unit-local colliding id (body=9 managed string at
+`After+3`; body=14/15 numeric from the tail). It deliberately **skips
+the marker@+6/+7 enum- and class-typed records** in the same block,
+because those carry the field's type as a `FieldId` that is the *same*
+unreliable unit-local id (resolving it via `FindClassIdxForRawId` would
+last-win to a colliding unrelated type). So e.g. `CJwksValidator.FCache`
+(a class-typed field) keeps `TypeIdx = PrimitiveTypeId = 0`, and an
+enum-typed field on such a class would not auto-type either. Concretely:
+of the ~4 811 uniquely-name-matched unlinked classes on Test.Lib, ~2 769
+got at least one primitive field attributed; the remaining ~2 042 have
+*only* enum/class/pointer fields and stay fully unlinked. Next
+investigator: resolve the in-block `FieldId` to the right type by the
+same positional / proximity logic the block-owner index uses for narrow
+records, but for the field's *type* id rather than the parent id — i.e.
+pair the block's enum/class `FieldId`s with same-unit `$2A`/`$0E`
+entries by file-offset proximity, gated so a colliding id can't pull in
+a cross-unit type. Lower priority than §6.33 was: the common painful
+case (string fields) is closed, and these fields remain evaluable with
+an explicit `type=`.
 
 ---
 

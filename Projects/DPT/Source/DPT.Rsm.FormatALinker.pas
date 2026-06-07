@@ -149,6 +149,27 @@ type
     ///   registry and are left alone).
     /// </summary>
     procedure BindPointerAliasMembersByNameConvention;
+    /// <summary>
+    ///   §6.33-C closure. Attributes a contiguous wide-encoded $2C field
+    ///   block to the discovered class whose member-name SET uniquely
+    ///   matches the block's field names, but only when that class is
+    ///   currently fully unlinked. This recovers field types for
+    ///   convention-discovered classes (e.g. the C-prefixed
+    ///   <c>CJwksValidator</c>) whose wide parent id is a unit-local id
+    ///   that collides across many unrelated types -- so neither the
+    ///   registry path (<c>FindClassIdxForRawId</c>) nor the block-owner
+    ///   index (narrow / $0E-record only) can attribute them. The
+    ///   member-name set is the disambiguator the colliding parent id
+    ///   cannot provide. Only the unambiguous primitive body shapes are
+    ///   recovered (body=9 managed-reference single-byte id; body=14/15
+    ///   numeric from the tail) -- the marker@+6/+7 enum/class shapes are
+    ///   skipped because their FieldId is the same unreliable unit-local
+    ///   id. Runs after <see cref="PruneSpuriousMembers"/> so link state
+    ///   from the normal path is final; the unlinked-class guard ensures
+    ///   it never disturbs anything the registry / block-owner paths
+    ///   already resolved.
+    /// </summary>
+    procedure BindUnresolvedWideBlocksByMemberNameSet;
   public
     constructor Create(
       AClasses             : IList<TRsmClassInfo>;
@@ -180,6 +201,7 @@ type
 implementation
 
 uses
+  System.Classes,
 
   DPT.Rsm.BufferIO;
 
@@ -981,6 +1003,177 @@ begin
     end;
 end;
 
+procedure TRsmFormatALinker.BindUnresolvedWideBlocksByMemberNameSet;
+var
+  // Sorted member-name-set -> classIdx (last-wins) and its collision
+  // count. The collision count is what makes the match SAFE: a key
+  // shared by >1 class is ambiguous and skipped, so we never guess.
+  KeyToIdx : IKeyValue<String, Integer>;
+  KeyCount : IKeyValue<String, Integer>;
+  SortBuf  : TStringList;
+  // Current block's records, in stream order.
+  RecName  : TArray<String>;
+  RecAfter : TArray<Integer>;
+  RecEnd   : TArray<Integer>;
+  RecCount : Integer;
+  P, NL    : Integer;
+  Skip     : PtrInt;
+  Name     : String;
+  I        : Integer;
+
+  function SortedKey(const AList: TStringList): String;
+  var
+    K: Integer;
+  begin
+    Result := '';
+    for K := 0 to AList.Count - 1 do
+    begin
+      if K > 0 then Result := Result + '|';
+      Result := Result + AList[K];
+    end;
+  end;
+
+  function ClassFullyUnlinked(ACi: Integer): Boolean;
+  var
+    K: Integer;
+    Mb: TRsmClassMember;
+  begin
+    Result := True;
+    for K := 0 to FClasses[ACi].Members.Count - 1 do
+    begin
+      Mb := FClasses[ACi].Members[K];
+      if (Mb.TypeIdx <> 0) or (Mb.PrimitiveTypeId <> 0) or
+         (Mb.PointerTargetTypeIdx <> 0) then
+        Exit(False);
+    end;
+  end;
+
+  procedure FlushBlock;
+  var
+    K, N, Idx, Cnt, Mi, BodyLen: Integer;
+    Key   : String;
+    Member: TRsmClassMember;
+  begin
+    N := RecCount;
+    RecCount := 0;            // reset for the next block right away
+    if N = 0 then Exit;
+    SortBuf.Clear;
+    for K := 0 to N - 1 do
+      SortBuf.Add(RecName[K]);
+    SortBuf.Sort;
+    Key := SortedKey(SortBuf);
+    // Unique sorted-name-set match to a currently-unlinked class is the
+    // only case we act on; ambiguous (Cnt > 1) and no-match are skipped.
+    if not (KeyCount.TryGetValue(Key, Cnt) and (Cnt = 1)) then Exit;
+    if not KeyToIdx.TryGetValue(Key, Idx) then Exit;
+    if not ClassFullyUnlinked(Idx) then Exit;
+    // Attribute each block record's primitive type to the matching
+    // member by NAME. Only the unambiguous primitive body shapes are
+    // recovered (body=9 managed-reference single byte at After+3;
+    // body=14/15 numeric from the tail at EndOff-5). The marker@+6/+7
+    // enum/class shapes are skipped -- their FieldId is the unreliable
+    // unit-local id, so we cannot safely resolve them here.
+    for K := 0 to N - 1 do
+    begin
+      Mi := -1;
+      for var J := 0 to FClasses[Idx].Members.Count - 1 do
+        if SameText(FClasses[Idx].Members[J].Name, RecName[K]) then
+        begin Mi := J; Break; end;
+      if Mi < 0 then Continue;
+      Member := FClasses[Idx].Members[Mi];
+      if (Member.TypeIdx <> 0) or (Member.PrimitiveTypeId <> 0) then Continue;
+      BodyLen := RecEnd[K] - RecAfter[K];
+      if (BodyLen = 9) and (ByteAt(RecAfter[K] + 5) = $9C) and
+         (ByteAt(RecAfter[K] + 6) = $01) then
+        Member.PrimitiveTypeId := UInt16(ByteAt(RecAfter[K] + 3))
+      else if (BodyLen = 14) or (BodyLen = 15) then
+        Member.PrimitiveTypeId :=
+          UInt16(ByteAt(RecEnd[K] - 5)) or
+          (UInt16(ByteAt(RecEnd[K] - 4)) shl 8)
+      else
+        Continue;  // enum / class shape -- skip
+      FClasses[Idx].Members[Mi] := Member;
+    end;
+  end;
+
+begin
+  if (FClasses = nil) or (FClasses.Count = 0) or (FBuf = nil) then Exit;
+  KeyToIdx := Collections.NewKeyValue<String, Integer>;
+  KeyCount := Collections.NewKeyValue<String, Integer>;
+  SortBuf  := TStringList.Create;
+  try
+    // 1. Index every discovered class/record by its SORTED member-name
+    //    set. Sorting makes the match independent of the block's
+    //    stream order vs the discoverer's offset order.
+    for I := 0 to FClasses.Count - 1 do
+    begin
+      if FClasses[I].Members.Count = 0 then Continue;
+      SortBuf.Clear;
+      for var M := 0 to FClasses[I].Members.Count - 1 do
+        SortBuf.Add(FClasses[I].Members[M].Name);
+      SortBuf.Sort;
+      var Key: String := SortedKey(SortBuf);
+      KeyToIdx[Key] := I;
+      var C: Integer;
+      if KeyCount.TryGetValue(Key, C) then KeyCount[Key] := C + 1
+      else KeyCount[Key] := 1;
+    end;
+
+    // 2. Walk the byte stream for $2C field records, grouping them into
+    //    contiguous blocks (a block starts at a $2C NOT preceded by the
+    //    $FF continuation marker and runs through the $FF $2C records
+    //    that follow). Mirrors LinkFieldsFromFormatA's SSE2-accelerated
+    //    tag hunt.
+    RecCount := 0;
+    SetLength(RecName, 16);
+    SetLength(RecAfter, 16);
+    SetLength(RecEnd, 16);
+    P := 0;
+    while P + 24 < FSz do
+    begin
+      Skip := ByteScanIndex(PByteArray(FBuf + P), FSz - P - 24, $2C);
+      if Skip < 0 then Break;
+      Inc(P, Skip);
+      var TagOff: Integer := P;
+      NL := ByteAt(TagOff + 1);
+      if (NL < 2) or (NL > 40) or (TagOff + 2 + NL + 12 >= FSz) then
+      begin Inc(P); Continue; end;
+      var After: Integer := TagOff + 2 + NL;
+      if (ByteAt(After) <> $00) or (ByteAt(After + 2) <> $00) then
+      begin Inc(P); Continue; end;
+      if not ReadIdentifier(TagOff + 1, Name) then
+      begin Inc(P); Continue; end;
+      var EndOff: Integer := -1;
+      for I := After + 5 to After + 40 do
+      begin
+        if I + 5 > FSz then Break;
+        if DwordAtEquals(I, $07, $00, $00, $08) then
+        begin EndOff := I; Break; end;
+      end;
+      if EndOff < 0 then
+      begin Inc(P); Continue; end;
+      var IsContinuation: Boolean :=
+        (TagOff > 0) and (ByteAt(TagOff - 1) = $FF);
+      if not IsContinuation then
+        FlushBlock;
+      if RecCount >= Length(RecName) then
+      begin
+        SetLength(RecName, Length(RecName) * 2);
+        SetLength(RecAfter, Length(RecAfter) * 2);
+        SetLength(RecEnd, Length(RecEnd) * 2);
+      end;
+      RecName[RecCount]  := Name;
+      RecAfter[RecCount] := After;
+      RecEnd[RecCount]   := EndOff;
+      Inc(RecCount);
+      P := EndOff + 6;
+    end;
+    FlushBlock;
+  finally
+    SortBuf.Free;
+  end;
+end;
+
 procedure TRsmFormatALinker.Run(ABuf: PByte; ASz: NativeInt);
 begin
   FBuf := ABuf;
@@ -993,6 +1186,7 @@ begin
   BuildBlockOwnerIndex;
   LinkFieldsFromFormatA;
   PruneSpuriousMembers;
+  BindUnresolvedWideBlocksByMemberNameSet;
   BindPointerAliasMembersByNameConvention;
 end;
 
