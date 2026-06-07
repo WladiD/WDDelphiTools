@@ -2782,15 +2782,38 @@ last-win to a colliding unrelated type). So e.g. `CJwksValidator.FCache`
 enum-typed field on such a class would not auto-type either. Concretely:
 of the ~4 811 uniquely-name-matched unlinked classes on Test.Lib, ~2 769
 got at least one primitive field attributed; the remaining ~2 042 have
-*only* enum/class/pointer fields and stay fully unlinked. Next
-investigator: resolve the in-block `FieldId` to the right type by the
-same positional / proximity logic the block-owner index uses for narrow
-records, but for the field's *type* id rather than the parent id — i.e.
-pair the block's enum/class `FieldId`s with same-unit `$2A`/`$0E`
-entries by file-offset proximity, gated so a colliding id can't pull in
-a cross-unit type. Lower priority than §6.33 was: the common painful
-case (string fields) is closed, and these fields remain evaluable with
-an explicit `type=`.
+*only* enum/class/pointer fields and stay fully unlinked.
+
+**Refuted lead — "resolve the skipped fields as enums via the §6.9
+nearest-`$2A`-offset bridge" does NOT work** (instrumented over the
+~2 042 residual classes on Test.Lib). Categorising the skipped records:
+~7 250 are `marker@+6` with `byte+5 != $0C`, ~3 547 are `marker@+7`,
+~2 947 are other shapes, and only **369** are the `byte+5 = $0C`
+`marker@+6` same-comp form the §6.9 bridge handles. But those 369 are
+**not enums** — the sample is dominated by `Boolean` fields
+(`TCustomMemo.FWordWrap`, `FWantReturns`, `…FIsFocused`, all `byte+3 =
+$02`), class references (`TCustomMemo.FLines: TStrings`, `byte+3 = $DA`),
+window handles (`FEditHandle/FListHandle`, `byte+3 = $80`) and plain
+integers (`FItemHeight`, `byte+3 = $06`). So `byte+5 = $0C` is **not an
+enum discriminator** in these blocks, and `byte+3` is not a usable
+single-byte type id (the low bytes don't land in the
+`$02/$04/$08/$0A/$0C` primitive space). Feeding any of these to
+`FindNearestPrimaryByLowByte` would mislabel a `Boolean`/handle/class
+field as whatever enum happens to share its low byte and sit nearest in
+the file — a pure mis-attribution. There is **no name-set-style
+uniqueness guard available per individual field**, so the safe automatic
+attribution that closed §6.33-C has no analogue here.
+
+Next investigator: the only correct path left is to resolve each skipped
+record's *type* `FieldId` (the colliding unit-local 2-byte id at
+`After+3..+4`) to the right class/enum the way the block-owner index
+resolves the *parent* id — by pairing it with same-unit `$2A`/`$0E`
+entries via file-offset proximity, gated so a colliding id cannot pull
+in a cross-unit type. That is the same hard collision problem §6.33-C
+solved for the parent id, now for the field type, and without a
+per-field uniqueness oracle. Lower priority than §6.33 was: the common
+painful case (string fields) is closed, and these fields remain
+evaluable with an explicit `type=`.
 
 ---
 
