@@ -1688,10 +1688,7 @@ begin
     if not ReadIdentifier(Q + 1, EntryName) then Break;
     // Reject all-zero payload as a structural anchor for "this byte
     // run isn't an entry, the segment ended one tag ago".
-    if (ByteAt(EntryPayloadOff)     = 0) and
-       (ByteAt(EntryPayloadOff + 1) = 0) and
-       (ByteAt(EntryPayloadOff + 2) = 0) and
-       (ByteAt(EntryPayloadOff + 3) = 0) then
+    if DwordAtEquals(EntryPayloadOff, 0, 0, 0, 0) then
       Break;
     Rva := UInt32(ByteAt(EntryPayloadOff))            or
            (UInt32(ByteAt(EntryPayloadOff + 1)) shl 8)  or

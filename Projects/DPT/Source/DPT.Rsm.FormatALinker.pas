@@ -104,6 +104,11 @@ type
       /// matching primary via the nearest-$2A-offset rule.
       FEnumDecoder        : TRsmEnumDecoder;
     function  ByteAt(AOffset: NativeInt): Byte; inline;
+    /// True when the 4 bytes at AOffset equal AB0..AB3 in stream order
+    /// (one 32-bit load; the call spells out the anchor bytes — see
+    /// RsmDwordAtEquals).
+    function  DwordAtEquals(AOffset: NativeInt;
+      AB0, AB1, AB2, AB3: Byte): Boolean; inline;
     function  ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean; inline;
     function  RawIdKey(const ARaw: TRawId): UInt32; inline;
     function  ConfirmedKey(AClsIdx: Integer; const AFieldName: String): String;
@@ -198,6 +203,12 @@ end;
 function TRsmFormatALinker.ByteAt(AOffset: NativeInt): Byte;
 begin
   Result := RsmByteAt(FBuf, AOffset);
+end;
+
+function TRsmFormatALinker.DwordAtEquals(AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean;
+begin
+  Result := RsmDwordAtEquals(FBuf, AOffset, AB0, AB1, AB2, AB3);
 end;
 
 function TRsmFormatALinker.ReadIdentifier(AOffset: NativeInt;
@@ -402,8 +413,7 @@ begin
       for I := After + 5 to After + 30 do
       begin
         if I + 5 >= FSz then Break;
-        if (ByteAt(I) = $07) and (ByteAt(I + 1) = $00) and
-           (ByteAt(I + 2) = $00) and (ByteAt(I + 3) = $08) then
+        if DwordAtEquals(I, $07, $00, $00, $08) then  // block terminator
         begin
           EndOff := I;
           Break;
@@ -677,8 +687,7 @@ begin
     for I := After + 5 to After + 30 do
     begin
       if I + 5 > FSz then Break;
-      if (ByteAt(I) = $07) and (ByteAt(I + 1) = $00) and
-         (ByteAt(I + 2) = $00) and (ByteAt(I + 3) = $08) then
+      if DwordAtEquals(I, $07, $00, $00, $08) then  // field-record terminator
       begin
         EndOff := I;
         Break;

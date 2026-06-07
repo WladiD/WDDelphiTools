@@ -57,6 +57,11 @@ type
     FBuf                 : PByte;
     FSz                  : NativeInt;
     function ByteAt(AOffset: NativeInt): Byte; inline;
+    /// True when the 4 bytes at AOffset equal AB0..AB3 in stream order
+    /// (one 32-bit load; the call spells out the anchor — see
+    /// RsmDwordAtEquals).
+    function DwordAtEquals(AOffset: NativeInt;
+      AB0, AB1, AB2, AB3: Byte): Boolean; inline;
     function ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean; inline;
   public
     constructor Create(
@@ -90,6 +95,12 @@ end;
 function TRsmPropertyLinker.ByteAt(AOffset: NativeInt): Byte;
 begin
   Result := RsmByteAt(FBuf, AOffset);
+end;
+
+function TRsmPropertyLinker.DwordAtEquals(AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean;
+begin
+  Result := RsmDwordAtEquals(FBuf, AOffset, AB0, AB1, AB2, AB3);
 end;
 
 function TRsmPropertyLinker.ReadIdentifier(AOffset: NativeInt;
@@ -246,8 +257,7 @@ begin
       for I := After + 5 to After + 30 do
       begin
         if I + 5 > FSz then Break;
-        if (ByteAt(I) = $07) and (ByteAt(I + 1) = $00) and
-           (ByteAt(I + 2) = $00) and (ByteAt(I + 3) = $08) then
+        if DwordAtEquals(I, $07, $00, $00, $08) then  // record terminator
         begin
           EndOff := I;
           Break;

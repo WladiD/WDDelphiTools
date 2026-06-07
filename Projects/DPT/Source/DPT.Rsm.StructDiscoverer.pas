@@ -680,16 +680,13 @@ var
       begin
         QEnd := Q + 1 + Integer(ANL);
         if (QEnd + 8 < FSz) and
-           ( ((ByteAt(QEnd + 1) = 0) and (ByteAt(QEnd + 2) = 0) and
-              (ByteAt(QEnd + 3) = 0) and (ByteAt(QEnd + 4) = 0)) or
-             ((ByteAt(QEnd) = $04) and (ByteAt(QEnd + 1) = 0) and
-              (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
-              (ByteAt(QEnd + 4) = $07)) or
-             ((ByteAt(QEnd) = $08) and (ByteAt(QEnd + 1) = 0) and
-              (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
-              (ByteAt(QEnd + 4) = 0) and (ByteAt(QEnd + 5) = 0) and
-              (ByteAt(QEnd + 6) = 0) and (ByteAt(QEnd + 7) = 0) and
-              (ByteAt(QEnd + 8) = $07)) ) then
+           ( // 4-zero method-block header
+             DwordAtEquals(QEnd + 1, 0, 0, 0, 0) or
+             // Win32 tight trailer  04 00 00 00 07
+             (DwordAtEquals(QEnd, $04, 0, 0, 0) and (ByteAt(QEnd + 4) = $07)) or
+             // Win64 tight trailer  08 00 00 00 00 00 00 00 07
+             (DwordAtEquals(QEnd, $08, 0, 0, 0) and
+              DwordAtEquals(QEnd + 4, 0, 0, 0, 0) and (ByteAt(QEnd + 8) = $07)) ) then
           Exit(True);
       end;
       Inc(Q);
