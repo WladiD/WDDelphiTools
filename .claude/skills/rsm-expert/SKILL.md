@@ -72,6 +72,46 @@ move the coverage forward. Look for:
 - Failing cases. When a user reports "evaluate failed on X", that's a
   free shape investigation — chase it.
 
+#### Retiring naming-convention crutches (and the perf trap)
+
+The reader still leans on Delphi naming conventions in a few places —
+the `IsPrintableAscii` identifier charset and the §4.15 `F<X>`/`T<X>`
+field-alias bridges are the survivors. The user wants these crutches
+**retired incrementally** (the `'T'`-prefix class-discovery gate was the
+first to go; §6.31). Two hard-won rules for the next one:
+
+- **A naming-convention filter is often *also* the cheap perf gate** over
+  the whole-file byte walk. The `'T'`-prefix gate in `StructDiscoverer`
+  kept the printable-name scan + 16 KB trailer scan rare; widening it to
+  be convention-free blew `DiscoverAndParseAllStructs` from ~14 s to
+  ~100 s on TFW (a 7× regression). The right fix is a **structural-anchor
+  gate** (key on the `$07`/`$0E` marker bytes a real def must carry, not
+  the name's first letter) **plus a precomputed index** (sort the sparse
+  marker positions once, binary-search per candidate — see
+  `TrailerStarts` / `LowerBoundTrailer`). The result was *faster* than
+  the crutch (~10 s) with the budgets untouched.
+- **Never raise the `Test.DPT.Rsm.Taifun` per-phase budgets (or
+  `HardLimit`) to make a change go green.** They are an O(N²) tripwire
+  calibrated against the pre-fix ~200–425 s broken state; bumping them to
+  absorb a real slowdown *is* the defect. Fix the algorithm instead. (The
+  one exception — a genuinely linear, irreducible new cost — must be
+  argued explicitly, not assumed.)
+
+#### "evaluate X.Y failed" is often a *stack* of independent defects
+
+A single failing dotted evaluate can hide one bug per layer, surfacing
+the next only after each fix: (1) **scanner** local-offset decode (wrong
+`BpOffset` → garbage instance pointer; §6.30), (2) **StructDiscoverer**
+class/field discovery (class never found; §6.31), (3) **consumer** dotted
+walk in `DPT.Debugger` (priming misroutes the hop; §6.32). Fix one and
+**re-test** — don't assume the first fix is the whole story. To tell
+"discovery is broken" from "the walk is broken", load the binary's `.rsm`
+through a standalone `TRsmReader` and check `FindClassByName` /
+`FindClassMember` directly: if those resolve but live `evaluate` still
+fails, the defect is consumer-side (the dotted walk), not the reader —
+this is the cheap disambiguator that turned §6.32 from guesswork into a
+one-probe diagnosis.
+
 ### 3. Every gap goes into the doc
 
 §6 tracks **open questions about the entire RSM-driven debugger
@@ -438,9 +478,16 @@ the data back as a normal file.
     `Member.TypeIdx`, `FindStructByTypeIdx`, …). §6.18's
     `TestDiagnosePointerToRecordTypeId` lived here because it
     needed reader-facade lookups, not raw bytes.
-  - `Test.DPT.Rsm.Tfw.pas` — probes against the huge `TFW.rsm`
-    corpus (load is shared across the fixture; respects the
-    skip-when-missing guard).
+  - `Test.DPT.Rsm.Taifun.pas` — probes against the huge dev-machine
+    corpora. A base class `TRsmHeavyFixtureTests` owns the
+    once-per-fixture reader / `.map` / phase-timing load
+    (`LoadPrimaryFixture`); two concrete fixtures derive from it:
+    `TRsmTfwTests` (`C:\MSE\TFW\TFW.exe`) and `TRsmTestLibTests`
+    (`C:\MSE\TEST\Test.Lib.exe` — the C-prefixed-class corpus). Add a
+    new heavy-binary probe to whichever fixture matches the binary so it
+    shares that one multi-second load; both respect the
+    skip-when-missing guard. (This unit was `Test.DPT.Rsm.Tfw.pas` before
+    it grew the second corpus.)
   - **Inside production code** (`DPT.Debugger.pas` /
     `DPT.MCP.Server.pas`) — runtime / MCP-only state that no test
     reader can reach. See "Live MCP vs test reader disagree" below.
@@ -545,7 +592,7 @@ PowerShell. The trick from footgun #1 still works for the 800 MB
 Win32 `TFW.rsm`, but for anything bigger:
 
 * Drop PowerShell entirely and write the probe in Pascal as a
-  `[Test]` in `Test.DPT.Rsm.Tfw.pas`. Pascal's native byte
+  `[Test]` in `Test.DPT.Rsm.Taifun.pas`. Pascal's native byte
   indexing is fast and the `Reader.Scanner.ByteAt` /
   `Reader.Scanner.Sz` accessors give zero-overhead reads. The
   test runs in the same process the user runs anyway, so no
@@ -847,8 +894,14 @@ Test fixtures:
 - `Projects/DPT/Test/Win32/DebugTarget.exe` + `.rsm` — Win32 build.
 - `Projects/DPT/Test/Win64/DebugTarget.exe` + `.rsm` — Win64 build.
 - `C:\MSE\TFW\TFW.exe` + `.rsm` (dev-machine only) — large real-world
-  corpus. Tests that depend on it `Assert.Pass` when the fixture is
-  missing.
+  corpus, all `T`-prefixed types. Driven by `TRsmTfwTests` in
+  `Test.DPT.Rsm.Taifun.pas`.
+- `C:\MSE\TEST\Test.Lib.exe` + `.rsm` (dev-machine only) — second large
+  corpus whose classes follow the codebase's `C`-prefix convention
+  (`CJwksValidator` …); the binary that surfaced §6.30/§6.31/§6.32.
+  Driven by `TRsmTestLibTests` in `Test.DPT.Rsm.Taifun.pas`.
+  Both heavy fixtures share the `TRsmHeavyFixtureTests` base (one
+  `LoadPrimaryFixture` per fixture) and `Assert.Pass` when missing.
 
 ---
 
