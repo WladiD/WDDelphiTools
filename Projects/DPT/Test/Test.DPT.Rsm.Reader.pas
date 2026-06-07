@@ -133,6 +133,15 @@ type
     [Test]
     procedure TestSourceFileAttribution64;
     {$ENDIF}
+
+    /// §6.33 PIN (defects A + B). Managed-reference string fields carry
+    /// the offset-independent single-byte primitive id (FAnsi -> $1C,
+    /// FWide -> $1E, FShort -> $0C), the relaxed payload guard admits a
+    /// scope-byte-$00 field (TPropHost.FBackingStr -> $0401), and the
+    /// change leaks onto neither a body=14 UnicodeString nor a non-string
+    /// neighbour.
+    [Test]
+    procedure TestManagedStringFieldIdsOffsetIndependent32;
   end;
 
 implementation
@@ -542,6 +551,62 @@ begin
   DoTestSourceFileAttribution(True);
 end;
 {$ENDIF}
+
+procedure TRsmReaderTests.TestManagedStringFieldIdsOffsetIndependent32;
+var
+  R   : TRsmReader;
+  Mem : TRsmClassMember;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+    // §6.33 defect B: managed-reference string fields (body=9, "$9C $01"
+    // marker at +5) carry the offset-INDEPENDENT single-byte primitive id
+    // read from After+3 alone. The old "After+3 | (2*offset) shl 8" read
+    // baked the field's instance offset into the id (After+4 = 2x offset),
+    // so the same managed type at a different offset produced a different,
+    // unmapped id -- the source of the §6.33 bare-evaluate failure.
+    Assert.IsTrue(R.FindClassMember('TPrimitives', 'FAnsi', Mem), 'FAnsi resolves');
+    Assert.AreEqual<UInt16>($1C, Mem.PrimitiveTypeId,
+      'FAnsi@0 -> ansistring $1C (offset-independent; was the baked $001C)');
+    Assert.IsTrue(R.FindClassMember('TPrimitives', 'FWide', Mem), 'FWide resolves');
+    Assert.AreEqual<UInt16>($1E, Mem.PrimitiveTypeId,
+      'FWide@4 -> widestring $1E (was the offset-baked $081E)');
+    Assert.IsTrue(R.FindClassMember('TPrimitives', 'FShort', Mem), 'FShort resolves');
+    Assert.AreEqual<UInt16>($0C, Mem.PrimitiveTypeId,
+      'FShort@8 -> shortstring $0C (was the offset-baked $100C)');
+
+    // §6.33 defect A: the relaxed payload guard ("$00 <scope> $00", not
+    // the fixed "$00 $02 $00") admits a field record whose scope byte is
+    // not $02. TPropHost.FBackingStr's record carries scope byte $00 and
+    // was previously dropped entirely, leaving PrimitiveTypeId=0; it now
+    // links to UnicodeString $0401.
+    Assert.IsTrue(R.FindClassMember('TPropHost', 'FBackingStr', Mem),
+      'FBackingStr resolves');
+    Assert.AreEqual<UInt16>($0401, Mem.PrimitiveTypeId,
+      'FBackingStr -> UnicodeString $0401 (now admitted by the relaxed guard)');
+
+    // Leakage guard 1: a body=14 UnicodeString field is unaffected by the
+    // body=9 single-byte change -- it still resolves to the 2-byte $0401,
+    // not a single-byte managed id.
+    Assert.IsTrue(R.FindClassMember('TInner', 'FInnerStr', Mem), 'FInnerStr resolves');
+    Assert.AreEqual<UInt16>($0401, Mem.PrimitiveTypeId,
+      'FInnerStr stays UnicodeString $0401 (body=14, not a managed single-byte id)');
+
+    // Leakage guard 2: the widened guard / body=9 hoist must not stamp a
+    // managed-string id onto a non-string neighbour. FMixedInt (plain
+    // Integer) must keep a non-zero, non-managed-string primitive id.
+    Assert.IsTrue(R.FindClassMember('TMixedRec', 'FMixedInt', Mem), 'FMixedInt resolves');
+    Assert.AreNotEqual<UInt16>(0, Mem.PrimitiveTypeId,
+      'FMixedInt keeps a primitive id');
+    Assert.IsFalse(
+      (Mem.PrimitiveTypeId = $04) or (Mem.PrimitiveTypeId = $0C) or
+      (Mem.PrimitiveTypeId = $1C) or (Mem.PrimitiveTypeId = $1E),
+      'FMixedInt (Integer) must not be mis-stamped with a managed-string id');
+  finally
+    R.Free;
+  end;
+end;
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmReaderTests);

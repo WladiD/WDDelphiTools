@@ -563,22 +563,28 @@ begin
   FPrimitiveTypeFormatters[$0421] := 'extended';   // Extended
   FPrimitiveTypeFormatters[$0425] := 'bool';       // Boolean (body=15 form)
   FPrimitiveTypeFormatters[$0429] := 'currency';   // Currency (body=15 form)
-  // Managed reference primitives: id encoded in the body=9 "$9C $01"
-  // form's +3..+4 slot. Same compiler-built-in constants for any
-  // binary of the matching Delphi version.
-  FPrimitiveTypeFormatters[$001C] := 'ansistring';
-  FPrimitiveTypeFormatters[$081E] := 'widestring';
-  FPrimitiveTypeFormatters[$100C] := 'shortstring';
-  // Single-byte primitive ids: encoded in the LOCAL_TAG record's
-  // byte+3 slot (BPRel locals) and in the $27 tag's byte+3 slot
-  // (top-level primitive globals). Independent id space from the
-  // 2-byte field-record ids above -- safe to share the same map
-  // because none overlap the 2-byte range used by structured types.
+  // Single-byte primitive ids. Three channels feed these, all sharing
+  // the same compiler-built-in single-byte id space:
+  //   * the LOCAL_TAG record's byte+3 slot (BPRel locals),
+  //   * the $27 tag's byte+3 slot (top-level primitive globals),
+  //   * §6.33: the body=9 managed-reference field record's After+3 slot
+  //     (class/record string fields). Earlier this map keyed the
+  //     managed primitives on the 2-byte values $001C/$081E/$100C read
+  //     as "After+3 | After+4 shl 8", but After+4 is 2x the field
+  //     offset, so those keys only matched DebugTarget's FAnsi@0 /
+  //     FWide@4 / FShort@8 and missed the same types at any other
+  //     offset. The linker now stores After+3 alone, so the single-byte
+  //     ids below cover managed string fields at every offset.
+  // This id space is independent of (and does not overlap) the 2-byte
+  // range used by structured types and the body=14 UnicodeString id
+  // $0401 above.
   FPrimitiveTypeFormatters[$02] := 'int';          // Integer / LongInt
   FPrimitiveTypeFormatters[$04] := 'string';       // UnicodeString
   FPrimitiveTypeFormatters[$08] := 'int64';        // Int64
   FPrimitiveTypeFormatters[$0A] := 'int';          // Cardinal / UInt32
   FPrimitiveTypeFormatters[$0C] := 'shortstring';  // ShortString
+  FPrimitiveTypeFormatters[$1C] := 'ansistring';   // AnsiString
+  FPrimitiveTypeFormatters[$1E] := 'widestring';   // WideString
 end;
 
 procedure TDebugger.IgnoreException(const AClassName: String);

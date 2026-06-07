@@ -449,6 +449,18 @@ type
     /// </summary>
     [Test]
     procedure TestLargeBinaryNonTClassDiscovered;
+
+    /// <summary>
+    ///   §6.33 SHAPE PIN (large binary). Pins the decoded body=9
+    ///   managed-reference $2C field-record layout for
+    ///   CJwksValidator.FExpectedTenantId in Test.Lib.rsm: After+3 is
+    ///   the single-byte UnicodeString id ($04) and After+4 is 2x the
+    ///   field's instance offset (positional, not a type-id byte). The
+    ///   end-to-end auto-type still hinges on the OPEN attribution
+    ///   defect §6.33-C, so this pins the byte shape only.
+    /// </summary>
+    [Test]
+    procedure TestExpectedTenantIdFieldRecordShapePinned;
   end;
 
 implementation
@@ -1930,6 +1942,88 @@ begin
   // Leakage guard: a neighbouring T-class is still discovered too.
   Assert.IsTrue(FReader.FindClassByName('TJwtValidationResult') >= 0,
     'TJwtValidationResult (T-prefixed) must still be discovered');
+end;
+
+procedure TRsmTestLibTests.TestExpectedTenantIdFieldRecordShapePinned;
+const
+  // FExpectedTenantId @ instance offset 16 on CTestJwksValidator's
+  // class CJwksValidator.
+  CFieldName = 'FExpectedTenantId';
+  CFieldOff  = 16;
+var
+  Sz, P    : NativeInt;
+  NL       : Integer;
+  Name     : String;
+  After    : NativeInt;
+  EndOff   : NativeInt;
+  I        : NativeInt;
+  Found    : Boolean;
+begin
+  if ShouldSkip then Exit;
+  // §6.33 SHAPE PIN (large binary). Decodes the body=9 managed-
+  // reference $2C field record for CJwksValidator.FExpectedTenantId in
+  // the ~240 MB Test.Lib.rsm and pins the byte layout the §6.33
+  // investigation established:
+  //   $2C <NL> 'FExpectedTenantId' 00 <scope> 00 <typeLo> <2*off>
+  //       9C 01 <sec-lo> <sec-hi> 07 00 00 08 <parentLo> <parentHi>
+  //   * After+3 = $04 = the single-byte UnicodeString id (the WHOLE
+  //     type id; NOT a 2-byte value)
+  //   * After+4 = $20 = 2 x the field's instance offset (16) -- a
+  //     positional byte, NOT a type-id high byte. This is why folding
+  //     it in produced the unmapped $2004 the old linker emitted.
+  //   * BodyLen = 9, "$9C $01" marker at After+5..+6
+  // This is the decoded format result of §6.33. Note: bare
+  // `evaluate CTestJwksValidator.Validate_Success.V.FExpectedTenantId`
+  // auto-typing still depends on the OPEN attribution defect §6.33-C
+  // (the field record's parent id $0391 is a unit-local id colliding
+  // across ~18 unrelated types; the linker cannot map it to the
+  // C-prefixed, registry-id-$8297 class), so this test pins the byte
+  // shape ONLY, not the end-to-end member resolution.
+  Sz    := FReader.Scanner.Sz;
+  P     := 0;
+  Found := False;
+  while (P + 64 < Sz) and (not Found) do
+  begin
+    // Locate the $2C field record by name (offset-free: robust to
+    // fixture rebuilds). The name length byte sits at TagOff+1.
+    if FReader.Scanner.ByteAt(P) <> $2C then begin Inc(P); Continue; end;
+    NL := FReader.Scanner.ByteAt(P + 1);
+    if (NL <> Length(CFieldName)) or (P + 2 + NL + 12 >= Sz) then
+    begin Inc(P); Continue; end;
+    After := P + 2 + NL;
+    if (FReader.Scanner.ByteAt(After) <> $00) or
+       (FReader.Scanner.ByteAt(After + 2) <> $00) then
+    begin Inc(P); Continue; end;
+    if not FReader.Scanner.ReadIdentifier(P + 1, Name) then
+    begin Inc(P); Continue; end;
+    if not SameText(Name, CFieldName) then begin Inc(P); Continue; end;
+    // Locate the "07 00 00 08" terminator to confirm body length.
+    EndOff := -1;
+    for I := After + 5 to After + 30 do
+    begin
+      if I + 5 > Sz then Break;
+      if (FReader.Scanner.ByteAt(I) = $07) and
+         (FReader.Scanner.ByteAt(I + 1) = $00) and
+         (FReader.Scanner.ByteAt(I + 2) = $00) and
+         (FReader.Scanner.ByteAt(I + 3) = $08) then
+      begin EndOff := I; Break; end;
+    end;
+    if EndOff < 0 then begin Inc(P); Continue; end;
+    // Pin the decoded shape.
+    Assert.AreEqual<Integer>(9, EndOff - After,
+      'FExpectedTenantId field record must be body=9 (managed reference)');
+    Assert.AreEqual<Byte>($9C, FReader.Scanner.ByteAt(After + 5),
+      'managed-ref marker byte 1 at After+5');
+    Assert.AreEqual<Byte>($01, FReader.Scanner.ByteAt(After + 6),
+      'managed-ref marker byte 2 at After+6');
+    Assert.AreEqual<Byte>($04, FReader.Scanner.ByteAt(After + 3),
+      'After+3 is the single-byte UnicodeString id $04');
+    Assert.AreEqual<Byte>(Byte(2 * CFieldOff), FReader.Scanner.ByteAt(After + 4),
+      'After+4 is 2 x the field instance offset (positional, not a type byte)');
+    Found := True;
+  end;
+  Assert.IsTrue(Found,
+    'CJwksValidator.FExpectedTenantId $2C field record not found in Test.Lib.rsm');
 end;
 
 initialization

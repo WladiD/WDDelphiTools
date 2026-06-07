@@ -1068,15 +1068,24 @@ member information (Format-B is the structural discoverer in
 scanner completes.
 
 ```
-[FF]?  $2C  <NL: u8>  <Name>  $00 $02 $00  <field-id-lo>  <field-id-hi>
+[FF]?  $2C  <NL: u8>  <Name>  $00 <scope> $00  <field-id-lo>  <field-id-hi>
   <variable body>
 $07 $00 $00 $08  <parent-id-lo>  <parent-id-hi>
 ```
 
 * The optional `$FF` prefix marks a continuation block (a non-first
   field in a block).
-* `NL` ∈ `[2, 40]`. The `$00 $02 $00` at offset `NL+2`..`NL+4` is the
-  validation anchor.
+* `NL` ∈ `[2, 40]`. The 3 bytes at offset `NL+2`..`NL+4` (i.e.
+  `After+0..+2`) are the validation anchor. **§6.33: the anchor is
+  `$00 <scope> $00`, NOT the fixed `$00 $02 $00` it was long believed
+  to be.** `After+0` and `After+2` are reliably `$00`; the middle byte
+  `After+1` is a per-binary / per-scope discriminator that is `$02`
+  only on the small single-unit DebugTarget fixture and takes other
+  small values on multi-unit binaries (`$00` for DebugTarget's own
+  property-backing `FBackingStr`, `$10` for Test.Lib's
+  `CJwksValidator` string fields, `$14`, …). The linker validates the
+  two zero bytes only; constraining the middle byte to `$02` silently
+  dropped every field record outside that one shape.
 * The end-of-record marker `$07 $00 $00 $08` is searched in a bounded
   window `[After+5, After+30]`.
 * The 2 bytes following the terminator are the **parent record id**
@@ -1086,18 +1095,31 @@ $07 $00 $00 $08  <parent-id-lo>  <parent-id-hi>
 
 Two encodings are observed:
 
-* **Wide encoding** (`parent-hi != $FF`): the 2-byte id is a "real" RSM
-  primary that appears in the `$2A` registry. The linker resolves it
-  via `FindClassIdxForRawId` (which uses the
+* **Wide encoding** (`parent-hi != $FF`): a 2-byte id. **Usually** a
+  "real" RSM primary that appears in the `$2A` registry, which the
+  linker resolves via `FindClassIdxForRawId` (the
   `FRsmTypeIdToClassIdx` map populated by `ScanTypeRegistry`).
+  **§6.33 caveat: this is NOT always a global registry primary.** On
+  the large Test.Lib corpus the wide parent id can be a *unit-local*
+  2-byte id that collides across many unrelated types — id `$0391`
+  alone is reused by ~18 distinct `$2A` names (`TKey`, `TEvent`,
+  `TButtonDisplay`, …) at different file offsets, and is the parent id
+  of `CJwksValidator`'s field records even though `CJwksValidator`'s
+  own `$2A` registry id is `$8297`. When the wide parent id is a
+  colliding unit-local id, `FindClassIdxForRawId` last-wins to the
+  wrong (or no) class. This is the still-open attribution gap — see
+  §6.33.
 * **Narrow encoding** (`parent-hi == $FF`): the parent id is a
   **unit-local** byte (`parent-lo`). These collide across units, so the
   linker falls back to a **block-owner index** that pairs each $2C
   block's start offset with the owning record found via the source-
-  declaration order in the same unit. See `BuildBlockOwnerIndex` in
-  [DPT.Rsm.FormatALinker.pas:254-440](DPT.Rsm.FormatALinker.pas#L254-L440).
+  declaration order in the same unit. See
+  [DPT.Rsm.FormatALinker.pas `BuildBlockOwnerIndex`](DPT.Rsm.FormatALinker.pas).
   This bridge is critical for the TFW corpus where unit-local id `$44`
   is `TUserKonsOutlook` in one unit and an unrelated class in another.
+  **The block-owner index covers only narrow-encoded blocks paired
+  with `$0E` record markers (records, not classes); §6.33's
+  wide-encoded class blocks are not covered.**
 
   The block-owner pairing is a heuristic: it assumes the unit's `$0E`
   record markers appear in the same source-declaration order as the
@@ -1112,16 +1134,51 @@ Two encodings are observed:
 #### Body shapes — field type information
 
 `BodyLen = EndOff - After` (i.e. distance from the anchor to the
-terminator). The linker discriminates four body shapes
-([FormatALinker.pas:672-741](DPT.Rsm.FormatALinker.pas#L672-L741)):
+terminator). The linker discriminates the body shapes in
+[DPT.Rsm.FormatALinker.pas `LinkFieldsFromFormatA`](DPT.Rsm.FormatALinker.pas):
 
 | Body shape           | Description                                                                          |
 |----------------------|--------------------------------------------------------------------------------------|
-| `BodyLen == 14`      | Numeric primitive (Integer, Word, Byte, Int64, UnicodeString, Single, Double, Extended). `PrimitiveTypeId` = 2 bytes at `EndOff - 5`. |
-| `BodyLen == 15`      | Numeric primitive with extra leading byte (Boolean, Currency, ...). Same recovery rule. |
-| `BodyLen == 9` + `$9C $01` at `After+5..+6` | Managed reference primitive (AnsiString, WideString, ShortString). `PrimitiveTypeId` = 2 bytes at `After+3..+4`. |
+| `BodyLen == 14`      | Numeric primitive (Integer, Word, Byte, Int64, UnicodeString, Single, Double, Extended). `PrimitiveTypeId` = 2 bytes at `EndOff - 5` (e.g. `$0401` UnicodeString, `$03FD` Integer). |
+| `BodyLen == 15`      | Numeric primitive with extra leading byte (Boolean `$0425`, Currency `$0429`, ...). Same recovery rule. |
+| `BodyLen == 9` + `$9C $01` at `After+5..+6` | Managed reference primitive. `PrimitiveTypeId` = the **single byte** at `After+3` (§6.33). |
 | `BodyLen >= 10` + `$9C $01` at `After+6..+7` | Enum-typed field (compact form). See enum bridge below. |
 | `BodyLen >= 11` + `$9C $01` at `After+7..+8` | Enum-typed field at parent offset ≥ 256 (extra separator). See enum bridge below. |
+
+##### §6.33: the body=9 managed-reference single-byte id
+
+The body=9 managed-reference form was long mis-read as a 2-byte id
+`After+3 | (After+4 shl 8)`. That is **wrong**: only `After+3` is the
+type id, and it lives in the compiler's **single-byte** primitive id
+space (the same space the `$21` local and `$27` global records use):
+
+| `After+3` | Managed type             |
+|-----------|--------------------------|
+| `$04`     | `string` / UnicodeString |
+| `$0C`     | `ShortString`            |
+| `$1C`     | `AnsiString`             |
+| `$1E`     | `WideString`             |
+
+`After+4` is **2 × the field's instance offset** — a positional byte,
+not a type-id high byte. Proven across 7 fixtures: DebugTarget
+`TPrimitives.FAnsi@0 → $00`, `FWide@4 → $08`, `FShort@8 → $10`; and
+Test.Lib `CJwksValidator` strings at offsets 8/12/16/20 →
+`$10/$18/$20/$28`. The old read therefore baked the field offset into
+the id — the table entries `$001C`/`$081E`/`$100C` "worked" only
+because DebugTarget's `FAnsi`/`FWide`/`FShort` happen to sit at
+offsets 0/4/8. The same managed type at any other offset produced an
+unmapped id (e.g. Test.Lib's `string` fields → `$1004`/`$1804`/
+`$2004`/`$2804`), so `AutoDetectFormatterName` Path 1 missed and bare
+`evaluate` failed. The linker now stores `After+3` alone and the
+evaluator's primitive-formatter table keys the managed types on the
+single bytes above. The body=9 shape is also recognised **before** the
+`FindClassIdxForRawId(FieldId)` / pointer-alias lookups, because its
+`FieldId` (`After+3..+4` = `(type-id-low, 2×offset)`) is not a registry
+id and could spuriously hit a class on a large binary. Pinned by
+[Test.DPT.Rsm.Reader.TestManagedStringFieldIdsOffsetIndependent32](../Test/Test.DPT.Rsm.Reader.pas)
+(DebugTarget) and the shape by
+[Test.DPT.Rsm.Taifun.TestExpectedTenantIdFieldRecordShapePinned](../Test/Test.DPT.Rsm.Taifun.pas)
+(Test.Lib).
 
 When the `FieldId` resolves to a known class/record (via
 `FindClassIdxForRawId`), `Member.TypeIdx` is set to the discovered
@@ -1453,7 +1510,7 @@ matches every `<DWORD-off> <namelen> <name>` triple that passes the
 4-byte anchor), so the Format-A linker's `PruneSpuriousMembers` runs
 as a post-process to drop members that the `$2C` records never
 confirmed (see §4.9 and
-[FormatALinker.pas:752-786](DPT.Rsm.FormatALinker.pas#L752-L786)).
+[DPT.Rsm.FormatALinker.pas `PruneSpuriousMembers`](DPT.Rsm.FormatALinker.pas)).
 
 > **Consumer note — `Member.TypeIdx = 0` is the common case for
 > record-typed fields.** The Format-A linker populates
@@ -2669,28 +2726,61 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.33 Class `string`-field `Member.PrimitiveTypeId` not linked on large binaries (`GAP`)
+### 6.33 Convention-discovered classes' field type ids not attributed (unit-local colliding wide parent id) (`GAP`)
 
-[DPT.Debugger.pas `AutoDetectFormatterName`](DPT.Debugger.pas) — after the
-§6.30/§6.31/§6.32 fixes, `evaluate V.FExpectedTenantId` on
-`Test.Lib.CTestJwksValidator.Validate_Success` resolves correctly **with
-an explicit `type=string`** (returns `tenant-1`), but **bare** `evaluate
-V.FExpectedTenantId` fails with *"could not be auto-typed (no RSM type
-metadata for this field)"*. The dotted walk reaches the right `Member`
-(class `CJwksValidator`, field `FExpectedTenantId`, offset 16), but that
-member's `PrimitiveTypeId` is 0 and its `TypeIdx` doesn't resolve to a
-formatter, so `AutoDetectFormatterName`'s Path 1/2 both miss and the
-server declines rather than guess. On the small DebugTarget fixture the
-Format-A linker (§4.15 `LinkMemberTypeIdsFromFormatA`) populates
-`PrimitiveTypeId` for `string` fields fine; on the 172 MB `Test.Lib.rsm`
-it does not for these `CJwksValidator` fields — likely the same
-large-binary `$2C`-field-record id-namespace divergence that §4.2 / §4.15
-document for member type ids. Next investigator: dump the `$2C` field
-records for `CJwksValidator` in `Test.Lib.rsm`, compare the type-id slot
-against the `string` primitive id the small-binary path recovers, and
-determine whether the linker emits a per-binary alias here (as for the
-§4.2 cross-unit RTL types) that the member-type pass isn't bridging.
-Until then the fields are fully evaluable with an explicit `type=`.
+[DPT.Rsm.FormatALinker.pas `LinkFieldsFromFormatA`](DPT.Rsm.FormatALinker.pas) —
+bare `evaluate V.FExpectedTenantId` on
+`Test.Lib.CTestJwksValidator.Validate_Success` fails with *"could not be
+auto-typed (no RSM type metadata for this field)"* while an explicit
+`type=string` returns `tenant-1`. The dotted walk reaches the right
+`Member` (class `CJwksValidator`, field `FExpectedTenantId`, offset 16)
+but its `PrimitiveTypeId` / `TypeIdx` are 0. Investigation found this is
+a **stack of three defects**; the first two are fixed (folded into §4.9),
+the third remains open:
+
+* **Defect A (FIXED, §4.9).** The `$2C` field-record validation anchor
+  was hard-coded to `$00 $02 $00`, but the middle byte is a per-scope
+  discriminator that is `$02` only on DebugTarget; Test.Lib's
+  `CJwksValidator` strings carry `$10`, DebugTarget's own
+  property-backing `FBackingStr` carries `$00`. The guard now validates
+  the two zero bytes only (`$00 <scope> $00`).
+* **Defect B (FIXED, §4.9).** The body=9 managed-reference id was read
+  as 2 bytes `After+3 | (After+4 shl 8)`, but `After+4` is `2 × the
+  field offset`, baking the offset into the id. Only `After+3` (the
+  single-byte primitive id: `$04`/`$0C`/`$1C`/`$1E`) is the type. Fixed
+  + pinned on DebugTarget; bare evaluate now auto-types managed string
+  fields at any offset **whose owning class is attributable**.
+* **Defect C (OPEN).** `CJwksValidator` is a `'C'`-prefixed class
+  discovered structurally by the §6.31 convention-free path; its
+  `TypeIdx` is a file offset (`$0E37CEFC`), not a registry id. Its `$2C`
+  field records sit ~146 KB before the class name (far outside the
+  StructDiscoverer's 64 KB backward window — the members were built from
+  the nearby `<offset><NL><name> $02 00` form, which carries the offset
+  but **no type id**). The far `$2C` records carry the type id but are
+  attributed only by a **wide parent id `$0391`** — which is a
+  *unit-local* id reused by ~18 unrelated `$2A` types across the binary
+  (`TKey`, `TEvent`, `TButtonDisplay`, …). `FindClassIdxForRawId($0391)`
+  therefore last-wins to the wrong class (or none), and neither fallback
+  catches it: the block-owner index handles only **narrow**-encoded
+  (`Hi=$FF`) blocks paired with **`$0E` record** markers, whereas this
+  is a **wide**-encoded **class** block. Note `CJwksValidator`'s *own*
+  `$2A` registry id is `$8297`, unrelated to the `$0391` its field
+  records reference — and ScanTypeRegistry's `'T'`/`'P'` first-char gate
+  rejects the `'C'`-name entry anyway, so even the registry id is
+  absent from `FRsmTypeIdToClassIdx`.
+
+Next investigator: the fix is a positional pairing for wide-encoded
+class field blocks analogous to `BuildBlockOwnerIndex`'s narrow/`$0E`
+pairing — pair each contiguous wide-`$2C` block (keyed by its shared
+unit-local parent id) with the §6.31-discovered class whose member-name
+set matches the block's field names, scoped by file-offset proximity to
+avoid the cross-unit `$0391` collision. Must be perf-validated against
+the Taifun budgets (do not widen ScanTypeRegistry's gate naively — the
+§6.31 perf trap) and carry a leakage guard (a neighbouring class with a
+colliding unit-local id must not absorb the block). Until then these
+fields are fully evaluable with an explicit `type=`. The decoded `$2C`
+shape is pinned by
+[Test.DPT.Rsm.Taifun.TestExpectedTenantIdFieldRecordShapePinned](../Test/Test.DPT.Rsm.Taifun.pas).
 
 ---
 

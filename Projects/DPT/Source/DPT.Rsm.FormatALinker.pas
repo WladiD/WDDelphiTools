@@ -651,9 +651,24 @@ begin
     // have fields named WhdrHeader, DbKindName, etc. that the
     // old check rejected, leaving them with TypeIdx=0 so the
     // dotted-walk couldn't transition from a parent record
-    // into them. Validate the "$00 $02 $00" payload prefix
-    // BEFORE allocating the name; this is a more selective
-    // guard than any first-character rule could be.
+    // into them. Validate the payload prefix BEFORE allocating
+    // the name; this is a more selective guard than any first-
+    // character rule could be.
+    //
+    // §6.33: the prefix is "$00 <scope-byte> $00", NOT a fixed
+    // "$00 $02 $00". The middle byte at After+1 is a per-binary /
+    // per-scope discriminator that is $02 only on the small single-
+    // unit DebugTarget fixture; on multi-unit binaries it takes
+    // other small values ($00, $10, $14, ...). Requiring it to be
+    // $02 silently dropped EVERY field record outside that one shape
+    // (e.g. Test.Lib's CTestJwksValidator string fields at After+1=
+    // $10, and even DebugTarget's own property-backing FBackingStr at
+    // After+1=$00), leaving Member.PrimitiveTypeId=0 so bare evaluate
+    // could not auto-type them. The two zero bytes at After+0 /
+    // After+2 (After+2 is the scope value's always-zero high byte)
+    // stay as the structural anchor; the variable middle byte is no
+    // longer constrained. Downstream name-match + parent resolution
+    // reject any incidental $2C hit that slips through.
     NL := ByteAt(TagOff + 1);
     if (NL < 2) or (NL > 40) or (TagOff + 2 + NL + 7 >= FSz) then
     begin
@@ -661,8 +676,7 @@ begin
       Continue;
     end;
     var After: Integer := TagOff + 2 + NL;
-    if (ByteAt(After) <> $00) or (ByteAt(After + 1) <> $02) or
-       (ByteAt(After + 2) <> $00) then
+    if (ByteAt(After) <> $00) or (ByteAt(After + 2) <> $00) then
     begin
       Inc(P);
       Continue;
@@ -753,95 +767,110 @@ begin
       if SameText(Member.Name, Name) and (Member.TypeIdx = 0) and
          (Member.PrimitiveTypeId = 0) then
       begin
-        FieldIdx := FindClassIdxForRawId(FieldId);
-        if FieldIdx >= 0 then
-          Member.TypeIdx := FClasses[FieldIdx].TypeIdx
-        // §6.19: the field's type id is a Delphi pointer alias
-        // bound via the P<X>=^T<X> convention during ScanTypeRegistry.
-        // Record the dereference target so the dotted-walk evaluator
-        // can route the next segment straight into the record-hop
-        // branch (with a deref) instead of the §6.18 name-based
-        // fallback (whose unique-match guard bails on ambiguous
-        // member names like TFW's Land).
-        else if FAliasToTargetTypeIdx.TryGetValue(RawIdKey(FieldId),
-                  Member.PointerTargetTypeIdx) then
-        begin
-          // Nothing else to set -- Member.TypeIdx stays 0 (so the
-          // walker still differentiates pointer-to-record from
-          // inline record), and Member.PointerTargetTypeIdx now
-          // carries the target record's TypeIdx.
-        end
+        var BodyLen: Integer := EndOff - After;
+        // §6.33: a managed-reference primitive field (body=9 with the
+        // "$9C $01" marker at +5..+6) is recognised FIRST, before the
+        // registry / pointer-alias lookups. Its FieldId (After+3..+4)
+        // is (type-id-low-byte, 2x instance offset) -- NOT a registry
+        // id -- so feeding it to FindClassIdxForRawId / the alias map
+        // would risk a spurious class hit on a large multi-unit binary
+        // where the 2x-offset high byte collides with a real registry
+        // id. Only After+3 is the type id (single-byte id space:
+        // $04=string/UnicodeString, $0C=ShortString, $1C=AnsiString,
+        // $1E=WideString). After+4 = 2x offset (FAnsi@0 -> $00,
+        // FWide@4 -> $08, FShort@8 -> $10; Test.Lib's TenantId@16 ->
+        // $20). The old "+3 | +4 shl 8" read baked the offset into the
+        // id, so the same managed type at a different offset produced a
+        // different, unmapped id ($1004/$1804/$2004/$2804 for Test.Lib's
+        // strings) and bare evaluate could not auto-type it.
+        if (BodyLen = 9) and (ByteAt(After + 5) = $9C) and
+           (ByteAt(After + 6) = $01) then
+          Member.PrimitiveTypeId := UInt16(ByteAt(After + 3))
         else
         begin
-          var BodyLen: Integer := EndOff - After;
-          if (BodyLen = 14) or (BodyLen = 15) then
-            Member.PrimitiveTypeId :=
-              UInt16(ByteAt(EndOff - 5)) or
-              (UInt16(ByteAt(EndOff - 4)) shl 8)
-          else if (BodyLen = 9) and
-                  (ByteAt(After + 5) = $9C) and
-                  (ByteAt(After + 6) = $01) then
-            Member.PrimitiveTypeId :=
-              UInt16(ByteAt(After + 3)) or
-              (UInt16(ByteAt(After + 4)) shl 8)
-          // Enum-typed field. Body shape adds a $00 separator
-          // between the type id and the "$9C $01" reference
-          // marker (so the marker sits at +6..+7 instead of
-          // +5..+6).
-          //
-          // §6.9 closure: when byte +5 = $0C the field is a same-
-          // compilation cross-unit enum and byte +3 carries only
-          // the secondary id's LOW byte (not a 2-byte primary).
-          // Resolve via the EnumDecoder's nearest-$2A-offset rule;
-          // fall through to the 2-byte read when no $2A entry with
-          // that LOW byte exists (cross-unit RTL enums, program-
-          // local enums, non-enum primitives all keep their
-          // historical behaviour).
-          else if (BodyLen >= 10) and
-                  (ByteAt(After + 6) = $9C) and
-                  (ByteAt(After + 7) = $01) then
+          FieldIdx := FindClassIdxForRawId(FieldId);
+          if FieldIdx >= 0 then
+            Member.TypeIdx := FClasses[FieldIdx].TypeIdx
+          // §6.19: the field's type id is a Delphi pointer alias
+          // bound via the P<X>=^T<X> convention during ScanTypeRegistry.
+          // Record the dereference target so the dotted-walk evaluator
+          // can route the next segment straight into the record-hop
+          // branch (with a deref) instead of the §6.18 name-based
+          // fallback (whose unique-match guard bails on ambiguous
+          // member names like TFW's Land).
+          else if FAliasToTargetTypeIdx.TryGetValue(RawIdKey(FieldId),
+                    Member.PointerTargetTypeIdx) then
           begin
-            var ResolvedPrim: UInt32;
-            if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
-               FEnumDecoder.FindNearestPrimaryByLowByte(
-                 ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
-              Member.PrimitiveTypeId := UInt16(ResolvedPrim)
-            else
-              Member.PrimitiveTypeId :=
-                UInt16(ByteAt(After + 3)) or
-                (UInt16(ByteAt(After + 4)) shl 8);
+            // Nothing else to set -- Member.TypeIdx stays 0 (so the
+            // walker still differentiates pointer-to-record from
+            // inline record), and Member.PointerTargetTypeIdx now
+            // carries the target record's TypeIdx.
           end
-          // Same shape as the BodyLen>=10 branch above, but with
-          // a TWO-byte separator between the field's type id and
-          // the "$9C $01" marker (marker at +7..+8 instead of
-          // +6..+7). The compiler emits this longer separator
-          // when the field's byte offset within the record
-          // doesn't fit in the shorter form (observed for fields
-          // at record offsets >= 256: CalendarID at 259,
-          // SyncDirection at 771, etc). Without this branch the
-          // linker leaves Member.PrimitiveTypeId at 0 for every
-          // enum/string field past a 256-byte boundary, which
-          // sends the evaluator's auto-detect chain into the
-          // name-based fallback -- the source of the TFW
-          // UserKonsOutlook.SyncDirection misroute.
-          //
-          // §6.9 closure: the same-comp $0C marker sits at +5
-          // in this longer-separator form too (the same byte
-          // position as the +5 branch above); the LOW byte at
-          // +3 unchanged. Same nearest-offset bridge.
-          else if (BodyLen >= 11) and
-                  (ByteAt(After + 7) = $9C) and
-                  (ByteAt(After + 8) = $01) then
+          else
           begin
-            var ResolvedPrim: UInt32;
-            if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
-               FEnumDecoder.FindNearestPrimaryByLowByte(
-                 ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
-              Member.PrimitiveTypeId := UInt16(ResolvedPrim)
-            else
+            if (BodyLen = 14) or (BodyLen = 15) then
               Member.PrimitiveTypeId :=
-                UInt16(ByteAt(After + 3)) or
-                (UInt16(ByteAt(After + 4)) shl 8);
+                UInt16(ByteAt(EndOff - 5)) or
+                (UInt16(ByteAt(EndOff - 4)) shl 8)
+            // Enum-typed field. Body shape adds a $00 separator
+            // between the type id and the "$9C $01" reference
+            // marker (so the marker sits at +6..+7 instead of
+            // +5..+6).
+            //
+            // §6.9 closure: when byte +5 = $0C the field is a same-
+            // compilation cross-unit enum and byte +3 carries only
+            // the secondary id's LOW byte (not a 2-byte primary).
+            // Resolve via the EnumDecoder's nearest-$2A-offset rule;
+            // fall through to the 2-byte read when no $2A entry with
+            // that LOW byte exists (cross-unit RTL enums, program-
+            // local enums, non-enum primitives all keep their
+            // historical behaviour).
+            else if (BodyLen >= 10) and
+                    (ByteAt(After + 6) = $9C) and
+                    (ByteAt(After + 7) = $01) then
+            begin
+              var ResolvedPrim: UInt32;
+              if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
+                 FEnumDecoder.FindNearestPrimaryByLowByte(
+                   ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
+                Member.PrimitiveTypeId := UInt16(ResolvedPrim)
+              else
+                Member.PrimitiveTypeId :=
+                  UInt16(ByteAt(After + 3)) or
+                  (UInt16(ByteAt(After + 4)) shl 8);
+            end
+            // Same shape as the BodyLen>=10 branch above, but with
+            // a TWO-byte separator between the field's type id and
+            // the "$9C $01" marker (marker at +7..+8 instead of
+            // +6..+7). The compiler emits this longer separator
+            // when the field's byte offset within the record
+            // doesn't fit in the shorter form (observed for fields
+            // at record offsets >= 256: CalendarID at 259,
+            // SyncDirection at 771, etc). Without this branch the
+            // linker leaves Member.PrimitiveTypeId at 0 for every
+            // enum/string field past a 256-byte boundary, which
+            // sends the evaluator's auto-detect chain into the
+            // name-based fallback -- the source of the TFW
+            // UserKonsOutlook.SyncDirection misroute.
+            //
+            // §6.9 closure: the same-comp $0C marker sits at +5
+            // in this longer-separator form too (the same byte
+            // position as the +5 branch above); the LOW byte at
+            // +3 unchanged. Same nearest-offset bridge.
+            else if (BodyLen >= 11) and
+                    (ByteAt(After + 7) = $9C) and
+                    (ByteAt(After + 8) = $01) then
+            begin
+              var ResolvedPrim: UInt32;
+              if (ByteAt(After + 5) = $0C) and (FEnumDecoder <> nil) and
+                 FEnumDecoder.FindNearestPrimaryByLowByte(
+                   ByteAt(After + 3), UInt32(TagOff), ResolvedPrim) then
+                Member.PrimitiveTypeId := UInt16(ResolvedPrim)
+              else
+                Member.PrimitiveTypeId :=
+                  UInt16(ByteAt(After + 3)) or
+                  (UInt16(ByteAt(After + 4)) shl 8);
+            end;
           end;
         end;
         FClasses[ParentIdx].Members[M] := Member;
