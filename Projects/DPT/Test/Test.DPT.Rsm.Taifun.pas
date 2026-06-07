@@ -4,19 +4,26 @@
 // Licensed under the MIT license. See included LICENSE file for details.
 // ======================================================================
 
-unit Test.DPT.Rsm.Tfw;
+unit Test.DPT.Rsm.Taifun;
 
-// Tests that require the developer-machine-only TFW fixture
-// (C:\MSE\TFW\TFW.exe + .rsm + .map). Loading TFW.rsm takes ~24 s on
-// the developer machine and gets dramatically slower as the file
-// grows, so every test that needs the loaded reader shares a single
-// reader instance created in [SetupFixture]. The perf-regression
-// assertions live in the same fixture and read back the per-phase
-// timings captured by the OnPhase callback during that one load, so
-// the perf net is not paying for the load twice.
+// Tests that run against the developer-machine-only large binaries of
+// the Taifun ecosystem: C:\MSE\TFW\TFW.exe and C:\MSE\TEST\Test.Lib.exe,
+// each with its .rsm sidecar (+ .map). These .rsm files are huge
+// (TFW ~800 MB, Test.Lib ~240 MB) and take many seconds to load, so the
+// load happens ONCE per fixture in a shared `[SetupFixture]` and every
+// test in that fixture reads back the one loaded reader / map / phase
+// timings.
+//
+// Resource handling is unified in the base class TRsmHeavyFixtureTests:
+// it owns the primary reader, the .map, the OnPhase timing capture and
+// the skip machinery, and exposes `LoadPrimaryFixture(exe, label)` for
+// each concrete fixture to call from its own `[SetupFixture]`. The
+// concrete fixtures are:
+//   * TRsmTfwTests     — TFW.exe (plus a Win64 variant for §6.2 RE)
+//   * TRsmTestLibTests — Test.Lib.exe (the §6.31 C-prefix-class corpus)
 //
 // All tests skip silently (Assert.Pass + a WARNING line to stdout)
-// when the fixture is missing, so the suite stays green on clean
+// when their fixture is missing, so the suite stays green on clean
 // machines.
 
 interface
@@ -37,21 +44,15 @@ uses
 
 type
 
-  [TestFixture]
-  TRsmTfwTests = class
-  public const
-    /// Single source of truth for the TFW fixture location. Both the
-    /// .rsm sidecar (loaded by TRsmReader) and the .map file
-    /// (loaded by TMapFileParser) are derived from this base path.
-    TfwExePath      = 'C:\MSE\TFW\TFW.exe';
-    TfwMapPath      = 'C:\MSE\TFW\TFW.map';
-    /// Win64 variant of the fixture, used by §6.2 (Win64 proc-address
-    /// VAs > 2 MB) reverse-engineering. Only consumed when the test
-    /// exe is itself 64-bit (the .rsm at ~1.17 GB is too tight for a
-    /// 32-bit process address space alongside the Win32 TFW load).
-    TfwWin64ExePath = 'C:\MSE\TFW\TFW.Win64.Debug.exe';
-    TfwWin64MapPath = 'C:\MSE\TFW\TFW.Win64.Debug.map';
-  strict private
+  /// Base for the heavy-fixture test classes. Owns the resources whose
+  /// initialisation is expensive and so are loaded once per fixture and
+  /// shared by every test in it: the primary RSM reader, the sibling
+  /// .map, the OnPhase per-phase timing capture, and the skip state.
+  /// Concrete fixtures call `LoadPrimaryFixture` from their own
+  /// [SetupFixture] and `FreePrimaryFixture` from [TearDownFixture].
+  /// NOT a [TestFixture] itself — it carries no [Test] methods.
+  TRsmHeavyFixtureTests = class
+  strict protected
     FReader      : TRsmReader;
     FMap         : TMapFileParser;
     FPhaseTable  : TStringList;
@@ -61,6 +62,37 @@ type
     FFixtureMB   : Double;
     FFixtureLine : String;
     FSkipReason  : String;
+    /// Loads `AExePath`'s .rsm into FReader once, capturing per-phase
+    /// timings into FPhaseTimings/FPhaseTable and the total into
+    /// FTotalLoadMs, then loads the sibling .map into FMap when present.
+    /// Mirrors a one-line identity + per-phase summary to dpt.log and
+    /// stdout. On a missing fixture it sets FSkipReason (tagged with
+    /// `ALabel`), prints a WARNING, and returns False. Returns True when
+    /// the reader loaded — the caller then runs any fixture-specific
+    /// extras (TFW's spot-procs / Win64 reader, etc.).
+    function LoadPrimaryFixture(const AExePath, ALabel: String): Boolean;
+    /// Frees the primary reader / map / phase table (FreeAndNil-safe).
+    procedure FreePrimaryFixture;
+    /// Returns True (and `Assert.Pass(FSkipReason)`) when the fixture was
+    /// missing, so a [Test] can bail before touching FReader / FMap.
+    function ShouldSkip: Boolean;
+  end;
+
+  [TestFixture]
+  TRsmTfwTests = class(TRsmHeavyFixtureTests)
+  public const
+    /// Single source of truth for the TFW fixture location. The .rsm
+    /// sidecar and the .map (both loaded by the base) are derived from
+    /// this exe path.
+    TfwExePath      = 'C:\MSE\TFW\TFW.exe';
+    TfwMapPath      = 'C:\MSE\TFW\TFW.map';
+    /// Win64 variant of the fixture, used by §6.2 (Win64 proc-address
+    /// VAs > 2 MB) reverse-engineering. Only consumed when the test
+    /// exe is itself 64-bit (the .rsm at ~1.17 GB is too tight for a
+    /// 32-bit process address space alongside the Win32 TFW load).
+    TfwWin64ExePath = 'C:\MSE\TFW\TFW.Win64.Debug.exe';
+    TfwWin64MapPath = 'C:\MSE\TFW\TFW.Win64.Debug.map';
+  strict private
     {$IFDEF CPUX64}
     /// Win64 reader / map. The reader exposes Procs[].SegmentOffset
     /// (decoded address) and its internal Scanner (Is64Bit + ByteAt
@@ -69,12 +101,6 @@ type
     FReaderWin64    : TRsmReader;
     FMapWin64       : TMapFileParser;
     FWin64SkipReason: String;
-    {$ENDIF}
-    /// Sets FSkipReason and returns True when the fixture is missing.
-    /// Both [Test] methods call this and Assert.Pass + Exit on True so
-    /// they don't dereference FReader / FMap when the load was skipped.
-    function ShouldSkip: Boolean;
-    {$IFDEF CPUX64}
     /// Same shape as ShouldSkip but for the Win64 fixture.
     function ShouldSkipWin64: Boolean;
     {$ENDIF}
@@ -391,14 +417,143 @@ type
     procedure TestTfwSynthEnumPhantomResidual;
   end;
 
+  /// Tests against the Taifun Test.Lib DUnitX runner (`Test.Lib.exe`,
+  /// ~172 MB exe / ~240 MB .rsm). Shares the base's one-time reader /
+  /// map / phase-timing machinery — additional Test.Lib tests added here
+  /// reuse the single `FReader` loaded in [SetupFixture] rather than each
+  /// re-loading the multi-second fixture.
+  [TestFixture]
+  TRsmTestLibTests = class(TRsmHeavyFixtureTests)
+  public const
+    /// The §6.31 corpus: a real binary whose classes follow the
+    /// codebase's 'C'-prefix convention (CJwksValidator et al.) — TFW is
+    /// all 'T'-prefixed and so cannot exercise the convention-free
+    /// class-discovery gate.
+    TestLibExePath = 'C:\MSE\TEST\Test.Lib.exe';
+  public
+    /// One-time setup: loads Test.Lib.rsm (+ .map) once via the base.
+    [SetupFixture]
+    procedure SetupFixture;
+    /// Frees the shared reader / map / phase table.
+    [TearDownFixture]
+    procedure TearDownFixture;
+
+    /// <summary>
+    ///   §6.31 PIN (large binary). The convention-free class-discovery
+    ///   gate finds the 'C'-prefixed CJwksValidator in Test.Lib.rsm with
+    ///   its fields at the right instance offsets (FCache @4,
+    ///   FExpectedTenantId @16 — matching the live VMT layout that
+    ///   "evaluate V.FExpectedTenantId" reads). Confirms the retired
+    ///   'T'-prefix crutch fix holds at large-binary scale, not just on
+    ///   the small DebugTarget fixture.
+    /// </summary>
+    [Test]
+    procedure TestLargeBinaryNonTClassDiscovered;
+  end;
+
 implementation
 
-function TRsmTfwTests.ShouldSkip: Boolean;
+{ TRsmHeavyFixtureTests }
+
+function TRsmHeavyFixtureTests.ShouldSkip: Boolean;
 begin
   Result := FSkipReason <> '';
   if Result then
     Assert.Pass(FSkipReason);
 end;
+
+function TRsmHeavyFixtureTests.LoadPrimaryFixture(
+  const AExePath, ALabel: String): Boolean;
+var
+  TotalSW: TStopwatch;
+  PhaseSW: TStopwatch;
+  LogPath: String;
+  W      : TStreamWriter;
+  I      : Integer;
+  MapPath: String;
+begin
+  FSkipReason := '';
+  if not TFile.Exists(AExePath) then
+  begin
+    FSkipReason := Format(
+      'WARNING: %s tests SKIPPED -- fixture not found at "%s". The ' +
+      'large-binary pins / perf-regression budgets cannot be exercised ' +
+      'without it.', [ALabel, AExePath]);
+    Writeln(FSkipReason);
+    Exit(False);
+  end;
+
+  // Announce the fixture identity before the multi-second load starts.
+  // The same line goes into dpt.log so a post-mortem comparison across
+  // runs can match different .rsm sizes to different timings.
+  FFixtureRsm := ChangeFileExt(AExePath, '.rsm');
+  FFixtureMB := 0;
+  if TFile.Exists(FFixtureRsm) then
+    FFixtureMB := TFile.GetSize(FFixtureRsm) / (1024 * 1024);
+  FFixtureLine := Format('  fixture: exe=%s  rsm=%s (%.1f MB)',
+    [AExePath, FFixtureRsm, FFixtureMB]);
+  Writeln(FFixtureLine);
+
+  FPhaseTable   := TStringList.Create;
+  FPhaseTimings := Collections.NewPlainKeyValue<String, Int64>;
+  FReader       := TRsmReader.Create;
+
+  PhaseSW := TStopwatch.StartNew;
+  FReader.OnPhase :=
+    procedure(APhase: String)
+    begin
+      PhaseSW.Stop;
+      FPhaseTable.Add(Format('  %-32s %d ms',
+        [APhase, PhaseSW.ElapsedMilliseconds]));
+      FPhaseTimings[APhase] := PhaseSW.ElapsedMilliseconds;
+      PhaseSW := TStopwatch.StartNew;
+    end;
+  TotalSW := TStopwatch.StartNew;
+  FReader.LoadFromFile(AExePath);
+  TotalSW.Stop;
+  FTotalLoadMs := TotalSW.ElapsedMilliseconds;
+
+  // Mirror the timings into dpt.log (the file the user already tails for
+  // live progress) and echo to stdout so the DUnitX runner captures them.
+  var Summary: String := Format('%s [%s-diag] total=%d ms  procs=%d  classes=%d',
+    [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now), ALabel,
+     Integer(FTotalLoadMs), FReader.Procs.Count, FReader.Classes.Count]);
+  LogPath := ChangeFileExt(ParamStr(0), '') + '.log';
+  try
+    W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
+    try
+      W.WriteLine(Summary);
+      W.WriteLine(FFixtureLine);
+      for I := 0 to FPhaseTable.Count - 1 do
+        W.WriteLine(FPhaseTable[I]);
+    finally
+      W.Free;
+    end;
+  except
+    // diagnostics must never throw
+  end;
+  Writeln(Summary);
+  for I := 0 to FPhaseTable.Count - 1 do
+    Writeln(FPhaseTable[I]);
+
+  // The sibling .map is shared by tests that tie a decoded value back to
+  // ground-truth RVAs; load it once here when present.
+  MapPath := ChangeFileExt(AExePath, '.map');
+  if TFile.Exists(MapPath) then
+    FMap := TMapFileParser.Create(MapPath);
+
+  Result := True;
+end;
+
+procedure TRsmHeavyFixtureTests.FreePrimaryFixture;
+begin
+  FreeAndNil(FMap);
+  FreeAndNil(FReader);
+  FreeAndNil(FPhaseTable);
+  FPhaseTimings := nil;
+end;
+
+{ TRsmTfwTests }
 
 {$IFDEF CPUX64}
 function TRsmTfwTests.ShouldSkipWin64: Boolean;
@@ -424,73 +579,12 @@ const
     'TFormMain.Create', 'TFormVBh.Create',
     'TFormVBh.CreateGsVBhBridge', 'TFormMain.AfterMenuRebuild');
 var
-  TotalSW: TStopwatch;
-  PhaseSW: TStopwatch;
   LogPath: String;
   W      : TStreamWriter;
-  I      : Integer;
 begin
-  FSkipReason := '';
-  if not TFile.Exists(TfwExePath) then
-  begin
-    FSkipReason := Format(
-      'WARNING: TFW tests SKIPPED -- fixture not found at "%s". ' +
-      'The interface-scope global encoding and the perf-regression ' +
-      'budgets cannot be exercised without it.', [TfwExePath]);
-    Writeln(FSkipReason);
-    Exit;
-  end;
-
-  // Announce the fixture identity before the multi-second load
-  // starts. The same line goes into dpt.log so post-mortem
-  // comparison across runs can match different .rsm sizes to
-  // different timings.
-  FFixtureRsm := ChangeFileExt(TfwExePath, '.rsm');
-  FFixtureMB := 0;
-  if TFile.Exists(FFixtureRsm) then
-    FFixtureMB := TFile.GetSize(FFixtureRsm) / (1024 * 1024);
-  FFixtureLine := Format('  fixture: exe=%s  rsm=%s (%.1f MB)',
-    [TfwExePath, FFixtureRsm, FFixtureMB]);
-  Writeln(FFixtureLine);
-
-  FPhaseTable   := TStringList.Create;
-  FPhaseTimings := Collections.NewPlainKeyValue<String, Int64>;
-  FReader       := TRsmReader.Create;
-
-  PhaseSW := TStopwatch.StartNew;
-  FReader.OnPhase :=
-    procedure(APhase: String)
-    begin
-      PhaseSW.Stop;
-      FPhaseTable.Add(Format('  %-32s %d ms',
-        [APhase, PhaseSW.ElapsedMilliseconds]));
-      FPhaseTimings[APhase] := PhaseSW.ElapsedMilliseconds;
-      PhaseSW := TStopwatch.StartNew;
-    end;
-  TotalSW := TStopwatch.StartNew;
-  FReader.LoadFromFile(TfwExePath);
-  TotalSW.Stop;
-  FTotalLoadMs := TotalSW.ElapsedMilliseconds;
-
-  // Mirror the timings into dpt.log so the file the user already
-  // tails for live progress also carries the post-mortem summary.
-  var Summary: String := Format('%s [tfw-diag] total=%d ms  procs=%d  classes=%d',
-    [FormatDateTime('yyyy-mm-dd hh:nn:ss.zzz', Now),
-     Integer(FTotalLoadMs), FReader.Procs.Count, FReader.Classes.Count]);
+  // Shared resource load (reader + .map + phase timings + skip state).
+  if not LoadPrimaryFixture(TfwExePath, 'TFW') then Exit;
   LogPath := ChangeFileExt(ParamStr(0), '') + '.log';
-  try
-    W := TStreamWriter.Create(LogPath, True, TEncoding.UTF8);
-    try
-      W.WriteLine(Summary);
-      W.WriteLine(FFixtureLine);
-      for I := 0 to FPhaseTable.Count - 1 do
-        W.WriteLine(FPhaseTable[I]);
-    finally
-      W.Free;
-    end;
-  except
-    // diagnostics must never throw
-  end;
 
   // Spot-check the decoder on a handful of named procs from TFW.
   // The MCP-session diagnostic showed FindProcContaining missing
@@ -543,17 +637,6 @@ begin
     end;
   end;
 
-  // Also echo summary to stdout so DUnitX's runner output captures it.
-  Writeln(Summary);
-  Writeln(FFixtureLine);
-  for I := 0 to FPhaseTable.Count - 1 do
-    Writeln(FPhaseTable[I]);
-
-  // Map-file parser is needed by TestTfwGlobalRecordResolves's VA
-  // tie-break check; load it once here so both tests share it.
-  if TFile.Exists(TfwMapPath) then
-    FMap := TMapFileParser.Create(TfwMapPath);
-
   {$IFDEF CPUX64}
   // Win64 fixture for §6.2 (proc-address VAs > 2 MB) RE. Loaded only
   // when the test exe is itself 64-bit -- the .rsm is ~1.17 GB and
@@ -588,10 +671,7 @@ begin
   FreeAndNil(FMapWin64);
   FreeAndNil(FReaderWin64);
   {$ENDIF}
-  FreeAndNil(FMap);
-  FreeAndNil(FReader);
-  FreeAndNil(FPhaseTable);
-  FPhaseTimings := nil;
+  FreePrimaryFixture;  // base: frees FMap / FReader / FPhaseTable
 end;
 
 procedure TRsmTfwTests.TestTfwLoadDiagnostic;
@@ -1817,7 +1897,43 @@ begin
     'FilterPhantomEnumDefs comment example is stale).');
 end;
 
+{ TRsmTestLibTests }
+
+procedure TRsmTestLibTests.SetupFixture;
+begin
+  LoadPrimaryFixture(TestLibExePath, 'Test.Lib');
+end;
+
+procedure TRsmTestLibTests.TearDownFixture;
+begin
+  FreePrimaryFixture;
+end;
+
+procedure TRsmTestLibTests.TestLargeBinaryNonTClassDiscovered;
+var
+  Member : TRsmClassMember;
+begin
+  if ShouldSkip then Exit;
+  // Uses the shared FReader loaded once in SetupFixture.
+  // The C-prefixed class is discovered at large-binary scale.
+  Assert.IsTrue(FReader.FindClassByName('CJwksValidator') >= 0,
+    'CJwksValidator (C-prefixed) must be discovered in the ~172 MB Test.Lib.rsm');
+  // ...with its own fields at the live instance offsets (Win32 4-byte
+  // slots: VMT@0, FCache@4, FExpectedAudience@8, FExpectedIssuer@12,
+  // FExpectedTenantId@16, FExpectedProductId@20).
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FCache', Member),
+    'CJwksValidator.FCache must resolve');
+  Assert.AreEqual<UInt32>(4, Member.Offset, 'FCache @4 (right after VMT)');
+  Assert.IsTrue(FReader.FindClassMember('CJwksValidator', 'FExpectedTenantId', Member),
+    'CJwksValidator.FExpectedTenantId must resolve');
+  Assert.AreEqual<UInt32>(16, Member.Offset, 'FExpectedTenantId @16');
+  // Leakage guard: a neighbouring T-class is still discovered too.
+  Assert.IsTrue(FReader.FindClassByName('TJwtValidationResult') >= 0,
+    'TJwtValidationResult (T-prefixed) must still be discovered');
+end;
+
 initialization
   TDUnitX.RegisterTestFixture(TRsmTfwTests);
+  TDUnitX.RegisterTestFixture(TRsmTestLibTests);
 
 end.

@@ -63,7 +63,7 @@ type
     /// <summary>
     ///   §6.24 DebugTarget leakage guard. The heuristic name-convention
     ///   enum late-binding pass (TFW's TAd.Land -> TLandTyp, pinned in
-    ///   Test.DPT.Rsm.Tfw) must NOT invent a phantom enum on the clean
+    ///   Test.DPT.Rsm.Taifun) must NOT invent a phantom enum on the clean
     ///   DebugTarget fixture: <c>TMixedRec.FMixedInt</c> is an Integer
     ///   field with no matching <c>TMixedInt</c> / <c>TMixedIntTyp</c>
     ///   enum, so it must stay non-enum-typed. The genuine TLightStatus

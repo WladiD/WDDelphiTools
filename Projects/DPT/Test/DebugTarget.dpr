@@ -735,6 +735,80 @@ var
   GGlobalPrim        : TPrimitives;
   GGlobalComp        : TMyComp;
   GGlobalEmptyChild  : TEmptyChild;
+// === §6.31 non-T-prefixed class fixture ===
+// StructDiscoverer's hot-loop quick-reject only accepted class/record
+// names starting with 'T', so a 'C'-prefixed class (this is how
+// Test.Lib's CJwksValidator / CTestJwksValidator are named) was never
+// discovered -- FindClassByName returned nothing and every
+// "evaluate Obj.FField" on such an instance failed even when the local
+// pointer itself was decoded correctly. See DPT.Rsm.Format.md §6.31.
+type
+  CNonTPrefixHost = class
+  public
+    FNonTInt : Integer;
+    FNonTStr : string;
+    FNonTObj : TInner;
+  end;
+var
+  GGlobalNonTHost : CNonTPrefixHost;
+// === §6.30 inline-var local fixture ===
+// Delphi inline variable declarations ("var X := expr;" in the body)
+// emit $20 LOCAL records with a DIFFERENT body anchor than classic
+// "var" blocks: $66 $00 $01 $04 instead of $66 $00 $00, which pushes
+// the BPRel offset byte one position to the right (payload +5 instead
+// of +4). LocalsProcedure / EdgeCaseLocalsProcedure only exercise the
+// classic form, so the scanner's mis-decode of the inline form went
+// unpinned until Test.Lib.CTestJwksValidator.Validate_Success surfaced
+// it (every local mis-decoded; "evaluate V.FExpectedTenantId" failed
+// because V's offset came out ~128x too large). LocalIVBig forces at
+// least one trailing inline var to a large frame offset so the wide /
+// continuation offset form (if any) is exercised, not just the
+// single-byte form. See DPT.Rsm.Format.md §4.4.
+procedure InlineVarLocalsProcedure;
+begin
+  var LocalIVStr: string := 'Hello Inline';
+  var LocalIVObj: TStringList := TStringList.Create;
+  var LocalIVRec: TPoint2D;
+  LocalIVRec.FX := $41; LocalIVRec.FY := $42;
+  var LocalIVInt: Integer := Integer($1234ABCD);
+  // 512-byte buffer so LocalIVTail below sits past the single-byte
+  // ShortInt offset range (|2*offset| > 127), exercising the wide form.
+  var LocalIVBig: array[0..127] of Integer;
+  LocalIVBig[0] := Integer($5A5A5A5A); LocalIVBig[127] := Integer($A5A5A5A5);
+  var LocalIVTail: string := 'Inline Tail';
+  try
+    Writeln('InlineVar ', LocalIVStr, ' ', LocalIVObj.Count, ' ',
+            LocalIVRec.FX, ' ', LocalIVInt, ' ', LocalIVBig[0], ' ',
+            LocalIVBig[127], ' ', LocalIVTail); Flush(Output); // Line 768 - inline-var locals bp here
+  finally
+    LocalIVObj.Free;
+  end;
+end;
+// §6.30 companion: enough inline Integer vars that the trailing ones
+// land past EBP-64, where a 1-byte primitive type pairs with the WIDE
+// (LSB-continuation) BPRel offset form -- the (1-byte type, 2-byte
+// offset) combo the InlineVarLocalsProcedure fixture above doesn't
+// reach (there the only wide offset, LocalIVBig, is a 2-byte type).
+procedure InlineVarManyIntsProcedure;
+begin
+  var IV01: Integer := 1;   var IV02: Integer := IV01 + 1;
+  var IV03: Integer := IV02 + 1; var IV04: Integer := IV03 + 1;
+  var IV05: Integer := IV04 + 1; var IV06: Integer := IV05 + 1;
+  var IV07: Integer := IV06 + 1; var IV08: Integer := IV07 + 1;
+  var IV09: Integer := IV08 + 1; var IV10: Integer := IV09 + 1;
+  var IV11: Integer := IV10 + 1; var IV12: Integer := IV11 + 1;
+  var IV13: Integer := IV12 + 1; var IV14: Integer := IV13 + 1;
+  var IV15: Integer := IV14 + 1; var IV16: Integer := IV15 + 1;
+  var IV17: Integer := IV16 + 1; var IV18: Integer := IV17 + 1;
+  var IV19: Integer := IV18 + 1; var IV20: Integer := IV19 + 1;
+  var IV21: Integer := IV20 + 1; var IV22: Integer := IV21 + 1;
+  var IV23: Integer := IV22 + 1; var IV24: Integer := IV23 + 1;
+  // Keep every var live to the BP so the compiler can't fold slots.
+  Writeln('ManyInts ',
+    IV01,IV02,IV03,IV04,IV05,IV06,IV07,IV08,IV09,IV10,IV11,IV12,
+    IV13,IV14,IV15,IV16,IV17,IV18,IV19,IV20,IV21,IV22,IV23,IV24);
+  Flush(Output); // Line 800 - inline-var many-ints bp here
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -921,7 +995,16 @@ begin
     // Reach TouchEmptyChild so the VMT-walk fallback test for
     // ancestors via the no-own-fields path has a live BP context.
     TouchEmptyChild(GGlobalEmptyChild);
+    // §6.31: a 'C'-prefixed class instance so the field-discovery test
+    // has a non-T class with concrete field values to resolve.
+    GGlobalNonTHost := CNonTPrefixHost.Create;
+    GGlobalNonTHost.FNonTInt := Integer($CECECECE);
+    GGlobalNonTHost.FNonTStr := 'NonT Field';
+    GGlobalNonTHost.FNonTObj := TInner.Create;
+    GGlobalNonTHost.FNonTObj.FInnerInt := Integer($CD000001);
     LocalsProcedure;
+    InlineVarLocalsProcedure;
+    InlineVarManyIntsProcedure;
     if GGlobalInt = -1 then EdgeCaseLocalsProcedure;
     if GGlobalInt = -1 then OpenArrayStringProcedure(['A', 'B', 'C']);
     if GGlobalInt = -1 then OpenArrayIntProcedure([1, 2, 3, 4]);
@@ -944,5 +1027,7 @@ begin
     GGlobalStaleSelf.Free;
     GGlobalPtrToRecHost.Free;
     GGlobalAmbig619Host.Free;
+    GGlobalNonTHost.FNonTObj.Free;
+    GGlobalNonTHost.Free;
   end;
 end.

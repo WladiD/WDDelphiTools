@@ -32,6 +32,17 @@ function RsmByteAt(ABuf: PByte; AOffset: NativeInt): Byte; inline;
 function RsmDwordAt(ABuf: PByte; AOffset: NativeInt): UInt32; inline;
 
 /// <summary>
+///   True when the 4 bytes at <c>AOffset</c> equal <c>AB0..AB3</c> in
+///   stream order. Faster than four <c>RsmByteAt</c> compares (one
+///   unaligned 32-bit load + one compare against the byte values folded
+///   into an LE DWORD), yet the call site stays self-documenting — the
+///   expected anchor bytes are spelled out instead of hidden in a hex
+///   literal. No bounds check (callers verify offset + 3).
+/// </summary>
+function RsmDwordAtEquals(ABuf: PByte; AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean; inline;
+
+/// <summary>
 ///   True for bytes that may appear in an RSM identifier (digits,
 ///   ASCII letters, plus the qualified-name / generic / linker-alias
 ///   punctuation: '.', '_', '$', '@', '&lt;', '&gt;', ',').
@@ -70,6 +81,14 @@ end;
 function RsmDwordAt(ABuf: PByte; AOffset: NativeInt): UInt32;
 begin
   Result := PUInt32(ABuf + AOffset)^;
+end;
+
+function RsmDwordAtEquals(ABuf: PByte; AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean;
+begin
+  Result := PUInt32(ABuf + AOffset)^ =
+    (UInt32(AB0) or (UInt32(AB1) shl 8) or
+     (UInt32(AB2) shl 16) or (UInt32(AB3) shl 24));
 end;
 
 function RsmIsPrintableAscii(AB: Byte): Boolean;

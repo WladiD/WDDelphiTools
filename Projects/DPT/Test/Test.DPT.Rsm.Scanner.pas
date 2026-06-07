@@ -29,6 +29,8 @@ type
     procedure DoTestSimpleRecordHeaderFieldCount(AUse64Bit: Boolean);
     procedure DoTest25NoConstVsEnumElementDiscriminator(AUse64Bit: Boolean);
     procedure DoTestProcDeclaringUnitResolves(AUse64Bit: Boolean);
+    procedure DoTestContainerHeaderLayout(AUse64Bit: Boolean);
+    procedure DoTestModuleRecordChain(AUse64Bit: Boolean);
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -402,6 +404,73 @@ type
     /// present in some encoding still to be decoded.
     [Test]
     procedure TestRsmProcEntryRvaNotInLineTableWireForm32;
+    /// §6.29 round-2 pin -- BROADENS the sibling above from the single
+    /// proc-entry-token encoding to FOUR integer encodings, across SIX
+    /// `.dpr` line offsets. Ground truth (DebugTarget.map, segment
+    /// .text): line 18 @ $DA004 (TargetProcedure ENTRY), 19 @ $DA00A,
+    /// 20 @ $DA032, 21 @ $DA040, 25 @ $DA059, 26 @ $DA067. For each
+    /// offset O we form: (a) the proc-addr TOKEN (O+$401000) shl 4 or 7;
+    /// (b) the plain absolute VA O+$401000; (c) the raw u32 segment
+    /// offset O; (d) the raw 3-byte offset O. Then scan the whole .rsm:
+    ///   * the ENTRY ($DA004) appears ONLY in the token form (its `$28`
+    ///     record address slot) and in NONE of (b)/(c)/(d);
+    ///   * EVERY mid-statement line address is absent in ALL FOUR forms.
+    /// This pins the integer-form negative: the per-statement
+    /// address->line table is NOT stored in any integer-address form
+    /// anywhere in this Studio-37 `-VR` .rsm (only proc-entry addresses
+    /// + the §4.18 declaring-unit edge are). This is CONSISTENT with a
+    /// delta/opcode bytecode (which stores no absolute addresses) -- it
+    /// does NOT prove absence. Round 3 found a name-free opcode-bytecode
+    /// blob in the TAIL ($75ED06, in the .dpr region) that is the prime
+    /// line-table-vs-RTTI suspect; see §6.29. Fixture-build offsets
+    /// (stable with the rebuilt fixture, same class as the §6.6.1 VA
+    /// pins); Win32-only like the sibling.
+    [Test]
+    procedure TestLineStatementAddrAbsentInAllIntegerForms32;
+    /// §6.29 reconnaissance pin -- the CSH7 container header layout.
+    /// The first 32 bytes ($20, the self-described header size) are a
+    /// fixed-field header preceding the directory / path table at the
+    /// recorded directory offset ($420). Byte-exact, both platforms:
+    ///   +0  (4) magic 'CSH7'
+    ///   +4  (4) directory offset = $420 (the typed source-search-path
+    ///           table at +6 within it; see §4.18 / §6.29)
+    ///   +8  (4) header size      = $20
+    ///   +C  (4) version          = 1
+    ///   +10 (4) link timestamp   = $5CC3424A (source-build stamp, same
+    ///           on both platforms because the fixture sources match)
+    ///   +14 (4) machine / flags  -- byte +15 is the only field that
+    ///           differs by platform ($03 Win32 vs $23 Win64); meaning
+    ///           UNCERTAIN, pinned as observed so a build change surfaces
+    ///   +18 (8) image base       = $00400000 (Win32) / $140000000
+    ///           (Win64) -- an 8-byte LE field, matching the base the
+    ///           scanner already trusts for VA recovery (§4.5).
+    /// This decodes the container framing §6.29's line-table hunt builds
+    /// on; it does NOT decode the line table itself (still open).
+    [Test]
+    procedure TestContainerHeaderLayout32;
+    /// Win64 sibling of TestContainerHeaderLayout32.
+    [Test]
+    procedure TestContainerHeaderLayout64;
+    /// §6.29 round-4 pin -- the per-unit MODULE RECORD framing (§4.19).
+    /// Each compilation unit is wrapped in a record opened by the magic
+    /// `61 4D <pb> 00` (pb = platform byte $03 Win32 / $23 Win64, the
+    /// same marker as the header +15), then `$25 <size:u16> 00 00
+    /// <link-ts:4>`, where <size> is the byte distance from this magic
+    /// to the NEXT module record's magic. The 4 program units chain
+    /// exactly: starting at the module whose `$70` source file is
+    /// `DebugTarget.EnumAlpha.pas`, walking by <size> lands on the
+    /// `EnumBeta`, then `EnumGamma`, then `DebugTarget.dpr` module magic
+    /// in turn. Pins the framing + the chain invariant + the tag/pad
+    /// bytes, name-anchored (no raw file offsets) so it runs on both
+    /// platforms. Round 4 used this to refute the round-3 `$75ED06`
+    /// line-table candidate: that bytecode is the per-module TYPE
+    /// RTTI/layout payload (present even in the 1-line EnumAlpha
+    /// module), not a line table -- see §6.29 / §4.19.
+    [Test]
+    procedure TestModuleRecordChain32;
+    /// Win64 sibling of TestModuleRecordChain32 (magic byte $23).
+    [Test]
+    procedure TestModuleRecordChain64;
   end;
 
 implementation
@@ -1058,16 +1127,18 @@ begin
     if AUse64Bit then
     begin
       // .map entries (segment:offset) + segment start (RVA):
-      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $154000
+      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $155000
       //   GGlobalLight 0002:00021FCC
-      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $177000
+      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $178000
       // Note: the segment-base RVAs drift by $1000 (one page) every
       // time DebugTarget.dpr grows past a page boundary in .data or
       // .bss. Cross-check Win64/DebugTarget.map after any fixture
       // additions; the offsets within each segment stay stable.
-      ExpectedInt   := $00154000 + $00021EC4;  // $175EC4
-      ExpectedLight := $00154000 + $00021FCC;  // $175FCC
-      ExpectedField := $00177000 + $0000C710;  // $183710
+      // (Drifted +$1000 here when the §6.30 inline-var fixtures'
+      // string literals grew .data past a page boundary.)
+      ExpectedInt   := $00155000 + $00021EC4;  // $176EC4
+      ExpectedLight := $00155000 + $00021FCC;  // $176FCC
+      ExpectedField := $00178000 + $0000C710;  // $184710
     end
     else
     begin
@@ -2488,6 +2559,292 @@ begin
   finally
     S.Free;
   end;
+end;
+
+procedure TRsmScannerTests.TestLineStatementAddrAbsentInAllIntegerForms32;
+// §6.29 round-2 pin -- see the [Test] docstring. Asserts no .dpr
+// per-statement line address is stored in any integer-address form.
+const
+  TextBase = UInt32($401000);  // Win32 image base + .text RVA
+var
+  S: TRsmScanner;
+
+  function ScanBytes(const AB: array of Byte): Boolean;
+  var
+    P, K  : NativeInt;
+    Match : Boolean;
+  begin
+    Result := False;
+    P := 0;
+    while P + Length(AB) <= S.Sz do
+    begin
+      Match := True;
+      for K := 0 to High(AB) do
+        if S.ByteAt(P + K) <> AB[K] then
+        begin
+          Match := False;
+          Break;
+        end;
+      if Match then Exit(True);
+      Inc(P);
+    end;
+  end;
+
+  function TokenForm(AOffset: UInt32): Boolean;
+  var DW: UInt32;
+  begin
+    DW := (UInt32(AOffset + TextBase) shl 4) or $07;
+    Result := ScanBytes([DW and $FF, (DW shr 8) and $FF,
+                         (DW shr 16) and $FF, (DW shr 24) and $FF]);
+  end;
+
+  function AbsVa(AOffset: UInt32): Boolean;
+  var V: UInt32;
+  begin
+    V := AOffset + TextBase;
+    Result := ScanBytes([V and $FF, (V shr 8) and $FF,
+                         (V shr 16) and $FF, (V shr 24) and $FF]);
+  end;
+
+  function RawU32(AOffset: UInt32): Boolean;
+  begin
+    Result := ScanBytes([AOffset and $FF, (AOffset shr 8) and $FF,
+                         (AOffset shr 16) and $FF, (AOffset shr 24) and $FF]);
+  end;
+
+  function Raw3(AOffset: UInt32): Boolean;
+  begin
+    Result := ScanBytes([AOffset and $FF, (AOffset shr 8) and $FF,
+                         (AOffset shr 16) and $FF]);
+  end;
+
+  procedure AssertAllFormsAbsent(AOffset: UInt32; const AName: String);
+  begin
+    Assert.IsFalse(TokenForm(AOffset), AName + ': token form present (§6.29)');
+    Assert.IsFalse(AbsVa(AOffset),     AName + ': abs-VA form present (§6.29)');
+    Assert.IsFalse(RawU32(AOffset),    AName + ': raw-u32 offset present (§6.29)');
+    Assert.IsFalse(Raw3(AOffset),      AName + ': raw-3-byte offset present (§6.29)');
+  end;
+
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    if S.Sz = 0 then
+      Assert.Pass('RSM fixture missing -- skipped.');
+
+    // CONTROL: the proc ENTRY ($DA004) appears ONLY in the `$28`
+    // record's token form, and in NONE of the other integer forms.
+    Assert.IsTrue(TokenForm($DA004),
+      'TargetProcedure entry $DA004 token must be present (its $28 ' +
+      'address slot) -- finder sanity / control');
+    Assert.IsFalse(AbsVa($DA004),  'entry $DA004 abs-VA must NOT appear');
+    Assert.IsFalse(RawU32($DA004), 'entry $DA004 raw-u32 must NOT appear');
+    Assert.IsFalse(Raw3($DA004),   'entry $DA004 raw-3-byte must NOT appear');
+
+    // Mid-statement line addresses: absent in ALL four integer forms.
+    AssertAllFormsAbsent($DA00A, 'line19 $DA00A');
+    AssertAllFormsAbsent($DA032, 'line20 $DA032');
+    AssertAllFormsAbsent($DA040, 'line21 $DA040');
+    AssertAllFormsAbsent($DA059, 'line25 $DA059');
+    AssertAllFormsAbsent($DA067, 'line26 $DA067');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.DoTestContainerHeaderLayout(AUse64Bit: Boolean);
+// §6.29 reconnaissance pin -- see the [Test] docstring for the full
+// field map. Asserts the 32-byte CSH7 header byte-exactly on both
+// platforms. These are FORMAT CONSTANTS (dir offset, header size,
+// version) plus the image base the scanner already relies on; none
+// drift on a fixture rebuild, so no $IFDEF gating is needed.
+var
+  S: TRsmScanner;
+
+  function U32At(AOff: NativeInt): UInt32;
+  begin
+    Result := UInt32(S.ByteAt(AOff))             or
+             (UInt32(S.ByteAt(AOff + 1)) shl 8)  or
+             (UInt32(S.ByteAt(AOff + 2)) shl 16) or
+             (UInt32(S.ByteAt(AOff + 3)) shl 24);
+  end;
+
+var
+  ExpectedBaseLo, ExpectedBaseHi, ExpectedMachineByte: UInt32;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    if S.Sz = 0 then
+      Assert.Pass('RSM fixture missing -- skipped.');
+    Assert.IsTrue(S.Sz >= $20, 'RSM smaller than the 32-byte header');
+
+    // +0 magic 'CSH7'
+    Assert.AreEqual<Byte>(Ord('C'), S.ByteAt(0), 'magic[0]');
+    Assert.AreEqual<Byte>(Ord('S'), S.ByteAt(1), 'magic[1]');
+    Assert.AreEqual<Byte>(Ord('H'), S.ByteAt(2), 'magic[2]');
+    Assert.AreEqual<Byte>(Ord('7'), S.ByteAt(3), 'magic[3]');
+
+    // +4 directory offset, +8 header size, +C version
+    Assert.AreEqual<UInt32>($420, U32At($4),
+      'directory offset (+4) must be $420');
+    Assert.AreEqual<UInt32>($20, U32At($8),
+      'header size (+8) must be $20');
+    Assert.AreEqual<UInt32>($1, U32At($C),
+      'version (+C) must be 1');
+
+    // +10 link timestamp -- a Unix-epoch link stamp that CHANGES on
+    // every fixture rebuild (the prebuild re-links DebugTarget), so we
+    // assert only that the field is present and non-zero, never a
+    // literal value. (Was observed as $5CC3424A on one build, $5CC372B0
+    // on the next -- proof it drifts; do not pin it.)
+    Assert.AreNotEqual<UInt32>(0, U32At($10),
+      'link timestamp (+10) must be present (non-zero)');
+
+    // +14 machine / flags: byte +15 is the platform-distinguishing
+    // marker ($03 Win32 / $23 Win64); meaning UNCERTAIN, pinned as
+    // observed so a future linker/build change surfaces here.
+    if AUse64Bit then ExpectedMachineByte := $23 else ExpectedMachineByte := $03;
+    Assert.AreEqual<Byte>(Byte(ExpectedMachineByte), S.ByteAt($15),
+      'machine/flags marker (+15) mismatch (UNCERTAIN field)');
+
+    // +18 image base, 8-byte LE: $00400000 Win32 / $140000000 Win64.
+    if AUse64Bit then
+    begin
+      ExpectedBaseLo := $40000000; ExpectedBaseHi := $1;     // $140000000
+    end
+    else
+    begin
+      ExpectedBaseLo := $00400000; ExpectedBaseHi := $0;     // $00400000
+    end;
+    Assert.AreEqual<UInt32>(ExpectedBaseLo, U32At($18),
+      'image base low DWORD (+18) mismatch vs .map base');
+    Assert.AreEqual<UInt32>(ExpectedBaseHi, U32At($1C),
+      'image base high DWORD (+1C) mismatch vs .map base');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.DoTestModuleRecordChain(AUse64Bit: Boolean);
+// §6.29 round-4 pin -- see the [Test] docstring and §4.19. Walks the
+// 4 program-unit module records and asserts the framing + chain.
+const
+  Names: array[0..3] of String = (
+    'DebugTarget.EnumAlpha.pas', 'DebugTarget.EnumBeta.pas',
+    'DebugTarget.EnumGamma.pas', 'DebugTarget.dpr');
+var
+  S        : TRsmScanner;
+  PlatByte : Byte;
+  P, Start : NativeInt;
+  K        : Integer;
+  Size     : Integer;
+
+  function U16At(AOff: NativeInt): Integer;
+  begin
+    Result := Integer(S.ByteAt(AOff)) or (Integer(S.ByteAt(AOff + 1)) shl 8);
+  end;
+
+  function IsMagic(AOff: NativeInt): Boolean;
+  begin
+    Result := (AOff >= 0) and (AOff + 8 < S.Sz) and
+              (S.ByteAt(AOff)     = $61) and (S.ByteAt(AOff + 1) = $4D) and
+              (S.ByteAt(AOff + 2) = PlatByte) and (S.ByteAt(AOff + 3) = $00);
+  end;
+
+  // Is the ASCII literal AStr present in the window [AOff, AOff+ALimit)?
+  function ContainsAscii(AOff: NativeInt; ALimit: Integer;
+    const AStr: String): Boolean;
+  var
+    Q, M: NativeInt;
+    Hit : Boolean;
+  begin
+    Result := False;
+    Q := AOff;
+    while (Q < AOff + ALimit) and (Q + Length(AStr) <= S.Sz) do
+    begin
+      Hit := True;
+      for M := 1 to Length(AStr) do
+        if S.ByteAt(Q + M - 1) <> Byte(Ord(AStr[M])) then
+        begin
+          Hit := False;
+          Break;
+        end;
+      if Hit then Exit(True);
+      Inc(Q);
+    end;
+  end;
+
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(AUse64Bit));
+    if S.Sz = 0 then
+      Assert.Pass('RSM fixture missing -- skipped.');
+
+    if AUse64Bit then PlatByte := $23 else PlatByte := $03;
+
+    // Find the EnumAlpha program-unit module record: the magic whose
+    // own $70 source file (within a tight window) is EnumAlpha.pas.
+    Start := -1;
+    P := 0;
+    while P + 9 < S.Sz do
+    begin
+      if IsMagic(P) and ContainsAscii(P, $100, Names[0]) then
+      begin
+        Start := P;
+        Break;
+      end;
+      Inc(P);
+    end;
+    Assert.IsTrue(Start >= 0,
+      'EnumAlpha module record (magic 61 4D ' +
+      IntToHex(PlatByte, 2) + ' 00) not found');
+
+    // Walk the 4-record chain by the size field at +5..+6.
+    P := Start;
+    for K := 0 to High(Names) do
+    begin
+      Assert.IsTrue(IsMagic(P),
+        Format('module[%d] (%s): magic missing at chain step', [K, Names[K]]));
+      Assert.AreEqual<Byte>($25, S.ByteAt(P + 4),
+        Format('module[%d] (%s): tag byte +4 must be $25', [K, Names[K]]));
+      // +7..+8 is a u16 aux/flags field (NOT padding): $0000 for the
+      // leaf enum units, $0002 for the program/.dpr -- meaning
+      // UNCERTAIN, so it is not asserted here.
+      // Name window is $100: the program/.dpr source file is a full
+      // path (C:\Users\...\DebugTarget.dpr), so the basename sits
+      // deeper than for the bare-basename enum units.
+      Assert.IsTrue(ContainsAscii(P, $100, Names[K]),
+        Format('module[%d]: source file %s not at record head', [K, Names[K]]));
+      Size := U16At(P + 5);
+      Assert.IsTrue(Size > 9, Format('module[%d]: implausible size %d', [K, Size]));
+      P := P + Size;
+    end;
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestModuleRecordChain32;
+begin
+  DoTestModuleRecordChain(False);
+end;
+
+procedure TRsmScannerTests.TestModuleRecordChain64;
+begin
+  DoTestModuleRecordChain(True);
+end;
+
+procedure TRsmScannerTests.TestContainerHeaderLayout32;
+begin
+  DoTestContainerHeaderLayout(False);
+end;
+
+procedure TRsmScannerTests.TestContainerHeaderLayout64;
+begin
+  DoTestContainerHeaderLayout(True);
 end;
 
 initialization

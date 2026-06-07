@@ -323,7 +323,7 @@ doesn't carry. The recovered SegmentOffset is therefore
 **not** the Win32 image-base + .text constant `$401000`).
 
 Verified on TFW.Win64 by
-[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap](../Test/Test.DPT.Rsm.Tfw.pas):
+[Test.DPT.Rsm.Taifun.TRsmTfwTests.TestTfwWin64ProcAddressDecodesAboveCap](../Test/Test.DPT.Rsm.Taifun.pas):
 `TFormMain.Create` payload bytes 3..10 = `A0 00 00 F4 A2 28 8C 07
 05 E1 7B` -- `DWORD(7..10) = $7BE10507`, `>> 4 = $07BE1050`,
 `-$1000 = $07BE0050`, which matches the .map entry
@@ -428,6 +428,28 @@ FScanRegParam`.
 > bypass the record-hop priming and let the class-hop branch use the
 > VMT-derived class name. (Records by-reference still prime, because
 > the VMT walk fails on a non-class pointer.)
+>
+> **§6.32 closure — the VMT-priority override now covers BP-relative and
+> global object locals, not just register `Self`/params.** The same
+> alias hazard applies to an ordinary object *local*: an inline-declared
+> `var V := CJwksValidator.Create(...)` carries a per-proc reference id
+> in its `$20` record (§4.4 inline-var form), and that id can collide
+> with an unrelated record in the registry — so the record-hop priming
+> flipped `ContextIsRecord := True` and every `V.<field>` evaluate failed
+> even though `CJwksValidator` and its fields were correctly discovered
+> (verified: the standalone reader resolves `CJwksValidator.FExpectedTenantId`
+> at offset 16 on the 172 MB `Test.Lib.rsm`). The priming-skip probe now,
+> for a non-register first hop, **dereferences the slot** (`Addr`) to get
+> the candidate instance pointer and VMT-walks *that*; a record-typed
+> slot derefs to inline data whose VMT walk fails, so records still prime
+> correctly. With the skip in place the class-hop branch resolves
+> `V → CJwksValidator → FindClassMember` and
+> `evaluate V.FExpectedTenantId` (`type=string`) returns `tenant-1`
+> live. The small-binary clean regime (§6.27) cannot reproduce the
+> alias collision, so this is verified against the live large-binary MCP
+> session rather than a DebugTarget unit pin. (`evaluate` without an
+> explicit `type=` still fails to *auto*-type these String fields — that
+> residual is §6.33.)
 
 > **The local/param `TypeIdx` is a per-proc ref, NOT statically
 > resolvable to a type name on large binaries (decided — design limit).**
@@ -450,7 +472,7 @@ FScanRegParam`.
 >   `Tfw.Main.Form` is neither; and `TFormMain` (Self's type) is absent
 >   from its own unit's import table entirely yet `Self` still has a ref.
 >   Pinned by
->   [Test.DPT.Rsm.Tfw.TestTfwPerProcRefIsNotUnitUseTableIndex](../Test/Test.DPT.Rsm.Tfw.pas).
+>   [Test.DPT.Rsm.Taifun.TestTfwPerProcRefIsNotUnitUseTableIndex](../Test/Test.DPT.Rsm.Taifun.pas).
 >
 > Consequence for any consumer (live debugger AND static viewer):
 > - **`Self`** — derive the class from the **VMT** (live) or the
@@ -471,7 +493,7 @@ FScanRegParam`.
 > resolves correctly — pinned by
 > [TestSelfTypeIdxResolvesInCleanRegime32/64](../Test/Test.DPT.Rsm.LocalsReader.pas).
 > The large-binary per-proc collapse is pinned by
-> [TestTfwSelfTypeIdxIsPerProcRefNotRegistryId](../Test/Test.DPT.Rsm.Tfw.pas).
+> [TestTfwSelfTypeIdxIsPerProcRefNotRegistryId](../Test/Test.DPT.Rsm.Taifun.pas).
 > (Was tracked as §6.27; closed as a design limit once Hyp D — the last
 > decode lead — was refuted, since no reader change can recover a name
 > the format does not carry and the consumer doesn't need it.)
@@ -532,6 +554,64 @@ encodings exercised there must round-trip.
 **UNCERTAIN / GAP**: BPRel encodings outside the cases above (some less
 common Delphi types) may still hit the fallback on unfamiliar binaries.
 `TestEdgeCaseLocalsAllDecoded` is the canary.
+
+#### Inline-declared var form (`var X := expr;` in a proc body) — §6.30 closure
+
+Delphi inline variable declarations emit a **different `$20` body anchor**
+than a classic `var` block. Where the classic stack-local opens with
+`$66 $00 $00`, the inline form opens with the 4-byte anchor
+`$66 $00 $01 $04`, which shifts the type ref and BPRel offset one byte to
+the right:
+
+```
+$20  <NL>  <Name>   $66 $00 $01 $04   <type ref>   <offset>   <terminator>
+                    └── anchor ──┘   1 or 2 bytes  1 or 2 by.
+```
+
+* **type ref** — 1 byte, OR 2 bytes when the byte at anchor+5 is a
+  `$2E`/`$2F` structured-type hi marker. Per §4.2 this is a per-proc
+  reference id, not a registry primary; it is **not** reliably resolvable
+  to a type name on large binaries (and the consumer doesn't need it —
+  the dotted walk uses the VMT).
+* **offset** — the BPRel offset, in the usual two sub-forms: a single
+  signed byte `ShortInt(b) div 2` when even, or the wide
+  LSB-continuation pair `(SmallInt(W) - 1) div 4` when the low byte is
+  odd.
+* **terminator** — either the next record's tag byte
+  (`$20`/`$28`/`$63`/…) or the `$9C $17` trailing-init metadata
+  signature that literal-initialised inline vars carry.
+
+Because the type-width is not flagged, the decoder
+([Scanner.pas `HandleLocalRecord`](DPT.Rsm.Scanner.pas)) probes
+`TypeW ∈ {1,2}` and accepts the first whose offset is a plausible
+**non-positive** BPRel value followed by a valid terminator — this
+rejects the type-hi byte (positive / non-terminated) being misread as the
+offset. The anchor `$66 $00 $01 $04` is read as one LE DWORD
+`$04010066` on the hot path. All four (type-width × offset-width) combos
+are pinned by
+`Test.DPT.Rsm.LocalsReader.TestInlineVarLocalsDecoded32/64`
+(single/2-byte type, single/wide offset) and
+`TestInlineVarWideOffsetMonotonic32/64` (24 inline ints stepping `-4`
+across the single→wide boundary).
+
+Concrete Win32 evidence (`DebugTarget.InlineVarLocalsProcedure`):
+
+| local | bytes after anchor | type | offset |
+|---|---|---|---|
+| `LocalIVStr` (string) | `06 F8 9C 17…` | 1-byte | `ShortInt($F8)/2` = −4 |
+| `LocalIVObj` (TStringList) | `69 06 F0 20` | 2-byte | `ShortInt($F0)/2` = −8 |
+| `LocalIVRec` (record) | `3D 2E E0 20` | 2-byte (`$2E` hi) | `ShortInt($E0)/2` = −16 |
+| `LocalIVBig` (512-byte array) | `09 2F A1 F7 9C 17…` | 2-byte (`$2F` hi) | `(SmallInt($F7A1)−1)/4` = −536 |
+
+> **Before this was decoded** (§6.30), every inline-var local mis-decoded:
+> the short forms misfired into Shape-B's wide path (`(W−1)/4` reading the
+> type byte as part of the offset → ~128× too large), and the
+> literal-init long form fell to the synthesized fallback. On
+> `Test.Lib.CTestJwksValidator.Validate_Success` this made
+> `V` (a `var V := CJwksValidator.Create(...)`) decode to BpOffset −4587
+> instead of −36, so `evaluate V.FExpectedTenantId` read a garbage object
+> pointer. The fix restores `V` to −36 and the four expected fields
+> resolve (verified live).
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
@@ -1090,7 +1170,7 @@ FindNearestPrimaryByLowByte($2A, $A8E6C35, primary):
 ```
 
 The pin lives at
-[Test.DPT.Rsm.Tfw.TRsmTfwTests.TestTfwEnumTypedFieldResolvesToPrimary](../Test/Test.DPT.Rsm.Tfw.pas).
+[Test.DPT.Rsm.Taifun.TRsmTfwTests.TestTfwEnumTypedFieldResolvesToPrimary](../Test/Test.DPT.Rsm.Taifun.pas).
 
 ### 4.10 `$63` SCOPE_END
 
@@ -1161,9 +1241,37 @@ header, or the tight `04 00 00 00 07` / Win64 `08…07` marker via
 class-def, not a far one. Correctness is therefore window-independent;
 16 KB is only the perf/coverage balance (`DiscoverAndParseAllStructs`
 ~20 s vs the 45 s budget; 64 KB was ~54 s). Pinned by
-`Test.DPT.Rsm.Tfw.TestTfwClassInstanceFieldResolves` (TFormAd
+`Test.DPT.Rsm.Taifun.TestTfwClassInstanceFieldResolves` (TFormAd
 discovered) with `TestMcpEvaluateInheritedFieldViaVmtWalk` (TComponent
 not mis-anchored) green on both platforms.
+
+**Name-convention-free candidate gate (§6.31 closure).** The byte-walk's
+cheap pre-filter (`IsClassNameCandidate`) used to require the candidate's
+first byte be `'T'` ("every class/record name we care about starts with
+T"). That silently dropped every non-`T` class — `C`-prefixed
+(`CJwksValidator`, `CTestJwksValidator`), `E`-prefixed exceptions, etc. —
+so their fields never resolved in `evaluate`. The gate is now
+convention-free: it admits any candidate that carries a **structural
+anchor** near the name (the `$07` class-trailer marker at `NameEnd+4`/`+8`,
+the method-block 3-zero header, or the `$0E` record sentinel before it),
+not a particular first letter. The `'T'` gate was, however,
+*load-bearing for performance* — it kept the per-byte-position printable
+scan and the 16 KB forward scan rare. To stay fast convention-free, `Run`
+**precomputes a sorted index of every class-trailer marker position**
+(`TrailerStarts`, one O(N) pass using LE-DWORD reads of the
+`04 00 00 00 07` / `08…07` prefixes), and `FindClassTrailerWithin` then
+**visits only the markers inside a candidate's window** (binary-searched
+via `LowerBoundTrailer`) instead of byte-scanning it; the closer-same-name
+defer (§6.16) is bounded by the matched trailer. Net result:
+`DiscoverAndParseAllStructs` on TFW is ~10 s — *faster* than the ~14 s
+`'T'`-gated baseline — so the `Tfw` per-phase budget is **unchanged**.
+Pinned by `TestNonTPrefixClassDiscovered32/64` (DebugTarget's
+`CNonTPrefixHost` discovered with fields; neighbour `TInner` still
+found) and `TestLargeBinaryNonTClassDiscovered`
+(`CJwksValidator.FExpectedTenantId @16` in the 172 MB `Test.Lib.rsm`).
+This is the first of the reader's naming-convention crutches to be
+retired; the `IsPrintableAscii` charset and the §4.15 `F`/`T` field-name
+bridges remain conventions for later increments.
 
 Within the trailer-finding loop, the **two bytes immediately before**
 the class name's length byte are captured as `ParentRawId`:
@@ -1184,8 +1292,10 @@ $0E  <NL: u8>  <RecordName>  ... (record fields follow via Format-B)
 ```
 
 Recognised by `TRsmStructDiscoverer.Run` when the byte before a
-`T`-prefixed length-prefixed identifier is `$0E`. Records have NO
-trailer pattern; the `$0E` sentinel alone identifies them.
+length-prefixed identifier is `$0E` (the `$0E` itself is the
+structural anchor the §6.31 convention-free gate keys on — no first-letter
+assumption). Records have NO trailer pattern; the `$0E` sentinel alone
+identifies them.
 
 ### 4.13 Format-B field record (for records, between record name and class trailer)
 
@@ -1227,7 +1337,7 @@ first field tag form a header whose simple shape (mapped below)
 covers **every record observed in the DebugTarget + TFW corpus**,
 including TAppCaps which an earlier hypothesis singled out as
 needing a separate "elaborate" form. The §6.4 pin
-([Test.DPT.Rsm.Tfw.TestTfwSimpleRecordHeaderCoversTfwRecords](../Test/Test.DPT.Rsm.Tfw.pas))
+([Test.DPT.Rsm.Taifun.TestTfwSimpleRecordHeaderCoversTfwRecords](../Test/Test.DPT.Rsm.Taifun.pas))
 verifies that the gap between PStart and the first valid `$02`-
 prefixed field record is exactly `17 + N * 8` (Win32) for the
 interface-scope records the §6.3 work also exercised. The walker
@@ -1298,7 +1408,7 @@ controls + strict-private `F`-fields), and the historical `128` cap
 silently truncated the list to the earliest-positioned 128, dropping
 `FAd` (offset `0x0C5C`) and every later private field. That was the
 live `evaluate("Self.FAd")` failure on `Tfw.Ad.Form:2274`; pinned by
-`Test.DPT.Rsm.Tfw.TestTfwClassInstanceFieldResolves` (TFormAd.FAd
+`Test.DPT.Rsm.Taifun.TestTfwClassInstanceFieldResolves` (TFormAd.FAd
 resolves at `0x0C5C`, with a leakage guard asserting the neighbouring
 `TAdPriorityInfo.FPriorityInfoGUID` does not bleed in).
 
@@ -1375,7 +1485,7 @@ confirmed (see §4.9 and
 > `P<X> = ^T<X>` convention.** Two pins:
 > `Test.DPT.MCP.Server.TestMcpEvaluateAmbiguousMemberNameDisambiguation`
 > (DebugTarget, `$2C`-driven path) and
-> `Test.DPT.Rsm.Tfw.TestTfwPointerAliasBindingDiagnoses` (TFW,
+> `Test.DPT.Rsm.Taifun.TestTfwPointerAliasBindingDiagnoses` (TFW,
 > name-convention bridge for `$2C`-less strict-private fields).
 > Three pieces of work, all needed:
 >
@@ -1515,7 +1625,7 @@ So the enum **name** is unrecoverable structurally; a name convention is the onl
 * the enum has a non-zero `$2A` registry id (looked up via `FTypeIdByName`).
 
 On a hit it sets `Member.PrimitiveTypeId` to the enum's 2-byte `$2A` id (`RawIdKey` is always ≤ 16 bits) and registers `(id → EnumDef)` in the same `FScopeLocalTypeIdToEnumDef` map Passes 1–2 use, so `TRsmReader.IsEnumTypeId` and `TryGetEnumConstantName` resolve it through the established path and the evaluator's `AutoDetectFormatterName` Path 1 picks `'enum'`. Pinned against TFW by
-[Test.DPT.Rsm.Tfw.TestTfwRecordFieldEnumNameConventionBindsLand](../Test/Test.DPT.Rsm.Tfw.pas)
+[Test.DPT.Rsm.Taifun.TestTfwRecordFieldEnumNameConventionBindsLand](../Test/Test.DPT.Rsm.Taifun.pas)
 (`TAd.Land` → `TLandTyp`, ordinals 0 / 1 → `ltInland` / `ltAusland`; leakage guards: neighbour `TAd.Waehrung` stays unbound, F-prefix `TFormAd.FAd` keeps its §6.19 pointer-target) and against the clean DebugTarget fixture by
 [Test.DPT.Rsm.Reader.TestRecordFieldEnumNameConventionDoesNotPhantomBind32](../Test/Test.DPT.Rsm.Reader.pas)
 (no `TMixedInt` enum exists, so `TMixedRec.FMixedInt` stays non-enum; TLightStatus still resolves). The TFW heuristic also legitimately binds sibling domain enums on the same convention (`TAd.Lng`, `TAd.Lf`, `TAd.LicenseKind`).
@@ -1780,10 +1890,10 @@ Pinned by:
 * [`Test.DPT.Rsm.Scanner.TestUnitUseFalsePositiveRejection`](../Test/Test.DPT.Rsm.Scanner.pas)
   — leakage guard: a synthetic `$64` lacking the trailing-zero
   anchor must not open a segment.
-* [`Test.DPT.Rsm.Tfw.TestTfwUnitUseTableContainsTLandTyp`](../Test/Test.DPT.Rsm.Tfw.pas)
+* [`Test.DPT.Rsm.Taifun.TestTfwUnitUseTableContainsTLandTyp`](../Test/Test.DPT.Rsm.Taifun.pas)
   — TFW.rsm carries ≥60 `$66 'TLandTyp'` entries with the canonical
   RVA `$7DA69008`.
-* [`Test.DPT.Rsm.Tfw.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock`](../Test/Test.DPT.Rsm.Tfw.pas)
+* [`Test.DPT.Rsm.Taifun.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock`](../Test/Test.DPT.Rsm.Taifun.pas)
   — `$67 'ltInland'` payload `$10A43981` matches the bytes at
   file offset 54816766 + 11 (the canonical `$25 'ltInland'` block's
   body), anchoring the cross-record structural relationship.
@@ -1914,13 +2024,66 @@ the per-extension `$65` gate.
 > `(VA shl 4) or $07` proc-address wire form and scanning the whole
 > file finds only the proc-entry RVA `$DA004` (the `$28` record's own
 > address), not the per-statement RVAs — confirming the line table is
-> delta/RLE-encoded in a dedicated section (the file is a TDS-style
-> container: a 32-byte header carrying the image base + link
-> timestamp, a source-path table near offset `$420`, the `$35`
-> module-dependency tree, the `$70` source-file records, and a
-> trailing data-segment `(VA,size)` table). Decoding the per-line
-> deltas is tracked as §6.29; the proc → **declaring-unit** anchor
+> delta/RLE-encoded in a dedicated section. The file is a TDS-style
+> container with a fully-decoded 32-byte header (`+4` dir offset `$420`,
+> `+8` header size `$20`, `+C` version 1, `+10` link timestamp, `+18`
+> 8-byte image base) → a typed source-search-path table at `$426` → a
+> large HEAD of per-module debug sections (each opened by a `$70
+> <SourceFile.pas>` introducer, holding `$67`/`$68` import-symbol refs,
+> embedded code, and RTTI strings) → a compact TAIL symbol/type index
+> (the `$35` module-dependency tree + the per-unit `$70`/`$2A`/`$28`/
+> `$25` records §4.1–§4.18 decode). The per-statement line table is
+> NOT in these sections (§6.29 round 4: the per-module bytecode is
+> TYPE RTTI/layout, not lines); the proc → **declaring-unit** anchor
 > this section delivers does not depend on it.
+
+### 4.19 `61 4D <pb> 00` per-unit module record
+
+Every compilation unit (RTL/VCL **and** program) is wrapped in a
+fixed-header **module record**, discovered in §6.29 round 4 and pinned
+by
+[`Test.DPT.Rsm.Scanner.TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas):
+
+```
+61 4D <pb> 00   <$25>  <size: u16 LE>  <aux: u16 LE>  <link-ts: u32>  <body…>
+\__ magic ___/   tag    \_ record span _/  \_ flags _/                 \_ §4.17/§4.18 $70, $35, $25, $2A, $28 + §4.19 payload
+```
+
+* **Magic** `61 4D <pb> 00`. `<pb>` is the **platform byte** — `$03`
+  on Win32, `$23` on Win64 — the same marker as the container header's
+  `+15` (§6.29). So `DebugTarget.rsm` (Win32) has the magic
+  `61 4D 03 00`; the Win64 fixture has `61 4D 23 00` and **zero**
+  `61 4D 03 00`.
+* **Tag** `$25` at `+4`, then **`size`** (u16 LE at `+5..+6`) = the byte
+  distance from this magic to the **next** module record's magic, then a
+  **u16 aux/flags** field at `+7..+8` (NOT padding: `$0000` for the leaf
+  enum units, `$0002` for the program/`.dpr` — meaning UNCERTAIN), then
+  the 4-byte link timestamp. Walking `magic + size` lands exactly on the
+  next magic — verified for the 4 program-unit records
+  (`DebugTarget.EnumAlpha` size `$2E2` → `EnumBeta` `$284` → `EnumGamma`
+  `$28B` → `DebugTarget` (`.dpr`) `$E6E`). The `size` is u16, so it only
+  spans **adjacent** records;
+  where two units are separated by a large non-record region (embedded
+  code / string pools), the chain is local, not file-global.
+* **Body** holds, in order: the unit's `$70` source-file introducer
+  (§4.18) and `$65`/`$64` used-unit list, the `$35` module-dependency
+  records (§4.17), the `$25`/`$2A`/`$03` symbol/type/enum definitions,
+  then a **type-RTTI / layout bytecode** region (recurring `XX 31`
+  anchors + `<even> 05 <small>` triples, terminator `42 00`), a
+  **section-name table** (`.text`/`.itext`/`.data`/`.bss`/`.tls` with
+  per-section base values), and a trailing **per-segment base-VA table**
+  (e.g. `$004DAF84`, `$004E1D68`, … the `.data`/`.bss`/`.tls`
+  contributions). The RTTI/layout bytecode is present **even in the
+  1-line `EnumAlpha` module** (which has one source line but one enum
+  type, `TStatus`) — proving it scales with TYPE complexity, not source
+  lines, which is how §6.29 round 4 refuted the round-3 hypothesis that
+  this bytecode was the line table.
+
+No current reader path consumes the module-record wrapper, the
+RTTI/layout bytecode, or the segment-base table; the scanner walks the
+inner `$70`/`$35`/`$2A`/`$28`/`$25` records directly and ignores the
+`61 4D` framing. Documented here because it is the structural context
+§6.29's line-table search runs inside.
 
 ---
 
@@ -2155,7 +2318,7 @@ remain.
 **Re-investigation against TFW.rsm (the residual is LARGE, not a
 handful — this is the open part).** Probing every surviving synthesised
 `EnumDef` on `C:\MSE\TFW\TFW.rsm`
-([Test.DPT.Rsm.Tfw.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Tfw.pas))
+([Test.DPT.Rsm.Taifun.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Taifun.pas))
 shows **114 synthesised survivors** (of 4140 total `EnumDef`s), the
 **majority clear phantoms** — far more than the "single-family
 const-borrow" remnant this entry previously implied. They cluster by a
@@ -2210,7 +2373,7 @@ Leakage guard — **`T<Upper>` is protected first**, so every genuine
 enum survives, including the dangerous all-caps `TZO`
 (`zoNone`/`zoBilanz`/`zoGuV`) and the dual-registered
 `TZUGFeRDXMLObjectTyp` (enum + `skRecord`). Pinned by
-[Test.DPT.Rsm.Tfw.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Tfw.pas)
+[Test.DPT.Rsm.Taifun.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Taifun.pas)
 (asserts the representative phantoms are gone, that NO surviving synth
 def still matches a dropped convention, and the leakage guards above);
 `TestTfwRecordFieldEnumNameConventionBindsLand` /
@@ -2270,7 +2433,7 @@ unaffected.
 > **closed and removed**: a re-investigation refuted the last decode
 > lead (Hypothesis D — that the per-proc ref indexes the §4.17
 > `$64`/`$66` unit-use table; see the §4.2 consumer note and
-> `Test.DPT.Rsm.Tfw.TestTfwPerProcRefIsNotUnitUseTableIndex`), leaving
+> `Test.DPT.Rsm.Taifun.TestTfwPerProcRefIsNotUnitUseTableIndex`), leaving
 > a verified **design limit** (the per-proc local type table is not in
 > the `.rsm` and the consumer doesn't need it). The per-proc-ref facts
 > and the four-hypothesis history are folded into the §4.2 consumer
@@ -2298,12 +2461,26 @@ unaffected.
 > `TAd.Land → TLandTyp` decode refuted (folded into §4.15 Pass 3), and
 > the enum NAME delivered by the §6.24 heuristic — nothing open
 > remained.
-> The last number used is **§6.29** (the un-decoded per-statement
-> address → line table, an OPEN entry below). The next gap discovered
-> MUST be numbered **§6.30**, not §6.1. Numbers are never reused or
-> recycled — commit messages, code comments, and pin docstrings
-> reference closed §6.N entries by their original number long after
-> the §6 entry itself is gone, and renumbering would silently
+> §6.30 (inline-declared `var X := expr;` local BPRel-offset
+> mis-decode) is **closed** — the `$66 $00 $01 $04` inline-var form is
+> decoded in §4.4, pinned by `TestInlineVarLocalsDecoded32/64` +
+> `TestInlineVarWideOffsetMonotonic32/64`. §6.31 (the `'T'`-prefix
+> class-name discovery crutch) is **closed** — the candidate gate is now
+> convention-free (structural-anchor based) with the trailer-index
+> perf restoration in §4.11, pinned by `TestNonTPrefixClassDiscovered32/64`
+> + `TestLargeBinaryNonTClassDiscovered`. §6.32 (the dotted-walk
+> record-hop priming wrongly firing on a class-instance **local** whose
+> per-proc `TypeIdx` aliases to a record) is **closed** — the VMT-priority
+> priming-skip now covers BP-relative/global object locals, folded into
+> the §4.2 consumer note; verified live (the four `V.FExpected*` fields
+> resolve on `Test.Lib`).
+> The last number used is **§6.33** (class `string`-field
+> `PrimitiveTypeId` not auto-typed on large binaries, an OPEN entry
+> above; §6.29 — the per-statement line table — is also still OPEN). The
+> next gap discovered MUST be numbered **§6.34**, not §6.1. Numbers are
+> never reused or recycled — commit messages, code comments, and pin
+> docstrings reference closed §6.N entries by their original number long
+> after the §6 entry itself is gone, and renumbering would silently
 > invalidate those references.
 
 ### 6.29 Per-statement address → line table encoding (`GAP`)
@@ -2312,30 +2489,208 @@ unaffected.
 decodes the `$70` source-file records (incl. the proc → declaring-unit
 anchor, §4.18) but **not** the per-statement address → line table that
 Embarcadero's RSM Debug File docs say the container carries (the
-equivalent of the `.map`'s `Line numbers for <Unit>` arrays). What is
-known: it is **not** a run of proc-entry address tokens — encoding
-`TargetProcedure`'s `.map` line RVAs (`$DA00A`, `$DA032`, …) in the
-`(VA shl 4) or $07` wire form and scanning all of DebugTarget.rsm
-(Win32 + Win64) finds only the proc-entry RVA `$DA004` (the `$28`
-record's own address payload), so the table is delta/RLE-encoded in a
-dedicated section, not inline per-proc and not absolute-addressed.
-Structural context already mapped (see §4.18): the file is a TDS-style
-container — 32-byte header (`CSH7`, dir offset `$420`, header size
-`$20`, image base, link timestamp), a source-search-path table near
-`$420` (typed `{u16 type, u32 size, payload}` records, types 1–4), the
-`$35` module-dependency tree, the `$70` source-file records, and a
-trailing data-segment `(VA, size)` table (`$4DAF84/$55F4`, … in
-DebugTarget.Win32 — these are `.data`/`.bss` ranges, not the line
-table). **Next investigator's lead:** the line table most likely hangs
-off the `$70`/`$35` per-module records as a parallel
-`offsets[]`/`lines[]` pair (classic TDS `sstSrcModule` shape) — look
-for a run keyed on the unit's segment with line numbers as small words
-and address advances as deltas, in the region between a module's `$35`
-block and its first `$28`. Decoding it would let a consumer do
-address → line without the `.map`. The proc → **declaring-unit** edge
-(§4.18) does NOT depend on this and is already delivered. Pinned (the
-narrow known fact) by
-[`Test.DPT.Rsm.Scanner.TestRsmProcEntryRvaNotInLineTableWireForm32`](../Test/Test.DPT.Rsm.Scanner.pas).
+equivalent of the `.map`'s `Line numbers for <Unit>` arrays).
+
+**Container framing — now fully decoded** (a reconnaissance round on
+`DebugTarget.rsm`, both platforms; pinned by
+[`TestContainerHeaderLayout32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)).
+The 32-byte header is fixed-field:
+
+```
++0  (4) magic 'CSH7'
++4  (4) directory offset   = $420
++8  (4) header size        = $20
++C  (4) version            = 1
++10 (4) link timestamp     -- Unix-epoch link stamp; CHANGES every
+        rebuild (observed $5CC3424A then $5CC372B0), so non-zero only
++14 (4) machine / flags    -- byte +15 = $03 (Win32) / $23 (Win64); the
+        only platform-distinguishing header byte, meaning UNCERTAIN
++18 (8) image base         = $00400000 (Win32) / $140000000 (Win64),
+        8-byte LE -- matches the base the scanner trusts in §4.5
+```
+
+The directory at `$420` is the **source-search-path table**: a chain of
+typed `{u16 type, u32 size, payload}` records starting at `$426` (type 4
+= search-path list, type 3/2/1 = the program dir + RTL `\lib\...\release\`
+paths), ending in a zero-padding run ~`$5FA`. It is NOT the line table.
+
+**Two-region file layout (NEW — the prior round assumed one inline
+stream).** `DebugTarget.rsm` (7.7 MB) splits into:
+
+* **HEAD** (~`$700` … ~`$742000`, the bulk): per-module debug sections,
+  each opened by a HEAD `$70 <NL> <SourceFile.pas>` introducer
+  (`System.pas` @ `$717`, then `SysInit.pas`, `System.Types.pas`, …,
+  `System.Classes.pas` @ `$583AEB` — RTL/VCL units only). Within a
+  section sit `$65` used-unit lists, `$67`/`$68` imported-symbol
+  references carrying 4-byte RVAs (`$67 <NL> @DelayLoadHelper2 <RVA>`,
+  `kernel32.dll` thunks, …), interleaved with **embedded x86 machine
+  code** (e.g. `$6F0000`: `8D 45 F8 8B D3 85 D2 …` = `lea eax,[ebp-8];
+  mov edx,ebx; test edx,edx …`, with `E8 00 00 00 00` relocatable
+  calls), RTTI **strings** (`$500000`: `"…will dispatch to the client's
+  code."`), and 2-byte-id type/field data (`$600000`). Round 1 guessed
+  the line table lived here; **round 2 refuted that** (these are RTL/VCL
+  units, which carry NO `.map` line numbers — see below).
+* **TAIL** (~`$742000` … EOF, ~140 KB): the compact symbol/type INDEX —
+  per program-unit `$70`/`$64`/`$35`(module-dependency)/`$25`/`$2A`/
+  `$28`/`$2C`/`$0E` records. This is the stream §4.1–§4.18 decode. The
+  program's OWN units (`DebugTarget.dpr` @ `$7432CF`, `DebugTarget.EnumAlpha`,
+  …) appear ONLY here; their `$28` procs carry an inline address but **no
+  line table** (`$28 TargetProcedure 20 00 00 47 00 DB 04 81 03 02 10 11
+  2E 00 63` → entry `$DA004`, then immediately the next `$28`).
+
+**Round-2 reframe — which units even HAVE a line table.** `DebugTarget.map`
+emits a `Line numbers for <Unit>` block for **only the 4 program units**
+compiled with debug info — `DebugTarget.EnumAlpha` / `EnumBeta` /
+`EnumGamma` (one entry each, line @ offset 0) and `DebugTarget` (the
+`.dpr`, a large `.text` + `.itext` table). **No RTL/VCL unit** (System,
+SysUtils, Winapi.*, …) has a `.map` line block at all. The 4 program
+units live ONLY in the TAIL; their TAIL regions are `$70`/`$65`/`$66`
+(imported type) / `$67` (imported symbol) descriptors + `$2A`/`$28`/`$25`
+definitions, with **no dense numeric block** (instrumented around
+`$70 …DebugTarget.dpr` @ `$7432CF` and `$28 TargetProcedure` @ `$7560D9`).
+So round 1's "the table lives in a HEAD section" was wrong: the HEAD is
+all RTL (no line numbers), and the units that DO have line numbers sit in
+a TAIL that contains no table.
+
+**Refutations (encodings the line table is NOT)** — whole-buffer search,
+finder verified by a control (`47 00 DB 04`, the proc-entry token, IS
+found at `$7560ED`). For the `.dpr` offsets line 18 @ `$DA004` (entry),
+19 @ `$DA00A`, 20 @ `$DA032`, 21 @ `$DA040`, 25 @ `$DA059`, 26 @ `$DA067`:
+
+| Encoding | proc ENTRY `$DA004` | every mid-statement line |
+|---|---|---|
+| proc-addr token `(O+$401000) shl 4 or 7` | **present** (its `$28` slot) | absent |
+| plain absolute VA `O+$401000` | absent | absent |
+| raw u32 segment offset `O` | absent | absent |
+| raw 3-byte offset `O` | absent | absent |
+
+Plus: NOT a plain `lines[]` array in source order — neither `0D 00 0E 00
+0F 00 10 00` (lines 13–16 u16) nor `E2 02 E3 02 E4 02` (`.itext` lines
+738–740) nor the byte/delta runs (`04 07 30 1D 06 28 0E 14 …` advances,
+`12 13 14 15 18 19 1A 1C` absolute lines, the interleaved `{addr,line}`
+forms) occurs anywhere. ~9 encodings refuted in total.
+
+**Round-2 conclusion (integer-form negative).** Only the proc ENTRY
+address is in the file, and only in the `$28` token form; NO
+per-statement line address is present in ANY integer-address form
+anywhere. This is fully consistent with a **delta/opcode bytecode**
+(which never stores absolute addresses) — so it pins "not stored as
+integers" but does NOT prove the table is absent. Round 2 leaned toward
+"not emitted at all"; **round 3 (below) retracts that lean** after
+finding name-free bytecode blobs in the TAIL.
+
+Pinned by
+[`Test.DPT.Rsm.Scanner.TestLineStatementAddrAbsentInAllIntegerForms32`](../Test/Test.DPT.Rsm.Scanner.pas)
+(the multi-encoding absence + entry-only-in-token control),
+[`…TestRsmProcEntryRvaNotInLineTableWireForm32`](../Test/Test.DPT.Rsm.Scanner.pas)
+(the narrow original negative), and the container header by
+[`…TestContainerHeaderLayout32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas).
+
+**Round-3 findings — TAIL gap analysis (the "absent" lean is
+RETRACTED).** Scanning the TAIL (`$742000`…EOF, 139 439 bytes) for
+maximal runs containing no length-≥4 printable identifier surfaced 69
+name-free blobs. The TAIL has exactly **4 `$70` introducers** — the only
+4 units with `.map` line tables — `DebugTarget.EnumAlpha` @ `$742A76`,
+`EnumBeta` @ `$742D58`, `EnumGamma` @ `$742FDC`, and the `.dpr` (full
+path, `$65`) @ `$74329B`, the **last** one; so everything past `$7432CF`
+is the `.dpr` region. Three blob CLASSES, hand-classified:
+
+* **UTF-16 string pool** (`$75BA0B`, ~12.5 KB): `{?,count,$FFFFFFFF,
+  len:u32, UTF-16 chars}` descriptors — `"CompName"`, `"EmptyName"`,
+  `"stderr-tag-line"`, … the program's string literals. NOT lines.
+* **Uniform field/VMT records** (`$742000`, ~2.5 KB): repeated 11-byte
+  `04 26 00 <id> 80 02 00 02 00 <id2> 55` with `<id>` stepping `$10` and
+  `<id2>` stepping `$18`. NOT lines.
+* **Opcode bytecode** (`$75ED06`, ~19.8 KB, in the `.dpr` region): the
+  prime suspect. Recurring 2-byte anchors `XX 31` whose low byte steps
+  (`45 31`,`49 31`,`4D 31`,`55 31`,`5D 31`,`61 31`,`7D 31`,`81 31`)
+  interleaved with `<even> 05/06 <small>` triples (`0A 05 10`,`10 05 12`,
+  `0A 05 14`,`0A 06 0E`,…) whose third byte is line-number-magnitude and
+  whose even first byte smells of the §2 LSB-as-continuation address
+  advance (`0A`→5, `10`→8). A run terminator `42 00` separates groups.
+
+So the TAIL is NOT fully accounted for by simple records — there is real
+bytecode here, which is why "absent" can no longer be the leading
+hypothesis. **BUT the `$75ED06` blob is NOT yet validated as the line
+table, and there is a strong competing explanation:** it sits
+immediately after a uses/dependency list naming `System.Rtti` and
+`System.TypInfo`, and its triples do **not** align to the `.dpr`'s known
+first entries (`13 @ $D9FAC, 14, 15, 16, 18 …`) — so it may be an **RTTI
+/ typeinfo program** rather than a line program. Present-vs-absent for
+the line table is therefore **still open**, but narrowed to: "is
+`$75ED06` (or a sibling bytecode blob) the line table, or is it RTTI?"
+
+**Round-4 verdict — the `$75ED06` candidate is REFUTED; it is type
+RTTI/layout, not lines.** Three findings settle it:
+
+1. **The bytecode is per-unit type data, in a module-record wrapper
+   (now decoded as §4.19).** Every unit is wrapped in a `61 4D <pb> 00
+   $25 <size:u16> 00 00` record; the 4 program units chain by `size`
+   (`EnumAlpha` `$2E2` → `EnumBeta` `$284` → `EnumGamma` `$28B` →
+   `.dpr` `$E6E`). The same `XX 31` + `<even> 05 <small>` bytecode, the
+   `.text`/`.itext`/`.data`/`.bss`/`.tls` section table, and a segment
+   base-VA table sit inside **every** module record — **including the
+   1-line `EnumAlpha`** (one source line, but one enum type `TStatus`).
+   A line table would scale with source lines; this scales with TYPE
+   complexity. So the bytecode is RTTI/layout, not lines.
+2. **No address progression matches.** The `.dpr`'s intra-proc
+   address-advance run (TargetProcedure: `06 28 0E 14 05 0E 25`) is
+   absent in raw, `×2`, `×4`, and `×2+1` scalings everywhere in the
+   file; the `$75ED06` advances (mostly `0A`→5, near-uniform) do not
+   resemble the `.dpr`'s varied advances. The `XX 31` anchors (`$3145`,
+   `$3149`, …) match no `.text`/`.itext` offset.
+3. **Size.** `$75ED06` is ~19.8 KB; the `.dpr`'s entire `.map` line
+   table is ~280 entries (≈ <1 KB encoded) — orders of magnitude off.
+
+**Re-confirmed conclusion (now a confident negative).** Across four
+rounds: no integer-form line address (R2 pin), no delta-advance run in
+any scaling (R4), and the only TAIL bytecode positively identified as
+**type RTTI/layout** in §4.19 module records (R4) — present even for a
+1-line unit. The strong reading is that **this Studio-37 (Athens) `-VR`
+linker does not emit a per-statement address→line table at all**; the
+line→address mapping lives only in the `.map`. The `.rsm` carries
+proc-entry addresses (§4.1), the declaring-unit edge (§4.18), type
+RTTI/layout (§4.19) — but not per-statement lines. The DPT debugger's
+use of the `.map` for source-line breakpoints is therefore a *correct*
+design, not a workaround.
+
+**Residual (what would close §6.29 outright):** (a) a `-GD`/full-TDS
+build comparison to confirm no linker switch emits the table into the
+`.rsm`; (b) positively decoding the §4.19 RTTI/layout bytecode to prove
+it is wholly type data with no line sub-stream. Neither is needed by any
+consumer (the `.map` has lines), so the cost/payoff has tilted away from
+chasing it further. **Independent side-item still open:** the `$70` /
+`$66` / `$67` 4-byte fields are **timestamp/token-magnitude**
+(`$5CBC7F3C`, `$5CBA54BB` ≈ the late-2018 link-stamp range), NOT RVAs as
+§4.17/§4.18 currently label them — worth a separate verify+correct pass.
+
+Pinned by
+[`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
+(the §4.19 module-record framing + chain that carries the RTTI bytecode),
+in addition to the integer-form / proc-entry / header pins above.
+
+### 6.33 Class `string`-field `Member.PrimitiveTypeId` not linked on large binaries (`GAP`)
+
+[DPT.Debugger.pas `AutoDetectFormatterName`](DPT.Debugger.pas) — after the
+§6.30/§6.31/§6.32 fixes, `evaluate V.FExpectedTenantId` on
+`Test.Lib.CTestJwksValidator.Validate_Success` resolves correctly **with
+an explicit `type=string`** (returns `tenant-1`), but **bare** `evaluate
+V.FExpectedTenantId` fails with *"could not be auto-typed (no RSM type
+metadata for this field)"*. The dotted walk reaches the right `Member`
+(class `CJwksValidator`, field `FExpectedTenantId`, offset 16), but that
+member's `PrimitiveTypeId` is 0 and its `TypeIdx` doesn't resolve to a
+formatter, so `AutoDetectFormatterName`'s Path 1/2 both miss and the
+server declines rather than guess. On the small DebugTarget fixture the
+Format-A linker (§4.15 `LinkMemberTypeIdsFromFormatA`) populates
+`PrimitiveTypeId` for `string` fields fine; on the 172 MB `Test.Lib.rsm`
+it does not for these `CJwksValidator` fields — likely the same
+large-binary `$2C`-field-record id-namespace divergence that §4.2 / §4.15
+document for member type ids. Next investigator: dump the `$2C` field
+records for `CJwksValidator` in `Test.Lib.rsm`, compare the type-id slot
+against the `string` primitive id the small-binary path recovers, and
+determine whether the linker emits a per-binary alias here (as for the
+§4.2 cross-unit RTL types) that the member-type pass isn't bridging.
+Until then the fields are fully evaluable with an explicit `type=`.
 
 ---
 

@@ -41,6 +41,11 @@ type
     FClassByName: IKeyValue<String, Integer>;
     function  ByteAt(AOffset: NativeInt): Byte; inline;
     function  DwordAt(AOffset: NativeInt): UInt32; inline;
+    /// True when the 4 bytes at AOffset equal AB0..AB3 in stream order
+    /// (one 32-bit load; the call spells out the anchor — see
+    /// RsmDwordAtEquals).
+    function  DwordAtEquals(AOffset: NativeInt;
+      AB0, AB1, AB2, AB3: Byte): Boolean; inline;
     function  IsPrintableAscii(AB: Byte): Boolean; inline;
     function  ReadIdentifier(AOffset: NativeInt; out AName: String): Boolean; inline;
     function  IsValidFieldTypeinfoPrefix(AOffset: NativeInt): Boolean; inline;
@@ -91,6 +96,12 @@ end;
 function TRsmStructDiscoverer.DwordAt(AOffset: NativeInt): UInt32;
 begin
   Result := RsmDwordAt(FBuf, AOffset);
+end;
+
+function TRsmStructDiscoverer.DwordAtEquals(AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean;
+begin
+  Result := RsmDwordAtEquals(FBuf, AOffset, AB0, AB1, AB2, AB3);
 end;
 
 function TRsmStructDiscoverer.IsPrintableAscii(AB: Byte): Boolean;
@@ -383,7 +394,7 @@ begin
   // total length = 17 + N*8 on Win32 / 25 + N*16 on Win64.
   // The "elaborate ~500-byte header" hypothesis that previously
   // motivated the 4 KB scan window is **refuted** -- the §6.4
-  // diagnostic (Test.DPT.Rsm.Tfw.TestTfwSimpleRecordHeaderCovers
+  // diagnostic (Test.DPT.Rsm.Taifun.TestTfwSimpleRecordHeaderCovers
   // TfwRecords) verified that even TFW's TAppCaps fits the simple
   // shape exactly (gap = 33 bytes = 17 + 2*8 for managed=2, with
   // member[0]="AddDict" landing precisely at PStart+33).
@@ -546,6 +557,14 @@ var
   P    : NativeInt;
   L    : Byte;
   Name : String;
+  // Sorted positions of every class-trailer marker ($07-tagged) in the
+  // buffer, precomputed once so FindClassTrailerWithin can fast-reject a
+  // candidate whose window holds no trailer at all (see §6.31). Without
+  // the 'T'-prefix name crutch the per-position name gate admits ~7x more
+  // candidates; this index keeps the (rare) trailer markers the only
+  // thing the expensive forward-scan ever runs against.
+  TrailerStarts: array of NativeInt;
+  TrailerCount : Integer;
 
   // Compare two length-prefixed names without materializing
   // either into a String. ASecondStart points at the second
@@ -565,22 +584,69 @@ var
     Result := True;
   end;
 
-  // Cheap "could this be a T-prefixed identifier" check without
-  // allocation. Validates length range, that the first character
-  // is 'T' (which every class / record name we care about starts
-  // with), and that the remaining bytes are valid identifier
-  // characters. This shaves 99%+ of byte positions in the file
-  // off the hot path before we ever build a String.
-  function IsTPrefixedIdent(AOff: NativeInt; AL: Byte): Boolean;
+  // Cheap "could this length-prefixed run be a class / record name"
+  // pre-filter, without allocation. The earlier version hard-required a
+  // 'T' first byte ("which every class / record name we care about starts
+  // with"), which silently dropped every non-T class -- e.g. the
+  // 'C'-prefixed CJwksValidator / CTestJwksValidator family, whose fields
+  // then never resolved in evaluate (§6.31). Retiring that 'T' crutch is
+  // the first step of removing the reader's convention-based filters.
+  //
+  // The naive fix -- widening the first byte to all letters -- is wrong:
+  // the 'T' gate was load-bearing for PERFORMANCE, not just a naming
+  // assumption. It kept the (per-byte-position) printable-name scan rare;
+  // widening the first byte to A-Z alone blew DiscoverAndParseAllStructs
+  // from ~14 s to ~96 s on TFW (any-letter ~105 s), tripping the §-perf
+  // budget. So instead of gating on the NAME's first byte we gate on a
+  // cheap STRUCTURAL anchor that a real def must carry near the name:
+  //   * the class trailer marker $07 (Win32 NameEnd+4 / Win64 NameEnd+8),
+  //   * the method-bearing-class header (three high zero bytes at
+  //     NameEnd+2..4), or
+  //   * the record $0E sentinel immediately before the length byte.
+  // Each anchor is ~1/256-rare, so the printable scan still runs seldom,
+  // yet the gate is fully name-convention-free (any prefix, any case).
+  // The caller re-validates each anchor precisely (exact trailer +
+  // duplicate name / FindClassTrailerWithin / record sentinel), and the
+  // String allocation still waits until that exact match -- so this
+  // necessary-but-not-sufficient pre-gate cannot admit false defs, only
+  // (rarely) waste a printable scan.
+  function IsClassNameCandidate(AOff: NativeInt; AL: Byte): Boolean;
   var
-    I: Integer;
+    I       : Integer;
+    NameEnd : NativeInt;
   begin
     Result := False;
     if (AL < 2) or (AOff + 1 + AL > FSz) then Exit;
-    if ByteAt(AOff + 1) <> Byte(Ord('T')) then Exit;
-    for I := 1 to AL - 1 do
+    NameEnd := AOff + 1 + AL;
+    if not (
+      ((NameEnd + 4 < FSz) and (ByteAt(NameEnd + 4) = $07)) or
+      ((NameEnd + 8 < FSz) and (ByteAt(NameEnd + 8) = $07)) or
+      ((NameEnd + 4 < FSz) and (ByteAt(NameEnd + 2) = 0) and
+       (ByteAt(NameEnd + 3) = 0) and (ByteAt(NameEnd + 4) = 0)) or
+      ((AOff > 0) and (ByteAt(AOff - 1) = TRsmTag.RECORD_SENTINEL))
+    ) then Exit;
+    for I := 0 to AL - 1 do
       if not IsPrintableAscii(ByteAt(AOff + 1 + I)) then Exit;
     Result := True;
+  end;
+
+  // Index of the first precomputed trailer marker at or after AOff
+  // (lower bound). O(log N). Lets FindClassTrailerWithin visit only the
+  // (sparse) class-trailer markers in a candidate's window instead of
+  // byte-scanning it -- the key to keeping the §6.31 convention-free
+  // name gate cheap.
+  function LowerBoundTrailer(AOff: NativeInt): Integer;
+  var
+    Lo, Hi, Mid: Integer;
+  begin
+    Lo := 0;
+    Hi := TrailerCount;
+    while Lo < Hi do
+    begin
+      Mid := (Lo + Hi) shr 1;
+      if TrailerStarts[Mid] < AOff then Lo := Mid + 1 else Hi := Mid;
+    end;
+    Result := Lo;
   end;
 
   // Locate the class trailer marker `04 00 00 00 07 <L> <name>`
@@ -594,68 +660,78 @@ var
   // the tight-check offsets. The exact 4/8-byte zero prefix, the
   // $07 type tag, and an exactly-matching duplicate name keep the
   // false-positive rate negligible.
-  function FindClassTrailerWithin(ANameEnd: NativeInt; AWindow: NativeInt;
-    ANameStart: NativeInt; ANL: Byte): Boolean;
+  // Is there a CLOSER class-def of the same name in (ANameEnd, ALimit)?
+  // §6.16: a class name recurs many times in the stream, and an
+  // earlier/spurious occurrence that also passes the method-header gate
+  // must NOT reach forward and steal the real (closest-preceding) def's
+  // trailer. So if a nearer same-name def-shaped occurrence sits between
+  // this candidate and the matching trailer, defer to it. Bounded by the
+  // matched trailer, so it only runs for genuine matches (rare).
+  function CloserSameNameDef(ANameEnd, ALimit, ANameStart: NativeInt;
+    ANL: Byte): Boolean;
   var
-    P, Stop: NativeInt;
+    Q, QEnd: NativeInt;
   begin
     Result := False;
-    Stop := ANameEnd + AWindow;
-    if Stop > FSz - 5 - Integer(ANL) then
-      Stop := FSz - 5 - Integer(ANL);
-    P := ANameEnd;
-    while P < Stop do
+    Q := ANameEnd;
+    while Q < ALimit do
     begin
-      // Win32 trailer: 04 00 00 00 07 <L> <name>
-      if (ByteAt(P) = $04) and (ByteAt(P + 1) = $00) and
-         (ByteAt(P + 2) = $00) and (ByteAt(P + 3) = $00) and
-         (ByteAt(P + 4) = $07) and
-         SecondNameMatchesBytes(P + 5, ANameStart, ANL) then
-        Exit(True);
-      // Win64 trailer: 08 00 00 00 00 00 00 00 07 <L> <name>
-      if (P + 9 + Integer(ANL) < FSz) and
-         (ByteAt(P) = $08) and (ByteAt(P + 1) = $00) and
-         (ByteAt(P + 2) = $00) and (ByteAt(P + 3) = $00) and
-         (ByteAt(P + 4) = $00) and (ByteAt(P + 5) = $00) and
-         (ByteAt(P + 6) = $00) and (ByteAt(P + 7) = $00) and
-         (ByteAt(P + 8) = $07) and
-         SecondNameMatchesBytes(P + 9, ANameStart, ANL) then
-        Exit(True);
-      // Defer to a CLOSER class-def of the same name (§6.16). A class
-      // name appears many times in the stream (type registry, the
-      // trailer's own second copy, references, AND -- the case that
-      // bites -- an earlier spurious occurrence that also passes the
-      // 4-zero method-header gate). The trailer belongs to the class-def
-      // occurrence nearest before it. So if, while scanning forward for
-      // the trailer, we hit another occurrence of THIS name that is
-      // itself class-def-shaped, abort: that closer occurrence owns the
-      // trailer, and the Run loop will reach and parse it. Without this
-      // guard, widening the window lets a far/earlier same-name
-      // occurrence reach and steal the real class-def's trailer, so its
-      // members get attributed to the wrong neighbour (a TComponent ->
-      // TComponentInterfaceDelegate-style mis-anchor on DebugTarget).
-      // The trailer's OWN second copy is never seen here: the trailer
-      // checks above Exit(True) at the marker, 5/9 bytes before it.
-      if SecondNameMatchesBytes(P, ANameStart, ANL) then
+      if SecondNameMatchesBytes(Q, ANameStart, ANL) then
       begin
-        var QEnd: NativeInt := P + 1 + Integer(ANL);
+        QEnd := Q + 1 + Integer(ANL);
         if (QEnd + 8 < FSz) and
-           ( // 4-zero method-block header (method-class def)
-             ((ByteAt(QEnd + 1) = 0) and (ByteAt(QEnd + 2) = 0) and
+           ( ((ByteAt(QEnd + 1) = 0) and (ByteAt(QEnd + 2) = 0) and
               (ByteAt(QEnd + 3) = 0) and (ByteAt(QEnd + 4) = 0)) or
-             // Win32 tight trailer marker right after the name
              ((ByteAt(QEnd) = $04) and (ByteAt(QEnd + 1) = 0) and
               (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
               (ByteAt(QEnd + 4) = $07)) or
-             // Win64 tight trailer marker right after the name
              ((ByteAt(QEnd) = $08) and (ByteAt(QEnd + 1) = 0) and
               (ByteAt(QEnd + 2) = 0) and (ByteAt(QEnd + 3) = 0) and
               (ByteAt(QEnd + 4) = 0) and (ByteAt(QEnd + 5) = 0) and
               (ByteAt(QEnd + 6) = 0) and (ByteAt(QEnd + 7) = 0) and
               (ByteAt(QEnd + 8) = $07)) ) then
-          Exit(False);
+          Exit(True);
       end;
-      Inc(P);
+      Inc(Q);
+    end;
+  end;
+
+  function FindClassTrailerWithin(ANameEnd: NativeInt; AWindow: NativeInt;
+    ANameStart: NativeInt; ANL: Byte): Boolean;
+  var
+    Stop, M: NativeInt;
+    Idx    : Integer;
+  begin
+    Result := False;
+    Stop := ANameEnd + AWindow;
+    if Stop > FSz - 5 - Integer(ANL) then
+      Stop := FSz - 5 - Integer(ANL);
+    // §6.31: visit only the precomputed class-trailer markers inside the
+    // window (sparse -- ~one per class), not every byte. This is what
+    // keeps the now-convention-free name gate affordable: the old
+    // per-byte 16 KB forward scan ran for every method-class candidate
+    // the gate admitted, and dropping the 'T' crutch multiplied those
+    // ~7x. The marker bytes were validated by the build pass, so here we
+    // only re-check the duplicate name; the closest matching trailer
+    // wins, deferring to a nearer same-name def per §6.16.
+    Idx := LowerBoundTrailer(ANameEnd);
+    while (Idx < TrailerCount) and (TrailerStarts[Idx] < Stop) do
+    begin
+      M := TrailerStarts[Idx];
+      // Win32 marker ($04...$07): duplicate name at M+5.
+      if (ByteAt(M) = $04) and SecondNameMatchesBytes(M + 5, ANameStart, ANL) then
+      begin
+        Result := not CloserSameNameDef(ANameEnd, M, ANameStart, ANL);
+        Exit;
+      end;
+      // Win64 marker ($08...$07): duplicate name at M+9.
+      if (M + 9 + Integer(ANL) < FSz) and (ByteAt(M) = $08) and
+         SecondNameMatchesBytes(M + 9, ANameStart, ANL) then
+      begin
+        Result := not CloserSameNameDef(ANameEnd, M, ANameStart, ANL);
+        Exit;
+      end;
+      Inc(Idx);
     end;
   end;
 
@@ -667,16 +743,47 @@ begin
   // byte position where a length-prefixed run of printable chars
   // existed -- tens of millions of allocations on TFW after the
   // identifier charset was widened to accept '.', '$' and friends.
-  // We now do a byte-only quick-reject for "starts with 'T'" plus
-  // the class/record trailer pattern up front, and only allocate
-  // the actual name String once we know the entry is interesting
-  // enough to be passed into ScanFields*. This cuts the phase from
-  // hundreds of seconds to a few seconds on TFW-sized binaries.
+  // We now do a byte-only quick-reject ("is this a valid identifier
+  // candidate", IsClassNameCandidate) plus the class/record trailer
+  // pattern up front, and only allocate the actual name String once we
+  // know the entry is interesting enough to be passed into ScanFields*.
+  // This cuts the phase from hundreds of seconds to a few seconds on
+  // TFW-sized binaries.
+  //
+  // First, precompute TrailerStarts: the sorted positions of every
+  // class-trailer marker ($04 $00 $00 $00 $07 on Win32, or the 8-zero
+  // $08 ... $07 form on Win64). This single O(N) pass (mostly one byte
+  // read per position -- $04 / $08 short-circuit) lets HasTrailerInRange
+  // fast-reject the method-class candidates that the convention-free name
+  // gate now admits (§6.31) without each paying the 16 KB forward scan.
+  TrailerCount := 0;
+  SetLength(TrailerStarts, 1024);
+  P := 0;
+  while P + 9 < FSz do
+  begin
+    // Marker prefixes matched as 32-bit loads (vs byte-by-byte), with the
+    // bytes spelled out so the check reads as its own doc:
+    //   Win32 trailer  04 00 00 00 07
+    //   Win64 trailer  08 00 00 00 00 00 00 00 07
+    var IsMarker: Boolean :=
+      (DwordAtEquals(P, $04, $00, $00, $00) and (ByteAt(P + 4) = $07)) or
+      (DwordAtEquals(P, $08, $00, $00, $00) and
+       DwordAtEquals(P + 4, $00, $00, $00, $00) and (ByteAt(P + 8) = $07));
+    if IsMarker then
+    begin
+      if TrailerCount = Length(TrailerStarts) then
+        SetLength(TrailerStarts, Length(TrailerStarts) * 2);
+      TrailerStarts[TrailerCount] := P;
+      Inc(TrailerCount);
+    end;
+    Inc(P);
+  end;
+
   P := 1;
   while P + 24 < FSz do
   begin
     L := ByteAt(P);
-    if (L >= 2) and (L <= 40) and IsTPrefixedIdent(P, L) then
+    if (L >= 2) and (L <= 40) and IsClassNameCandidate(P, L) then
     begin
       var NameStart: NativeInt := P + 1;
       var NameEnd  : NativeInt := P + 1 + L;

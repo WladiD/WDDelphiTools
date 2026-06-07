@@ -48,6 +48,9 @@ type
     procedure DoTestEdgeCaseLocalsAllDecoded(AUse64Bit: Boolean);
     procedure DoTestOpenArrayParamRecognized(AUse64Bit: Boolean);
     procedure DoTestSelfTypeIdxResolvesInCleanRegime(AUse64Bit: Boolean);
+    procedure DoTestInlineVarLocalsDecoded(AUse64Bit: Boolean);
+    procedure DoTestInlineVarWideOffsetMonotonic(AUse64Bit: Boolean);
+    procedure DoTestNonTPrefixClassDiscovered(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -89,6 +92,27 @@ type
     procedure TestOpenArrayParamRecognized32;
     [Test]
     procedure TestFindGlobalTypeIdx32;
+    /// §6.30 PIN. Delphi inline-declared vars ("var X := expr;" in a
+    /// proc body) emit $20 LOCAL records with the $66 $00 $01 $04 body
+    /// anchor (vs classic $66 $00 $00), shifting the BPRel offset byte
+    /// right by one and using a 1- or 2-byte type ref. The pre-fix
+    /// decoder mis-read every inline-var offset (~128x too large, or
+    /// the synthesized fallback), which made "evaluate V.FExpectedTenantId"
+    /// fail on Test.Lib.CTestJwksValidator.Validate_Success because V's
+    /// own slot offset was garbage. These pin the decode against the
+    /// InlineVarLocalsProcedure / InlineVarManyIntsProcedure fixtures and
+    /// guard the classic form (LocalA/B/C) from regressing.
+    [Test]
+    procedure TestInlineVarLocalsDecoded32;
+    [Test]
+    procedure TestInlineVarWideOffsetMonotonic32;
+    /// §6.31 PIN. StructDiscoverer's hot-loop name gate used to require a
+    /// 'T' first character, so 'C'-prefixed classes (Test.Lib's
+    /// CJwksValidator / CTestJwksValidator naming) were never discovered
+    /// and every "evaluate Obj.FField" on them failed. Pins that the
+    /// non-T fixture class CNonTPrefixHost is discovered with its fields.
+    [Test]
+    procedure TestNonTPrefixClassDiscovered32;
     /// §6.27 PIN (clean regime). On the SMALL DebugTarget binary the
     /// `$21` Self register-param TypeIdx slot carries the owning class's
     /// real 2-byte `$2A` registry primary (hi byte $2E/$2F → the
@@ -184,6 +208,12 @@ type
     procedure TestEdgeCaseLocalsAllDecoded64;
     [Test]
     procedure TestOpenArrayParamRecognized64;
+    [Test]
+    procedure TestInlineVarLocalsDecoded64;
+    [Test]
+    procedure TestInlineVarWideOffsetMonotonic64;
+    [Test]
+    procedure TestNonTPrefixClassDiscovered64;
     {$ENDIF}
   end;
 
@@ -896,6 +926,191 @@ begin
   end;
 end;
 
+// §6.30 helper: find a named local's BPRel offset within a proc.
+// Returns True + the offset, or False if the local is absent.
+function TryGetLocalOffset(const AProc: TRsmProc; const AName: String;
+  out AOffset: Int32): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 0 to AProc.Locals.Count - 1 do
+    if SameText(AProc.Locals[I].Name, AName) then
+    begin
+      AOffset := AProc.Locals[I].BpOffset;
+      Exit(True);
+    end;
+end;
+
+procedure TRsmReaderLegacyTests.DoTestInlineVarLocalsDecoded(AUse64Bit: Boolean);
+// §6.30 PIN. InlineVarLocalsProcedure declares six inline vars covering
+// every (type-width x offset-width) combo of the $66 $00 $01 $04 form:
+//   LocalIVStr/IVInt/IVTail - 1-byte type, single-byte offset (near EBP)
+//   LocalIVObj/IVRec        - 2-byte type, single-byte offset (near EBP)
+//   LocalIVBig (512-byte arr)- 2-byte type, WIDE offset (far from EBP)
+// Pre-fix, the decoder misfired these into the classic Shape-B wide
+// path (~128x too large) or the synthesized fallback. We assert sane
+// frame offsets; LocalIVBig must land well below the scalars (wide
+// form), and the classic LocalsProcedure (LocalA/B/C) must still decode
+// (leakage guard - the $66 $00 $00 path is untouched).
+const
+  IV: array[0..5] of String =
+    ('LocalIVStr', 'LocalIVObj', 'LocalIVRec', 'LocalIVInt',
+     'LocalIVTail', 'LocalIVBig');
+var
+  Reader  : TRsmReader;
+  ProcIdx : Integer;
+  Proc    : TRsmProc;
+  I, J    : Integer;
+  Ofs     : Int32;
+  BigOfs  : Int32;
+  Offsets : array[0..5] of Int32;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    ProcIdx := Reader.FindProcByName('InlineVarLocalsProcedure');
+    Assert.IsTrue(ProcIdx >= 0, 'InlineVarLocalsProcedure not found');
+    Proc := Reader.Procs[ProcIdx];
+
+    for I := 0 to High(IV) do
+    begin
+      Assert.IsTrue(TryGetLocalOffset(Proc, IV[I], Ofs),
+        Format('inline var %s missing from InlineVarLocalsProcedure', [IV[I]]));
+      Offsets[I] := Ofs;
+      // Sane BP-relative window: below EBP, not a ~128x misfire, not the
+      // -10000-based synthesized fallback.
+      Assert.IsTrue((Ofs < 0) and (Ofs > -4096),
+        Format('inline var %s decoded to implausible BpOffset %d ' +
+               '(pre-fix misfire or fallback)', [IV[I], Ofs]));
+    end;
+    // Distinct slots.
+    for I := 0 to High(IV) do
+      for J := I + 1 to High(IV) do
+        Assert.AreNotEqual(Offsets[I], Offsets[J],
+          Format('inline vars %s and %s share BpOffset %d',
+            [IV[I], IV[J], Offsets[I]]));
+
+    // LocalIVBig is the 512-byte array -> WIDE offset form, far below the
+    // scalars (all of which sit within EBP-64). This specifically pins
+    // the (2-byte type, wide offset) decode.
+    Assert.IsTrue(TryGetLocalOffset(Proc, 'LocalIVBig', BigOfs), 'LocalIVBig missing');
+    Assert.IsTrue(BigOfs < -100,
+      Format('LocalIVBig (512-byte array) should use the wide offset form ' +
+             'well below EBP; got %d', [BigOfs]));
+    for I := 0 to High(IV) do
+      if not SameText(IV[I], 'LocalIVBig') then
+        Assert.IsTrue(Offsets[I] > BigOfs,
+          Format('scalar inline var %s (%d) should sit above the array ' +
+                 'LocalIVBig (%d)', [IV[I], Offsets[I], BigOfs]));
+
+    // Leakage guard: the classic $66 $00 $00 form is untouched.
+    ProcIdx := Reader.FindProcByName('LocalsProcedure');
+    Assert.IsTrue(ProcIdx >= 0, 'LocalsProcedure not found');
+    Proc := Reader.Procs[ProcIdx];
+    Assert.IsTrue(TryGetLocalOffset(Proc, 'LocalA', Ofs) and (Ofs < 0) and (Ofs > -4096),
+      Format('classic LocalA regressed: %d', [Ofs]));
+    Assert.IsTrue(TryGetLocalOffset(Proc, 'LocalB', Ofs) and (Ofs < 0) and (Ofs > -4096),
+      Format('classic LocalB regressed: %d', [Ofs]));
+    Assert.IsTrue(TryGetLocalOffset(Proc, 'LocalC', Ofs) and (Ofs < 0) and (Ofs > -4096),
+      Format('classic LocalC regressed: %d', [Ofs]));
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.DoTestInlineVarWideOffsetMonotonic(AUse64Bit: Boolean);
+// §6.30 PIN (wide 1-byte-type form). InlineVarManyIntsProcedure declares
+// 24 inline Integer vars in order; the compiler tiles them by -4 bytes.
+// The trailing ones (IV17+) cross EBP-64, where a 1-byte primitive type
+// pairs with the WIDE (LSB-continuation) offset form. A correct decode
+// yields a strictly monotonic run with a CONSTANT step across the
+// single->wide boundary; a broken wide decode breaks the step at IV17.
+var
+  Reader  : TRsmReader;
+  ProcIdx : Integer;
+  Proc    : TRsmProc;
+  I       : Integer;
+  Ofs     : Int32;
+  Vals    : array[1..24] of Int32;
+  Step    : Int32;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    ProcIdx := Reader.FindProcByName('InlineVarManyIntsProcedure');
+    Assert.IsTrue(ProcIdx >= 0, 'InlineVarManyIntsProcedure not found');
+    Proc := Reader.Procs[ProcIdx];
+
+    for I := 1 to 24 do
+    begin
+      Assert.IsTrue(TryGetLocalOffset(Proc, Format('IV%.2d', [I]), Ofs),
+        Format('inline int IV%.2d missing', [I]));
+      Vals[I] := Ofs;
+      Assert.IsTrue((Ofs < 0) and (Ofs > -4096),
+        Format('IV%.2d decoded to implausible BpOffset %d', [I, Ofs]));
+    end;
+
+    Step := Vals[2] - Vals[1];
+    Assert.IsTrue((Step < 0) and (Step >= -16),
+      Format('inline int slot step %d is not a sane scalar stride', [Step]));
+    for I := 2 to 24 do
+      Assert.AreEqual(Step, Vals[I] - Vals[I - 1],
+        Format('IV%.2d breaks the constant -%d stride (got %d -> %d): the ' +
+               'wide 1-byte-type offset form mis-decoded',
+          [I, -Step, Vals[I - 1], Vals[I]]));
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.DoTestNonTPrefixClassDiscovered(AUse64Bit: Boolean);
+// §6.31 PIN. CNonTPrefixHost is a 'C'-prefixed class (FNonTInt: Integer;
+// FNonTStr: string; FNonTObj: TInner). Before the naming-convention
+// crutch was removed, StructDiscoverer's hot-loop gate required the name
+// to start with 'T', so this class was never discovered and field
+// navigation failed. We assert the class is found and its fields resolve
+// at the expected instance offsets (<VMT-ptr> then own fields). Leakage
+// guard: a neighbouring 'T'-class (TInner) still resolves, i.e. the
+// widened gate did not break the common path.
+var
+  Reader     : TRsmReader;
+  Member     : TRsmClassMember;
+  ExpectedPtr: UInt32;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    if AUse64Bit then ExpectedPtr := 8 else ExpectedPtr := 4;
+
+    Assert.IsTrue(Reader.FindClassByName('CNonTPrefixHost') >= 0,
+      'CNonTPrefixHost (C-prefixed) must be discovered now the T-only ' +
+      'name gate is gone');
+
+    Assert.IsTrue(Reader.FindClassMember('CNonTPrefixHost', 'FNonTInt', Member),
+      'CNonTPrefixHost.FNonTInt must be parsed');
+    Assert.AreEqual<UInt32>(ExpectedPtr * 1, Member.Offset,
+      'FNonTInt is the first own field, right after the VMT pointer');
+
+    Assert.IsTrue(Reader.FindClassMember('CNonTPrefixHost', 'FNonTStr', Member),
+      'CNonTPrefixHost.FNonTStr must be parsed');
+    Assert.AreEqual<UInt32>(ExpectedPtr * 2, Member.Offset);
+
+    Assert.IsTrue(Reader.FindClassMember('CNonTPrefixHost', 'FNonTObj', Member),
+      'CNonTPrefixHost.FNonTObj must be parsed');
+    Assert.AreEqual<UInt32>(ExpectedPtr * 3, Member.Offset);
+
+    // Leakage guard: the common 'T'-prefixed path is unaffected.
+    Assert.IsTrue(Reader.FindClassByName('TInner') >= 0,
+      'TInner (T-prefixed) must still be discovered after the gate widened');
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestInlineVarLocalsDecoded32;            begin DoTestInlineVarLocalsDecoded(False);           end;
+procedure TRsmReaderLegacyTests.TestInlineVarWideOffsetMonotonic32;      begin DoTestInlineVarWideOffsetMonotonic(False);     end;
+procedure TRsmReaderLegacyTests.TestNonTPrefixClassDiscovered32;         begin DoTestNonTPrefixClassDiscovered(False);        end;
 procedure TRsmReaderLegacyTests.TestDiscoversDerivedClass32;             begin DoTestDiscoversDerivedClass(False);            end;
 procedure TRsmReaderLegacyTests.TestDerivedInheritsBaseFields32;         begin DoTestDerivedInheritsBaseFields(False);        end;
 procedure TRsmReaderLegacyTests.TestDeepDerivedInheritsAllAncestors32;   begin DoTestDeepDerivedInheritsAllAncestors(False);  end;
@@ -1063,6 +1278,9 @@ procedure TRsmReaderLegacyTests.TestDiscoversDerivedClass64;            begin Do
 procedure TRsmReaderLegacyTests.TestDerivedInheritsBaseFields64;        begin DoTestDerivedInheritsBaseFields(True);         end;
 procedure TRsmReaderLegacyTests.TestEdgeCaseLocalsAllDecoded64;         begin DoTestEdgeCaseLocalsAllDecoded(True);          end;
 procedure TRsmReaderLegacyTests.TestOpenArrayParamRecognized64;         begin DoTestOpenArrayParamRecognized(True);          end;
+procedure TRsmReaderLegacyTests.TestInlineVarLocalsDecoded64;           begin DoTestInlineVarLocalsDecoded(True);            end;
+procedure TRsmReaderLegacyTests.TestInlineVarWideOffsetMonotonic64;     begin DoTestInlineVarWideOffsetMonotonic(True);      end;
+procedure TRsmReaderLegacyTests.TestNonTPrefixClassDiscovered64;        begin DoTestNonTPrefixClassDiscovered(True);         end;
 {$ENDIF}
 
 procedure TRsmReaderLegacyTests.TestFieldAliasEnumBridgeResolvesTThreadPriority32;

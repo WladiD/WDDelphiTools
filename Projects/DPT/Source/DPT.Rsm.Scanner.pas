@@ -203,6 +203,13 @@ type
     /// </summary>
     function DwordAt(AOffset: NativeInt): UInt32; inline;
     /// <summary>
+    ///   True when the 4 bytes at <c>AOffset</c> equal <c>AB0..AB3</c> in
+    ///   stream order — one 32-bit load, but the call spells out the
+    ///   expected anchor bytes (self-documenting). See RsmDwordAtEquals.
+    /// </summary>
+    function DwordAtEquals(AOffset: NativeInt;
+      AB0, AB1, AB2, AB3: Byte): Boolean; inline;
+    /// <summary>
     ///   True for bytes that may appear in an RSM identifier (digits,
     ///   ASCII letters, plus the qualified-name / generic / linker-
     ///   alias punctuation: '.', '_', '$', '@', '&lt;', '&gt;', ',').
@@ -341,6 +348,12 @@ end;
 function TRsmScanner.DwordAt(AOffset: NativeInt): UInt32;
 begin
   Result := RsmDwordAt(FBuf, AOffset);
+end;
+
+function TRsmScanner.DwordAtEquals(AOffset: NativeInt;
+  AB0, AB1, AB2, AB3: Byte): Boolean;
+begin
+  Result := RsmDwordAtEquals(FBuf, AOffset, AB0, AB1, AB2, AB3);
 end;
 
 function TRsmScanner.IsPrintableAscii(AB: Byte): Boolean;
@@ -942,7 +955,65 @@ begin
   Loc.TypeIdx  := 0;
   Loc.Kind     := lkBpRel;
   var PayloadStart: NativeInt := P + 2 + Length(Name);
-  if PayloadStart + 5 < FSz then
+  // Inline-declared var form (Delphi "var X := expr;" in a proc body):
+  // the body opens with the 4-byte anchor $66 $00 $01 $04 instead of
+  // the classic stack-local $66 $00 $00. After the anchor comes a 1- or
+  // 2-byte per-proc type ref, then the BPRel offset (single byte
+  // ShortInt div 2, or wide LSB-continuation (W-1) div 4), then a
+  // terminator: the next record tag OR the $9C $17 trailing-init
+  // signature. The type-width is not flagged, so we probe TypeW in
+  // {1,2}: accept the first whose offset is a plausible non-positive
+  // BPRel value followed by a valid terminator. This rejects the
+  // type-hi byte (positive / non-terminated) being read as the offset.
+  // See DPT.Rsm.Format.md §4.4 (inline-var form). The classic forms
+  // (LocalA/B/C, EdgeCase locals) keep $66 $00 $00 and fall through to
+  // the Shape-A/B decoder below.
+  if (PayloadStart + 6 < FSz) and
+     // Anchor $66 $00 $01 $04 in one 32-bit load (vs four ByteAt calls);
+     // the byte values are spelled out so the call doubles as the doc.
+     DwordAtEquals(PayloadStart, $66, $00, $01, $04) then
+  begin
+    for var TypeW := 1 to 2 do
+    begin
+      var OfsPos: NativeInt := PayloadStart + 4 + TypeW;
+      if OfsPos + 1 >= FSz then Continue;
+      var OB: Byte := ByteAt(OfsPos);
+      var Ofs: Int32;
+      var TermPos: NativeInt;
+      if (OB and 1) = 0 then
+      begin
+        Ofs := Int32(ShortInt(OB)) div 2;
+        TermPos := OfsPos + 1;
+      end
+      else
+      begin
+        var W: Word := Word(OB) or (Word(ByteAt(OfsPos + 1)) shl 8);
+        Ofs := (Int32(SmallInt(W)) - 1) div 4;
+        TermPos := OfsPos + 2;
+      end;
+      // A real local sits below EBP -> non-positive offset.
+      if Ofs > 0 then Continue;
+      if TermPos >= FSz then Continue;
+      var TB: Byte := ByteAt(TermPos);
+      if not ((TB = TRsmTag.LOCAL_TAG) or (TB = TRsmTag.PROC_TAG) or
+              (TB = TRsmTag.SCOPE_END) or (TB = TRsmTag.PARAM_TAG) or
+              (TB = TRsmTag.REGVAR_TAG) or (TB = TRsmTag.ENUM_CONST_TAG) or
+              (TB = TRsmTag.ENUM_DEF_TAG) or (TB = TRsmTag.TYPE_REGISTRY_TAG) or
+              ((TB = $9C) and (TermPos + 1 < FSz) and
+               (ByteAt(TermPos + 1) = $17))) then
+        Continue;
+      Loc.BpOffset := Ofs;
+      if TypeW = 1 then
+        Loc.TypeIdx := ByteAt(PayloadStart + 4)
+      else
+        Loc.TypeIdx := UInt32(ByteAt(PayloadStart + 4)) or
+                       (UInt32(ByteAt(PayloadStart + 5)) shl 8);
+      Break;
+    end;
+    // If neither combo validated, Loc.BpOffset keeps the synthesized
+    // fallback so the canary tests still surface the miss.
+  end
+  else if PayloadStart + 5 < FSz then
   begin
     var Byte4: Byte := ByteAt(PayloadStart + 4);
     if (Byte4 = $2E) or (Byte4 = $2F) then

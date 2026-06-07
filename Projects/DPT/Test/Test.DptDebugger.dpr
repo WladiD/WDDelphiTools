@@ -16,7 +16,7 @@ uses
   Test.DPT.Rsm.Model,
   Test.DPT.Rsm.Scanner,
   Test.DPT.Rsm.Reader,
-  Test.DPT.Rsm.Tfw;
+  Test.DPT.Rsm.Taifun;
 
 var
   runner: ITestRunner;

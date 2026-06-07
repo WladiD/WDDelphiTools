@@ -2844,11 +2844,32 @@ begin
       // instances the VMT is authoritative and the class-hop branch
       // (which reads ClsName from the live VMT) trumps any RSM id
       // alias mismatch.
+      // §6.32 generalises the §6.18 VMT-priority override from
+      // register-passed locals to ALL object locals (BP-relative locals
+      // and globals), because the same RSM-TypeIdx-aliases-to-a-record
+      // hazard exists for them. A BP-relative inline-var local like
+      //   var V := CJwksValidator.Create(...)
+      // carries a per-proc reference id in its $20 record (NOT the type's
+      // registry primary -- §4.2 design limit); that id can collide with
+      // an unrelated record in the registry, so FindClassIdxByRsmTypeId
+      // below would wrongly flip the walk to record-hop and every
+      // V.<field> evaluate would fail -- even though the class
+      // (CJwksValidator) and its fields are correctly discovered. The
+      // live VMT is authoritative: deref the slot, and if its contents
+      // VMT-resolve to a class in FClasses, this first segment is a class
+      // instance -> skip record priming and let the class-hop branch use
+      // the VMT-derived class name. A record-typed local/global derefs to
+      // inline data whose VMT walk fails, so priming still runs for it.
       var SkipRecordPriming: Boolean := False;
+      var ProbeInstancePtr : UIntPtr := 0;
       if FirstHopHasInstancePtr then
+        ProbeInstancePtr := FirstHopInstancePtr        // register: value IS the ptr
+      else if Assigned(Addr) then
+        ProbeInstancePtr := ReadTargetPointer(Addr);   // BP-rel/global: slot holds the ptr
+      if ProbeInstancePtr <> 0 then
       begin
         var VmtClsName: String;
-        if ReadRuntimeClassName(FirstHopInstancePtr, VmtClsName) and
+        if ReadRuntimeClassName(ProbeInstancePtr, VmtClsName) and
            (FLocalsReader.FindClassByName(VmtClsName) >= 0) then
           SkipRecordPriming := True;
       end;
