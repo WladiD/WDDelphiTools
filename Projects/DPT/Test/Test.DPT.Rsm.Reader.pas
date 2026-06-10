@@ -142,6 +142,28 @@ type
     /// neighbour.
     [Test]
     procedure TestManagedStringFieldIdsOffsetIndependent32;
+
+    /// <summary>
+    ///   §4.17 LinkToken-semantics pin (the Step-1 investigation outcome).
+    ///   Locks WHY a general token-keyed declaration lookup is NOT a useful
+    ///   reader primitive, via four relationship assertions on
+    ///   DebugTarget.rsm (no absolute token values — those are link-stamp
+    ///   derived and drift per build):
+    ///   (1) a <c>$66 'Boolean'</c> use-site token is byte-identical to the
+    ///       canonical <c>$2A 'Boolean'</c> body+3..+6 token;
+    ///   (2) that token's LOW WORD equals the <c>$2A</c> registry primary id
+    ///       — so for types the 32-bit token is the primary id plus 16
+    ///       redundant bits (a token lookup ≡ the existing primary lookup);
+    ///   (3) a type ALIAS use-site resolves to the UNDERLYING type's token:
+    ///       <c>$66 'DWORD'</c> carries the same token as <c>$66 'Cardinal'</c>;
+    ///   (4) and that differs from the alias's OWN <c>$2A 'DWORD'</c> token —
+    ///       so a name-keyed token lookup would mis-navigate aliases.
+    ///   Together these refute the "collision-free declaration key" premise
+    ///   for the type/const families; only the same-enum sibling case
+    ///   (pinned in Test.DPT.Rsm.Taifun) is clean.
+    /// </summary>
+    [Test]
+    procedure TestLinkTokenSemanticsNotAUsefulLookupKey32;
   end;
 
 implementation
@@ -154,6 +176,7 @@ uses
   mormot.core.collections,
 
   DPT.Rsm.Model,
+  DPT.Rsm.Scanner,
   DPT.Rsm.Reader;
 
 function TRsmReaderTests.ResolveExePath(AUse64Bit: Boolean): String;
@@ -603,6 +626,122 @@ begin
       (Mem.PrimitiveTypeId = $04) or (Mem.PrimitiveTypeId = $0C) or
       (Mem.PrimitiveTypeId = $1C) or (Mem.PrimitiveTypeId = $1E),
       'FMixedInt (Integer) must not be mis-stamped with a managed-string id');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestLinkTokenSemanticsNotAUsefulLookupKey32;
+var
+  R   : TRsmReader;
+  Sc  : TRsmScanner;
+  BoolUse, DwordUse, CardUse: UInt32;
+  BoolCanon, BoolPrim, DwordCanon, DwordPrim: UInt32;
+  HaveBoolUse, HaveDwordUse, HaveCardUse: Boolean;
+  HaveBoolCanon, HaveDwordCanon: Boolean;
+
+  // The $66 use-site tokens are already decoded into UnitUseSegments.
+  function UseTokenOfType(const AName: String; out AToken: UInt32): Boolean;
+  var
+    I, J: Integer;
+    Seg : TRsmUnitUseSegment;
+    Ref : TRsmUnitUseRef;
+  begin
+    Result := False;
+    for I := 0 to R.UnitUseSegments.Count - 1 do
+    begin
+      Seg := R.UnitUseSegments[I];
+      if Seg.Refs = nil then Continue;
+      for J := 0 to Seg.Refs.Count - 1 do
+      begin
+        Ref := Seg.Refs[J];
+        if (Ref.Kind = uukType) and SameText(Ref.Name, AName) then
+        begin
+          AToken := Ref.LinkToken;
+          Exit(True);
+        end;
+      end;
+    end;
+  end;
+
+  // The canonical $2A token is NOT stored on any model record (that is
+  // the §4.17 finding -- it would be redundant), so read it raw. Body =
+  // P+2+NL; $00 $00 at +1/+2; 4-byte token at +3..+6, low word = primary.
+  function Canon2A(const AName: String; out AToken, APrimary: UInt32): Boolean;
+  var
+    P  : NativeInt;
+    NL : Integer;
+    Nm : String;
+    K  : Integer;
+    B  : Byte;
+  begin
+    Result := False;
+    P := 0;
+    while P + 12 < Sc.Sz do
+    begin
+      if Sc.ByteAt(P) = $2A then
+      begin
+        NL := Sc.ByteAt(P + 1);
+        if (NL >= 2) and (NL <= 40) and (P + 2 + NL + 5 < Sc.Sz) and
+           (Sc.ByteAt(P + 2 + NL + 1) = 0) and (Sc.ByteAt(P + 2 + NL + 2) = 0) then
+        begin
+          Nm := '';
+          for K := 0 to NL - 1 do
+          begin
+            B := Sc.ByteAt(P + 2 + K);
+            if (B >= 32) and (B < 127) then Nm := Nm + Chr(B) else begin Nm := ''; Break; end;
+          end;
+          if SameText(Nm, AName) then
+          begin
+            APrimary := UInt32(Sc.ByteAt(P + 2 + NL + 3)) or
+                        (UInt32(Sc.ByteAt(P + 2 + NL + 4)) shl 8);
+            AToken := APrimary or
+                      (UInt32(Sc.ByteAt(P + 2 + NL + 5)) shl 16) or
+                      (UInt32(Sc.ByteAt(P + 2 + NL + 6)) shl 24);
+            Exit(True);
+          end;
+        end;
+      end;
+      Inc(P);
+    end;
+  end;
+
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+    Sc := R.Scanner;
+    Assert.IsTrue(R.UnitUseSegments.Count > 0,
+      'No $64 segments decoded -- fixture/scanner regression, not a token finding');
+
+    HaveBoolUse   := UseTokenOfType('Boolean', BoolUse);
+    HaveDwordUse  := UseTokenOfType('DWORD', DwordUse);
+    HaveCardUse   := UseTokenOfType('Cardinal', CardUse);
+    HaveBoolCanon := Canon2A('Boolean', BoolCanon, BoolPrim);
+    HaveDwordCanon:= Canon2A('DWORD', DwordCanon, DwordPrim);
+
+    Assert.IsTrue(HaveBoolUse and HaveBoolCanon,
+      'Boolean must appear both as a $66 use-site and a $2A registry entry');
+
+    // (1) byte-identity: $66 use-site token == $2A body+3..+6 token.
+    Assert.AreEqual<UInt32>(BoolCanon, BoolUse,
+      '$66 Boolean use-site token must equal the canonical $2A token');
+    // (2) the token's low word IS the registry primary id -> a type-side
+    // token lookup is the existing primary lookup plus 16 redundant bits.
+    Assert.AreEqual<UInt32>(BoolPrim, BoolCanon and UInt32($FFFF),
+      'canonical token low word must equal the $2A registry primary id');
+
+    // (3)+(4) the alias finding: only assert when the fixture carries the
+    // RTL alias use-sites (it does on the current build; guard so a future
+    // RTL reshuffle degrades gracefully rather than red).
+    if HaveDwordUse and HaveCardUse then
+      Assert.AreEqual<UInt32>(CardUse, DwordUse,
+        '$66 DWORD use-site must resolve to the UNDERLYING Cardinal token ' +
+        '(alias resolution) -- a token lookup would mis-navigate the alias');
+    if HaveDwordUse and HaveDwordCanon then
+      Assert.AreNotEqual<UInt32>(DwordUse, DwordCanon,
+        'the alias''s own $2A DWORD token must differ from the use-site ' +
+        'token -- confirming name-keyed token lookup is ambiguous for aliases');
   finally
     R.Free;
   end;

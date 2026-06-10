@@ -1881,6 +1881,41 @@ What each kind's token mirrors:
   `SourceFiles[].LinkToken` but no consumer uses it (proc →
   declaring-unit attribution keys on the name, §4.18).
 
+**Why it is NOT a useful declaration-lookup key (investigated, negative).**
+A follow-up explored exposing a `FindClassByLinkToken` / token-keyed
+declaration lookup (to give RsmDesk a collision-free "jump to declaration"
+and to feed §6.34). A diagnostic over DebugTarget.rsm (382 `$2A` joins,
+230 `$25` joins; the diagnostic was converted to the pin below) **refuted
+the general primitive**:
+
+* **Types — redundant.** For every `$2A` entry the 4-byte token's **low
+  word equals the registry primary id** (token = `primary | (extra << 16)`).
+  The primary already identifies the type uniquely, so a token lookup is
+  the existing primary-id lookup with 16 redundant bits.
+* **Aliases — misleading.** A type-alias *use-site* carries the
+  **underlying** type's token, not the alias's own `$2A` token:
+  `$66 'DWORD'`/`'HWND'`/`'UINT'`/`'SIZE_T'` all carry `Cardinal`'s token
+  (`$281FFF6`), while the `$2A 'DWORD'` registry entry has its own
+  distinct token (`$179C0012`, primary `$12`). A name-keyed token lookup
+  would therefore navigate `DWORD` to `Cardinal`, not to the `DWORD`
+  declaration.
+* **Consts — colliding.** Ordinal-0 named consts share a token across
+  unrelated families (`varEmpty`, `S_OK`, `CP_ACP` all = `$97E667F1`), so
+  the token is not unique for the const/symbol space either.
+
+The **only** clean case is the narrow same-enum identity already pinned
+(`$67` element ↔ its own `$25` block, byte-identical, `+3` sibling
+stride). Conclusion: no token-keyed reader API was added — RsmDesk
+navigation is better served by the existing name + primary-id lookups,
+and §6.34's collision problem is not solved by this token (it carries no
+field-ownership; §4.15 Pass 3). The token's full internal structure
+(type: `primary|extra`; enum: enum-id high bits | ordinal low byte;
+const: ordinal-base collisions) is only partially decoded, but has no
+consumer, so it is not tracked as an open gap. Pinned by
+[Test.DPT.Rsm.Reader.TestLinkTokenSemanticsNotAUsefulLookupKey32](../Test/Test.DPT.Rsm.Reader.pas)
+(byte-identity, low-word-equals-primary, alias-resolves-to-underlying,
+alias-differs-from-own-`$2A`).
+
 **Structural anchor**. The three trailing zero bytes after the unit
 name are what tell the scanner this `$64` byte opens a segment
 rather than being incidental data inside another record's payload.
@@ -2841,16 +2876,51 @@ the file — a pure mis-attribution. There is **no name-set-style
 uniqueness guard available per individual field**, so the safe automatic
 attribution that closed §6.33-C has no analogue here.
 
-Next investigator: the only correct path left is to resolve each skipped
-record's *type* `FieldId` (the colliding unit-local 2-byte id at
-`After+3..+4`) to the right class/enum the way the block-owner index
-resolves the *parent* id — by pairing it with same-unit `$2A`/`$0E`
-entries via file-offset proximity, gated so a colliding id cannot pull
-in a cross-unit type. That is the same hard collision problem §6.33-C
-solved for the parent id, now for the field type, and without a
-per-field uniqueness oracle. Lower priority than §6.33 was: the common
-painful case (string fields) is closed, and these fields remain
-evaluable with an explicit `type=`.
+**Round-2 (instrumented on Test.Lib) — record shape refined + the
+global-uniqueness sub-approach refuted.** A diagnostic walked every
+`$2C` block, name-set-matched it to a class (the §6.33-C population), and
+for each *skipped* `marker@+6/+7` record measured its `After+3..+4`
+2-byte field-type id against the `$2A` registry. Two findings:
+
+* **Shape (corrects the Round-1 wording).** The earlier "`byte+3` is not
+  a usable single-byte type id" is because for the body≥10 enum/class
+  form `After+3..+4` is a **2-byte** field-type id and the **2×
+  instance-offset sits at `+5`** (not baked into the id). Ground-truth
+  probe on `CJwksValidator`: the body=9 *string* fields are the already-
+  closed §6.33 shape (`FExpectedTenantId` `+3=$04`, `+4=$20`=2×offset 16);
+  the body=10 *class-typed* `FCache` field (FCache@4 per §6.31) carries
+  `+5=$08`=2×offset 4, with `+3..+4` a 2-byte id and `+6/+7 = $9C $01`.
+* **Global uniqueness is NOT a usable guard (refuted).** Of 17 923
+  skipped records in name-set-matched blocks, **35 % carry an id absent
+  from the registry, 51 % an id shared by >1 `$2A` entry, and only 14 %
+  a globally-unique id — and those 14 % resolve to GARBAGE** (e.g.
+  `TVarData.VDate`'s id → `"TKeyValuePair"`, `VArray` → `"TIECustomMView_"`,
+  `FCache`'s `$0659` → `"TEnumerator"`/`$0385` → `"TEvent"`): the
+  matching `$2A` is an unrelated cross-unit collision, not the field's
+  type. So a §6.33-C-style *global* uniqueness guard mis-attributes; it
+  cannot be reused here. (Methodology note for the next round: a test-layer
+  name-set replication reads `Reader.Classes` AFTER all post-process
+  passes, whose inherited members shift the name-set key, so it under-
+  samples inheritance-bearing user classes — the diagnostic above is
+  biased toward inheritance-free RTL records; the `FCache` evidence came
+  from a direct by-name raw dump that sidesteps the bias.)
+
+Next investigator (the surviving, still-UNTESTED lead): resolve each
+skipped record's *type* `FieldId` (the colliding unit-local 2-byte id at
+`After+3..+4`) by **file-offset proximity** to same-unit `$2A`/`$0E`
+entries — the §6.10 block-owner pattern applied to the field type rather
+than the parent id, gated so a colliding id cannot pull in a cross-unit
+type. Round-2 measured *global* collision (the wrong metric for this
+lead) and only refuted the global-uniqueness shortcut; whether the
+nearest same-unit `$2A` with the matching id is the *correct* type is the
+open question. Testing it needs ground truth for a handful of fields
+(e.g. `CJwksValidator.FCache`'s real type) to confirm the nearest-by-
+offset matching `$2A` is right and that the cross-unit collisions sit far
+away in the file. That is the same hard collision problem §6.33-C solved
+for the parent id, now for the field type, without a per-field uniqueness
+oracle. Lower priority than §6.33 was: the common painful case (string
+fields) is closed, and these fields remain evaluable with an explicit
+`type=`.
 
 ---
 
