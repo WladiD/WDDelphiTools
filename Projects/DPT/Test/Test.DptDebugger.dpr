@@ -2,6 +2,10 @@ program Test.DptDebugger;
 
 {$APPTYPE CONSOLE}
 {$STRONGLINKTYPES ON}
+{$IFDEF WIN32}
+  {$SetPEFlags $20} // IMAGE_FILE_LARGE_ADDRESS_AWARE
+{$ENDIF}
+
 uses
   System.SysUtils,
   DUnitX.Loggers.Console,
