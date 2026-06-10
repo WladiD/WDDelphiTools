@@ -1250,16 +1250,17 @@ begin
   // assignments, e.g. <c>(a = 1, b = 100)</c>).
   //
   // RTL 12-byte body (e.g. TThreadPriority):
-  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> <typeId-hi>
+  //   $25 NL Name $8A $00 $00 <4-token> <typeId-lo> <typeId-hi>
   //                 $00 $00 <2*ord>
   //   typeId-hi != $00 (real cross-unit id, e.g. $04 for TThreadPriority).
+  //   <4-token> is the §4.6.2 opaque linker token (NOT an RVA).
   //
   // Same-compilation 11-byte body (single-byte ord, ord <= 127):
-  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <2*ord>
+  //   $25 NL Name $8A $00 $00 <4-token> <typeId-lo> $00 $00 <2*ord>
   //   typeId-hi = $00 (small shared secondary, e.g. 0x0002).
   //
   // Same-compilation 12-byte body (2-byte ord, sparse / ord >= 128):
-  //   $25 NL Name $8A $00 $00 <4-RVA> <typeId-lo> $00 $00 <ord-byte-lo> <ord-byte-hi>
+  //   $25 NL Name $8A $00 $00 <4-token> <typeId-lo> $00 $00 <ord-byte-lo> <ord-byte-hi>
   //   typeId-hi = $00 AND ord-byte-lo's LSB = 1. The ordinal is
   //   decoded as <c>(W - 1) / 4</c> where W is the LE word at
   //   +10..+11 -- the same LSB-as-continuation encoding the
@@ -1593,9 +1594,9 @@ function TRsmScanner.HandleUnitUseIntroRecord(var P: NativeInt): Boolean;
 //
 //   $64 <NL: u8> <UnitName> $00 $00 $00
 //   (
-//     $66 <NL: u8> <TypeName>   <4-byte LE RVA>
-//     $67 <NL: u8> <SymbolName> <4-byte LE RVA>
-//     $70 <NL: u8> <FileName>   <4-byte LE RVA>
+//     $66 <NL: u8> <TypeName>   <4-byte LE token>
+//     $67 <NL: u8> <SymbolName> <4-byte LE token>
+//     $70 <NL: u8> <FileName>   <4-byte LE token>
 //   )*
 //   $63                                          <- SCOPE_END (optional)
 //
@@ -1604,10 +1605,12 @@ function TRsmScanner.HandleUnitUseIntroRecord(var P: NativeInt): Boolean;
 // record's payload would fire here, so we reject the open and fall
 // through to the dispatcher's single-byte advance.
 //
-// Each $66/$67/$70 entry's payload is a 4-byte little-endian RVA
-// into the canonical declaration's slot (matches the $2A entry body
-// bytes +3..+6 for $66, and the per-element +3 stride observed for
-// $67 enum-element siblings).
+// Each $66/$67/$70 entry's payload is a 4-byte little-endian OPAQUE
+// LINKER TOKEN (NOT an image RVA -- a former §6.29 side-item
+// mislabelled it): it matches the $2A entry body bytes +3..+6 for $66,
+// and the §4.6.2 $25 enum-constant token (per-element +3 stride) for
+// $67 enum-element siblings. Its magnitude exceeds the image size, so
+// no address arithmetic applies.
 //
 // Bail conditions inside the segment walk:
 //   * Hit $63 SCOPE_END -- normal close; consume the byte.
@@ -1642,7 +1645,7 @@ var
   EntryLen: Byte;
   EntryName: String;
   EntryPayloadOff: NativeInt;
-  Rva     : UInt32;
+  LinkToken: UInt32;
   Ref     : TRsmUnitUseRef;
   AnchorPtr: PByte;
 begin
@@ -1690,12 +1693,12 @@ begin
     // run isn't an entry, the segment ended one tag ago".
     if DwordAtEquals(EntryPayloadOff, 0, 0, 0, 0) then
       Break;
-    Rva := UInt32(ByteAt(EntryPayloadOff))            or
+    LinkToken := UInt32(ByteAt(EntryPayloadOff))            or
            (UInt32(ByteAt(EntryPayloadOff + 1)) shl 8)  or
            (UInt32(ByteAt(EntryPayloadOff + 2)) shl 16) or
            (UInt32(ByteAt(EntryPayloadOff + 3)) shl 24);
     Ref.Name := EntryName;
-    Ref.Rva  := Rva;
+    Ref.LinkToken := LinkToken;
     case Tag of
       REF_TYPE  : Ref.Kind := uukType;
       REF_SYMBOL: Ref.Kind := uukSymbol;
@@ -1736,11 +1739,11 @@ begin
 end;
 
 function TRsmScanner.HandleSourceFileIntroRecord(var P: NativeInt): Boolean;
-// §4.17 / §4.18: a standalone $70 <SourceFile> <RVA:4> $00 record that
+// §4.17 / §4.18: a standalone $70 <SourceFile> <token:4> $00 record that
 // INTRODUCES the run of records belonging to the unit whose source
 // file this is. Shape + tight anchor:
 //
-//   $70 <NL> <SourceFile .pas/.inc/.dpr/.dpk> <RVA:4 LE> $00 (\$64|\$65)...
+//   $70 <NL> <SourceFile .pas/.inc/.dpr/.dpk> <token:4 LE> $00 (\$64|\$65)...
 //                                                            ^ next opener
 //
 // Two introducer flavours share this shape:
@@ -1765,7 +1768,7 @@ var
   NameLen   : Byte;
   FileName  : String;
   PayloadOff: NativeInt;
-  Rva       : UInt32;
+  LinkToken : UInt32;
   UnitName  : String;
   LowerKey  : String;
   Idx       : Integer;
@@ -1804,8 +1807,8 @@ begin
   Result := False;
   NameLen := ByteAt(P + 1);
   if (NameLen < 1) or (NameLen > 64) then Exit;
-  PayloadOff := P + 2 + Integer(NameLen);     // 4-byte RVA starts here
-  // Need RVA(4) + trailer(1) + the introducing $64/$65 (1) in range.
+  PayloadOff := P + 2 + Integer(NameLen);     // 4-byte token starts here
+  // Need token(4) + trailer(1) + the introducing $64/$65 (1) in range.
   if PayloadOff + 5 >= FSz then Exit;
   if ByteAt(PayloadOff + 4) <> $00 then Exit;
   if not ReadSourceFileName(NameLen, FileName) then Exit;
@@ -1837,7 +1840,7 @@ begin
   else
     Exit;
 
-  Rva := UInt32(ByteAt(PayloadOff))             or
+  LinkToken := UInt32(ByteAt(PayloadOff))             or
          (UInt32(ByteAt(PayloadOff + 1)) shl 8)  or
          (UInt32(ByteAt(PayloadOff + 2)) shl 16) or
          (UInt32(ByteAt(PayloadOff + 3)) shl 24);
@@ -1848,7 +1851,7 @@ begin
     SF.SourceFile  := FileName;
     SF.UnitName    := UnitName;
     SF.StartOffset := NativeUInt(P);
-    SF.Rva         := Rva;
+    SF.LinkToken   := LinkToken;
     FSourceFiles.Add(SF);
     Idx := FSourceFiles.Count - 1;
     FSourceFileByName[LowerKey] := Idx;

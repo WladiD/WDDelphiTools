@@ -157,9 +157,9 @@ Tag constants live in [`TRsmTag`](DPT.Rsm.Model.pas).
 | `$63`  | `SCOPE_END`         | Closes the current proc scope (only effective after at least one local-shaped record has been seen)     |
 | `$64`  | `UNIT_USE_INTRO`    | Opens a cross-unit symbol-import segment (`$64 NL UnitName $00 $00 $00`); see §4.17                     |
 | `$65`  | `USED_UNIT_LIST`    | Opens a used-unit list. Follows the program/package main file's `$70` `.dpr`/`.dpk` introducer in place of `$64`; accepting it anchors the program module's procs to the program unit — see §4.18 |
-| `$66`  | `UNIT_USE_TYPE`     | Imported type reference inside a `$64` segment (`$66 NL TypeName <RVA: u32 LE>`); see §4.17             |
-| `$67`  | `UNIT_USE_SYMBOL`   | Imported symbol reference inside a `$64` segment (`$67 NL SymbolName <RVA: u32 LE>`); see §4.17         |
-| `$70`  | `UNIT_USE_FILE`     | Source-file record (`$70 NL FileName <RVA: u32 LE>`); the **introducer** of a unit's uses block (`$64` for an imported `.pas`/`.inc`, `$65` for the program's full-path `.dpr`/`.dpk`), decoded into the `SourceFiles` table and used as the proc → declaring-unit anchor — see §4.17 / §4.18 |
+| `$66`  | `UNIT_USE_TYPE`     | Imported type reference inside a `$64` segment (`$66 NL TypeName <token: u32 LE>` — an opaque linker token, not an RVA; see §4.17)             |
+| `$67`  | `UNIT_USE_SYMBOL`   | Imported symbol reference inside a `$64` segment (`$67 NL SymbolName <token: u32 LE>` — the §4.6.2 linker-token family; see §4.17)         |
+| `$70`  | `UNIT_USE_FILE`     | Source-file record (`$70 NL FileName <token: u32 LE>`); the **introducer** of a unit's uses block (`$64` for an imported `.pas`/`.inc`, `$65` for the program's full-path `.dpr`/`.dpk`), decoded into the `SourceFiles` table and used as the proc → declaring-unit anchor — see §4.17 / §4.18 |
 
 `$28 PROC_TAG`, `$25`, `$03`, `$2A`, `$2C`, `$31` and the `$64`
 unit-use family are valid both inside and outside a proc scope —
@@ -1705,7 +1705,7 @@ which asserts `IsEnumTypeId($0671) = True` and resolves ordinals
 
 Passes 1–2 above bridge fields/params that **already carry** a non-zero alias id. A different shape exists in TFW: a record field that **no structural channel ties to its type at all** — the canonical case is `TAd.Land: TLandTyp`, a strict-private field on a plain record. Such a member arrives with `PrimitiveTypeId = TypeIdx = PointerTargetTypeIdx = 0`, and an exhaustive search established that **no purely-structural decode can recover its type** (the conclusions that retired the original `$67`-decode gap):
 
-* there is **no `$2C` field record** binding `Land` to a type id, and **no `$67` use-site** that identifies the *owning field* — the `$67 'ltInland'` use-sites are back-references to the canonical `$25` enum block (their RVA equals the canonical block's, byte-identical across every importer), so they carry the enum identity but not *which* class's `Land` field is being read;
+* there is **no `$2C` field record** binding `Land` to a type id, and **no `$67` use-site** that identifies the *owning field* — the `$67 'ltInland'` use-sites are back-references to the canonical `$25` enum block (their linker token equals the canonical block's, byte-identical across every importer — §4.17), so they carry the enum identity but not *which* class's `Land` field is being read;
 * the importing-unit attribution (§4.17 `$70`/`SourceFiles`) is too coarse — 68 distinct importer scopes use `TLandTyp`, so "unit X imports TLandTyp" cannot single out `TAd.Land`;
 * `TAd` is a plain record with **no accessor proc** (`TAd.SetLand` etc. do not exist in TFW), so there is no `$28` proc whose parameter signature could carry the type either.
 
@@ -1828,35 +1828,58 @@ The Delphi linker emits one segment per unit a compilation unit
 imports a symbol from. Each segment is bracketed by:
 
 ```
-$64  <NL: u8>  <UnitName>  $00 $00 $00          ; segment open
+$64  <NL: u8>  <UnitName>  $00 $00 $00            ; segment open
   (
-    $66  <NL: u8>  <TypeName>    <RVA: u32 LE>  ; imported type
-    $67  <NL: u8>  <SymbolName>  <RVA: u32 LE>  ; imported symbol
-    $70  <NL: u8>  <FileName>    <RVA: u32 LE>  ; source-file ref
+    $66  <NL: u8>  <TypeName>    <token: u32 LE>  ; imported type
+    $67  <NL: u8>  <SymbolName>  <token: u32 LE>  ; imported symbol
+    $70  <NL: u8>  <FileName>    <token: u32 LE>  ; source-file ref
   )*
-$63                                              ; SCOPE_END (optional)
+$63                                                ; SCOPE_END (optional)
 ```
 
-The `$66` / `$67` / `$70` records may appear in any order and may
-mix freely within the segment. The 4-byte payload is a little-endian
-RVA into the imported unit's canonical declaration slot:
+The `$66` / `$67` / `$70` records may appear in any order and may mix
+freely within the segment. The 4-byte payload is an **opaque linker
+token**, NOT an in-image RVA. (Earlier revisions of this section, and
+the model field — then named `Rva` — labelled it an RVA; that was a
+former §6.29 side-item, corrected here. The decoder field is now
+`TRsmUnitUseRef.LinkToken` / `TRsmSourceFile.LinkToken`.) Two
+independent proofs:
+
+* **Magnitude** — the values far exceed any image RVA: `$66 'Boolean'`
+  = `$62BC8138` (≈ 1.66 GB) on the ~1.3 MB DebugTarget, `$66 'TLandTyp'`
+  = `$7DA69008` (≈ 2.1 GB) on TFW. No offset into a multi-MB image can
+  be that large. Pinned by the `> $10000000` ceiling assertions in
+  `TestUnitUseSegmentSystemIsDecoded` (Win32) and
+  `TestTfwUnitUseTableContainsTLandTyp` (TFW).
+* **Structural identity with the §4.6.2 `$25` token** — the payload is
+  the same opaque token the `$25` enum-constant body carries at +3..+6,
+  which §4.6.2 already established is byte-identical across Win32/Win64
+  (different image bases) and follows a `base + ord*3` stride, so it
+  cannot be an address.
+
+What each kind's token mirrors:
 
 * For `$66 <TypeName>` it equals the bytes at body+3..+6 of the
   canonical `$2A <TypeName>` registry entry (verified against
   TFW's `$66 'TLandTyp'` = `08 90 A6 7D` ⇔ `$7DA69008`).
 * For `$67 <SymbolName>` referring to an enum element it equals the
-  bytes at body+3..+6 of the canonical `$25 <SymbolName>` block;
-  siblings of a single enum carry payloads with a `+3` LSB stride
-  matching the element's doubled ordinal (TFW's `ltInland`/
-  `ltAusland`/`ltEUNetto`/`ltEUBrutto`/`ltBLNetto` carry
+  bytes at body+3..+6 of the canonical `$25 <SymbolName>` block (the
+  §4.6.2 linker token); siblings of a single enum carry tokens with a
+  `+3` LSB stride matching the element's doubled ordinal (TFW's
+  `ltInland`/`ltAusland`/`ltEUNetto`/`ltEUBrutto`/`ltBLNetto` carry
   `81 39 A4 10` / `84 39 A4 10` / `87 39 A4 10` / `8A 39 A4 10` /
   `8D 39 A4 10` — first byte `+3` per ordinal, the trailing three
-  bytes conserved). For procedure / method symbols the payload is
-  the call target's image RVA, allowing a future consumer to walk
-  cross-unit call edges without re-walking the registry.
+  bytes conserved). The byte-identity between a `$67` use-site and its
+  canonical `$25` block is pinned by
+  `TestTfwUnitUseTableLtInlandTokenMatchesCanonicalBlock` — and is the
+  decisive disproof of "RVA": an address could not be shared verbatim
+  across every use-site of the symbol. (Whether procedure / method
+  `$67` tokens encode anything address-like is **not** established; no
+  consumer reads them.)
 * For `$70 <FileName>` it identifies the source file the symbol was
-  declared in (`.pas` / `.inc`), used by the linker for source-line
-  attribution.
+  declared in (`.pas` / `.inc`); the token is decoded into
+  `SourceFiles[].LinkToken` but no consumer uses it (proc →
+  declaring-unit attribution keys on the name, §4.18).
 
 **Structural anchor**. The three trailing zero bytes after the unit
 name are what tell the scanner this `$64` byte opens a segment
@@ -1914,12 +1937,12 @@ block at 56486654). The decoder **captures** this association in a
 [`TRsmSourceFile`](DPT.Rsm.Model.pas) entry in
 `TRsmScanner.SourceFiles` / `TRsmReader.SourceFiles` (`SourceFile`
 = raw `…pas` name, `UnitName` = `StripDirAndExt`, plus `StartOffset`
-+ `Rva`), and every `$64` segment carries a `SourceFileIdx`
++ `LinkToken`), and every `$64` segment carries a `SourceFileIdx`
 **foreign key** into that list — so the importing unit's name is
 stored **once** (deduplicated by name via the scanner's
 `FSourceFileByName` map) rather than copied onto every segment of a
 block. `HandleSourceFileIntroRecord` recognises the standalone
-introducer (`$70 <…pas> <RVA:4> $00 $64`), records/dedups the
+introducer (`$70 <…pas> <token:4> $00 $64`), records/dedups the
 source file, and stamps `FCurrentSourceFileIdx` onto the segments
 that follow. `TRsmReader.UnitsImporting(<type>)` is the exact
 inverse of `UnitsDeclaringType`, resolving each matching segment to
@@ -1934,7 +1957,7 @@ importers vs. `UnitsDeclaringType('Boolean')`'s single declarer.
 **Introducer vs. inner `$70`**. Although the inner-entry grammar
 above lists `$70` as a within-segment source-file ref, in practice
 **every** `$70 <…pas>` record is a segment-block introducer: it is
-followed by `<RVA:4> $00 $64` and opens the next unit's import
+followed by `<token:4> $00 $64` and opens the next unit's import
 block. Measured: 30/31 such records in DebugTarget.rsm and 362/363
 in DPT.rsm are introducers (the lone exception in each is the very
 first `System.pas`, after which no `$64` follows because the System
@@ -1978,20 +2001,24 @@ Pinned by:
 
 * [`Test.DPT.Rsm.Scanner.TestUnitUseSegmentSystemIsDecoded`](../Test/Test.DPT.Rsm.Scanner.pas)
   — DebugTarget's `$64 'System'` segment decodes with a
-  `$66 'Boolean'` entry at the canonical RVA `$62BC8138`.
+  `$66 'Boolean'` entry at the canonical LinkToken `$62BC8138`, and
+  asserts it exceeds the `$10000000` RVA ceiling (the not-an-RVA
+  proof).
 * [`Test.DPT.Rsm.Scanner.TestUnitUseSymbolReferencePayloadHasPlusThreeStride`](../Test/Test.DPT.Rsm.Scanner.pas)
   — three `System.UITypes` `vk*` siblings carry the `+3` LSB stride
-  the encoding interpretation depends on.
+  the encoding interpretation depends on (a uniform `+3` step proves
+  the payload is a token, not an address).
 * [`Test.DPT.Rsm.Scanner.TestUnitUseFalsePositiveRejection`](../Test/Test.DPT.Rsm.Scanner.pas)
   — leakage guard: a synthetic `$64` lacking the trailing-zero
   anchor must not open a segment.
 * [`Test.DPT.Rsm.Taifun.TestTfwUnitUseTableContainsTLandTyp`](../Test/Test.DPT.Rsm.Taifun.pas)
   — TFW.rsm carries ≥60 `$66 'TLandTyp'` entries with the canonical
-  RVA `$7DA69008`.
-* [`Test.DPT.Rsm.Taifun.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock`](../Test/Test.DPT.Rsm.Taifun.pas)
+  LinkToken `$7DA69008`, also asserted above the RVA ceiling.
+* [`Test.DPT.Rsm.Taifun.TestTfwUnitUseTableLtInlandTokenMatchesCanonicalBlock`](../Test/Test.DPT.Rsm.Taifun.pas)
   — `$67 'ltInland'` payload `$10A43981` matches the bytes at
   file offset 54816766 + 11 (the canonical `$25 'ltInland'` block's
-  body), anchoring the cross-record structural relationship.
+  body), anchoring the cross-record structural relationship and
+  proving the payload is the §4.6.2 token (not an RVA).
 * [`Test.DPT.Rsm.Reader.TestUnitsDeclaringTypeAggregatesAcrossSegments`](../Test/Test.DPT.Rsm.Reader.pas)
   — `Reader.UnitsDeclaringType('Boolean')` returns a deduplicated
   non-empty list of declaring units.
@@ -2022,7 +2049,7 @@ naming that unit's own source file, then a uses/used-unit list
 (`$35` module-dependency records) before the procs begin:
 
 ```
-$70 <NL> <ThisUnit'sSourceFile> <RVA:4 LE> $00 (\$64|\$65)   ; introducer
+$70 <NL> <ThisUnit'sSourceFile> <token:4 LE> $00 (\$64|\$65) ; introducer
   ... uses-block ($35 module records / $64 import segments) ...
 $28 <NL> <ProcName> <addr payload> ...                       ; procs of ThisUnit
 $28 ...
@@ -2620,8 +2647,9 @@ stream).** `DebugTarget.rsm` (7.7 MB) splits into:
   (`System.pas` @ `$717`, then `SysInit.pas`, `System.Types.pas`, …,
   `System.Classes.pas` @ `$583AEB` — RTL/VCL units only). Within a
   section sit `$65` used-unit lists, `$67`/`$68` imported-symbol
-  references carrying 4-byte RVAs (`$67 <NL> @DelayLoadHelper2 <RVA>`,
-  `kernel32.dll` thunks, …), interleaved with **embedded x86 machine
+  references carrying 4-byte linker tokens (`$67 <NL> @DelayLoadHelper2
+  <token>`, `kernel32.dll` thunks, … — see the §4.17 not-an-RVA
+  finding), interleaved with **embedded x86 machine
   code** (e.g. `$6F0000`: `8D 45 F8 8B D3 85 D2 …` = `lea eax,[ebp-8];
   mov edx,ebx; test edx,edx …`, with `E8 00 00 00 00` relocatable
   calls), RTTI **strings** (`$500000`: `"…will dispatch to the client's
@@ -2757,10 +2785,19 @@ build comparison to confirm no linker switch emits the table into the
 `.rsm`; (b) positively decoding the §4.19 RTTI/layout bytecode to prove
 it is wholly type data with no line sub-stream. Neither is needed by any
 consumer (the `.map` has lines), so the cost/payoff has tilted away from
-chasing it further. **Independent side-item still open:** the `$70` /
-`$66` / `$67` 4-byte fields are **timestamp/token-magnitude**
-(`$5CBC7F3C`, `$5CBA54BB` ≈ the late-2018 link-stamp range), NOT RVAs as
-§4.17/§4.18 currently label them — worth a separate verify+correct pass.
+chasing it further. **Independent side-item — RESOLVED.** The `$70` /
+`$66` / `$67` 4-byte fields were mislabelled "RVA" by §4.17/§4.18 and by
+the decoder field `Rva`; they are an **opaque linker token** (the §4.6.2
+`$25` token family), NOT an in-image RVA — proven two ways: magnitude
+(`$66 'Boolean'` = `$62BC8138` ≈ 1.66 GB ≫ image; the HEAD-region RTL
+`$67` tokens `$5CBC7F3C` / `$5CBA54BB` are likewise link-stamp-range),
+and byte-identity between a `$67` use-site and its canonical `$25` block
+(an address could not be shared verbatim across every use-site). The
+field is renamed `TRsmUnitUseRef.LinkToken` / `TRsmSourceFile.LinkToken`;
+the relabel is documented in §4.17 and pinned by the not-an-RVA ceiling
+assertions in `TestUnitUseSegmentSystemIsDecoded` /
+`TestTfwUnitUseTableContainsTLandTyp` plus the byte-identity pin
+`TestTfwUnitUseTableLtInlandTokenMatchesCanonicalBlock`.
 
 Pinned by
 [`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
@@ -2876,7 +2913,7 @@ uniformly without nil checks.
 | `FTypeIdByName` (reader)             | same                              | lower(type name)                        | 2-byte primary id              |
 | `FScopeLocalTypeIdToEnumDef` (reader)| `TRsmScopeLocalEnumBridge.Run`    | scope-local 2-byte id (`$1E` hi byte)   | `EnumDefs` index               |
 | `UnitUseSegments`                    | `HandleUnitUseIntroRecord` (§4.17)| (index)                                 | `TRsmUnitUseSegment { UnitName, StartOffset, SourceFileIdx, Refs }` |
-| `SourceFiles`                        | `HandleSourceFileIntroRecord` (§4.17)| (index, deduped by unit name)        | `TRsmSourceFile { SourceFile, UnitName, StartOffset, Rva }` — the importing unit a segment's `SourceFileIdx` points at |
+| `SourceFiles`                        | `HandleSourceFileIntroRecord` (§4.17)| (index, deduped by unit name)        | `TRsmSourceFile { SourceFile, UnitName, StartOffset, LinkToken }` — the importing unit a segment's `SourceFileIdx` points at |
 
 ---
 

@@ -233,25 +233,27 @@ type
   ///   a procedure / method, or a source-file reference
   ///   (<c>$70</c>) carrying the imported unit's <c>.pas</c> /
   ///   <c>.inc</c> file name. The three kinds share a common
-  ///   wire layout (<c>tag NL Name 4-byte-RVA</c>) but differ in
+  ///   wire layout (<c>tag NL Name 4-byte-token</c>) but differ in
   ///   what the name space resolves to.
   /// </summary>
   TRsmUnitUseKind = (uukType, uukSymbol, uukFile);
 
   /// <summary>
   ///   A single reference entry inside a §6.21 unit-use segment.
-  ///   <c>Rva</c> is the canonical declaration's image RVA -- for
-  ///   a <c>$66 'TLandTyp'</c> entry it equals the bytes at
-  ///   <c>+3..+6</c> of the canonical <c>$2A 'TLandTyp'</c>
-  ///   registry entry body; for <c>$67 'ltInland'</c> it identifies
-  ///   the enum element's slot. The decoder exposes the payload
-  ///   raw -- consumers (e.g. the §6.20 follow-up TAd.Land
-  ///   binding) decide how to map it back to a primary id.
+  ///   <c>LinkToken</c> is the 4-byte LE payload after the name. It is
+  ///   an OPAQUE LINKER TOKEN of the same family as the §4.6.2
+  ///   <c>$25</c> enum-constant token, NOT an in-image RVA (a former
+  ///   §6.29 side-item mislabelled it): for a <c>$67 'ltInland'</c>
+  ///   element it equals the canonical <c>$25 'ltInland'</c> block's
+  ///   +3..+6 bytes (pinned), and its magnitude (e.g. <c>$62BC8138</c>
+  ///   for <c>$66 'Boolean'</c> ≈ 1.66 GB) far exceeds any image, so it
+  ///   cannot be an RVA. The decoder exposes it raw; no consumer does
+  ///   address arithmetic on it. See §4.17.
   /// </summary>
   TRsmUnitUseRef = record
     Kind: TRsmUnitUseKind;
     Name: String;
-    Rva : UInt32;
+    LinkToken: UInt32;
   end;
 
   /// <summary>
@@ -302,9 +304,10 @@ type
     UnitName   : String;
     /// File offset of the <c>$70</c> tag byte.
     StartOffset: NativeUInt;
-    /// The 4-byte LE payload following the name (an image RVA of the
-    /// same family as the <c>$66</c>/<c>$67</c> ref payloads).
-    Rva        : UInt32;
+    /// The 4-byte LE payload following the name. An OPAQUE LINKER TOKEN
+    /// of the same family as the <c>$66</c>/<c>$67</c> ref payloads
+    /// (see <see cref="TRsmUnitUseRef.LinkToken"/>), NOT an image RVA.
+    LinkToken  : UInt32;
   end;
 
   /// <summary>
@@ -371,15 +374,15 @@ type
     UNIT_USE_INTRO   = $64;
     /// Cross-unit type reference (§6.21). One per imported type
     /// referenced inside the surrounding $64 segment:
-    ///   $66 &lt;NL&gt; &lt;TypeName&gt; &lt;4-byte LE RVA&gt;
-    /// The 4-byte payload is the canonical declaration's image RVA
-    /// (matches the $2A &lt;TypeName&gt; entry's body bytes +3..+6).
+    ///   $66 &lt;NL&gt; &lt;TypeName&gt; &lt;4-byte LE token&gt;
+    /// The 4-byte payload is an opaque linker token (NOT an image RVA),
+    /// matching the $2A &lt;TypeName&gt; entry's body bytes +3..+6.
     UNIT_USE_TYPE    = $66;
     /// Cross-unit symbol reference (§6.21). Enum elements, procs,
     /// methods imported by the surrounding $64 segment:
-    ///   $67 &lt;NL&gt; &lt;SymbolName&gt; &lt;4-byte LE RVA&gt;
+    ///   $67 &lt;NL&gt; &lt;SymbolName&gt; &lt;4-byte LE token&gt;
     /// Same payload shape as $66; siblings of a single enum carry
-    /// payloads stepping by +3 across the ordinals.
+    /// tokens stepping by +3 across the ordinals (the §4.6.2 family).
     UNIT_USE_SYMBOL  = $67;
     /// Used-unit list opener. Follows the program / package main
     /// file's $70 introducer (the .dpr / .dpk full-path source-file
@@ -392,7 +395,7 @@ type
     /// Cross-unit source-file reference (§6.21) AND, in the proc
     /// stream, the per-unit source-file introducer that anchors
     /// proc → declaring-unit (§4.18). Carries the source-file name:
-    ///   $70 &lt;NL&gt; &lt;FileName.pas|.inc|.dpr|.dpk&gt; &lt;4-byte LE RVA&gt;
+    ///   $70 &lt;NL&gt; &lt;FileName.pas|.inc|.dpr|.dpk&gt; &lt;4-byte LE token&gt;
     UNIT_USE_FILE    = $70;
     /// CSH7 file-header signature: 'CSH7' on disk in LE byte order.
     SigCSH7          = UInt32($37485343);

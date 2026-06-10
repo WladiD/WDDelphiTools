@@ -362,7 +362,7 @@ type
     ///   table and the <c>$25</c> canonical block.
     /// </summary>
     [Test]
-    procedure TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
+    procedure TestTfwUnitUseTableLtInlandTokenMatchesCanonicalBlock;
 
     /// <summary>
     ///   §6.27 REFUTATION PIN (closed-as-design-limit). The per-proc
@@ -1431,23 +1431,25 @@ end;
 procedure TRsmTfwTests.TestTfwUnitUseTableContainsTLandTyp;
 // §4.17 / §6.21 closure pin against TFW.rsm. The new $64-anchored
 // decoder must surface at least one $66 'TLandTyp' reference with
-// the canonical little-endian RVA $7DA69008 (bytes 08 90 A6 7D, the
-// canonical $2A 'TLandTyp' registry entry body at +3..+6 per
-// §6.20-Round-3). The Round-3 PS scan counted 68 occurrences across
-// TFW; a regression past ~60 means the decoder either bailed out of
-// the segment walk too early or the structural anchor stopped
-// matching for entire ranges of the corpus.
+// the canonical little-endian LinkToken $7DA69008 (bytes 08 90 A6 7D,
+// the canonical $2A 'TLandTyp' registry entry body at +3..+6 per
+// §6.20-Round-3). This payload is an OPAQUE LINKER TOKEN, not an RVA
+// (§6.29 side-item): $7DA69008 ≈ 2.1 GB far exceeds the TFW image, so
+// it cannot be an offset into it. The Round-3 PS scan counted 68
+// occurrences across TFW; a regression past ~60 means the decoder
+// either bailed out of the segment walk too early or the structural
+// anchor stopped matching for entire ranges of the corpus.
 const
-  ExpectedRva: UInt32 = $7DA69008;
-  MinCount   : Integer = 60;
+  ExpectedToken: UInt32 = $7DA69008;
+  MinCount     : Integer = 60;
 var
   Segments: IList<TRsmUnitUseSegment>;
   I, J    : Integer;
   Seg     : TRsmUnitUseSegment;
   Ref     : TRsmUnitUseRef;
   Hits    : Integer;
-  SawCorrectRva: Boolean;
-  AnyTLandTypRva: UInt32;
+  SawCorrectToken: Boolean;
+  AnyTLandTypToken: UInt32;
 begin
   if ShouldSkip then Exit;
   Segments := FReader.UnitUseSegments;
@@ -1455,8 +1457,8 @@ begin
     'UnitUseSegments empty on TFW.rsm -- the decoder never opened ' +
     'a single segment.');
   Hits := 0;
-  SawCorrectRva := False;
-  AnyTLandTypRva := 0;
+  SawCorrectToken := False;
+  AnyTLandTypToken := 0;
   for I := 0 to Segments.Count - 1 do
   begin
     Seg := Segments[I];
@@ -1467,9 +1469,9 @@ begin
       if (Ref.Kind = uukType) and (Ref.Name = 'TLandTyp') then
       begin
         Inc(Hits);
-        AnyTLandTypRva := Ref.Rva;
-        if Ref.Rva = ExpectedRva then
-          SawCorrectRva := True;
+        AnyTLandTypToken := Ref.LinkToken;
+        if Ref.LinkToken = ExpectedToken then
+          SawCorrectToken := True;
       end;
     end;
   end;
@@ -1478,19 +1480,23 @@ begin
            'got %d. Either the segment walk stops too early, or the ' +
            'TFW build dropped its TLandTyp imports.',
            [MinCount, Hits]));
-  Assert.IsTrue(SawCorrectRva,
-    Format('No $66 ''TLandTyp'' reference carries the canonical RVA ' +
-           '$%x. A sample TLandTyp Rva I did see was $%x. Either the ' +
+  Assert.IsTrue(SawCorrectToken,
+    Format('No $66 ''TLandTyp'' reference carries the canonical LinkToken ' +
+           '$%x. A sample TLandTyp token I did see was $%x. Either the ' +
            '4-byte payload is being read at the wrong offset, or the ' +
            'canonical $2A ''TLandTyp'' moved on this TFW build (in ' +
            'which case the §6.21 spec needs updating).',
-           [ExpectedRva, AnyTLandTypRva]));
+           [ExpectedToken, AnyTLandTypToken]));
+  Assert.IsTrue(AnyTLandTypToken > UInt32($10000000),
+    Format('The $66 ''TLandTyp'' payload ($%x) must exceed any in-image ' +
+           'RVA ceiling -- it is an opaque linker token, NOT an RVA ' +
+           '(§6.29 side-item closure).', [AnyTLandTypToken]));
 end;
 
-procedure TRsmTfwTests.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
-// §4.17 / §6.21 cross-validation pin. Three assertions, layered so
-// the pin survives offset drift between TFW rebuilds while still
-// guarding the structural finding:
+procedure TRsmTfwTests.TestTfwUnitUseTableLtInlandTokenMatchesCanonicalBlock;
+// §4.17 / §6.21 cross-validation pin + §6.29-side-item not-RVA proof.
+// Three assertions, layered so the pin survives offset drift between
+// TFW rebuilds while still guarding the structural finding:
 //   (1) At least one decoded $67 'ltInland' entry carries the
 //       canonical-shape payload bytes "?? 39 A4 10" -- the
 //       conserved tail §6.20-Round-3 observed across the +3 LSB
@@ -1498,8 +1504,11 @@ procedure TRsmTfwTests.TestTfwUnitUseTableLtInlandRvaMatchesCanonicalBlock;
 //   (2) The canonical $25 'ltInland' record is locatable in the
 //       byte stream and ITS body carries those same 4 bytes.
 //   (3) The $67 payload and the $25 body payload agree
-//       byte-for-byte, which is what anchors "the $67 payload
-//       references the canonical declaration's RVA slot".
+//       byte-for-byte. This is the decisive proof that the payload
+//       is the §4.6.2 opaque $25 LINKER TOKEN, NOT an image RVA: the
+//       $67 use-site reproduces the canonical $25 declaration's token
+//       verbatim, and an address could not be shared like that across
+//       every use-site of the symbol.
 // The conserved tail "39 A4 10" plus the dynamic discovery of the
 // canonical $25 block makes the pin survive linker rebuild drift
 // (offsets shift; the structural relationship is what we want to
@@ -1514,10 +1523,10 @@ var
   Sc        : TRsmScanner;
   I, J      : Integer;
   Seg       : TRsmUnitUseSegment;
-  Ref       : TRsmUnitUseRef;
-  DecodedRva: UInt32;
-  CanonRva  : UInt32;
-  DecodedHit: Boolean;
+  Ref         : TRsmUnitUseRef;
+  DecodedToken: UInt32;
+  CanonToken  : UInt32;
+  DecodedHit  : Boolean;
   CanonOff  : NativeInt;
   Found25Off: NativeInt;
   Cursor    : NativeInt;
@@ -1533,7 +1542,7 @@ begin
   // §6.20-Round-3 documents the canonical bytes "81 39 A4 10" =
   // $10A43981; the conserved tail "39 A4 10" is the structural part.
   DecodedHit := False;
-  DecodedRva := 0;
+  DecodedToken := 0;
   for I := 0 to Segments.Count - 1 do
   begin
     Seg := Segments[I];
@@ -1543,7 +1552,7 @@ begin
       Ref := Seg.Refs[J];
       if (Ref.Kind = uukSymbol) and (Ref.Name = 'ltInland') then
       begin
-        DecodedRva := Ref.Rva;
+        DecodedToken := Ref.LinkToken;
         DecodedHit := True;
         Break;
       end;
@@ -1554,15 +1563,15 @@ begin
     '$67 ''ltInland'' was never decoded -- the §6.20-Round-3 35 ' +
     'use-sites should each surface here.');
   // Assert the conserved tail "39 A4 10" sits in the top 24 bits of
-  // the little-endian RVA. The LSB byte is per-ordinal (81 / 84 / 87
+  // the little-endian token. The LSB byte is per-ordinal (81 / 84 / 87
   // / 8A / 8D for ltInland / ltAusland / ... in §6.20-Round-3's
   // recorded snapshot); we don't pin that here because the absolute
-  // RVA can drift with the build.
-  Assert.AreEqual<UInt32>(UInt32($10A43900), DecodedRva and UInt32($FFFFFF00),
-    Format('Decoded $67 ltInland RVA $%x lacks the conserved tail ' +
+  // token can drift with the build.
+  Assert.AreEqual<UInt32>(UInt32($10A43900), DecodedToken and UInt32($FFFFFF00),
+    Format('Decoded $67 ltInland token $%x lacks the conserved tail ' +
            '"39 A4 10" (high 24 bits). Either the structural finding ' +
            'is broken on this TFW build or the 4-byte payload read ' +
-           'mis-aligned.', [DecodedRva]));
+           'mis-aligned.', [DecodedToken]));
 
   // (2) Locate the canonical $25 'ltInland' record by scanning for
   // its on-wire 10-byte header. We only need the FIRST occurrence
@@ -1597,7 +1606,7 @@ begin
     'Canonical $25 ''ltInland'' block not found via byte-needle ' +
     'scan -- if this regresses, TFW no longer carries the enum.');
 
-  // The canonical block's RVA payload sits at the first non-zero
+  // The canonical block's token payload sits at the first non-zero
   // little-endian DWORD starting at +10 (the byte after the name).
   // §6.20-Round-3 captured shape:
   //   $25 $08 'ltInland' <8A 00 00> <81 39 A4 10> ...
@@ -1626,20 +1635,21 @@ begin
            'of the block start. The $67-to-$25 structural relationship ' +
            '§6.21 documents is broken or the linker reshaped the ' +
            'canonical body.', [Found25Off]));
-  CanonRva := UInt32(Sc.ByteAt(CanonOff))            or
+  CanonToken := UInt32(Sc.ByteAt(CanonOff))            or
               (UInt32(Sc.ByteAt(CanonOff + 1)) shl 8)  or
               (UInt32(Sc.ByteAt(CanonOff + 2)) shl 16) or
               (UInt32(Sc.ByteAt(CanonOff + 3)) shl 24);
 
   // (3) Decoded $67 payload must EQUAL the canonical $25 body's
   // payload byte-for-byte. This is what proves the $67 entry carries
-  // the canonical declaration's RVA, not some other slot.
-  Assert.AreEqual<UInt32>(CanonRva, DecodedRva,
-    Format('Decoded $67 ltInland RVA $%x does not match the canonical ' +
-           '$25 ltInland body RVA $%x at file offset %d. The §6.21 ' +
+  // the canonical declaration's §4.6.2 linker TOKEN (not an RVA, and
+  // not some other slot).
+  Assert.AreEqual<UInt32>(CanonToken, DecodedToken,
+    Format('Decoded $67 ltInland token $%x does not match the canonical ' +
+           '$25 ltInland body token $%x at file offset %d. The §6.21 ' +
            'spec''s structural mapping between $67 use-sites and the ' +
            '$25 canonical block requires byte-identity here.',
-           [DecodedRva, CanonRva, CanonOff]));
+           [DecodedToken, CanonToken, CanonOff]));
 end;
 
 procedure TRsmTfwTests.TestTfwSelfTypeIdxIsPerProcRefNotRegistryId;

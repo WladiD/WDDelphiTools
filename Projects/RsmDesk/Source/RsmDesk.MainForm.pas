@@ -773,8 +773,8 @@ begin
         for J := 0 to S.Refs.Count - 1 do
         begin
           R := S.Refs[J];
-          Result := Result + NL + Format('    %-7s %-28s RVA=$%x',
-            [UnitUseKindStr(R.Kind), R.Name, R.Rva]);
+          Result := Result + NL + Format('    %-7s %-28s Token=$%x',
+            [UnitUseKindStr(R.Kind), R.Name, R.LinkToken]);
         end;
       end;
   else

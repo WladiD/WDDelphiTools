@@ -69,9 +69,9 @@ shared memo · **rich** = dedicated viewer (grid / hex / navigable).
 | └ `TRsmClassInfo.Properties` : `TRsmClassProperty` | Name, TargetId, PrimitiveTypeId, UnderlyingField | text | inline in class detail |
 | `EnumDefs` : `IList<TRsmEnumDef>` | TypeName, UnitName, Elements[] | text | "Enum types (N)" → per enum |
 | └ `TRsmEnumDef.Elements` : `TRsmEnumElement` | Name, Ordinal | text | inline in enum detail |
-| `SourceFiles` : `IList<TRsmSourceFile>` | SourceFile, UnitName, StartOffset, Rva | text | drives the "Imports by unit" grouping (the importing-unit nodes) |
+| `SourceFiles` : `IList<TRsmSourceFile>` | SourceFile, UnitName, StartOffset, LinkToken | text | drives the "Imports by unit" grouping (the importing-unit nodes) |
 | `UnitUseSegments` : `IList<TRsmUnitUseSegment>` | UnitName (declaring), StartOffset, SourceFileIdx, Refs[] | text | "Imports by unit (N)" → per importing unit → per declaring unit |
-| └ `TRsmUnitUseSegment.Refs` : `TRsmUnitUseRef` | Kind, Name, Rva | text | inline in segment detail |
+| └ `TRsmUnitUseSegment.Refs` : `TRsmUnitUseRef` | Kind, Name, LinkToken | text | inline in segment detail |
 
 The imports branch is **grouped by importing unit**: the root lists one
 node per importing unit (resolved via `SourceFileIdx` →

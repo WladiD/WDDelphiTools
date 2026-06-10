@@ -2051,13 +2051,21 @@ begin
 end;
 
 procedure TRsmScannerTests.TestUnitUseSegmentSystemIsDecoded;
-// §6.21 closure pin. Asserts the FIRST $64 'System' segment in
-// DebugTarget.rsm decodes with the expected unit name and that one
-// of its $66 type-references is 'Boolean' with the canonical 4-byte
-// RVA payload the linker emitted (file offset 388467 in the current
-// fixture).
+// §6.21 closure pin + §6.29-side-item not-RVA proof. Asserts the FIRST
+// $64 'System' segment in DebugTarget.rsm decodes with the expected
+// unit name and that one of its $66 type-references is 'Boolean' with
+// the canonical 4-byte LinkToken the linker emitted (file offset 388467
+// in the current fixture).
+//
+// The payload was historically mislabelled "RVA" (a §6.29 side-item).
+// It is an OPAQUE LINKER TOKEN, not an image RVA: $62BC8138 ≈ 1.66 GB
+// is far larger than the whole DebugTarget image (~1.3 MB), so it
+// cannot be an offset into it. The magnitude assertion below pins that
+// disproof so the relabel can never silently regress to an RVA reading.
 const
-  ExpectedRva: UInt32 = $62BC8138;
+  ExpectedToken: UInt32 = $62BC8138;
+  // No plausible in-image RVA for a multi-MB fixture exceeds 256 MB.
+  ImageRvaCeiling: UInt32 = $10000000;
 var
   S       : TRsmScanner;
   I, J    : Integer;
@@ -2081,12 +2089,18 @@ begin
         Ref := Seg.Refs[J];
         if (Ref.Kind = uukType) and SameText(Ref.Name, 'Boolean') then
         begin
-          Assert.AreEqual<UInt32>(ExpectedRva, Ref.Rva,
+          Assert.AreEqual<UInt32>(ExpectedToken, Ref.LinkToken,
             Format('System.Boolean $66 payload must be the canonical ' +
-                   'RVA $%x; got $%x. A drift here means either the ' +
+                   'LinkToken $%x; got $%x. A drift here means either the ' +
                    'linker re-shuffled the imported RTL slot, or the ' +
                    'scanner mis-aligned the 4-byte payload read.',
-                   [ExpectedRva, Ref.Rva]));
+                   [ExpectedToken, Ref.LinkToken]));
+          Assert.IsTrue(Ref.LinkToken > ImageRvaCeiling,
+            Format('The $66 payload ($%x) must exceed any in-image RVA ' +
+                   'ceiling -- it is an opaque linker token, NOT an RVA ' +
+                   '(§6.29 side-item closure). A value below $%x would ' +
+                   'mean the relabel regressed to an address reading.',
+                   [Ref.LinkToken, ImageRvaCeiling]));
           Found := True;
           Break;
         end;
@@ -2104,10 +2118,13 @@ end;
 procedure TRsmScannerTests.TestUnitUseSymbolReferencePayloadHasPlusThreeStride;
 // §6.21 closure pin. The $67 symbol-reference payload bytes follow
 // the +3 LSB stride across siblings of a single enum -- the
-// signature §6.20-Round-3 used to identify the tag family. Pin
-// the System.UITypes vk* run: vkLButton, vkRButton, vkCancel are
-// consecutive elements of TVirtualKeyCode with explicit
-// VK_LBUTTON / VK_RBUTTON / VK_CANCEL ordinals.
+// signature §6.20-Round-3 used to identify the tag family, and the
+// reason the payload is an opaque linker token (the §4.6.2 $25 token
+// family), NOT an image RVA: an address would not step by a uniform
+// +3 across an enum's ordinals. Pin the System.UITypes vk* run:
+// vkLButton, vkRButton, vkCancel are consecutive elements of
+// TVirtualKeyCode with explicit VK_LBUTTON / VK_RBUTTON / VK_CANCEL
+// ordinals.
 const
   ExpectedVkLButton: UInt32 = $31E77DAF;
   ExpectedVkRButton: UInt32 = $31E77DB2;
@@ -2118,13 +2135,13 @@ var
   Seg     : TRsmUnitUseSegment;
   Ref     : TRsmUnitUseRef;
   GotLButton, GotRButton, GotCancel: Boolean;
-  RvaL, RvaR, RvaC: UInt32;
+  TokL, TokR, TokC: UInt32;
 begin
   S := TRsmScanner.Create;
   try
     S.LoadFromFile(ResolveExePath(False));
     GotLButton := False; GotRButton := False; GotCancel := False;
-    RvaL := 0; RvaR := 0; RvaC := 0;
+    TokL := 0; TokR := 0; TokC := 0;
     for I := 0 to S.UnitUseSegments.Count - 1 do
     begin
       Seg := S.UnitUseSegments[I];
@@ -2133,29 +2150,29 @@ begin
       begin
         Ref := Seg.Refs[J];
         if Ref.Kind <> uukSymbol then Continue;
-        if SameText(Ref.Name, 'vkLButton') then begin GotLButton := True; RvaL := Ref.Rva; end
-        else if SameText(Ref.Name, 'vkRButton') then begin GotRButton := True; RvaR := Ref.Rva; end
-        else if SameText(Ref.Name, 'vkCancel')  then begin GotCancel  := True; RvaC := Ref.Rva; end;
+        if SameText(Ref.Name, 'vkLButton') then begin GotLButton := True; TokL := Ref.LinkToken; end
+        else if SameText(Ref.Name, 'vkRButton') then begin GotRButton := True; TokR := Ref.LinkToken; end
+        else if SameText(Ref.Name, 'vkCancel')  then begin GotCancel  := True; TokC := Ref.LinkToken; end;
       end;
     end;
     Assert.IsTrue(GotLButton and GotRButton and GotCancel,
       Format('Missing $67 entries: vkLButton=%s vkRButton=%s vkCancel=%s',
         [BoolToStr(GotLButton, True), BoolToStr(GotRButton, True),
          BoolToStr(GotCancel, True)]));
-    Assert.AreEqual<UInt32>(ExpectedVkLButton, RvaL,
-      Format('vkLButton RVA mismatch: expected $%x, got $%x',
-        [ExpectedVkLButton, RvaL]));
-    Assert.AreEqual<UInt32>(ExpectedVkRButton, RvaR,
-      Format('vkRButton RVA mismatch: expected $%x, got $%x',
-        [ExpectedVkRButton, RvaR]));
-    Assert.AreEqual<UInt32>(ExpectedVkCancel, RvaC,
-      Format('vkCancel RVA mismatch: expected $%x, got $%x',
-        [ExpectedVkCancel, RvaC]));
+    Assert.AreEqual<UInt32>(ExpectedVkLButton, TokL,
+      Format('vkLButton LinkToken mismatch: expected $%x, got $%x',
+        [ExpectedVkLButton, TokL]));
+    Assert.AreEqual<UInt32>(ExpectedVkRButton, TokR,
+      Format('vkRButton LinkToken mismatch: expected $%x, got $%x',
+        [ExpectedVkRButton, TokR]));
+    Assert.AreEqual<UInt32>(ExpectedVkCancel, TokC,
+      Format('vkCancel LinkToken mismatch: expected $%x, got $%x',
+        [ExpectedVkCancel, TokC]));
     // The +3 stride is the structural finding the decoder is built
-    // on; pin it.
-    Assert.AreEqual<UInt32>(UInt32(3), RvaR - RvaL,
+    // on; pin it. (It also proves the payload is a token, not an RVA.)
+    Assert.AreEqual<UInt32>(UInt32(3), TokR - TokL,
       'vkRButton - vkLButton must be +3 (enum-element LSB stride)');
-    Assert.AreEqual<UInt32>(UInt32(3), RvaC - RvaR,
+    Assert.AreEqual<UInt32>(UInt32(3), TokC - TokR,
       'vkCancel - vkRButton must be +3 (enum-element LSB stride)');
   finally
     S.Free;
