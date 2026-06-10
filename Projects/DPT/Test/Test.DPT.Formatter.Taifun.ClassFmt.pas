@@ -72,6 +72,8 @@ type
     [Test]
     procedure TestFormatClass_AttributeMovesWithMethodOnSort;
     [Test]
+    procedure TestFormatClass_InlineFieldAttributesStayOnMemberLine;
+    [Test]
     procedure TestFormatClass_TrailingBraceCommentOnMember;
     [Test]
     procedure TestFormatClass_Idempotent;
@@ -894,6 +896,54 @@ begin
     'Attribute must move with Zebra. Actual:' + #13#10 + LResult);
   Assert.IsTrue(Pos('[Deprecated]', LResult) < Pos('procedure Zebra;', LResult),
     'Attribute must stay right before Zebra. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_InlineFieldAttributesStayOnMemberLine;
+var
+  LResult: string;
+  LResult2: string;
+  LSource: string;
+begin
+  // Inline field/parameter attributes ([Weak], [Unsafe], [Volatile], [Ref])
+  // act as modifiers and must stay on the same line, directly before the
+  // member they decorate -- even after the members are sorted. Heavier
+  // attributes (e.g. [Deprecated], [JsonName]) keep their own line.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    [unsafe] FZebra: ITableAccess;' + #13#10 +
+    '    FAlpha: Integer;' + #13#10 +
+    '    [Weak] FObserver: IObserver;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // Attributes stay glued to their member on the same line...
+  Assert.IsTrue(LResult.Contains('    [unsafe] FZebra: ITableAccess;'),
+    '[unsafe] must stay inline before FZebra. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('    [Weak] FObserver: IObserver;'),
+    '[Weak] must stay inline before FObserver. Actual:' + #13#10 + LResult);
+
+  // ...not pushed onto their own line.
+  Assert.IsFalse(LResult.Contains('[unsafe]' + #13#10),
+    '[unsafe] must not be on its own line. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('[Weak]' + #13#10),
+    '[Weak] must not be on its own line. Actual:' + #13#10 + LResult);
+
+  // The decorated members are still sorted alphabetically (FAlpha, FObserver, FZebra).
+  Assert.IsTrue(
+    (Pos('FAlpha', LResult) < Pos('FObserver', LResult)) and
+    (Pos('FObserver', LResult) < Pos('FZebra', LResult)),
+    'Members with inline attributes must still sort alphabetically. Actual:' + #13#10 + LResult);
+
+  // Idempotence.
+  LResult2 := FormatSource(LResult);
+  Assert.AreEqual(LResult, LResult2, 'Inline-attribute formatting should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_Class.TestFormatClass_TrailingBraceCommentOnMember;

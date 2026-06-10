@@ -89,6 +89,7 @@ type
     procedure dwsGetClassVisibilityKeyword(Info: TProgramInfo);
     procedure dwsGetClassMemberCount(Info: TProgramInfo);
     procedure dwsGetClassMemberKind(Info: TProgramInfo);
+    procedure dwsGetClassMemberAttributeName(Info: TProgramInfo);
     procedure dwsGetClassMemberName(Info: TProgramInfo);
     procedure dwsGetClassMemberSignature(Info: TProgramInfo);
     procedure dwsGetClassMemberFirstToken(Info: TProgramInfo);
@@ -416,6 +417,15 @@ begin
   Func.Parameters.Add('AMemberIdx', 'Integer');
   Func.ResultType := 'String';
   Func.OnEval := dwsGetClassMemberName;
+
+  // For an 'attribute' member ([...]), returns the first identifier inside the
+  // brackets (e.g. 'Weak' for [Weak], 'Unsafe' for [Unsafe]); '' otherwise.
+  Func := FUnit.Functions.Add('GetClassMemberAttributeName');
+  Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
+  Func.Parameters.Add('ASectionIdx', 'Integer');
+  Func.Parameters.Add('AMemberIdx', 'Integer');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetClassMemberAttributeName;
 
   Func := FUnit.Functions.Add('GetClassMemberSignature');
   Func.Parameters.Add('ANode', 'TClassDeclarationSyntax');
@@ -1265,6 +1275,36 @@ begin
     Info.ResultAsString := GetClassMemberKindString(Member)
   else
     Info.ResultAsString := 'other';
+end;
+
+// Returns the first identifier token inside a leading attribute [...] block,
+// or '' if the member does not start with an attribute.
+function GetClassMemberAttributeIdent(AMember: TClassMemberSyntax): String;
+var
+  I: Integer;
+begin
+  Result := '';
+  if not Assigned(AMember) or (AMember.Tokens.Count = 0) then Exit;
+  if AMember.Tokens[0].Kind <> tkOpenBracket then Exit;
+  for I := 1 to AMember.Tokens.Count - 1 do
+  begin
+    if AMember.Tokens[I].Kind = tkCloseBracket then Break;
+    if AMember.Tokens[I].Kind = tkIdentifier then
+    begin
+      Result := AMember.Tokens[I].Text;
+      Exit;
+    end;
+  end;
+end;
+
+procedure TDptDwsFormatter.dwsGetClassMemberAttributeName(Info: TProgramInfo);
+var
+  Member: TClassMemberSyntax;
+begin
+  Member := GetMemberAt(
+    TClassDeclarationSyntax(Info.ParamAsObject[0]),
+    Info.ParamAsInteger[1], Info.ParamAsInteger[2]);
+  Info.ResultAsString := GetClassMemberAttributeIdent(Member);
 end;
 
 procedure TDptDwsFormatter.dwsGetClassMemberName(Info: TProgramInfo);

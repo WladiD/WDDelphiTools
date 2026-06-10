@@ -300,6 +300,18 @@ begin
   end;
 end;
 
+// Field/parameter attributes that act as inline modifiers and must stay on the
+// same line, directly before the member they decorate (e.g. [Weak] FFoo: IBar;).
+// Other (heavier) attributes — including [JsonName] — keep their own line.
+function IsInlineMemberAttribute(const AName: string): Boolean;
+var
+  LName: string;
+begin
+  LName := LowerCase(AName);
+  Result := (LName = 'weak') or (LName = 'unsafe') or (LName = 'volatile') or
+            (LName = 'ref');
+end;
+
 procedure FormatClassDeclaration(AClass: TClassDeclarationSyntax);
 var
   LSectionCount: Integer;
@@ -501,9 +513,15 @@ begin
 
     // Now apply trivia to each (reordered) member.
     // Re-read kinds because reorder only moved nodes; LKinds/LAGroups still reflect sorted order.
+    var LPrevInlineAttr: Boolean := False;
     for LI := 0 to LMemberCount - 1 do
     begin
       LKind := GetClassMemberKind(AClass, LSectionIdx, LI);
+
+      // Inline field/parameter attributes ([Weak], [Unsafe], [Volatile], [Ref],
+      // [JsonName]) stay on the same line, directly before their target member.
+      var LIsInlineAttr: Boolean := (LKind = 'attribute') and
+        IsInlineMemberAttribute(GetClassMemberAttributeName(AClass, LSectionIdx, LI));
 
       // 1. Indent: set leading trivia on first member token.
       // 'default;' trailing modifiers stay on the same line as the preceding property.
@@ -515,9 +533,28 @@ begin
           ClearTrivia(LToken);
           AddLeadingTrivia(LToken, ' ');
         end
+        else if LPrevInlineAttr then
+        begin
+          // Glue this member onto the preceding inline attribute (same line).
+          ClearTrivia(LToken);
+          AddLeadingTrivia(LToken, ' ');
+        end
         else
           SetLeadingIndent(LToken, '    ');
       end;
+
+      // An inline attribute starts the line; its target is glued on next
+      // iteration. Clear trailing trivia after the closing ']' so the single
+      // space from the target's leading trivia controls the gap.
+      if LIsInlineAttr then
+      begin
+        var LAttrLast: TSyntaxToken := GetClassMemberLastToken(AClass, LSectionIdx, LI);
+        if Assigned(LAttrLast) then
+          ClearTrailingTrivia(LAttrLast);
+        LPrevInlineAttr := True;
+        Continue; // attributes have no keyword to align
+      end;
+      LPrevInlineAttr := False;
 
       // 2. Keyword alignment: compute padding and set trailing trivia on keyword token
       LToken := GetClassMemberKeywordToken(AClass, LSectionIdx, LI);
