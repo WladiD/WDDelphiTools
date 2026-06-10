@@ -35,7 +35,14 @@ type
     constructor Create;
   end;
 
+  // Sink for the engine's one-line diagnostics ("Workflow file FOUND/NOT
+  // found"). nil in production -> Writeln to stdout; tests assign it to
+  // capture and count the emitted lines. Mirrors TDptGit.MockRunCommand.
+  TDptWorkflowDiagnosticProc = reference to procedure(const AText: String);
+
   TDptWorkflowEngine = class
+  public
+    class var DiagnosticHook: TDptWorkflowDiagnosticProc; // For testing purposes
   private
     FAIMode                : TAIMode;
     FBlocks                : IList<TDptWorkflowBlock>;
@@ -44,13 +51,16 @@ type
     FCurrentProjectFiles   : TArray<String>;
     FExitCode              : Integer;
     FExitRequested         : Boolean;
+    FFoundAnnounced        : Boolean;
     FHostPID               : DWORD;
     FIgnorePatterns        : TStringList;
     FIncludePatterns       : TStringList;
+    FIsMcpDebugger         : Boolean;
     FLintTarget            : String;
     FLastFixedFiles        : TStringList;
     FLastFormattedFiles    : TStringList;
     FWorkflowFile          : String;
+    procedure EmitDiagnostic(const AText: String);
     procedure EvalBlocks(AParser: TExprParser; const ABlocks: IList<TDptWorkflowBlock>; AGuardType: TDptGuardType; var AInstructions: string);
     function  ExprParserFixLineEndingsWindowsInGitModifiedFiles: Variant;
     function  ExprParserFixUtf8BomInGitModifiedFiles: Variant;
@@ -135,17 +145,24 @@ begin
   
   FAIMode := DetectAIMode(FHostPID);
   FWorkflowFile := FindWorkflowFile;
-  var IsMcpDebugger := False;
   for var i := 1 to ParamCount do
-    if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
+    if SameText(ParamStr(i), 'McpDebugger') then FIsMcpDebugger := True;
 
   if FWorkflowFile <> '' then
-  begin
-    if not IsMcpDebugger then Writeln('Workflow file FOUND: ', FWorkflowFile);
-    LoadWorkflow;
-  end
+    // "Workflow file FOUND" is announced lazily in CheckConditions, the
+    // first time the loaded blocks are actually evaluated -- not here at
+    // construction, where the file is merely parsed into FBlocks.
+    LoadWorkflow
+  else if (FAIMode > amNone) and not FIsMcpDebugger then
+    EmitDiagnostic('Workflow file NOT found. Searched up from: ' + GetCurrentDir);
+end;
+
+procedure TDptWorkflowEngine.EmitDiagnostic(const AText: String);
+begin
+  if Assigned(DiagnosticHook) then
+    DiagnosticHook(AText)
   else
-    if not IsMcpDebugger then Writeln('Workflow file NOT found. Searched up from: ', GetCurrentDir);
+    Writeln(AText);
 end;
 
 destructor TDptWorkflowEngine.Destroy;
@@ -762,6 +779,15 @@ begin
   FIgnorePatterns.Clear;
   FIncludePatterns.Clear;
   if FBlocks.Count = 0 then Exit;
+
+  // Announce the loaded workflow once, the first time it is actually
+  // evaluated (suppressed for the MCP debugger to keep its stdout clean).
+  if not FFoundAnnounced then
+  begin
+    FFoundAnnounced := True;
+    if not FIsMcpDebugger then
+      EmitDiagnostic('Workflow file FOUND: ' + FWorkflowFile);
+  end;
 
   Parser := TExprParser.Create;
   try

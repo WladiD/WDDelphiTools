@@ -32,8 +32,10 @@ type
     FWorkflowFile: String;
     FEngine: TDptWorkflowEngine;
     FOldGeminiVar: String;
+    FDiagLines: TStringList;
     function CreateTestFile(const AName, AContent: String; AEncoding: TEncoding = nil): String;
     function MockGitRunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
+    function CountDiag(const ASubstr: String): Integer;
   public
     [Setup]
     procedure Setup;
@@ -57,6 +59,14 @@ type
     procedure ProcessInstructions_PreservesTextWithParentheses;
     [Test]
     procedure DProjPrintOutputFile;
+    // Pins the lazy, once-only "Workflow file FOUND" announcement
+    // (moved out of the constructor into CheckConditions).
+    [Test]
+    procedure WorkflowFoundNotAnnouncedAtConstruction;
+    [Test]
+    procedure WorkflowFoundAnnouncedOnceWhenProcessed;
+    [Test]
+    procedure WorkflowFoundNotAnnouncedWhenNoBlocksToProcess;
   end;
 
 implementation
@@ -106,14 +116,26 @@ begin
   
   // We need to set the current dir to test dir so it finds the workflow file
   SetCurrentDir(FTestDir);
-  
+
+  // Capture the engine's diagnostics ("Workflow file FOUND/NOT found")
+  // instead of letting them hit stdout. Installed BEFORE the engine is
+  // created so a construction-time emission would be recorded too.
+  FDiagLines := TStringList.Create;
+  TDptWorkflowEngine.DiagnosticHook :=
+    procedure(const AText: String)
+    begin
+      FDiagLines.Add(AText);
+    end;
+
   FEngine := TDptWorkflowEngine.Create('Test');
 end;
 
 procedure TTestDptWorkflow.TearDown;
 begin
   TDptGit.MockRunCommand := nil;
+  TDptWorkflowEngine.DiagnosticHook := nil;
   FEngine.Free;
+  FreeAndNil(FDiagLines);
   if FOldGeminiVar <> '' then
     SetEnvironmentVariable('GEMINI_CLI', PChar(FOldGeminiVar))
   else
@@ -590,6 +612,71 @@ begin
   Assert.IsTrue(Instructions.Contains('bin\Debug\TestProject.exe'), 'Output should contain the resolved project output file for Debug. Actual: ' + Instructions);
   Assert.IsTrue(Instructions.Contains('Output File Default:'), 'Output should contain Default label.');
   Assert.IsTrue(Instructions.Contains('Output File Default: ') and Instructions.Substring(Instructions.IndexOf('Output File Default: ')).Contains('bin\Release\TestProject.exe'), 'Output should contain the resolved project output file for Default (Release). Actual: ' + Instructions);
+end;
+
+function TTestDptWorkflow.CountDiag(const ASubstr: String): Integer;
+var
+  Line: String;
+begin
+  Result := 0;
+  for Line in FDiagLines do
+    if Line.Contains(ASubstr) then
+      Inc(Result);
+end;
+
+procedure TTestDptWorkflow.WorkflowFoundNotAnnouncedAtConstruction;
+begin
+  // Setup constructed the engine with a discoverable .DptAiWorkflow
+  // present (empty, but found). The "FOUND" line must NOT be emitted at
+  // construction -- it is announced lazily, only when the workflow is
+  // actually evaluated in CheckConditions.
+  Assert.AreEqual(0, CountDiag('Workflow file FOUND'),
+    'FOUND must not be announced at engine construction. Captured: ' + FDiagLines.Text);
+end;
+
+procedure TTestDptWorkflow.WorkflowFoundAnnouncedOnceWhenProcessed;
+var
+  Instructions: String;
+begin
+  // A workflow with a real, evaluable block.
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      Hello
+    }
+    ''');
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  // Nothing should have been announced merely by constructing.
+  Assert.AreEqual(0, CountDiag('Workflow file FOUND'),
+    'FOUND must not be announced at construction even with a non-empty workflow. Captured: ' + FDiagLines.Text);
+
+  // CheckConditions is invoked once per guard phase by the dispatcher
+  // (gtBefore before the action, gtAfter after it). The announcement
+  // must fire exactly once across both.
+  FEngine.CheckConditions(Instructions, gtBefore);
+  FEngine.CheckConditions(Instructions, gtAfter);
+
+  Assert.AreEqual(1, CountDiag('Workflow file FOUND'),
+    'FOUND must be announced exactly once across multiple CheckConditions calls. Captured: ' + FDiagLines.Text);
+  Assert.IsTrue(FDiagLines.Text.Contains(FWorkflowFile),
+    'The FOUND line should reference the resolved workflow file path. Captured: ' + FDiagLines.Text);
+end;
+
+procedure TTestDptWorkflow.WorkflowFoundNotAnnouncedWhenNoBlocksToProcess;
+var
+  Instructions: String;
+begin
+  // Setup's .DptAiWorkflow is empty -> it is discovered but parses into
+  // zero blocks, so CheckConditions has nothing to process and exits
+  // early. "Actually processed" means at least one block ran, so FOUND
+  // must stay silent here.
+  FEngine.CheckConditions(Instructions, gtBefore);
+  FEngine.CheckConditions(Instructions, gtAfter);
+
+  Assert.AreEqual(0, CountDiag('Workflow file FOUND'),
+    'FOUND must not be announced when the workflow has no blocks to process. Captured: ' + FDiagLines.Text);
 end;
 
 end.
