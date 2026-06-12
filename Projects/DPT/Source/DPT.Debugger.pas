@@ -366,6 +366,19 @@ type
     ///   the prologue is ambiguous, so a real EBP frame is never rebased.
     /// </summary>
     function  ProcUsesEbpFrame(AProcStart: Pointer): Boolean;
+    /// <summary>
+    ///   §6.35 reg→reg residual: in a FRAMELESS x86 proc a register
+    ///   parameter is spilled into a callee-saved register (EBX/ESI/EDI)
+    ///   rather than a frame slot — e.g. `mov esi,eax` (Self → ESI),
+    ///   `mov ebx,edx` (2nd param → EBX). Scans the prologue's register-
+    ///   move run for the spill of <c>ARegParamIdx</c>'s inbound register
+    ///   and, on a match, returns the live value of the destination
+    ///   register (8 LE bytes) from <c>ARegs</c>. Returns <c>False</c>
+    ///   (x64, or no reg→reg spill found) so the caller falls back to the
+    ///   memory-spill / live-inbound-register paths.
+    /// </summary>
+    function  TryFindRegParamRegSpill(AProcStart: Pointer; ARegParamIdx: Byte;
+      const ARegs: TRegisters; out ABytes: TBytes): Boolean;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
   public
@@ -1351,6 +1364,78 @@ begin
   // Ambiguous: keep the historical EBP assumption.
 end;
 
+function TDebugger.TryFindRegParamRegSpill(AProcStart: Pointer;
+  ARegParamIdx: Byte; const ARegs: TRegisters; out ABytes: TBytes): Boolean;
+var
+  Buf      : TBytes;
+  P        : Integer;
+  InboundRm: Byte;   // ModRM reg-code of the param's inbound register
+  DestCode : Byte;   // ModRM reg-code of the move's destination register
+  Val      : UIntPtr;
+begin
+  Result := False;
+  ABytes := nil;
+  if not FTargetIs32Bit then
+    Exit;
+  // x86 Delphi register convention: param 0=EAX(000), 1=EDX(010), 2=ECX(001).
+  case ARegParamIdx of
+    0: InboundRm := 0;  // EAX
+    1: InboundRm := 2;  // EDX
+    2: InboundRm := 1;  // ECX
+  else
+    Exit;  // 4th+ scalar param is stack-passed; no register
+  end;
+  Buf := ReadProcessMemory(AProcStart, 48);
+  if Length(Buf) < 2 then
+    Exit;
+  P := 0;
+  // Skip the leading callee-saved register pushes ($50..$57).
+  while (P < Length(Buf)) and (Buf[P] in [$50..$57]) do
+    Inc(P);
+  // Skip the stack allocation (sub esp / add esp,-imm), if present.
+  if (P + 2 < Length(Buf)) and (Buf[P] = $83) and (Buf[P + 1] in [$EC, $C4]) then
+    Inc(P, 3)
+  else if (P + 5 < Length(Buf)) and (Buf[P] = $81) and
+          (Buf[P + 1] in [$EC, $C4]) then
+    Inc(P, 6);
+  // Inspect the run of register-direct MOVs that follows (the param
+  // reg→reg spills, e.g. `8B DA 8B F0`). Stop at the first instruction that
+  // is NOT such a MOV -- bounding the scan to the prologue so an immediate
+  // byte further down can never be mis-read as a spill.
+  while (P + 1 < Length(Buf)) and
+        ((Buf[P] = $8B) or (Buf[P] = $89)) and ((Buf[P + 1] and $C0) = $C0) do
+  begin
+    DestCode := $FF;
+    if Buf[P] = $8B then
+    begin
+      // 8B /r : reg field = destination, rm field = source.
+      if (Buf[P + 1] and $07) = InboundRm then
+        DestCode := (Buf[P + 1] shr 3) and $07;
+    end
+    else
+    begin
+      // 89 /r : reg field = source, rm field = destination.
+      if ((Buf[P + 1] shr 3) and $07) = InboundRm then
+        DestCode := Buf[P + 1] and $07;
+    end;
+    // Destination is a callee-saved register (EBX=3, ESI=6, EDI=7): the
+    // param survives there across the body, so read its live value.
+    if (DestCode = 3) or (DestCode = 6) or (DestCode = 7) then
+    begin
+      case DestCode of
+        3: Val := ARegs.Ebx;
+        6: Val := ARegs.Esi;
+      else Val := ARegs.Edi;
+      end;
+      SetLength(ABytes, 8);
+      FillChar(ABytes[0], 8, 0);
+      PCardinal(@ABytes[0])^ := Cardinal(Val);
+      Exit(True);
+    end;
+    Inc(P, 2);
+  end;
+end;
+
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
   Buf        : TBytes;
@@ -1620,11 +1705,13 @@ const
   ReadSize       = 8;
 var
   BaseAddr  : NativeInt;
+  Frameless : Boolean;
   FrameInfo : TStackFrameInfo;
   Loc       : TLocalVar;
   ProcIdx   : Integer;
   Proc      : TRsmProc;
   ProcStart : Pointer;
+  RegBytes  : TBytes;
   Regs      : TRegisters;
   ResultList: IList<TLocalVar>;
   SegmentOff: NativeUInt;
@@ -1661,6 +1748,7 @@ begin
   ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + Proc.SegmentOffset);
 
   BaseAddr := NativeInt(Regs.Ebp);
+  Frameless := False;
   if not FTargetIs32Bit then
   begin
     FrameInfo := GetStackFrameInfo(AThreadHandle);
@@ -1668,9 +1756,12 @@ begin
       BaseAddr := BaseAddr + FrameInfo.LocalSize;
   end
   else if not ProcUsesEbpFrame(ProcStart) then
+  begin
     // §6.35: frameless x86 proc reuses EBP as scratch and addresses its
     // locals off ESP (the frame bottom the TD32 offsets are anchored to).
+    Frameless := True;
     BaseAddr := NativeInt(Regs.Esp);
+  end;
   ResultList := Collections.NewPlainList<TLocalVar>;
   for I := 0 to Proc.Locals.Count - 1 do
   begin
@@ -1692,6 +1783,12 @@ begin
         SlotAddr := UIntPtr(NativeInt(Regs.Ebp) + SpillDisp);
         Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
       end
+      else if Frameless and TryFindRegParamRegSpill(ProcStart,
+                Proc.Locals[I].RegParamIdx, Regs, RegBytes) then
+        // §6.35: a frameless proc spills a register param into a callee-saved
+        // register (mov esi,eax / mov ebx,edx), not a frame slot -- read it
+        // from that register; the live inbound register is stale at the BP.
+        Loc.RawBytes := RegBytes
       else
         Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx);
     end

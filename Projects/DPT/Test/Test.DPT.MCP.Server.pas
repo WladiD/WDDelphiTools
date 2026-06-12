@@ -89,6 +89,8 @@ type
     [Test]
     procedure TestMcpEvaluateFramelessProcLocalsDecoded;
     [Test]
+    procedure TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill;
+    [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
@@ -2495,7 +2497,7 @@ var
 begin
   ExePath := ResolveTargetPath('DebugTarget.exe', False);
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
-    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 858);
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 865);
   try
     // LBig = $7BADF00DCAFE0042, stored at [esp+0]. Read off the live
     // (clobbered) EBP this fails / returns garbage; off ESP it is exact.
@@ -2519,6 +2521,45 @@ begin
     Assert.IsTrue(Line.Contains('7EEEEEEE7DDDDDDD'),
       'Frameless Int64 local LB6 (highest offset) must equal ' +
       '$7EEEEEEE7DDDDDDD, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.35 GAP isolation pin (reg→reg residual): a register parameter
+///   of a FRAMELESS proc spilled into a CALLEE-SAVED register, not a
+///   frame slot. In <c>TFramelessHost.Probe</c> the optimiser emits
+///   <c>mov esi,eax</c> (Self → ESI) and <c>mov ebx,edx</c>
+///   (<c>ASelector</c> → EBX); the fixture then clobbers EAX/EDX
+///   (<c>GGlobalInt * 7 + 3</c>) before the BP, so the inbound register
+///   the debugger historically falls back to is provably stale.
+///   <c>TryFindRegParamSpillDisp</c> matches only MEMORY spills
+///   (<c>mov [ebp-NN],reg</c>), misses the reg→reg move, and reads the
+///   clobbered live register -- so <c>evaluate Self</c> returned
+///   "Object @ &lt;garbage&gt;" (the stale EAX), NOT a real instance.
+///   This pin goes red→green once the consumer recognises the reg→reg
+///   spill and sources <c>Self</c> from the callee-saved register
+///   (ESI). Win32-only like the sibling §6.18 pin (the §6.17 Win64
+///   proc-boundary off-by-one prevents reliable Win64 live-debugging).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 865);
+  try
+    // Self was spilled `mov esi,eax`; EAX is clobbered at the BP. Reading
+    // the stale EAX yields a garbage pointer with no resolvable class;
+    // reading ESI yields the live TFramelessHost instance.
+    Line := Fixture.Eval('Self', 'object');
+    Assert.IsTrue(Line.Contains('TFramelessHost'),
+      'Frameless reg→reg-spilled Self must resolve to TFramelessHost via ' +
+      'the callee-saved ESI home, not the stale EAX, got: ' + Line);
   finally
     Fixture.Free;
   end;

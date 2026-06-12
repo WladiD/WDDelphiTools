@@ -853,10 +853,17 @@ begin
   LB5    := Int64($1122334455667788);
   LB6    := Int64($7EEEEEEE7DDDDDDD);
   LExtra := Integer($51510000) or ASelector;
-  // All six Int64s live in the call so the optimiser must spill the
+  // The six Int64s stay live to the Writeln so the optimiser spills the
   // overflow (> available registers) to [esp+N] stack homes.
+  // §6.35 reg->reg residual: clobber EAX/EDX (Self's and ASelector's inbound
+  // registers) so the LIVE register is provably stale at the BP below, while
+  // the optimiser keeps Self in callee-saved ESI (`mov esi,eax`) and
+  // ASelector in EBX (`mov ebx,edx`). Reading Self off the stale EAX yields a
+  // garbage pointer; the fix must source register params from the
+  // callee-saved register they were spilled into.
+  GGlobalInt := GGlobalInt * 7 + 3;
   Writeln('Frameless ', LBig, ' ', LB2, ' ', LB3, ' ', LB4, ' ', LB5,
-    ' ', LB6, ' ', LExtra, ' ', ASelector, ' ', FMarker); Flush(Output); // frameless-local bp here
+    ' ', LB6, ' ', LExtra, ' ', ASelector, ' ', FMarker); Flush(Output); // frameless-local + reg-spill bp here
   if (LBig = 0) or (LB2 = 0) or (LB3 = 0) or (LB4 = 0) or (LB5 = 0) or
      (LB6 = 0) then Writeln(LExtra); // keep every local live past the bp
 end;
