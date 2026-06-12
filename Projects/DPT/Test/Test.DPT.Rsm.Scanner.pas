@@ -761,10 +761,12 @@ begin
       if Def.Elements = nil then Continue;
 
       // Unit-name invariant (§6.25): a synthesised EnumDef's UnitName is
-      // a UNIT, never a "TClass.Method". The forward-scan grabbed the
-      // first dotted proc after the $2A (a class method like
-      // "TDcuDiff.ListEntries") instead of the unit-init proc; the fix
-      // searches wider for the first clean dotted namespace.
+      // a UNIT, never a "TClass.Method". Since the §6.25 R2 closure the
+      // unit comes from the §4.18 `$70` source-file introducer the scan is
+      // inside (FCurrentSourceFileIdx) -- a real unit name, never a method
+      // -- replacing the former 1 MB forward name-search that could grab a
+      // class method ("TDcuDiff.ListEntries") and leaned on a T/E/I naming
+      // convention to reject them.
       Assert.IsFalse(FirstSegLooksLikeType(Def.UnitName),
         Format('EnumDef "%s" UnitName "%s" is a TClass.Method, not a unit',
           [Def.TypeName, Def.UnitName]));

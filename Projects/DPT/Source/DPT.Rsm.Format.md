@@ -993,38 +993,41 @@ enum** — class names and record names also register here, populating
 `FRsmTypeIdToClassIdx` (via `TRsmFormatALinker.ScanTypeRegistry`) and
 `FTypeIdByName` (via the same pass).
 
-**Owning-unit forward scan** (only when same-comp $25 constants are
-pending). The owning unit name is the unit-init proc — a dotted
-PROC_TAG whose name is a NAMESPACE (`'DPT.Dcu.Diff'`,
-`'System.Variants'`, `'DebugTarget.EnumAlpha'`) — but it sits at the
-END of the unit's symbol block, after all the unit's method PROC
-records. So the scan uses two decoupled steps (`HandleTypeRegistryRecord`):
+**Owning-unit resolution** (only when same-comp $25 constants are
+pending). The synthesized `EnumDef` needs the owning unit name. Two
+decoupled steps (`HandleTypeRegistryRecord`):
 
 * **Synthesis gate (tight, 1 KB):** synthesize an `EnumDef` only when a
   dotted proc sits within 1 KB of the `$2A`. This keeps the synthesis
   set tight — widening the gate floods the `EnumDef` list with non-enum
   `$2A` entries whose nearest proc is far (a 1 KB→64 KB widening alone
-  took DebugTarget 132→166 synthesized defs).
-* **Name search (wide, 1 MB):** for a gated entry, search forward for
-  the first dotted proc that is a clean dotted NAMESPACE — first
-  segment NOT a Delphi type identifier (`T`-class / `E`-exception /
-  `I`-interface + uppercase, which rejects methods like
-  `'TDcuDiff.ListEntries'`) and no generic angle brackets (which
-  rejects specialization procs like `'Collections.NewList<…>'`). The
-  unit's own methods/specializations all precede its init proc, so the
-  FIRST clean namespace IS the owning unit (no overshoot into the next
-  unit). The window is wide because a large class pushes the init proc
-  far out (TFW/DPT's `TMcpServer` ~21 KB; JCL/Indy units up to ~1 MB).
-  If no clean namespace turns up the entry falls back to the nearby
-  gate proc (a method name) so the enum is **never dropped** — an
-  earlier attempt that dropped the def when no clean unit name was
-  found collapsed DPT.rsm 95→22 (§6.25).
+  took DebugTarget 132→166 synthesized defs). This gate decides *which*
+  `$2A` synthesize; it is decoupled from the unit name below.
+* **Unit name — the §4.18 `$70` introducer (§6.25 R2 closure):** for a
+  gated entry, the owning unit is `SourceFiles[FCurrentSourceFileIdx]`
+  — the `$70` source-file introducer the scan is currently inside, the
+  SAME trusted declaring-unit anchor `HandleProcRecord` stamps onto
+  procs (each unit's `$2A` block is preceded by its own `$70`
+  introducer, §4.18). This is a structural O(1) lookup, not a search.
+  It **replaced** a former 1 MB forward "name search" that hunted for
+  the unit-init proc's dotted namespace and used a `T`/`E`/`I`+Upper
+  naming-convention filter to reject method names — a crutch that
+  overshot into unrelated namespaces, missed `C`-prefix method names,
+  and fell back to a method when the init proc sat >1 MB out (the R2
+  defect). The `$70` anchor fixes all three and retires the crutch. The
+  rare early-RTL `$2A` with no preceding `$70`
+  (`FCurrentSourceFileIdx < 0`) falls back to the nearby gate proc so
+  the enum is **never dropped**; all such entries are phantom-filtered
+  downstream (§7), so the fallback's quality is immaterial. (An earlier
+  attempt that *dropped* the def when no clean unit name was found
+  collapsed DPT.rsm 95→22 — never drop; §6.25.)
 
 Pinned by
 [Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32](../Test/Test.DPT.Rsm.Scanner.pas)
-(no `EnumDef.UnitName` is a `TClass.Method`). The residual — a unit
-whose init proc is >1 MB out or absent still falls back to a method
-name — is tracked in §6.25.
+(no synth `EnumDef.UnitName` is a `TClass.Method`; DebugTarget's
+sibling-unit `TStatus` resolves to its `DebugTarget.*` unit) and
+[Test.DPT.Rsm.Taifun.TestTfwSynthEnumPhantomResidual](../Test/Test.DPT.Rsm.Taifun.pas)
+step (5) (TFW: no surviving synth EnumDef carries a method-name unit).
 
 The dispatcher does not advance `P` past the body (single-byte fallback
 re-walks; harmless under tight shape checks).
@@ -1046,9 +1049,9 @@ re-walks; harmless under tight shape checks).
    to their owning-unit primary (see §4.9).
 3. Flush every pending same-comp $25 constant under the primary id, so
    `FEnumConstNames[primary:ordinal] := name`.
-4. Synthesise an `EnumDef` from the pending buffer when the forward-scan
-   recovered an owning unit name — **but only if the buffered constants
-   carry unique ordinals**. A genuine Delphi enum cannot have two
+4. Synthesise an `EnumDef` from the pending buffer when an owning unit
+   name was resolved (the §4.18 `$70` introducer above) — **but only if
+   the buffered constants carry unique ordinals**. A genuine Delphi enum cannot have two
    elements sharing an ordinal, so a buffer with duplicate ordinals is
    not one enum but an over-collection of unrelated named-`const`
    families (e.g. `Winapi.SHFolder`'s `CSIDL_*` and `SHGFP_*` both start
@@ -1057,7 +1060,7 @@ re-walks; harmless under tight shape checks).
    is still flushed into `FEnumConstNames` (job 3) for `(typeId, ord)`
    lookup but produces **no** `EnumDef`. This duplicate-ordinal guard is
    the sole over-collection fence (the class-method unit-name rejection
-   that once accompanied it was reverted — see the forward-scan note
+   that once accompanied it was reverted — see the owning-unit note
    above and §6.25). Pinned by
    [Test.DPT.Rsm.Scanner.TestEnumDefsNotOverCollected32](../Test/Test.DPT.Rsm.Scanner.pas).
 
@@ -2295,7 +2298,8 @@ Three pipelines, depending on the `$25` form:
 
 The `$2A` flush walks the buffered constants and writes them under the
 **primary** id from the registry entry. It also synthesises a
-`TRsmEnumDef` when the unit-name forward scan succeeded — that's the
+`TRsmEnumDef` (its unit name taken from the §4.18 `$70` introducer the
+scan is inside, §6.25 R2) — that's the
 only way same-comp enums get an `EnumDef` (the `$03 ENUM_DEF` records
 exist for them too in principle, but the scanner picks them up
 independently and the synthesis is a belt-and-braces fallback).
@@ -2371,7 +2375,7 @@ a last-resort "uses-order last wins" pass when no unit hint applies.
 ### 6.25 Same-comp `$25` pending buffer pollutes / mis-attributes synthesized `EnumDef`s (`GAP`)
 
 [DPT.Rsm.EnumDecoder.pas `RecordTypeRegistry`](DPT.Rsm.EnumDecoder.pas)
-+ the owning-unit forward scan in
++ the owning-unit `$70`-introducer lookup in
 [DPT.Rsm.Scanner.pas `HandleTypeRegistryRecord`](DPT.Rsm.Scanner.pas).
 The same-compilation enum flow buffers every `$25` constant until the
 next `$2A` flushes it (§5.1). But the linker emits the **same** `$25`
@@ -2397,18 +2401,31 @@ three residuals remain undecoded:
   `IRichChunk`, `tagXFORM`) that borrowed NON-`$03` constants — not in
   `FClasses`, no `$03` to map to. Pinned by
   `Test.DPT.Rsm.Reader.TestEnumDefsExcludeClassNames`.
-* **R2 — mislabeled unit names (largely closed).** The forward scan
-  used to grab the first dotted proc after the `$2A`, which is a class
-  method (`TDcuDiff.ListEntries`), not the unit-init proc — so the
-  `UnitName` came out as a `TClass.Method` (the RsmDesk report
-  `TDcuDiffStatus → TDcuDiff.ListEntries`). Fixed by the wide
-  clean-namespace name search (§4.8): DPT.rsm now resolves all 51 enums
-  to real units (`DPT.Dcu.Diff`, `DPT.MCP.Server`, `System.Variants`).
-  Residual: a unit whose init proc is >1 MB past the `$2A` (or absent)
-  still falls back to the nearby method name. The robust closure is an
-  offset-indexed post-process (collect every unit-init proc offset in
-  one pass, assign each synthesized def the next unit boundary after its
-  `$2A`) — deferred; the 1 MB window covers all observed units.
+* **R2 — mislabeled unit names (CLOSED via the §4.18 `$70` anchor).**
+  The synthesized def's `UnitName` now comes from the **§4.18 `$70`
+  source-file introducer the scan is inside** (`FCurrentSourceFileIdx`) —
+  the same trusted declaring-unit anchor `HandleProcRecord` stamps onto
+  procs (each unit's `$2A` block is preceded by its own `$70`
+  introducer). This **replaced** the former 1 MB forward "name search"
+  that grabbed the unit-init proc's dotted namespace and used a
+  `T`/`E`/`I`+Upper naming-convention filter to reject method names —
+  a heuristic that (a) overshot into unrelated namespaces (TFW
+  `TIdPortList → Winapi.WinSock`, actually `IdGlobal`), (b) could not
+  reject the `C`-prefix method names the convention filter didn't cover
+  (`TZUGFeRDXMLObjectTyp → CZUGFeRD….GetSequence` instead of
+  `Base.Xsd.ZUGFeRD.Types`), and (c) fell back to a nearby method when
+  the init proc sat >1 MB out (the original R2 defect, e.g.
+  `TNumColorsRange → TPlannerColorArrayList.Add`). The `$70` anchor fixes
+  all three **and retires the naming-convention crutch** — the
+  "offset-indexed post-process" this entry previously prescribed, now
+  realised by reusing the §4.18 `SourceFiles` index. Verified on TFW: all
+  55 surviving synth enums have `FCurrentSourceFileIdx ≥ 0`; the rare
+  early-RTL `$2A` with no preceding `$70` falls back to the nearby dotted
+  proc and is phantom-filtered downstream regardless. Pinned by the
+  `TestEnumDefsNotOverCollected32` `StatusUnit` / never-method-like
+  assertions (DebugTarget) and `TestTfwSynthEnumPhantomResidual` step (5)
+  (TFW: no surviving synth EnumDef has a `TClass.Method` unit). Folded
+  into §4.8.
 * **R3 — dropped polluted enums.** A legit enum whose buffer got
   polluted by a preceding const run inherits duplicate ordinals and is
   therefore dropped by the guard (its element list was already corrupt,
@@ -2587,8 +2604,10 @@ unaffected.
   droppable by extending the convention list, but **deferred by design**
   (codebase-specific conventions, higher false-positive risk than
   `I*`/`P*`/Windows-struct).
-* **R2 (unit names)** and **R3 (dropped polluted enums)** as before —
-  deferred (no current repro / lesser-evil tradeoff).
+* **R3 (dropped polluted enums)** as before — deferred (lesser-evil
+  tradeoff). (**R2 is now CLOSED** — see the R2 bullet above: the
+  synthesized def's unit comes from the §4.18 `$70` introducer, retiring
+  the name-search + its `T`/`E`/`I` convention crutch.)
 * `TTokenKind` still doubles (a `$03` plus a synthesised variant whose
   element set only partially overlaps the `$03`).
 

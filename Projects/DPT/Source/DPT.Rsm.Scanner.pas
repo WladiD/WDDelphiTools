@@ -1533,51 +1533,35 @@ begin
 
     if GateName <> '' then
     begin
-      // NAME SEARCH (wide, 64 KB). The unit-init proc carries the owning
-      // unit name (a dotted NAMESPACE, e.g. "DPT.Dcu.Diff",
-      // "System.Variants") but sits at the END of the unit's symbol
-      // block -- after all its method PROC records. The nearby GateName
-      // is therefore usually a class METHOD ("TDcuDiff.ListEntries"),
-      // which surfaced in RsmDesk as a wrong UnitName (§6.25). Search
-      // wider for the first dotted proc that is a clean dotted NAMESPACE:
-      //   * first segment is NOT a Delphi type identifier (T-class,
-      //     E-exception, I-interface + uppercase) -- rejects methods;
-      //   * no generic angle brackets -- rejects specialization procs
-      //     like "Collections.NewList<System.string>".
-      // The unit's own methods/specializations all precede its init
-      // proc, so the FIRST clean namespace IS the owning unit (no
-      // overshoot). A big class pushes the init proc far out (TMcpServer
-      // ~21 KB), hence the wide window. Fall back to GateName (the
-      // nearby method) so the enum is never dropped.
-      UnitNameSparse := GateName;
-      var Qn: NativeInt := Start;
-      var NameStop: NativeInt := Start + 1048576;
-      if NameStop > FSz - 2 then NameStop := FSz - 2;
-      while Qn < NameStop do
-      begin
-        if ByteAt(Qn) = TRsmTag.PROC_TAG then
-        begin
-          var NNL: Byte := ByteAt(Qn + 1);
-          if (NNL >= 2) and (NNL <= 64) and (Qn + 2 + NNL <= FSz) then
-          begin
-            var NName: String;
-            if ReadIdentifier(Qn + 1, NName) and NName.Contains('.') then
-            begin
-              var DotI: Integer := Pos('.', NName);
-              var Seg : String  := Copy(NName, 1, DotI - 1);
-              var IsTypeIdent: Boolean := (Length(Seg) >= 2) and
-                CharInSet(Seg[1], ['T', 'E', 'I']) and
-                CharInSet(Seg[2], ['A'..'Z']);
-              if (not IsTypeIdent) and (not NName.Contains('<')) then
-              begin
-                UnitNameSparse := NName;
-                Break;
-              end;
-            end;
-          end;
-        end;
-        Inc(Qn);
-      end;
+      // §6.25 R2 closure: the owning unit is the §4.18 `$70` source-file
+      // introducer the scan has already entered (FCurrentSourceFileIdx) --
+      // the SAME trusted declaring-unit anchor HandleProcRecord stamps onto
+      // procs. Each unit's `$2A` block is immediately preceded by its own
+      // `$70` introducer (§4.18 stream layout), so this is the
+      // structurally-correct owning unit.
+      //
+      // This REPLACES the former 1 MB forward "name search" that scanned
+      // for the unit-init proc's dotted namespace and used a
+      // `T`/`E`/`I`+Upper naming-convention filter to reject method names.
+      // That heuristic (a) overshot into unrelated namespaces (TFW
+      // `TIdPortList` -> `Winapi.WinSock`, actually `IdGlobal`), (b) could
+      // not reject `C`-prefix method names the convention filter didn't
+      // cover (`TZUGFeRDXMLObjectTyp` -> `CZUGFeRD….GetSequence` instead of
+      // `Base.Xsd.ZUGFeRD.Types`), and (c) fell back to a nearby method
+      // when the init proc sat > 1 MB out (the R2 defect). The `$70` anchor
+      // fixes all three AND retires the naming-convention crutch.
+      //
+      // GateName (the nearby dotted proc) remains the fallback ONLY for the
+      // rare early-RTL `$2A` with no preceding `$70`
+      // (FCurrentSourceFileIdx < 0); every such entry is phantom-filtered
+      // downstream (§6.25 (c) / `FilterPhantomEnumDefs`), so the fallback's
+      // quality is immaterial. Verified on TFW: all 55 surviving synth
+      // enums have FCurrentSourceFileIdx >= 0.
+      if (FCurrentSourceFileIdx >= 0) and
+         (FCurrentSourceFileIdx < FSourceFiles.Count) then
+        UnitNameSparse := FSourceFiles[FCurrentSourceFileIdx].UnitName
+      else
+        UnitNameSparse := GateName;
     end;
   end;
   // Pass P (the $2A tag's file offset) so the EnumDecoder can

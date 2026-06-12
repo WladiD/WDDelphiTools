@@ -1929,6 +1929,36 @@ begin
   Assert.IsFalse(Found and (Kind = skRecord),
     'TThreadPriority must NOT be skRecord on current TFW (the old ' +
     'FilterPhantomEnumDefs comment example is stale).');
+
+  // (5) §6.25 R2 / §4.18 closure: a synthesised EnumDef's UnitName now
+  // comes from the `$70` source-file introducer (FCurrentSourceFileIdx),
+  // never the retired 1 MB name-search that could grab a class method.
+  // INVARIANT: no surviving synth EnumDef has a "TClass.Method" unit
+  // (first dotted segment a T/E/I+Upper type ident). Under the old
+  // name-search this FAILED on ≥2 TFW enums (TNumColorsRange ->
+  // "TPlannerColorArrayList.Add", TIdOnTLSNegotiationFailure ->
+  // "TIdExplicitTLSServer.InitComponent"); the `$70` anchor gives their
+  // real units (observed PlanObj / IdExplicitTLSClientServerBase) and the
+  // C-prefix method overshoots the old T/E/I filter couldn't catch
+  // (TZUGFeRDXMLObjectTyp -> "CZUGFeRD….GetSequence" -> Base.Xsd.ZUGFeRD.Types).
+  Leaked := '';
+  for I := 0 to Defs.Count - 1 do
+    if Defs[I].Synthesized then
+    begin
+      var U: String := Defs[I].UnitName;
+      var D: Integer := Pos('.', U);
+      if D > 1 then
+      begin
+        var Seg: String := Copy(U, 1, D - 1);
+        if (Length(Seg) >= 2) and CharInSet(Seg[1], ['T', 'E', 'I']) and
+           CharInSet(Seg[2], ['A'..'Z']) then
+        begin Leaked := Defs[I].TypeName + ' -> ' + U; Break; end;
+      end;
+    end;
+  Assert.AreEqual('', Leaked,
+    Format('§6.25 R2: synthesised EnumDef has a TClass.Method UnitName ' +
+           '("%s") -- the $70 introducer source regressed to the old ' +
+           'name-search heuristic.', [Leaked]));
 end;
 
 { TRsmTestLibTests }
