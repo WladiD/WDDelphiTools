@@ -1220,10 +1220,47 @@ otherwise-unlinkable classes; cost is one extra `$2C` walk + the index,
 2.8 s, budget 25 s). **Scope limit:** only the unambiguous primitive
 shapes are recovered (body=9 single byte at `After+3`; body=14/15 from
 the tail). The marker@+6/+7 enum/class shapes are skipped because their
-`FieldId` is the same unreliable unit-local id — see §6.34. Pinned by
+`FieldId` is the same unreliable unit-local id — see the §6.34-closed
+note below. Pinned by
 [Test.DPT.Rsm.Taifun.TestWideBlockNameSetBindsCJwksValidatorStrings](../Test/Test.DPT.Rsm.Taifun.pas)
 (CJwksValidator strings → `$04`; leakage guard: class-typed `FCache`
 stays unstamped).
+
+##### §6.34 (closed — design limit): enum/class-typed fields of colliding-parent convention classes
+
+The §6.33-C pass recovers only the **primitive** members of a name-set-
+matched class. The **marker@+6/+7 records whose `byte+5 != $0C`** —
+class-typed fields (`CJwksValidator.FCache`), window handles, `Boolean`s,
+plain integers — are left unstamped because their field-type `FieldId`
+(`After+3..+4`, with the 2× instance offset at `+5`) is a **per-unit
+local reference, not a `$2A` registry primary** — the field-side analogue
+of the §6.27 / §4.2 local/param per-proc-ref design limit. Three
+resolution leads were refuted on Test.Lib (diagnostics removed after the
+finding):
+
+* **§6.9 nearest-LOW-byte enum bridge** — fires only on the `byte+5 = $0C`
+  same-comp form; these records are `byte+5 != $0C` and dominated by
+  non-enums (`Boolean` `byte+3=$02`, `TStrings` refs `$DA`, handles `$80`),
+  so the bridge neither applies nor would be safe if forced.
+* **Global registry uniqueness** — of 17 923 such records in name-set-
+  matched blocks, only 14 % carry a globally-unique id and **those resolve
+  to garbage** unrelated types (`TVarData.VDate`'s id → `TKeyValuePair`,
+  `FCache`'s `$0659` → `TEnumerator`); 35 % carry an id absent from the
+  registry, 51 % a colliding one.
+* **File-offset proximity** (the §6.10 block-owner idea applied to the
+  field type) — for `FCache`'s records the file-nearest `$2A` with the
+  matching id sits **5–79 MB away** (or is absent, 7/19), never in the
+  field's own unit; and 3 204 colliding ids have a different-named `$2A`
+  within 100 KB, so unit-scale proximity cannot disambiguate either.
+
+So the field type is **not statically recoverable** from the `.rsm` for
+these records. Consequence: the fields remain evaluable with an explicit
+`type=`, and for **class-typed** fields the **live VMT** of the instance
+is the authoritative type source at runtime (§4.2) — the static reader /
+viewer can only show them un-typed. An **enum-typed** field of such a
+class has no VMT to consult and so needs the explicit `type=`. This is a
+design limit, not a decodable gap; the surviving §6.33-C leakage guard
+(`FCache` stays unstamped) ensures these records are never *mis*-attributed.
 
 #### Enum-typed field bridge (LOW-byte + nearest-offset)
 
@@ -2632,11 +2669,16 @@ unaffected.
 > the §4.2 consumer note; verified live (the four `V.FExpected*` fields
 > resolve on `Test.Lib`).
 > The last number used is **§6.34** (enum/class-typed fields of
-> unit-local-colliding convention classes, an OPEN entry below; §6.29 —
-> the per-statement line table — is also still OPEN. §6.33 — the
-> large-binary `string`-field auto-typing stack — is **closed**: all
-> three defects (the `$2C` guard, the body=9 offset-baked id, and the
-> unit-local-colliding wide-block attribution) are fixed, folded into
+> unit-local-colliding convention classes) — now **closed as a design
+> limit** after three refuted decode rounds (nearest-LOW-byte, global
+> registry uniqueness → garbage, file-offset proximity → matches absent
+> or 5–79 MB away): the field-type id in these `marker@+6/+7`,
+> `byte+5 != $0C` records is a per-unit local reference, not a `$2A`
+> registry primary — the field-side analogue of the §6.27 / §4.2 design
+> limit. Folded into **§4.9** (the `§6.34 (closed — design limit)`
+> subsection). The only still-OPEN §6 entry is **§6.29** (the
+> per-statement line table). §6.33 — the large-binary `string`-field
+> auto-typing stack — is **closed** (all three defects fixed, folded into
 > §4.9). The next gap discovered MUST be numbered **§6.35**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
@@ -2838,89 +2880,6 @@ Pinned by
 [`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
-
-### 6.34 Enum/class-typed fields of unit-local-colliding convention classes still unattributed (`GAP`)
-
-[DPT.Rsm.FormatALinker.pas `BindUnresolvedWideBlocksByMemberNameSet`](DPT.Rsm.FormatALinker.pas) —
-the §6.33-C member-name-set pass (see §4.9) recovers only the
-**primitive** field shapes of a convention-discovered class whose wide
-parent id is a unit-local colliding id (body=9 managed string at
-`After+3`; body=14/15 numeric from the tail). It deliberately **skips
-the marker@+6/+7 enum- and class-typed records** in the same block,
-because those carry the field's type as a `FieldId` that is the *same*
-unreliable unit-local id (resolving it via `FindClassIdxForRawId` would
-last-win to a colliding unrelated type). So e.g. `CJwksValidator.FCache`
-(a class-typed field) keeps `TypeIdx = PrimitiveTypeId = 0`, and an
-enum-typed field on such a class would not auto-type either. Concretely:
-of the ~4 811 uniquely-name-matched unlinked classes on Test.Lib, ~2 769
-got at least one primitive field attributed; the remaining ~2 042 have
-*only* enum/class/pointer fields and stay fully unlinked.
-
-**Refuted lead — "resolve the skipped fields as enums via the §6.9
-nearest-`$2A`-offset bridge" does NOT work** (instrumented over the
-~2 042 residual classes on Test.Lib). Categorising the skipped records:
-~7 250 are `marker@+6` with `byte+5 != $0C`, ~3 547 are `marker@+7`,
-~2 947 are other shapes, and only **369** are the `byte+5 = $0C`
-`marker@+6` same-comp form the §6.9 bridge handles. But those 369 are
-**not enums** — the sample is dominated by `Boolean` fields
-(`TCustomMemo.FWordWrap`, `FWantReturns`, `…FIsFocused`, all `byte+3 =
-$02`), class references (`TCustomMemo.FLines: TStrings`, `byte+3 = $DA`),
-window handles (`FEditHandle/FListHandle`, `byte+3 = $80`) and plain
-integers (`FItemHeight`, `byte+3 = $06`). So `byte+5 = $0C` is **not an
-enum discriminator** in these blocks, and `byte+3` is not a usable
-single-byte type id (the low bytes don't land in the
-`$02/$04/$08/$0A/$0C` primitive space). Feeding any of these to
-`FindNearestPrimaryByLowByte` would mislabel a `Boolean`/handle/class
-field as whatever enum happens to share its low byte and sit nearest in
-the file — a pure mis-attribution. There is **no name-set-style
-uniqueness guard available per individual field**, so the safe automatic
-attribution that closed §6.33-C has no analogue here.
-
-**Round-2 (instrumented on Test.Lib) — record shape refined + the
-global-uniqueness sub-approach refuted.** A diagnostic walked every
-`$2C` block, name-set-matched it to a class (the §6.33-C population), and
-for each *skipped* `marker@+6/+7` record measured its `After+3..+4`
-2-byte field-type id against the `$2A` registry. Two findings:
-
-* **Shape (corrects the Round-1 wording).** The earlier "`byte+3` is not
-  a usable single-byte type id" is because for the body≥10 enum/class
-  form `After+3..+4` is a **2-byte** field-type id and the **2×
-  instance-offset sits at `+5`** (not baked into the id). Ground-truth
-  probe on `CJwksValidator`: the body=9 *string* fields are the already-
-  closed §6.33 shape (`FExpectedTenantId` `+3=$04`, `+4=$20`=2×offset 16);
-  the body=10 *class-typed* `FCache` field (FCache@4 per §6.31) carries
-  `+5=$08`=2×offset 4, with `+3..+4` a 2-byte id and `+6/+7 = $9C $01`.
-* **Global uniqueness is NOT a usable guard (refuted).** Of 17 923
-  skipped records in name-set-matched blocks, **35 % carry an id absent
-  from the registry, 51 % an id shared by >1 `$2A` entry, and only 14 %
-  a globally-unique id — and those 14 % resolve to GARBAGE** (e.g.
-  `TVarData.VDate`'s id → `"TKeyValuePair"`, `VArray` → `"TIECustomMView_"`,
-  `FCache`'s `$0659` → `"TEnumerator"`/`$0385` → `"TEvent"`): the
-  matching `$2A` is an unrelated cross-unit collision, not the field's
-  type. So a §6.33-C-style *global* uniqueness guard mis-attributes; it
-  cannot be reused here. (Methodology note for the next round: a test-layer
-  name-set replication reads `Reader.Classes` AFTER all post-process
-  passes, whose inherited members shift the name-set key, so it under-
-  samples inheritance-bearing user classes — the diagnostic above is
-  biased toward inheritance-free RTL records; the `FCache` evidence came
-  from a direct by-name raw dump that sidesteps the bias.)
-
-Next investigator (the surviving, still-UNTESTED lead): resolve each
-skipped record's *type* `FieldId` (the colliding unit-local 2-byte id at
-`After+3..+4`) by **file-offset proximity** to same-unit `$2A`/`$0E`
-entries — the §6.10 block-owner pattern applied to the field type rather
-than the parent id, gated so a colliding id cannot pull in a cross-unit
-type. Round-2 measured *global* collision (the wrong metric for this
-lead) and only refuted the global-uniqueness shortcut; whether the
-nearest same-unit `$2A` with the matching id is the *correct* type is the
-open question. Testing it needs ground truth for a handful of fields
-(e.g. `CJwksValidator.FCache`'s real type) to confirm the nearest-by-
-offset matching `$2A` is right and that the cross-unit collisions sit far
-away in the file. That is the same hard collision problem §6.33-C solved
-for the parent id, now for the field type, without a per-field uniqueness
-oracle. Lower priority than §6.33 was: the common painful case (string
-fields) is closed, and these fields remain evaluable with an explicit
-`type=`.
 
 ---
 
