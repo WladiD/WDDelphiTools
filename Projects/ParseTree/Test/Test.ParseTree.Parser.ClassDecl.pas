@@ -50,6 +50,8 @@ type
     procedure TestMethodBodyRecoveryBeforeNextQualifiedMethod;
     [Test]
     procedure TestTypeDeclarationSubclasses;
+    [Test]
+    procedure TestEscapedReservedWordMemberRoundtrip;
   end;
 
 implementation
@@ -873,6 +875,63 @@ begin
     Assert.AreEqual('TMyGenericClass', LTypeSection.Declarations[3].Identifier.Text);
   finally
     LUnit.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestEscapedReservedWordMemberRoundtrip;
+const
+  // A method whose name is an '&'-escaped reserved word ('procedure &End;')
+  // sitting between ordinary methods.  Before the fix the lexer split '&End'
+  // into a stray '&' plus the 'end' keyword, so the parser closed the class
+  // body early: the member count was wrong and the source no longer round-tripped.
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TSemaphore = class
+      strict private
+        function Add: Boolean;
+        procedure &End;
+        function Exist: Boolean;
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    LTypeDecl := LTypeSec.Declarations[0];
+    Assert.AreEqual('TSemaphore', LTypeDecl.Identifier.Text);
+    Assert.IsNotNull(LTypeDecl.EndKeyword, 'Class should still have its end keyword');
+
+    Assert.AreEqual(1, LTypeDecl.VisibilitySections.Count, 'Should have 1 visibility section');
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.IsTrue(LVisSec.IsStrict, 'Section should be strict private');
+
+    // The escaped member must not collapse the class body: all three methods
+    // stay inside the section.
+    Assert.AreEqual(3, LVisSec.Members.Count,
+      'Class must keep all 3 members (the &End method must not break parsing)');
+
+    // Source must round-trip byte-for-byte, including the '&' prefix.
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
   end;
 end;
 

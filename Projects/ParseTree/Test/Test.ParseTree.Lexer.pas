@@ -30,6 +30,11 @@ type
     procedure TestGreaterOrEqualsOperator;
     [Test]
     procedure TestDispinterfaceKeyword;
+    [Test]
+    [TestCase('EscapedEnd', '&End')]
+    [TestCase('EscapedRegister', '&Register')]
+    [TestCase('EscapedType', '&Type')]
+    procedure TestEscapedReservedWordIsSingleIdentifier(const ASource: string);
   end;
 
 implementation
@@ -114,6 +119,32 @@ begin
     Assert.IsNotNull(LToken);
     Assert.AreEqual(TTokenKind.tkDispinterfaceKeyword, LToken.Kind);
     Assert.AreEqual('dispinterface', LToken.Text);
+  finally
+    LLexer.Free;
+  end;
+end;
+
+procedure TParseTreeLexerTest.TestEscapedReservedWordIsSingleIdentifier(const ASource: string);
+var
+  LLexer: TParseTreeLexer;
+  LToken: TSyntaxToken;
+  LNext : TSyntaxToken;
+begin
+  // An '&'-escaped reserved word (e.g. '&End') must lex as ONE identifier
+  // token carrying the '&' prefix - not as a stray '&' followed by the
+  // reserved keyword, which would derail the class-member parser.
+  LLexer := TParseTreeLexer.Create(ASource);
+  try
+    LToken := LLexer.NextToken;
+    Assert.IsNotNull(LToken);
+    Assert.AreEqual(TTokenKind.tkIdentifier, LToken.Kind,
+      'Escaped reserved word must lex as an identifier, not a keyword');
+    Assert.AreEqual(ASource, LToken.Text,
+      'Escaped identifier must keep its ''&'' prefix in the token text');
+
+    LNext := LLexer.NextToken;
+    Assert.AreEqual(TTokenKind.tkEOF, LNext.Kind,
+      'Escaped reserved word must not split into multiple tokens');
   finally
     LLexer.Free;
   end;

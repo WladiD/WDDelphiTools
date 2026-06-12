@@ -45,6 +45,13 @@ uses
   System.Classes,
   System.SysUtils;
 
+function IsIdentifierStart(AChar: Char): Boolean;
+begin
+  Result := ((AChar >= 'A') and (AChar <= 'Z')) or
+            ((AChar >= 'a') and (AChar <= 'z')) or
+            (AChar = '_');
+end;
+
 { TParseTreeLexer }
 
 constructor TParseTreeLexer.Create(const AText: string);
@@ -195,12 +202,22 @@ end;
 
 function TParseTreeLexer.ScanIdentifierOrKeyword: TSyntaxToken;
 var
+  Escaped : Boolean;
   Kind    : TTokenKind;
   StartPos: Integer;
   Text    : String;
   Upper   : String;
 begin
   StartPos := FPosition;
+
+  // A leading '&' escapes a reserved word so it can be used as an identifier
+  // (e.g. 'procedure &End;', 'procedure &Register;').  Consume it here so the
+  // whole '&End' stays a single token; the escaped name is always an
+  // identifier, never a keyword.
+  Escaped := Current = '&';
+  if Escaped then
+    Next;
+
   // Advance past letters, digits, and underscores
   while ((Current >= 'A') and (Current <= 'Z')) or
         ((Current >= 'a') and (Current <= 'z')) or
@@ -211,6 +228,12 @@ begin
   end;
 
   Text := Copy(FText, StartPos, FPosition - StartPos);
+
+  // An escaped identifier is never reclassified as a keyword: keep the '&'
+  // prefix as part of the token text so the source round-trips exactly.
+  if Escaped then
+    Exit(TSyntaxToken.Create(tkIdentifier, Text));
+
   Upper := UpperCase(Text);
 
   // Very basic keyword check. This matches TTokenKind mapping
@@ -320,7 +343,8 @@ begin
   // Scan actual token
   if ((Current >= 'A') and (Current <= 'Z')) or
      ((Current >= 'a') and (Current <= 'z')) or
-     (Current = '_') then
+     (Current = '_') or
+     ((Current = '&') and IsIdentifierStart(Peek(1))) then
   begin
     Result := ScanIdentifierOrKeyword;
   end
