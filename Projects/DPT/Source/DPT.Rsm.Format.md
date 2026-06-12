@@ -412,6 +412,34 @@ FScanRegParam`.
 > falls back to the live register. Pinned by
 > `Test.DPT.MCP.Server.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber`.
 
+> **Consumer note — frameless (ESP-addressed) procedures (§6.35
+> closure).** The above assumes the classic x86 frame
+> `push ebp; mov ebp,esp; sub esp,N`, where the TD32 frame-relative
+> offsets are negative displacements off **EBP**. The optimiser
+> (`{$STACKFRAMES OFF}`, the default once `{$O+}` lets the frame be
+> elided) emits a **frameless** form instead: a run of callee-saved
+> register pushes — which may include `push ebp` saving it merely as a
+> **scratch** register — followed directly by `sub esp,N`, with **no
+> `mov ebp,esp`**. The locals then live at `[esp+N]` (positive offsets
+> from the frame bottom), and EBP holds whatever the body last computed.
+> Athens compiles DUnitX's RTTI-`Invoke`-dispatched test methods this way
+> (observed live on Test.Lib's `TestTVariantDbValue.Implicit`: prologue
+> `53 81C4… 8BDA…`, an `Int64` local read back as a stack-address
+> garbage value off the caller's EBP). The reader records the offsets
+> **correctly** (ESP-relative); the defect was purely that the consumer
+> applied them to EBP. [DPT.Debugger.pas ProcUsesEbpFrame](DPT.Debugger.pas)
+> classifies the prologue (skip leading `push` opcodes `$50..$57`; a
+> following `mov ebp,esp` ⇒ EBP frame, a bare `sub esp`/`add esp,-imm` ⇒
+> frameless; ambiguous ⇒ EBP, so a real frame is never mis-rebased), and
+> `GetLocals` / `GetLocalAddress` read frameless locals off **ESP** (the
+> frame bottom = `Regs.Esp` at a statement-boundary PC) instead of EBP.
+> Pinned by `Test.DPT.MCP.Server.TestMcpEvaluateFramelessProcLocalsDecoded`
+> (the `DebugTarget.dpr` `TFramelessHost.Probe` fixture, built
+> `{$STACKFRAMES OFF}{$O+}` with six live `Int64` locals so the overflow
+> spills to `[esp+N]`). Two residuals stay **open as §6.35**: register
+> parameters spilled register-to-register (`mov ebx,edx`) and locals the
+> optimiser keeps wholly in a register (no stack home at all).
+
 > **Consumer note — VMT trumps RSM TypeIdx for class-instance dotted
 > walks.** The dotted-walk evaluator (`DPT.Debugger.EvaluateVariable`)
 > has a *priming* step that flips it into record-hop mode when the
@@ -2695,10 +2723,15 @@ unaffected.
 > `byte+5 != $0C` records is a per-unit local reference, not a `$2A`
 > registry primary — the field-side analogue of the §6.27 / §4.2 design
 > limit. Folded into **§4.9** (the `§6.34 (closed — design limit)`
-> subsection). The only still-OPEN §6 entry is **§6.29** (the
-> per-statement line table). §6.33 — the large-binary `string`-field
+> subsection). (Still-OPEN §6 entries are enumerated at the end of this
+> block: **§6.29** and **§6.35**.) §6.33 — the large-binary `string`-field
 > auto-typing stack — is **closed** (all three defects fixed, folded into
-> §4.9). The next gap discovered MUST be numbered **§6.35**, not §6.1.
+> §4.9). **§6.35** (frameless x86 procs) is now OPEN: its frame-base
+> half is closed (locals rebased onto ESP, folded into the §4 register-
+> param consumer note) but two register-home residuals remain — see the
+> §6.35 entry below. So the still-OPEN §6 entries are **§6.29** (per-
+> statement line table) and **§6.35** (frameless reg-resident params /
+> locals). The next gap discovered MUST be numbered **§6.36**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
 > number long after the §6 entry itself is gone, and renumbering would
@@ -2899,6 +2932,42 @@ Pinned by
 [`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
+
+### 6.35 Frameless x86 procs — register-resident params & locals (`GAP`)
+
+[DPT.Debugger.pas GetLocals / GetLocalAddress / TryFindRegParamSpillDisp](DPT.Debugger.pas).
+The **frame-base** half of this gap is **CLOSED** — a frameless
+(ESP-addressed) x86 proc's stack locals are now read off ESP via
+`ProcUsesEbpFrame`, folded into the §4 consumer note and pinned by
+`Test.DPT.MCP.Server.TestMcpEvaluateFramelessProcLocalsDecoded`
+(`DebugTarget.dpr` `TFramelessHost.Probe`). Two residuals stay open,
+both about values that have **no stack home at all** in such a proc, so
+ESP-rebasing can't reach them:
+
+* **Register-to-register parameter spills.** A register parameter in a
+  frameless proc is spilled into a *callee-saved register*, not a frame
+  slot — Test.Lib's `Implicit` does `mov ebx,edx` (the `ASwitch` byte
+  param → EBX); the `TFramelessHost.Probe` fixture does `mov ebx,edx`
+  (`ASelector` → EBX) and `mov esi,eax` (`Self` → ESI).
+  `TryFindRegParamSpillDisp` only matches **memory** spill stores
+  (`mov [ebp-NN],reg`), so it misses the reg→reg move and falls back to
+  the now-clobbered live source register (`ASwitch`/`ASelector` →
+  garbage). Lead: extend the spill scanner to recognise `8B /r` moves
+  from the param's inbound register into a callee-saved register
+  (EBX/ESI/EDI) and read **that** register at the BP. *(Related,
+  observed but not yet pinned: even in a normal **EBP** frame a sub-4-byte
+  register param spills with `88 55 NN` = `mov [ebp-NN],dl` (byte) or
+  `66 89 55 NN` (word), which the 32-bit-only `89 55 NN` match also
+  misses — so `evaluate` of a `Byte`/`Boolean`/`enum` register param
+  returns garbage high bytes. Same spill-scanner incompleteness.)*
+* **Register-resident locals.** Under `{$O+}` the optimiser can keep a
+  local wholly in a register with no stack slot — the fixture's
+  `Integer LExtra` lives in EDI (`$5151005A`), and the scanner records a
+  bogus `BpOffset` (5) the consumer can't use. This needs the TD32
+  register-location (`S_REGISTER`-class) decode the scanner doesn't yet
+  read, then a register-sourced read in the consumer. (Why the
+  `TestMcpEvaluateFramelessProcLocalsDecoded` pin asserts only the
+  `Int64` stack locals `LBig`/`LB3`/`LB6`, not `LExtra`.)
 
 ---
 

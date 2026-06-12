@@ -87,6 +87,8 @@ type
     [Test]
     procedure TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber;
     [Test]
+    procedure TestMcpEvaluateFramelessProcLocalsDecoded;
+    [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
@@ -2457,6 +2459,66 @@ begin
     Assert.IsTrue(Line.Contains('1579114015'),
       'Self.FMarker must equal 1579114015 ($5E1F5E1F) via the spill ' +
       'home, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.35 GAP isolation pin: locals of a FRAMELESS (ESP-addressed,
+///   no <c>mov ebp,esp</c>) procedure. <c>TFramelessHost.Probe</c> is
+///   compiled <c>{$STACKFRAMES OFF}{$O+}</c> with six live <c>Int64</c>
+///   locals so the optimiser elides the EBP frame and spills the locals
+///   to <c>[esp+N]</c> -- the same shape Athens compiles DUnitX's
+///   RTTI-invoked test methods to (observed live on Test.Lib's
+///   <c>TestTVariantDbValue.Implicit</c>: an <c>Int64</c> local read
+///   back as a stack-address-pattern garbage value).
+///
+///   In such a proc <c>EBP</c> is a pushed callee-saved scratch register
+///   (here it holds <c>$5A</c> at the BP), NOT the frame pointer, so the
+///   debugger's <c>Regs.Ebp + BpOffset</c> local read lands at a bogus
+///   address. The reader's recorded offsets are correct ESP-relative
+///   (<c>LBig</c>@0, <c>LB2</c>@8, ... <c>LB6</c>@40 -- verified against
+///   the live <c>[esp+N]</c> layout); the defect is purely that the
+///   consumer applies them to the wrong base register. Currently
+///   <c>evaluate LBig</c> FAILS outright ("Failed to evaluate
+///   variable"); this pin goes red-&gt;green once the consumer detects
+///   the frameless frame and rebases local reads onto ESP. Win32-only
+///   like the sibling §6.18 pin (the §6.17 Win64 proc-boundary
+///   off-by-one prevents reliable Win64 live-debugging).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateFramelessProcLocalsDecoded;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 858);
+  try
+    // LBig = $7BADF00DCAFE0042, stored at [esp+0]. Read off the live
+    // (clobbered) EBP this fails / returns garbage; off ESP it is exact.
+    Line := Fixture.Eval('LBig', 'int64');
+    Assert.IsTrue(Line.Contains('7BADF00DCAFE0042'),
+      'Frameless Int64 local LBig must equal $7BADF00DCAFE0042 via the ' +
+      'ESP frame base, got: ' + Line);
+
+    // LB3 = $00C0FFEE0BADF00D, a mid-frame slot ([esp+16]).
+    Line := Fixture.Eval('LB3', 'int64');
+    Assert.IsTrue(Line.Contains('00C0FFEE0BADF00D'),
+      'Frameless Int64 local LB3 (mid offset) must equal ' +
+      '$00C0FFEE0BADF00D, got: ' + Line);
+
+    // LB6 = $7EEEEEEE7DDDDDDD, the highest stack offset ([esp+40]) --
+    // low/mid/high together guard that the ESP rebase covers the whole
+    // frame, not just slot 0. (The Integer local LExtra is intentionally
+    // NOT asserted: {$O+} register-allocates it into EDI with no stack
+    // home, a separate register-resident-local limitation outside §6.35.)
+    Line := Fixture.Eval('LB6', 'int64');
+    Assert.IsTrue(Line.Contains('7EEEEEEE7DDDDDDD'),
+      'Frameless Int64 local LB6 (highest offset) must equal ' +
+      '$7EEEEEEE7DDDDDDD, got: ' + Line);
   finally
     Fixture.Free;
   end;

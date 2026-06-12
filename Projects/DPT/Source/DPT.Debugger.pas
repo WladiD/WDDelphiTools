@@ -354,6 +354,18 @@ type
     /// </summary>
     function  TryFindRegParamSpillDisp(AProcStart: Pointer; ARegParamIdx: Byte;
       out ADispFromFramePtr: Integer): Boolean;
+    /// <summary>
+    ///   §6.35: tells whether an x86 procedure establishes a classic
+    ///   <c>push ebp; mov ebp,esp</c> frame (locals anchored to EBP) or
+    ///   is FRAMELESS -- the optimiser (STACKFRAMES OFF) form that saves
+    ///   EBP as a callee-saved scratch register and addresses its locals
+    ///   off ESP. The TD32 frame-relative offsets are anchored to ESP in
+    ///   the frameless case, so <c>GetLocals</c>/<c>GetLocalAddress</c>
+    ///   must read them off ESP, not the (now garbage) EBP. Returns
+    ///   <c>True</c> (the historical EBP assumption) for x64 and whenever
+    ///   the prologue is ambiguous, so a real EBP frame is never rebased.
+    /// </summary>
+    function  ProcUsesEbpFrame(AProcStart: Pointer): Boolean;
     function  SetTargetContext(AThreadHandle: THandle; var AContext: TContext{$IFDEF CPUX64}; var AWow64Context: TWow64Context{$ENDIF}): Boolean;
     procedure SetHardwareBreakpointInContext(var AContext: TContext; {$IFDEF CPUX64}var AWow64Context: TWow64Context;{$ENDIF} AAddress: Pointer; ASlot: Integer);
   public
@@ -1295,6 +1307,50 @@ begin
   end;
 end;
 
+function TDebugger.ProcUsesEbpFrame(AProcStart: Pointer): Boolean;
+var
+  Buf: TBytes;
+  P  : Integer;
+begin
+  // x86 Delphi establishes an EBP frame with `push ebp; mov ebp,esp`
+  // (55 8B EC) right at the entry, before any other register pushes. The
+  // FRAMELESS form (STACKFRAMES OFF / optimised) instead emits a run of
+  // callee-saved register pushes (50..57, which may include `push ebp`
+  // saving it merely as scratch) followed DIRECTLY by a stack allocation
+  // with NO `mov ebp,esp`. So: skip the leading pushes, then a `mov
+  // ebp,esp` means EBP frame, a bare stack-allocation means frameless.
+  // Default True (EBP frame) for x64 and any ambiguous prologue, so a
+  // genuine EBP frame is never mis-rebased onto ESP.
+  Result := True;
+  if not FTargetIs32Bit then
+    Exit;
+  Buf := ReadProcessMemory(AProcStart, 16);
+  if Length(Buf) < 3 then
+    Exit;
+  P := 0;
+  while (P < Length(Buf)) and (Buf[P] in [$50..$57]) do
+    Inc(P);
+  if P + 1 >= Length(Buf) then
+    Exit;
+  // mov ebp,esp == 8B EC (or 89 E5) -> genuine EBP frame.
+  if ((Buf[P] = $8B) and (Buf[P + 1] = $EC)) or
+     ((Buf[P] = $89) and (Buf[P + 1] = $E5)) then
+    Exit(True);
+  // A stack allocation with no preceding `mov ebp,esp` -> frameless:
+  //   sub esp,imm8/imm32 (83 EC / 81 EC) or add esp,-imm8/-imm32
+  //   (83 C4 <neg> / 81 C4 <neg>).
+  if ((Buf[P] = $83) and (Buf[P + 1] = $EC)) or
+     ((Buf[P] = $81) and (Buf[P + 1] = $EC)) then
+    Exit(False);
+  if (P + 2 < Length(Buf)) and (Buf[P] = $83) and (Buf[P + 1] = $C4) and
+     (ShortInt(Buf[P + 2]) < 0) then
+    Exit(False);
+  if (P + 5 < Length(Buf)) and (Buf[P] = $81) and (Buf[P + 1] = $C4) and
+     (PLongInt(@Buf[P + 2])^ < 0) then
+    Exit(False);
+  // Ambiguous: keep the historical EBP assumption.
+end;
+
 function TDebugger.GetStackTrace(AThreadHandle: THandle): TArray<TStackFrame>;
 var
   Buf        : TBytes;
@@ -1522,15 +1578,21 @@ begin
   //   push rbp; sub rsp, N; mov rbp, rsp
   // leaves RBP at the bottom of the locals area, while TD32 emits
   // BPREL offsets relative to the logical top, requiring +LocalSize.
+  Proc := FLocalsReader.Procs[ProcIdx];
+
   BaseAddr := NativeInt(Regs.Ebp);
   if not FTargetIs32Bit then
   begin
     FrameInfo := GetStackFrameInfo(AThreadHandle);
     if FrameInfo.LocalSize > 0 then
       BaseAddr := BaseAddr + FrameInfo.LocalSize;
-  end;
+  end
+  else if not ProcUsesEbpFrame(Pointer(NativeUInt(FBaseAddress) +
+            CodeSectionRVA + Proc.SegmentOffset)) then
+    // §6.35: frameless x86 proc reuses EBP as scratch and addresses its
+    // locals off ESP (the frame bottom the TD32 offsets are anchored to).
+    BaseAddr := NativeInt(Regs.Esp);
 
-  Proc := FLocalsReader.Procs[ProcIdx];
   for I := 0 to Proc.Locals.Count - 1 do
     if SameText(Proc.Locals[I].Name, AName) then
     begin
@@ -1595,16 +1657,20 @@ begin
   // emits BPREL offsets relative to the LOGICAL frame top (the slot
   // above saved RBP). To recover that anchor on x64 we add the prologue's
   // LocalSize to RBP, mirroring what the IDE debugger does.
+  Proc := FLocalsReader.Procs[ProcIdx];
+  ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + Proc.SegmentOffset);
+
   BaseAddr := NativeInt(Regs.Ebp);
   if not FTargetIs32Bit then
   begin
     FrameInfo := GetStackFrameInfo(AThreadHandle);
     if FrameInfo.LocalSize > 0 then
       BaseAddr := BaseAddr + FrameInfo.LocalSize;
-  end;
-
-  Proc := FLocalsReader.Procs[ProcIdx];
-  ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + Proc.SegmentOffset);
+  end
+  else if not ProcUsesEbpFrame(ProcStart) then
+    // §6.35: frameless x86 proc reuses EBP as scratch and addresses its
+    // locals off ESP (the frame bottom the TD32 offsets are anchored to).
+    BaseAddr := NativeInt(Regs.Esp);
   ResultList := Collections.NewPlainList<TLocalVar>;
   for I := 0 to Proc.Locals.Count - 1 do
   begin

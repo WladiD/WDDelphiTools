@@ -809,6 +809,59 @@ begin
     IV13,IV14,IV15,IV16,IV17,IV18,IV19,IV20,IV21,IV22,IV23,IV24);
   Flush(Output); // Line 800 - inline-var many-ints bp here
 end;
+// §6.35 fixture: a FRAMELESS (ESP-addressed, no `push ebp`) procedure.
+// Athens' x86 compiler elides the EBP frame under {$STACKFRAMES OFF}
+// when the routine does not need it -- the same shape DUnitX's
+// RTTI-invoked test methods compile to (observed live on Test.Lib's
+// TestTVariantDbValue.Implicit: prologue `push ebx; sub esp,N`, locals
+// at [esp+N], the Byte param spilled register-to-register `mov ebx,edx`).
+// In such a proc EBP still holds the CALLER's frame, so the debugger's
+// `Regs.Ebp + BpOffset` local read lands in the caller's frame and
+// returns garbage; and a register parameter spilled to a callee-saved
+// register is missed by the prologue memory-spill scanner
+// (TryFindRegParamSpillDisp), which then reads the now-clobbered live
+// register. TestMcpEvaluateFramelessProcLocalsDecoded breaks on the
+// Writeln below and asserts the Int64 locals + the Byte register
+// parameter read back their sentinels -- red on the EBP-only reader,
+// green once the consumer detects the frameless frame and rebases local
+// reads onto ESP. Placed AFTER the last proc / BP marker so no
+// breakpoint line above shifts. See DPT.Rsm.Format.md §6.35.
+{$IFOPT W+}{$DEFINE DT_FRAMELESS_W_ON}{$ENDIF}
+{$IFOPT O-}{$DEFINE DT_FRAMELESS_O_OFF}{$ENDIF}
+{$STACKFRAMES OFF}{$OPTIMIZATION ON}
+type
+  TFramelessHost = class
+    FMarker : Integer;
+    procedure Probe(ASelector: Byte);
+  end;
+var
+  GGlobalFrameless : TFramelessHost;
+procedure TFramelessHost.Probe(ASelector: Byte);
+var
+  LBig   : Int64;
+  LB2    : Int64;
+  LB3    : Int64;
+  LB4    : Int64;
+  LB5    : Int64;
+  LB6    : Int64;
+  LExtra : Integer;
+begin
+  LBig   := Int64($7BADF00DCAFE0042);   // frameless Int64-local sentinel
+  LB2    := Int64($1234567855AA55AA);
+  LB3    := Int64($00C0FFEE0BADF00D);
+  LB4    := Int64($0102030405060708);
+  LB5    := Int64($1122334455667788);
+  LB6    := Int64($7EEEEEEE7DDDDDDD);
+  LExtra := Integer($51510000) or ASelector;
+  // All six Int64s live in the call so the optimiser must spill the
+  // overflow (> available registers) to [esp+N] stack homes.
+  Writeln('Frameless ', LBig, ' ', LB2, ' ', LB3, ' ', LB4, ' ', LB5,
+    ' ', LB6, ' ', LExtra, ' ', ASelector, ' ', FMarker); Flush(Output); // frameless-local bp here
+  if (LBig = 0) or (LB2 = 0) or (LB3 = 0) or (LB4 = 0) or (LB5 = 0) or
+     (LB6 = 0) then Writeln(LExtra); // keep every local live past the bp
+end;
+{$IFDEF DT_FRAMELESS_O_OFF}{$OPTIMIZATION OFF}{$UNDEF DT_FRAMELESS_O_OFF}{$ENDIF}
+{$IFDEF DT_FRAMELESS_W_ON}{$STACKFRAMES ON}{$UNDEF DT_FRAMELESS_W_ON}{$ENDIF}
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1002,6 +1055,12 @@ begin
     GGlobalNonTHost.FNonTStr := 'NonT Field';
     GGlobalNonTHost.FNonTObj := TInner.Create;
     GGlobalNonTHost.FNonTObj.FInnerInt := Integer($CD000001);
+    // §6.35 fixture: reach the frameless (ESP-addressed) Probe with a
+    // known Byte register parameter ($5A) and Int64 stack locals live,
+    // so the frameless-frame local-read pin has a live BP context.
+    GGlobalFrameless := TFramelessHost.Create;
+    GGlobalFrameless.FMarker := Integer($F3A3E1E5);
+    GGlobalFrameless.Probe($5A);
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;
@@ -1029,5 +1088,6 @@ begin
     GGlobalAmbig619Host.Free;
     GGlobalNonTHost.FNonTObj.Free;
     GGlobalNonTHost.Free;
+    GGlobalFrameless.Free;
   end;
 end.
