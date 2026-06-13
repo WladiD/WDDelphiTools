@@ -458,9 +458,26 @@ FScanRegParam`.
 > `Byte`/`Word`/`Boolean`/`enum` param reads back clean (e.g. `199 =
 > 0x000000C7`) instead of leaking the inbound register's stale high bytes
 > (`0x00B9FDC7`). Pinned by
-> `Test.DPT.MCP.Server.TestMcpEvaluateByteParamFromMemorySpill`. One
-> residual stays **open as §6.35**: locals the optimiser keeps wholly in a
-> register (no stack home at all).
+> `Test.DPT.MCP.Server.TestMcpEvaluateByteParamFromMemorySpill`.
+>
+> **A LOCAL the optimiser keeps wholly in a register** (no stack home at
+> all) is emitted with a distinct `LOCAL_TAG` (`$20`) form: the payload
+> begins `16 00 00 <type> <2*regindex>` where a frame local has
+> `66 00 00 <type> <2*offset>` — the `$16`/`$66` byte at +0 is the
+> residency discriminator (independent of the `<type>` byte at +3:
+> `LExtra` and `LScratch` are both Integer `$02` yet differ). `byte+4` is
+> the register: `2*index` over the allocatable GP set
+> `[EAX,ECX,EDX,EBX,ESI,EDI]` (verified EBX=`$06`, ESI=`$08`, EDI=`$0A`).
+> The scanner ([DPT.Rsm.Scanner.pas HandleLocalRecord](DPT.Rsm.Scanner.pas))
+> decodes the `$16` form to `Kind = lkRegisterResident` + `CpuRegIndex`;
+> `GetLocals` reads the live register (x86 only — the map was RE'd on x86;
+> x64 leaves the value as "unknown" rather than read a wrong register).
+> Before this, the `$16` byte+4 (`$0A`) was misread as `2*offset` →
+> bogus `BpOffset=5` and an `[ebp+5]` garbage read. Pinned by
+> `Test.DPT.Rsm.Scanner.TestRegisterResidentLocalUsesDistinctForm32` (the
+> `$16`-vs-`$66` discriminator) and
+> `Test.DPT.MCP.Server.TestMcpEvaluateRegisterResidentLocal` (RR1→EBX,
+> RR2→ESI, RR3→EDI read back their sentinels).
 
 > **Consumer note — VMT trumps RSM TypeIdx for class-instance dotted
 > walks.** The dotted-walk evaluator (`DPT.Debugger.EvaluateVariable`)
@@ -2745,16 +2762,14 @@ unaffected.
 > `byte+5 != $0C` records is a per-unit local reference, not a `$2A`
 > registry primary — the field-side analogue of the §6.27 / §4.2 design
 > limit. Folded into **§4.9** (the `§6.34 (closed — design limit)`
-> subsection). (Still-OPEN §6 entries are enumerated at the end of this
-> block: **§6.29** and **§6.35**.) §6.33 — the large-binary `string`-field
+> subsection). §6.33 — the large-binary `string`-field
 > auto-typing stack — is **closed** (all three defects fixed, folded into
-> §4.9). **§6.35** (frameless x86 procs) is now OPEN: its frame-base,
-> reg→reg-param-spill, and narrow-memory-param-spill halves are all closed
-> (folded into the §4 register-param consumer note); only the
-> register-resident-local residual remains — see the §6.35 entry below.
-> So the still-OPEN §6 entries are **§6.29** (per-statement line table)
-> and **§6.35** (frameless register-resident locals). The next gap
-> discovered MUST be numbered **§6.36**, not §6.1.
+> §4.9). **§6.35** (frameless x86 procs) is now **fully closed** — all
+> four halves (frame-base ESP rebase, reg→reg param spill, narrow-memory
+> param spill, and register-resident locals via the `$16` LOCAL form →
+> `lkRegisterResident`) are decoded and folded into the §4 register-param
+> consumer note. So the only still-OPEN §6 entry is **§6.29** (per-statement
+> line table). The next gap discovered MUST be numbered **§6.36**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
 > number long after the §6 entry itself is gone, and renumbering would
@@ -2955,34 +2970,6 @@ Pinned by
 [`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
-
-### 6.35 Frameless x86 procs — register-resident locals (`GAP`)
-
-[DPT.Debugger.pas GetLocals / TryFindRegParamRegSpill / TryFindRegParamSpillDisp](DPT.Debugger.pas).
-Three halves of this gap are **CLOSED** and folded into the §4 register-
-param consumer note: (1) a frameless (ESP-addressed) x86 proc's stack
-locals are read off ESP via `ProcUsesEbpFrame` (pinned by
-`TestMcpEvaluateFramelessProcLocalsDecoded`); (2) register parameters
-spilled register-to-register into a callee-saved register
-(`mov esi,eax` = Self → ESI, `mov ebx,edx` = 2nd param → EBX) are
-recovered by `TryFindRegParamRegSpill` (pinned by
-`TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill`); and (3) sub-4-byte
-register params spilled to memory with a narrow store (`88 55 NN` byte /
-`66 89 55 NN` word, sharing the dword store's ModRM) are matched by
-`TryFindRegParamSpillDisp`, which now returns the store width so
-`GetLocals` reads exactly that many bytes zero-extended (pinned by
-`TestMcpEvaluateByteParamFromMemorySpill`). All three are pinned against
-the `DebugTarget.dpr` `TFramelessHost.Probe` / `TByteParamHost.Probe`
-fixtures. One residual stays open:
-
-* **Register-resident locals (no stack home at all).** Under `{$O+}` the
-  optimiser can keep a local wholly in a register with no stack slot —
-  the fixture's `Integer LExtra` lives in EDI (`$5151005A`), and the
-  scanner records a bogus `BpOffset` (5) the consumer can't use. This
-  needs the TD32 register-location (`S_REGISTER`-class) decode the
-  scanner doesn't yet read, then a register-sourced read in the consumer.
-  (Why the `TestMcpEvaluateFramelessProcLocalsDecoded` pin asserts only
-  the `Int64` stack locals `LBig`/`LB3`/`LB6`, not `LExtra`.)
 
 ---
 

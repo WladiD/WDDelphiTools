@@ -93,6 +93,8 @@ type
     [Test]
     procedure TestMcpEvaluateByteParamFromMemorySpill;
     [Test]
+    procedure TestMcpEvaluateRegisterResidentLocal;
+    [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
@@ -2598,6 +2600,51 @@ begin
     Assert.IsTrue(Line.Contains('199 (0x000000C7)'),
       'Byte param spilled via 88 55 NN must read back as 199 (0x000000C7) ' +
       'from its frame home at the store width, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.35 GAP closure pin: a LOCAL the optimiser keeps WHOLLY IN A
+///   REGISTER (no stack home). RegResidentLocalsProbe is a standalone
+///   `{$STACKFRAMES OFF}{$O+}` proc (no Self), so its three live `Integer`
+///   locals are register-allocated into the callee-saved registers
+///   RR1 -> EBX ($AAAA0001), RR2 -> ESI ($BBBB0002), RR3 -> EDI
+///   ($CCCC0003). Each is emitted as the `16 00 00 <type> <2*regindex>`
+///   register-resident LOCAL form (vs the stack form's `66 00 00 <type>
+///   <2*offset>`); the scanner used to misread byte+4 as 2*offset (bogus
+///   BpOffset 3/4/5) and `evaluate` returned the [ebp+N] garbage. The fix
+///   decodes the `16` form to lkRegisterResident + a CPU register index
+///   (byte+4 div 2 over [EAX,ECX,EDX,EBX,ESI,EDI]) and GetLocals reads the
+///   live register, so each local reads back its sentinel. Win32-only
+///   (the `16` register map was reverse-engineered on x86).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateRegisterResidentLocal;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 917);
+  try
+    // RR1 -> EBX. $AAAA0001 as a signed int is negative; assert on the
+    // raw-hex rendering the int formatter appends.
+    Line := Fixture.Eval('RR1', 'int');
+    Assert.IsTrue(Line.Contains('AAAA0001'),
+      'register-resident RR1 must read EBX = $AAAA0001, got: ' + Line);
+
+    // RR2 -> ESI.
+    Line := Fixture.Eval('RR2', 'int');
+    Assert.IsTrue(Line.Contains('BBBB0002'),
+      'register-resident RR2 must read ESI = $BBBB0002, got: ' + Line);
+
+    // RR3 -> EDI.
+    Line := Fixture.Eval('RR3', 'int');
+    Assert.IsTrue(Line.Contains('CCCC0003'),
+      'register-resident RR3 must read EDI = $CCCC0003, got: ' + Line);
   finally
     Fixture.Free;
   end;

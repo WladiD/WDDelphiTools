@@ -955,6 +955,26 @@ begin
   Loc.TypeIdx  := 0;
   Loc.Kind     := lkBpRel;
   var PayloadStart: NativeInt := P + 2 + Length(Name);
+  // §6.35 register-resident local: the $16 00 00 <type> <2*regindex> form.
+  // The optimiser ({$O+}) kept this local wholly in a CPU register with no
+  // stack home. The payload mirrors the stack form $66 00 00 <type>
+  // <2*offset> byte-for-byte except the leading FORM byte ($16 vs $66) and
+  // the meaning of byte+4 (register index, not 2*offset). The form byte is
+  // independent of the <type> byte at +3 (LExtra/LScratch are both Integer
+  // type $02 yet differ in the form byte). Record the register index --
+  // byte+4 div 2 over the allocatable GP set [EAX,ECX,EDX,EBX,ESI,EDI]
+  // (verified EBX=$06, ESI=$08, EDI=$0A) -- and leave the frame offset out;
+  // the consumer reads the live register. See DPT.Rsm.Format.md §4.4.
+  if (PayloadStart + 4 < FSz) and
+     (ByteAt(PayloadStart)     = $16) and
+     (ByteAt(PayloadStart + 1) = $00) and
+     (ByteAt(PayloadStart + 2) = $00) then
+  begin
+    Loc.Kind        := lkRegisterResident;
+    Loc.CpuRegIndex := ByteAt(PayloadStart + 4) div 2;
+    Loc.TypeIdx     := ByteAt(PayloadStart + 3);
+    Loc.BpOffset    := 0;
+  end
   // Inline-declared var form (Delphi "var X := expr;" in a proc body):
   // the body opens with the 4-byte anchor $66 $00 $01 $04 instead of
   // the classic stack-local $66 $00 $00. After the anchor comes a 1- or
@@ -968,7 +988,7 @@ begin
   // See DPT.Rsm.Format.md §4.4 (inline-var form). The classic forms
   // (LocalA/B/C, EdgeCase locals) keep $66 $00 $00 and fall through to
   // the Shape-A/B decoder below.
-  if (PayloadStart + 6 < FSz) and
+  else if (PayloadStart + 6 < FSz) and
      // Anchor $66 $00 $01 $04 in one 32-bit load (vs four ByteAt calls);
      // the byte values are spelled out so the call doubles as the doc.
      DwordAtEquals(PayloadStart, $66, $00, $01, $04) then

@@ -45,6 +45,20 @@ type
     /// known top-level fixture procedures.
     [Test]
     procedure TestProcsCollected32;
+    /// §6.35 register-resident-local discriminator. A LOCAL_TAG ($20)
+    /// record's payload begins with a FORM byte: $66 for a frame-relative
+    /// (stack) local -- `66 00 00 <type> <2*offset>` -- and $16 for a
+    /// register-resident local the optimiser kept wholly in a CPU register
+    /// (no stack home). The form is independent of the type byte that
+    /// follows it: TFramelessHost.Probe's `LExtra: Integer` (in EDI under
+    /// {$O+}) uses $16 while TByteParamHost.Probe's stack `LScratch:
+    /// Integer` uses $66 -- same type ($02), different form. The scanner's
+    /// HandleLocalRecord only decodes the $66 forms, so an $16 record falls
+    /// through and its byte+4 (here $0A) is misread as 2*offset, yielding
+    /// the bogus BpOffset=5. Pins the discriminator; the register-number
+    /// decode within the $16 payload is the open part of §6.35.
+    [Test]
+    procedure TestRegisterResidentLocalUsesDistinctForm32;
     /// Classes / records collected from Win32 RSM. The DebugTarget
     /// fixture defines TBase, TDerived, TLightStatus host record and
     /// several other shapes; we assert the byte-level scan caught
@@ -875,6 +889,62 @@ begin
     Assert.IsTrue(S.ProcByName.ContainsKey('locallaprocedure') or
                   S.ProcByName.ContainsKey('localsprocedure'),
       'expected a known fixture proc in ProcByName index');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestRegisterResidentLocalUsesDistinctForm32;
+var
+  S: TRsmScanner;
+
+  // Find the LOCAL_TAG ($20) record for AName and return its payload FORM
+  // byte (the first byte after the length-prefixed name). Name-anchored,
+  // so it survives fixture rebuilds (no hard-coded file offset).
+  function LocalFormByte(const AName: String; out AForm: Byte): Boolean;
+  var
+    P, EndP: NativeInt;
+    Nm     : String;
+  begin
+    Result := False;
+    EndP := S.Sz - (2 + Length(AName) + 1);
+    P := 4;
+    while P < EndP do
+    begin
+      if (S.ByteAt(P) = TRsmTag.LOCAL_TAG) and
+         (S.ByteAt(P + 1) = Length(AName)) and
+         S.ReadIdentifier(P + 1, Nm) and SameText(Nm, AName) then
+      begin
+        AForm := S.ByteAt(P + 2 + Length(AName));
+        Exit(True);
+      end;
+      Inc(P);
+    end;
+  end;
+
+var
+  FormReg, FormStackInt, FormStackI64: Byte;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(LocalFormByte('LExtra', FormReg),
+      'LExtra LOCAL_TAG record not found');
+    Assert.IsTrue(LocalFormByte('LScratch', FormStackInt),
+      'LScratch LOCAL_TAG record not found');
+    Assert.IsTrue(LocalFormByte('LB6', FormStackI64),
+      'LB6 LOCAL_TAG record not found');
+
+    // Register-resident local (LExtra, Integer in EDI under {$O+}) uses the
+    // $16 form; the stack Integer LScratch and stack Int64 LB6 use $66. So
+    // the form marks frame-vs-register residency, NOT the type (LExtra and
+    // LScratch share type $02). This is the §6.35 discriminator.
+    Assert.AreEqual($16, Integer(FormReg),
+      'register-resident LExtra must use the $16 LOCAL form');
+    Assert.AreEqual($66, Integer(FormStackInt),
+      'stack-resident Integer LScratch must use the $66 LOCAL form');
+    Assert.AreEqual($66, Integer(FormStackI64),
+      'stack-resident Int64 LB6 must use the $66 LOCAL form');
   finally
     S.Free;
   end;

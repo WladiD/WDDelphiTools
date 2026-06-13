@@ -893,6 +893,32 @@ begin
   Writeln('ByteParam ', LScratch, ' ', FMarker);   // bp here - AByteParam NOT referenced
   Writeln('ByteParamVal ', AByteParam); Flush(Output);  // param used only AFTER the bp
 end;
+// §6.35 round 2 fixture: a standalone {$O+}{$STACKFRAMES OFF} proc with NO
+// Self, so the callee-saved registers EBX/ESI/EDI are all free for LOCALS.
+// Three Integer locals kept live across a call get register-allocated into
+// distinct callee-saved registers, each emitted as the `16` register-
+// resident LOCAL form (§6.35). Distinct sentinels let the investigation
+// correlate "which $16-payload byte == which CPU register" -- the open part
+// of §6.35 a single sample (LExtra) could not pin. The BP references all
+// three so they stay live; the surrounding clobber keeps EAX/EDX off them.
+{$IFOPT W+}{$DEFINE DT_RR_W_ON}{$ENDIF}
+{$IFOPT O-}{$DEFINE DT_RR_O_OFF}{$ENDIF}
+{$STACKFRAMES OFF}{$OPTIMIZATION ON}
+procedure RegResidentLocalsProbe;
+var
+  RR1 : Integer;
+  RR2 : Integer;
+  RR3 : Integer;
+begin
+  RR1 := Integer($AAAA0001);
+  RR2 := Integer($BBBB0002);
+  RR3 := Integer($CCCC0003);
+  GGlobalInt := GGlobalInt * 3 + 5;   // clobber EAX/EDX scratch before the BP
+  Writeln('RegResident ', RR1, ' ', RR2, ' ', RR3); Flush(Output); // reg-resident-locals bp here
+  if (RR1 = 0) or (RR2 = 0) or (RR3 = 0) then Writeln(GGlobalInt); // keep live
+end;
+{$IFDEF DT_RR_O_OFF}{$OPTIMIZATION OFF}{$UNDEF DT_RR_O_OFF}{$ENDIF}
+{$IFDEF DT_RR_W_ON}{$STACKFRAMES ON}{$UNDEF DT_RR_W_ON}{$ENDIF}
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1097,6 +1123,9 @@ begin
     GGlobalByteParam := TByteParamHost.Create;
     GGlobalByteParam.FMarker := Integer($B7B7B7B7);
     GGlobalByteParam.Probe($C7);
+    // §6.35 round 2: reach the standalone proc whose three Integer locals
+    // are register-allocated into distinct callee-saved registers.
+    RegResidentLocalsProbe;
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;

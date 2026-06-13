@@ -1730,7 +1730,8 @@ begin
       // it were the parameter's value. The dotted-walk has a
       // dedicated path that sources the instance pointer from
       // <Locals[].RawBytes> for lkRegister; here we just decline.
-      if Proc.Locals[I].Kind = lkRegister then
+      // §6.35 lkRegisterResident locals likewise have no stack address.
+      if Proc.Locals[I].Kind in [lkRegister, lkRegisterResident] then
         Exit(False);
       AAddress := Pointer(BaseAddr + Proc.Locals[I].BpOffset);
       Exit(True);
@@ -1849,6 +1850,31 @@ begin
         Loc.RawBytes := RegBytes
       else
         Loc.RawBytes := RegisterParamBytes(Regs, Proc.Locals[I].RegParamIdx);
+    end
+    else if Proc.Locals[I].Kind = lkRegisterResident then
+    begin
+      // §6.35: a LOCAL the optimiser kept wholly in a CPU register (no
+      // stack home). CpuRegIndex selects the live register over the
+      // x86 allocatable GP set [EAX,ECX,EDX,EBX,ESI,EDI]; read its 4 bytes
+      // zero-extended. The map was reverse-engineered on x86, so only
+      // resolve it for a 32-bit target -- on x64 leave the bytes zero
+      // (honest "unknown") rather than read a wrong register.
+      SetLength(RegBytes, ReadSize);
+      FillChar(RegBytes[0], ReadSize, 0);
+      if FTargetIs32Bit then
+      begin
+        var RegVal: UIntPtr := 0;
+        case Proc.Locals[I].CpuRegIndex of
+          0: RegVal := Regs.Eax;
+          1: RegVal := Regs.Ecx;
+          2: RegVal := Regs.Edx;
+          3: RegVal := Regs.Ebx;
+          4: RegVal := Regs.Esi;
+          5: RegVal := Regs.Edi;
+        end;
+        PCardinal(@RegBytes[0])^ := Cardinal(RegVal);
+      end;
+      Loc.RawBytes := RegBytes;
     end
     else
     begin

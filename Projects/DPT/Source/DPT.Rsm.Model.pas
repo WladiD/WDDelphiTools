@@ -30,8 +30,16 @@ type
   ///   a Delphi proc under the default "register" / Win64 ABI -- they
   ///   are NOT spilled to stack slots, so callers must read them out of
   ///   the thread's register file instead of from FramePtr + offset.
+  ///
+  ///   <c>lkRegisterResident</c> (§6.35) is a non-parameter LOCAL that the
+  ///   optimiser kept wholly in a CPU register with no stack home at all.
+  ///   It is emitted with the <c>$16 00 00 &lt;type&gt; &lt;2*regindex&gt;</c>
+  ///   LOCAL form (vs the stack form's <c>$66 00 00 &lt;type&gt;
+  ///   &lt;2*offset&gt;</c>); the register is carried in <c>CpuRegIndex</c>
+  ///   (not <c>RegParamIdx</c>, whose index space is the param-only
+  ///   EAX/EDX/ECX order).
   /// </summary>
-  TRsmLocalKind = (lkBpRel, lkRegister);
+  TRsmLocalKind = (lkBpRel, lkRegister, lkRegisterResident);
 
   /// <summary>
   ///   A single local variable extracted from an RSM symbol stream:
@@ -53,6 +61,14 @@ type
     ///   index -> register name when reading the value.
     /// </summary>
     RegParamIdx: Byte;
+    /// <summary>
+    ///   §6.35: which CPU register holds the value when
+    ///   <c>Kind = lkRegisterResident</c>. Zero-based index into the
+    ///   allocatable x86 GP set <c>[EAX, ECX, EDX, EBX, ESI, EDI]</c>
+    ///   (so 3 = EBX, 4 = ESI, 5 = EDI), decoded as the `$16` form's
+    ///   byte+4 div 2. Meaningless for other kinds.
+    /// </summary>
+    CpuRegIndex: Byte;
   end;
 
   /// <summary>
