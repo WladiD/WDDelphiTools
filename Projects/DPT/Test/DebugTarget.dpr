@@ -869,6 +869,30 @@ begin
 end;
 {$IFDEF DT_FRAMELESS_O_OFF}{$OPTIMIZATION OFF}{$UNDEF DT_FRAMELESS_O_OFF}{$ENDIF}
 {$IFDEF DT_FRAMELESS_W_ON}{$STACKFRAMES ON}{$UNDEF DT_FRAMELESS_W_ON}{$ENDIF}
+// §6.35 residual (2) fixture: a normal EBP-frame method with a Byte
+// register parameter. Delphi spills a sub-4-byte register param to its
+// frame home with an 8-bit store -- `mov [ebp-NN],dl` = 88 55 NN -- which
+// TryFindRegParamSpillDisp's 32-bit-only `89 55 NN` match misses. The body
+// clobbers EAX/EDX (so DL no longer holds the param) BEFORE a BP on a line
+// that does NOT reference AByteParam, so the live-register fallback returns
+// garbage; AByteParam ($C7) survives only in its [ebp-NN] frame home. The
+// pin goes red->green once the matcher recognises the byte store, reads one
+// byte, and zero-extends it. Mirrors the TStaleSelfHost clobber technique.
+type
+  TByteParamHost = class
+    FMarker : Integer;
+    procedure Probe(AByteParam: Byte);
+  end;
+var
+  GGlobalByteParam : TByteParamHost;
+procedure TByteParamHost.Probe(AByteParam: Byte);
+var
+  LScratch : Integer;
+begin
+  LScratch := GGlobalInt * 5 + 1;                  // clobbers EAX/EDX (DL)
+  Writeln('ByteParam ', LScratch, ' ', FMarker);   // bp here - AByteParam NOT referenced
+  Writeln('ByteParamVal ', AByteParam); Flush(Output);  // param used only AFTER the bp
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1068,6 +1092,11 @@ begin
     GGlobalFrameless := TFramelessHost.Create;
     GGlobalFrameless.FMarker := Integer($F3A3E1E5);
     GGlobalFrameless.Probe($5A);
+    // §6.35 residual (2): reach the EBP-frame Byte-param Probe with a known
+    // Byte parameter ($C7) whose inbound DL is clobbered before the BP.
+    GGlobalByteParam := TByteParamHost.Create;
+    GGlobalByteParam.FMarker := Integer($B7B7B7B7);
+    GGlobalByteParam.Probe($C7);
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;
@@ -1096,5 +1125,6 @@ begin
     GGlobalNonTHost.FNonTObj.Free;
     GGlobalNonTHost.Free;
     GGlobalFrameless.Free;
+    GGlobalByteParam.Free;
   end;
 end.

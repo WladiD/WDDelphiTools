@@ -447,11 +447,20 @@ FScanRegParam`.
 > that register at the BP — tried in `GetLocals` after the memory-spill
 > path and only for frameless procs, before the live-register fallback.
 > Pinned by `Test.DPT.MCP.Server.TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill`
-> (`Self` → ESI, EAX clobbered before the BP). Two residuals stay **open
-> as §6.35**: locals the optimiser keeps wholly in a register (no stack
-> home at all), and sub-4-byte register params spilled to **memory** in a
-> normal EBP frame via `88 55 NN` / `66 89 55 NN`, which the 32-bit-only
-> `TryFindRegParamSpillDisp` matcher misses.
+> (`Self` → ESI, EAX clobbered before the BP).
+>
+> **Sub-4-byte register params are spilled to memory with a NARROW
+> store** even in a normal EBP frame — `mov [ebp-NN],dl` = `88 55 NN`
+> (byte), `66 89 55 NN` (word) — which share the dword store's ModRM byte
+> and so differ from `89 55 NN` only in the opcode. `TryFindRegParamSpillDisp`
+> now matches the `88` / `66 89` forms too and returns the **store width**;
+> `GetLocals` reads exactly that many bytes and zero-extends, so a
+> `Byte`/`Word`/`Boolean`/`enum` param reads back clean (e.g. `199 =
+> 0x000000C7`) instead of leaking the inbound register's stale high bytes
+> (`0x00B9FDC7`). Pinned by
+> `Test.DPT.MCP.Server.TestMcpEvaluateByteParamFromMemorySpill`. One
+> residual stays **open as §6.35**: locals the optimiser keeps wholly in a
+> register (no stack home at all).
 
 > **Consumer note — VMT trumps RSM TypeIdx for class-instance dotted
 > walks.** The dotted-walk evaluator (`DPT.Debugger.EvaluateVariable`)
@@ -2739,12 +2748,13 @@ unaffected.
 > subsection). (Still-OPEN §6 entries are enumerated at the end of this
 > block: **§6.29** and **§6.35**.) §6.33 — the large-binary `string`-field
 > auto-typing stack — is **closed** (all three defects fixed, folded into
-> §4.9). **§6.35** (frameless x86 procs) is now OPEN: its frame-base
-> half is closed (locals rebased onto ESP, folded into the §4 register-
-> param consumer note) but two register-home residuals remain — see the
-> §6.35 entry below. So the still-OPEN §6 entries are **§6.29** (per-
-> statement line table) and **§6.35** (frameless reg-resident params /
-> locals). The next gap discovered MUST be numbered **§6.36**, not §6.1.
+> §4.9). **§6.35** (frameless x86 procs) is now OPEN: its frame-base,
+> reg→reg-param-spill, and narrow-memory-param-spill halves are all closed
+> (folded into the §4 register-param consumer note); only the
+> register-resident-local residual remains — see the §6.35 entry below.
+> So the still-OPEN §6 entries are **§6.29** (per-statement line table)
+> and **§6.35** (frameless register-resident locals). The next gap
+> discovered MUST be numbered **§6.36**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
 > number long after the §6 entry itself is gone, and renumbering would
@@ -2946,19 +2956,24 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.35 Frameless x86 procs — residual register-home recovery (`GAP`)
+### 6.35 Frameless x86 procs — register-resident locals (`GAP`)
 
 [DPT.Debugger.pas GetLocals / TryFindRegParamRegSpill / TryFindRegParamSpillDisp](DPT.Debugger.pas).
-Two halves of this gap are **CLOSED** and folded into the §4 register-
+Three halves of this gap are **CLOSED** and folded into the §4 register-
 param consumer note: (1) a frameless (ESP-addressed) x86 proc's stack
 locals are read off ESP via `ProcUsesEbpFrame` (pinned by
-`TestMcpEvaluateFramelessProcLocalsDecoded`), and (2) register parameters
+`TestMcpEvaluateFramelessProcLocalsDecoded`); (2) register parameters
 spilled register-to-register into a callee-saved register
 (`mov esi,eax` = Self → ESI, `mov ebx,edx` = 2nd param → EBX) are
 recovered by `TryFindRegParamRegSpill` (pinned by
-`TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill`), both against the
-`DebugTarget.dpr` `TFramelessHost.Probe` fixture. Two residuals stay
-open:
+`TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill`); and (3) sub-4-byte
+register params spilled to memory with a narrow store (`88 55 NN` byte /
+`66 89 55 NN` word, sharing the dword store's ModRM) are matched by
+`TryFindRegParamSpillDisp`, which now returns the store width so
+`GetLocals` reads exactly that many bytes zero-extended (pinned by
+`TestMcpEvaluateByteParamFromMemorySpill`). All three are pinned against
+the `DebugTarget.dpr` `TFramelessHost.Probe` / `TByteParamHost.Probe`
+fixtures. One residual stays open:
 
 * **Register-resident locals (no stack home at all).** Under `{$O+}` the
   optimiser can keep a local wholly in a register with no stack slot —
@@ -2968,14 +2983,6 @@ open:
   scanner doesn't yet read, then a register-sourced read in the consumer.
   (Why the `TestMcpEvaluateFramelessProcLocalsDecoded` pin asserts only
   the `Int64` stack locals `LBig`/`LB3`/`LB6`, not `LExtra`.)
-* **Sub-4-byte register params spilled to MEMORY (observed, unpinned).**
-  Even in a normal **EBP** frame a `Byte`/`Word`/`enum` register param
-  spills with `88 55 NN` = `mov [ebp-NN],dl` (byte) or `66 89 55 NN`
-  (word), which `TryFindRegParamSpillDisp`'s 32-bit-only `89 55 NN`
-  match misses — so `evaluate` of such a param returns garbage high
-  bytes (the live-register fallback's stale value). Lead: extend the
-  memory-spill matcher to the 8-bit (`88 /r`) and 16-bit (`66 89 /r`)
-  store forms AND clamp the read to the param's declared width.
 
 ---
 

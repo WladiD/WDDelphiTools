@@ -347,13 +347,18 @@ type
     ///   Scans the prologue for the spill store of the register that
     ///   carries <c>ARegParamIdx</c> and, on a match, returns its signed
     ///   displacement from the frame pointer (EBP/RBP) in
-    ///   <c>ADispFromFramePtr</c>. Returns <c>False</c> when the
-    ///   parameter is kept in its register (no spill emitted) or the
-    ///   index has no register slot, in which case the caller falls back
-    ///   to the live register value.
+    ///   <c>ADispFromFramePtr</c> plus the store WIDTH in bytes (§6.35:
+    ///   1 for `mov [ebp-NN],dl` = 88, 2 for `66 89`, 4 for `89`) in
+    ///   <c>AStoreWidth</c> -- a sub-4-byte register parameter
+    ///   (Byte/Word/Boolean/enum) is spilled with a narrow store, so the
+    ///   caller must read only that many bytes and zero-extend, else the
+    ///   neighbouring frame bytes leak into the high part. Returns
+    ///   <c>False</c> when the parameter is kept in its register (no spill
+    ///   emitted) or the index has no register slot, in which case the
+    ///   caller falls back to the live register value.
     /// </summary>
     function  TryFindRegParamSpillDisp(AProcStart: Pointer; ARegParamIdx: Byte;
-      out ADispFromFramePtr: Integer): Boolean;
+      out ADispFromFramePtr: Integer; out AStoreWidth: Integer): Boolean;
     /// <summary>
     ///   §6.35: tells whether an x86 procedure establishes a classic
     ///   <c>push ebp; mov ebp,esp</c> frame (locals anchored to EBP) or
@@ -1226,7 +1231,8 @@ begin
 end;
 
 function TDebugger.TryFindRegParamSpillDisp(AProcStart: Pointer;
-  ARegParamIdx: Byte; out ADispFromFramePtr: Integer): Boolean;
+  ARegParamIdx: Byte; out ADispFromFramePtr: Integer;
+  out AStoreWidth: Integer): Boolean;
 const
   // How far into the prologue to look for the spill store. Delphi emits
   // the spills immediately after the frame setup (verified: Win32 Self at
@@ -1243,6 +1249,7 @@ var
 begin
   Result := False;
   ADispFromFramePtr := 0;
+  AStoreWidth := 4;
 
   // Map the register-parameter index to the spill store's opcode bytes.
   // The store is `mov [framePtr + disp], <reg>`; the ModRM reg field
@@ -1286,6 +1293,40 @@ begin
   begin
     if FTargetIs32Bit then
     begin
+      // §6.35: a sub-4-byte register param is spilled with a NARROW store
+      // that shares the dword store's ModRM byte (DL and EDX both reg-code
+      // 010, so `88 55 NN` and `89 55 NN` differ only in the opcode):
+      //   88 <M8/M32>      -> byte store  (mov [ebp+disp],dl),  width 1
+      //   66 89 <M8/M32>   -> word store  (mov [ebp+disp],dx),  width 2
+      //   89 <M8/M32>      -> dword store (mov [ebp+disp],edx),  width 4
+      // The 32-bit-only match used to miss the narrow forms, leaving the
+      // caller on the stale live register. Try the narrow forms first; a
+      // `66` prefix shifts the opcode/ModRM by one byte.
+      if (Buf[P] = $88) and (Buf[P + 1] = M8) then
+      begin
+        ADispFromFramePtr := ShortInt(Buf[P + 2]);
+        AStoreWidth := 1;
+        Exit(True);
+      end;
+      if (Buf[P] = $88) and (Buf[P + 1] = M32) and (P + 6 <= Length(Buf)) then
+      begin
+        ADispFromFramePtr := PInteger(@Buf[P + 2])^;
+        AStoreWidth := 1;
+        Exit(True);
+      end;
+      if (Buf[P] = $66) and (Buf[P + 1] = $89) and (Buf[P + 2] = M8) then
+      begin
+        ADispFromFramePtr := ShortInt(Buf[P + 3]);
+        AStoreWidth := 2;
+        Exit(True);
+      end;
+      if (Buf[P] = $66) and (Buf[P + 1] = $89) and (Buf[P + 2] = M32) and
+         (P + 7 <= Length(Buf)) then
+      begin
+        ADispFromFramePtr := PInteger(@Buf[P + 3])^;
+        AStoreWidth := 2;
+        Exit(True);
+      end;
       if Buf[P] = Op then
       begin
         if Buf[P + 1] = M8 then
@@ -1717,6 +1758,7 @@ var
   SegmentOff: NativeUInt;
   SlotAddr  : UIntPtr;
   SpillDisp : Integer;
+  SpillWidth: Integer;
   I         : Integer;
 begin
   Result := nil;
@@ -1777,11 +1819,27 @@ begin
       // the RAW frame pointer (EBP/RBP), not the LocalSize-corrected
       // BaseAddr, so apply it to Regs.Ebp directly. Fall back to the live
       // register when no spill was emitted (leaf / unspilled parameter).
-      if TryFindRegParamSpillDisp(ProcStart, Proc.Locals[I].RegParamIdx, SpillDisp) then
+      if TryFindRegParamSpillDisp(ProcStart, Proc.Locals[I].RegParamIdx,
+           SpillDisp, SpillWidth) then
       begin
         Loc.BpOffset := SpillDisp;
         SlotAddr := UIntPtr(NativeInt(Regs.Ebp) + SpillDisp);
-        Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
+        if (SpillWidth = 1) or (SpillWidth = 2) then
+        begin
+          // §6.35: a sub-4-byte (Byte/Word) register param is spilled with
+          // a narrow store -- read only that width and zero-extend, so the
+          // neighbouring frame bytes don't leak into the high part of an
+          // int read. (Wider/x64 spills keep the full 8-byte read.)
+          SetLength(RegBytes, ReadSize);
+          FillChar(RegBytes[0], ReadSize, 0);
+          var NarrowBytes := ReadProcessMemory(Pointer(SlotAddr), SpillWidth);
+          // SpillWidth is 1 or 2 here, always < ReadSize, so the copy fits.
+          if Length(NarrowBytes) > 0 then
+            Move(NarrowBytes[0], RegBytes[0], Length(NarrowBytes));
+          Loc.RawBytes := RegBytes;
+        end
+        else
+          Loc.RawBytes := ReadProcessMemory(Pointer(SlotAddr), ReadSize);
       end
       else if Frameless and TryFindRegParamRegSpill(ProcStart,
                 Proc.Locals[I].RegParamIdx, Regs, RegBytes) then

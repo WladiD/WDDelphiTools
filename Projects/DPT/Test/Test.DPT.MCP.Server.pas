@@ -91,6 +91,8 @@ type
     [Test]
     procedure TestMcpEvaluateFramelessRegParamFromCalleeSavedSpill;
     [Test]
+    procedure TestMcpEvaluateByteParamFromMemorySpill;
+    [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
@@ -2560,6 +2562,42 @@ begin
     Assert.IsTrue(Line.Contains('TFramelessHost'),
       'Frameless reg→reg-spilled Self must resolve to TFramelessHost via ' +
       'the callee-saved ESI home, not the stale EAX, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.35 GAP isolation pin: a sub-4-byte register parameter spilled to
+///   its frame home with a NARROW store. `TByteParamHost.Probe`'s
+///   <c>AByteParam: Byte</c> ($C7 = 199) is spilled `mov [ebp-5],dl` =
+///   `88 55 FB` (8-bit store) -- which TryFindRegParamSpillDisp's
+///   32-bit-only `89 55 NN` match missed, so it fell back to the live EDX
+///   and `evaluate AByteParam` as int returned 0x00B9FDC7 (the low byte
+///   is the param, the high three are the caller's stale EDX = a stack
+///   address leak). The fix matches the byte/word store forms, returns
+///   the store width, and reads exactly that many bytes zero-extended, so
+///   the result is the clean 0x000000C7 = 199. Win32-only like the
+///   sibling §6.18 pin.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateByteParamFromMemorySpill;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 893);
+  try
+    // AByteParam = $C7 = 199, spilled `mov [ebp-5],dl`. Read at the byte
+    // store's width and zero-extended it is exactly 199 (0x000000C7);
+    // before the fix the 32-bit-only spill match missed the byte store and
+    // the live-register fallback leaked EDX's high bytes (0x00B9FDC7).
+    Line := Fixture.Eval('AByteParam', 'int');
+    Assert.IsTrue(Line.Contains('199 (0x000000C7)'),
+      'Byte param spilled via 88 55 NN must read back as 199 (0x000000C7) ' +
+      'from its frame home at the store width, got: ' + Line);
   finally
     Fixture.Free;
   end;
