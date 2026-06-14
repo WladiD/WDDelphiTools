@@ -939,6 +939,33 @@ begin
   Writeln('RecLocalNested ', AdrLoc.Name, ' ', AdrLoc.Anschrift.Str, ' ',
     AdrLoc.Anschrift.Ort); Flush(Output); // rec-local-nested bp here
 end;
+// §6.35 spill-home fixture for CONST STRING register parameters.
+// Mirrors Test.Lib's `Test(const AWords,Input: String; ...)`: two const
+// String params land in registers (EDX/ECX after Self=EAX). A CALL (the
+// first Writeln) clobbers those registers; the BP line below references
+// NEITHER param, so the live registers are stale there; and both params
+// are used AGAIN afterwards, so in this {$O-} debug build the compiler
+// keeps them in prologue spill homes. Reading the live register at the BP
+// yields garbage -- the debugger must read the spill home (the IDE does
+// the same on debug builds). Pins that `evaluate <constStrParam> (string)`
+// and get_locals recover the ORIGINAL value at a post-clobber PC. Placed
+// AFTER the last BP marker per the rsm-expert BP-line discipline.
+type
+  TConstStrParamHost = class
+    FMarker : Integer;
+    procedure Probe(const AFirst, ASecond: String);
+  end;
+var
+  GGlobalConstStrParamHost : TConstStrParamHost;
+procedure TConstStrParamHost.Probe(const AFirst, ASecond: String);
+var
+  LScratch : Integer;
+begin
+  LScratch := Length(AFirst) + Length(ASecond);
+  Writeln('CSP-pre ', AFirst, ' ', ASecond);             // CALL clobbers EDX/ECX
+  Writeln('CSP ', LScratch, ' ', FMarker); Flush(Output); // bp here - const-str params NOT on this line
+  Writeln('CSP-post ', AFirst, ' ', ASecond); Flush(Output); // params used AFTER -> spilled/kept
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1148,6 +1175,10 @@ begin
     RegResidentLocalsProbe;
     // §6.36: reach the complex record-local probe (TAdresse-like shape).
     RecordLocalNestedProbe;
+    // §6.35: const-string register params read at a post-clobber PC.
+    GGlobalConstStrParamHost := TConstStrParamHost.Create;
+    GGlobalConstStrParamHost.FMarker := Integer($5A5A5A5A);
+    GGlobalConstStrParamHost.Probe('Hallo', 'Welt');
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;

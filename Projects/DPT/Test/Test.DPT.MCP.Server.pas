@@ -95,6 +95,8 @@ type
     [Test]
     procedure TestMcpEvaluateRegisterResidentLocal;
     [Test]
+    procedure TestMcpEvaluateConstStringRegParamAfterClobber;
+    [Test]
     procedure TestMcpEvaluateCrossUnitRecordLocalDottedWalk;
     [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
@@ -2653,6 +2655,61 @@ begin
     Line := Fixture.Eval('RR3', 'int');
     Assert.IsTrue(Line.Contains('CCCC0003'),
       'register-resident RR3 must read EDI = $CCCC0003, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.35 spill-home pin for CONST STRING register parameters at a
+///   POST-CLOBBER PC. <c>TConstStrParamHost.Probe(const AFirst, ASecond:
+///   String)</c> takes two const-string params (registers EDX/ECX after
+///   Self=EAX); a <c>Writeln</c> CALL clobbers those registers, the
+///   breakpoint line references NEITHER param, and both are used again
+///   afterwards — so in this <c>{$O-}</c> debug build the compiler keeps
+///   them in prologue spill homes. Reading the live (stale) register would
+///   yield garbage; the debugger must read the home. This pins that
+///   <c>evaluate AFirst/ASecond (string)</c> recovers the ORIGINAL values
+///   ("Hallo"/"Welt") at the post-clobber PC — the same recovery the Delphi
+///   IDE does on debug builds, via §6.35 <c>TryFindRegParamSpillDisp</c>.
+///
+///   Mirrors Test.Lib's <c>Test(const AWords,Input: String; ...)</c>, where
+///   the same evaluate FAILED several lines into the method. The difference
+///   is the build, not the debugger: Test.Lib is OPTIMIZED (<c>{$O+}</c>),
+///   so no spill home is emitted and the value is genuinely gone once the
+///   register is reused — a limitation inherent to optimized native code
+///   that no debugger (IDE included) can overcome. This controlled debug
+///   fixture isolates and locks the recoverable case.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateConstStringRegParamAfterClobber;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 966);
+  try
+    // First const-string register param (EDX), read from its spill home
+    // because EDX is stale at this PC (clobbered by the preceding Writeln).
+    Line := Fixture.Eval('AFirst', 'string');
+    Assert.IsTrue(Line.Contains('Hallo'),
+      'AFirst must read "Hallo" from the prologue spill home at a ' +
+      'post-clobber PC (§6.35), got: ' + Line);
+
+    // Second const-string register param (ECX), same spill-home recovery.
+    Line := Fixture.Eval('ASecond', 'string');
+    Assert.IsTrue(Line.Contains('Welt'),
+      'ASecond must read "Welt" from the spill home at a post-clobber PC, ' +
+      'got: ' + Line);
+
+    // Confidence guard: the recovered value must NOT be a stale-register
+    // failure. A live-register read would deref clobbered EDX/ECX and
+    // either fail or yield garbage, never the exact source literals above.
+    Assert.IsFalse(Line.Contains('Failed to evaluate'),
+      'ASecond must resolve (spill home), not fail on the stale register: ' +
+      Line);
   finally
     Fixture.Free;
   end;

@@ -409,6 +409,36 @@ FScanRegParam`.
 > `GetLocals`. When no spill was emitted (leaf / unspilled param) it
 > falls back to the live register. Pinned by
 > `Test.DPT.MCP.Server.TestMcpEvaluateSelfFromSpillHomeAfterRegisterClobber`.
+>
+> **This covers value-typed register params too, not just `Self`.** A
+> `const String` param (a pointer-sized reference in EDX/ECX) reads back
+> correctly at a post-clobber PC because `GetLocals` sources its bytes from
+> the spill home and `evaluate … (string)` dereferences that pointer (it
+> uses the bytes, not a stack address — so register params need no
+> `GetLocalAddress`). Pinned by
+> `Test.DPT.MCP.Server.TestMcpEvaluateConstStringRegParamAfterClobber`
+> (`DebugTarget.dpr` `TConstStrParamHost.Probe(const AFirst, ASecond:
+> String)`: a `Writeln` clobbers EDX/ECX, the BP line names neither param,
+> both are used afterwards ⇒ both live in spill homes ⇒
+> `evaluate AFirst (string)` = "Hallo", `evaluate ASecond` = "Welt").
+>
+> **Hard limit — this only works when the compiler EMITS a home.** The
+> recovery is reading a spill slot the prologue actually wrote. A home is
+> emitted in debug builds (`{$O-}`, as `DebugTarget` is) and whenever a
+> param must survive a call. But under `{$O+}` the optimiser may keep a
+> once-used register param in its register and then reuse the register with
+> **no home at all** — at a later PC the original value exists **nowhere**
+> (not the register, not memory). No debugger, the Delphi IDE included, can
+> recover it; the IDE reports "inaccessible value". This is the observed
+> difference on the OPTIMIZED `Test.Lib` build, where
+> `Test(const AWords,Input: String; …)`'s params read as stale-register
+> garbage a few lines into the method (`get_locals` shows `bp_offset = 0`,
+> no home), versus the debug `DebugTarget` fixture above where they recover
+> cleanly (`bp_offset = -8 / -12`). It is a property of optimised native
+> code, **not** a `.rsm` decode gap — there is nothing to decode when the
+> value was never spilled. The actionable guidance is therefore: to inspect
+> register params throughout a method, debug a `{$O-}` build (or break at
+> the method entry on an optimised one).
 
 > **Consumer note — frameless (ESP-addressed) procedures (§6.35
 > closure).** The above assumes the classic x86 frame
