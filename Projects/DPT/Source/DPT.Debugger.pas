@@ -3012,10 +3012,12 @@ begin
       //     the priming block below detects and routes through the
       //     inline-record-hop path (no deref).
       var FirstLocalTypeIdx: UInt32 := 0;
+      var FirstSegIsLocal  : Boolean := False;
       for I := 0 to High(Locals) do
         if SameText(Locals[I].Name, Segments[0]) then
         begin
           FirstLocalTypeIdx := Locals[I].TypeIdx;
+          FirstSegIsLocal   := True;
           if (Locals[I].Kind = lkRegister) and
              (Length(Locals[I].RawBytes) >= FTargetPointerSize) then
           begin
@@ -3144,6 +3146,22 @@ begin
           if GStructIdx < 0 then
             GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
               Segments[0], Segments[1]);
+          if (GStructIdx < 0) and FirstSegIsLocal then
+          begin
+            // §6.36 first hop: a cross-unit record LOCAL carries
+            // TypeIdx = 0 (no per-proc type id at all -- e.g.
+            // <AdrLoc: DebugTarget.RecTypes.TXAdresse>), so neither
+            // the registry-id route nor the global-proximity fallback
+            // (locals have no $20 file offset) can find its record.
+            // Recover by the accessed field name: if exactly one
+            // skRecord declares Segments[1], that record IS the local's
+            // type. The unique-match guard (same as §6.18/§6.19) keeps
+            // a class-instance local whose VMT probe failed from being
+            // mis-primed as a record on an ambiguous field name.
+            var RecHits := FLocalsReader.FindRecordsByMemberName(Segments[1]);
+            if Length(RecHits) = 1 then
+              GStructIdx := RecHits[0];
+          end;
         end;
         if (GStructIdx >= 0) and
            (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
@@ -3308,6 +3326,35 @@ begin
           PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.TypeIdx);
           ContextIsRecord :=
             FLocalsReader.Classes[PrevContextIdx].Kind = skRecord;
+        end
+        else if ContextIsRecord and (I < High(Segments)) and
+                (Member.TypeIdx = 0) and (Member.PointerTargetTypeIdx = 0) and
+                (Member.Size > 0) then
+        begin
+          // §6.36 nested-record bridge. The just-resolved member is a
+          // field WITHIN a record (this segment was a record-hop) that
+          // carries no type id (§4.14 record-field-id-is-zero) yet the
+          // walk continues -- so the member must itself be a nested
+          // record (e.g. <TXAdresse.Anschrift: TXAnschrift>). Its Size
+          // equals the nested record's total byte size; combined with
+          // the next segment's field name FindRecordBySizeAndMemberName
+          // resolves the nested record uniquely. FieldAddr already
+          // points inline at the nested record's base (the record-hop
+          // advanced it by Member.Offset, no deref), so only the
+          // context needs priming for the next record-hop iteration.
+          var NestedIdx: Integer :=
+            FLocalsReader.FindRecordBySizeAndMemberName(
+              Member.Size, Segments[I + 1]);
+          if NestedIdx >= 0 then
+          begin
+            PrevContextIdx  := NestedIdx;
+            ContextIsRecord := True;
+          end
+          else
+          begin
+            PrevContextIdx  := -1;
+            ContextIsRecord := False;
+          end;
         end
         else
         begin

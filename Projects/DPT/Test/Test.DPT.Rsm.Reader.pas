@@ -164,6 +164,23 @@ type
     /// </summary>
     [Test]
     procedure TestLinkTokenSemanticsNotAUsefulLookupKey32;
+
+    /// <summary>
+    ///   §6.36 closure pin (reader side). The cross-unit record local
+    ///   <c>AdrLoc: DebugTarget.RecTypes.TXAdresse</c> in
+    ///   <c>RecordLocalNestedProbe</c> carries a 2-byte linker-minted
+    ///   per-proc type alias (Hi byte not $2E/$2F), which pushed its
+    ///   BPREL offset one byte later than the classic 1-byte-type form;
+    ///   the scanner used to leave the synthesized -10000 sentinel.
+    ///   After the §6.36 offset-side decode it resolves to the real
+    ///   frame offset -153 (the 153-byte record at the frame bottom).
+    ///   We also pin that both cross-unit records reach FClasses with
+    ///   their correct field layout -- the record-context the dotted
+    ///   walk's name/size bridges navigate (discovery was never the
+    ///   problem; the offset decode + walk priming were).
+    /// </summary>
+    [Test]
+    procedure TestCrossUnitRecordLocalOffsetAndLayout32;
   end;
 
 implementation
@@ -742,6 +759,76 @@ begin
       Assert.AreNotEqual<UInt32>(DwordUse, DwordCanon,
         'the alias''s own $2A DWORD token must differ from the use-site ' +
         'token -- confirming name-keyed token lookup is ambiguous for aliases');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestCrossUnitRecordLocalOffsetAndLayout32;
+
+  function MemberByName(const AInfo: TRsmClassInfo;
+    const AName: String): TRsmClassMember;
+  var
+    M: Integer;
+  begin
+    Result := Default(TRsmClassMember);
+    for M := 0 to AInfo.Members.Count - 1 do
+      if SameText(AInfo.Members[M].Name, AName) then
+        Exit(AInfo.Members[M]);
+  end;
+
+var
+  R     : TRsmReader;
+  Pi, Ci: Integer;
+  Adr   : TRsmClassInfo;
+  Ansch : TRsmClassInfo;
+  Found : Boolean;
+  Local : TRsmLocal;
+  L     : Integer;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+
+    // (1) §6.36 offset-side decode: AdrLoc's BPREL offset resolves to
+    // the real frame slot, not the synthesized "couldn't decode" sentinel.
+    Pi := R.FindProcByName('RecordLocalNestedProbe');
+    Assert.IsTrue(Pi >= 0, 'RecordLocalNestedProbe proc not found');
+    Found := False;
+    for L := 0 to R.Procs[Pi].Locals.Count - 1 do
+      if SameText(R.Procs[Pi].Locals[L].Name, 'AdrLoc') then
+      begin
+        Local := R.Procs[Pi].Locals[L];
+        Found := True;
+        Break;
+      end;
+    Assert.IsTrue(Found, 'AdrLoc local not found in RecordLocalNestedProbe');
+    Assert.AreEqual<Integer>(Ord(lkBpRel), Ord(Local.Kind),
+      'AdrLoc must be a BP-relative stack local');
+    Assert.AreEqual<Int32>(-153, Local.BpOffset,
+      'AdrLoc BPREL offset must decode to -153 (the 153-byte record at ' +
+      'the frame bottom); a value <= -10000 means the §6.36 2-byte ' +
+      'cross-unit-type offset shape was not decoded');
+
+    // (2) Both cross-unit records reach FClasses with correct layout.
+    Ci := R.FindClassByName('TXAdresse');
+    Assert.IsTrue(Ci >= 0, 'TXAdresse record not discovered');
+    Adr := R.Classes[Ci];
+    Assert.AreEqual<Integer>(Ord(skRecord), Ord(Adr.Kind), 'TXAdresse must be a record');
+    Assert.AreEqual<UInt32>(0,  MemberByName(Adr, 'Name').Offset,      'TXAdresse.Name offset');
+    Assert.AreEqual<UInt32>(41, MemberByName(Adr, 'Anschrift').Offset, 'TXAdresse.Anschrift offset');
+    // The nested-record member's Size == TXAnschrift's total byte size
+    // (61 + 51): the structural key the dotted-walk nested-record bridge
+    // (FindRecordBySizeAndMemberName) matches on.
+    Assert.AreEqual<UInt32>(112, MemberByName(Adr, 'Anschrift').Size,
+      'TXAdresse.Anschrift size must equal TXAnschrift total size (112)');
+
+    Ci := R.FindClassByName('TXAnschrift');
+    Assert.IsTrue(Ci >= 0, 'TXAnschrift record not discovered');
+    Ansch := R.Classes[Ci];
+    Assert.AreEqual<Integer>(Ord(skRecord), Ord(Ansch.Kind), 'TXAnschrift must be a record');
+    Assert.AreEqual<UInt32>(0,  MemberByName(Ansch, 'Str').Offset, 'TXAnschrift.Str offset');
+    Assert.AreEqual<UInt32>(61, MemberByName(Ansch, 'Ort').Offset, 'TXAnschrift.Ort offset');
   finally
     R.Free;
   end;

@@ -128,6 +128,8 @@ type
     function  TryGetEnumConstantName(ATypeId: UInt32; AOrdinal: Integer;
       out AName: String; const AExpectedPrefix: String = ''): Boolean;
     function  FindRecordsByMemberName(const AFieldName: String): TArray<Integer>;
+    function  FindRecordBySizeAndMemberName(ARecordSize: UInt32;
+      const AFieldName: String): Integer;
     function  FindBestRecordForGlobalAndField(const AGlobalName,
       AFieldName: String): Integer;
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
@@ -1118,6 +1120,53 @@ begin
       end;
   end;
   Result := Hits.AsArray;
+end;
+
+function TRsmReader.FindRecordBySizeAndMemberName(ARecordSize: UInt32;
+  const AFieldName: String): Integer;
+// §6.36 nested-record bridge. A record-typed member of another record
+// (e.g. TXAdresse.Anschrift: TXAnschrift) carries TypeIdx = 0 -- the
+// §4.14 "record-field id = 0" gap -- so the dotted walk can't resolve
+// the nested record by id. Two structural signals recover it: (1) the
+// member's Size (gap to the next field, or RecordSize - offset for the
+// terminal field) equals the nested record's TOTAL byte size, and
+// (2) the next dotted segment names a field of that nested record.
+// Among skRecords whose summed layout extent == ARecordSize AND which
+// declare AFieldName, return the index iff exactly one qualifies --
+// the unique-match guard from the §6.18 / §6.19 pointer-to-record
+// fallbacks, so a size+name collision declines rather than mis-navigates.
+var
+  FClasses          : IList<TRsmClassInfo>;
+  I, M              : Integer;
+  Info              : TRsmClassInfo;
+  Total, Ext        : UInt32;
+  HasField          : Boolean;
+  FoundIdx, MatchCnt: Integer;
+begin
+  Result := -1;
+  if (ARecordSize = 0) or (AFieldName = '') then Exit;
+  FClasses := FScanner.Classes;
+  FoundIdx := -1;
+  MatchCnt := 0;
+  for I := 0 to FClasses.Count - 1 do
+  begin
+    Info := FClasses[I];
+    if Info.Kind <> skRecord then Continue;
+    Total    := 0;
+    HasField := False;
+    for M := 0 to Info.Members.Count - 1 do
+    begin
+      Ext := Info.Members[M].Offset + Info.Members[M].Size;
+      if Ext > Total then Total := Ext;
+      if SameText(Info.Members[M].Name, AFieldName) then HasField := True;
+    end;
+    if HasField and (Total = ARecordSize) then
+    begin
+      if MatchCnt = 0 then FoundIdx := I;
+      Inc(MatchCnt);
+    end;
+  end;
+  if MatchCnt = 1 then Result := FoundIdx;
 end;
 
 /// <summary>

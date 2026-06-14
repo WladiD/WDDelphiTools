@@ -130,10 +130,8 @@ following byte extends it into a 16-bit word and the recovered value is
 `(W - 1) div 2` (for ordinals) or `(W - 1) div 4` (for BPRel offsets and
 some sparse ordinals). This shows up in:
 
-* `TRsmScanner.HandleLocalRecord` BPRel-offset decoder
-  ([DPT.Rsm.Scanner.pas:825-839](DPT.Rsm.Scanner.pas#L825-L839))
-* `TRsmScanner.HandleEnumConstantRecord` sparse-ordinal form
-  ([DPT.Rsm.Scanner.pas:1064-1073](DPT.Rsm.Scanner.pas#L1064-L1073))
+* [`TRsmScanner.HandleLocalRecord`](DPT.Rsm.Scanner.pas) BPRel-offset decoder
+* [`TRsmScanner.HandleEnumConstantRecord`](DPT.Rsm.Scanner.pas) sparse-ordinal form
 
 ---
 
@@ -587,9 +585,8 @@ Two forms sharing the same tag byte:
 $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 ```
 
-Decoded by `HandleLocalRecord`
-([DPT.Rsm.Scanner.pas:801-905](DPT.Rsm.Scanner.pas#L801-L905)). The
-payload starts at `P + 2 + NL`. Two main shapes:
+Decoded by [`HandleLocalRecord`](DPT.Rsm.Scanner.pas). The
+payload starts at `P + 2 + NL`. Three shapes:
 
 **Shape A — structured-type id with BPRel offset:**
 
@@ -612,7 +609,36 @@ The decoder looks at what follows the candidate offset byte:
 * Otherwise if `byte6 ∈ {LOCAL_TAG, PROC_TAG, SCOPE_END}` → bytes 4..5
   form the wide offset, type id is `byte3`.
 
-When neither shape recognises, `Loc.BpOffset` keeps its synthesized
+**Shape C — 2-byte CROSS-UNIT type alias with BPRel offset at +5
+(§6.36 closure):**
+
+```
+$66 $00 $00  <aliasLo at +3>  <aliasHi at +4, NOT $2E/$2F>  <ofs at +5> [<+6>]  <terminator>
+```
+
+A local whose declared type is a **record (or other structured type)
+imported from another unit** carries a linker-minted 2-byte per-binary
+type alias (the §4.2 / §4.15 unreliable id). Its Hi byte is **not**
+`$2E`/`$2F`, so Shape A's `$2E/$2F` gate misses and Shape B reads the
+alias-Hi byte (`+4`) as the offset and fails — the real BPRel offset
+sits **one byte later, at `+5`** (single or wide sub-form), with a valid
+continuation tag immediately after it. This is the offset-side analogue
+of the §6.15 type-id structural lookahead: it is tried **only** when
+Shapes A/B left the synthesized fallback, and accepted only when the
+decoded offset is **non-positive** (locals live below EBP) AND
+`IsLocalOffsetTerminatorAt` confirms the post-offset byte opens a real
+record (`$20`/`$28`/`$63`/`$22`/`$21`/`$25`/`$03`/`$2A`, or `$9C $17`).
+Type id is `aliasLo | (aliasHi shl 8)`.
+
+Concrete Win32 evidence — `DebugTarget.RecordLocalNestedProbe`'s
+`AdrLoc: DebugTarget.RecTypes.TXAdresse` (a 153-byte cross-unit record):
+payload `66 00 00 A5 1E 9D FD 63` → alias `$1EA5` at `+3..+4`, wide
+offset `$FD9D` at `+5..+6` = `(SmallInt($FD9D) − 1) div 4` = **−153**
+(= −$99, the record at the frame bottom), `SCOPE_END` (`$63`) at `+7`.
+Pinned by
+[`Test.DPT.Rsm.Reader.TestCrossUnitRecordLocalOffsetAndLayout32`](../Test/Test.DPT.Rsm.Reader.pas).
+
+When none of A/B/C recognises, `Loc.BpOffset` keeps its synthesized
 fallback `-10000 - (FScanLocalIdx * 4)`. The
 `TestEdgeCaseLocalsAllDecoded` and `TestLocalsHaveDistinctOffsets`
 tests assert that **no synthesized fallback survives** on
@@ -683,7 +709,7 @@ Concrete Win32 evidence (`DebugTarget.InlineVarLocalsProcedure`):
 
 Also: every `$20` record additionally publishes the `(name → 2-byte id)`
 pair into the global maps `FGlobalByName` / `FGlobalFileOffset`
-([Scanner.pas:877-902](DPT.Rsm.Scanner.pas#L877-L902)), because the
+([`HandleLocalRecord`](DPT.Rsm.Scanner.pas)), because the
 `FScanInProc` gate cannot reliably distinguish a stack local from a
 module-level variable in every code path.
 
@@ -693,8 +719,8 @@ module-level variable in every code path.
 $20  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  <id-hi>  <VA: 4 bytes>
 ```
 
-Decoded by `HandleModuleGlobalLocalTagRecord`
-([Scanner.pas:907-942](DPT.Rsm.Scanner.pas#L907-L942)). `NL` ∈ `[1, 40]`.
+Decoded by [`HandleModuleGlobalLocalTagRecord`](DPT.Rsm.Scanner.pas).
+`NL` ∈ `[1, 40]`.
 The `$66 $00 $00` at +0..+2 (after the name) is the validation anchor;
 the 2-byte type id is read at +3, +4. The 4-byte VA slot at +5..+8
 shares the encoding with the `$27 GLOBAL_PRIM` and `$28 PROC_TAG` Win32
@@ -713,7 +739,7 @@ scope (because the previous `$63 SCOPE_END` was suppressed by the
 the bytes; it detects the `$66 $00 $00` anchor at body+0..+2 (which no
 stack-local record ever carries) and publishes both the type id and
 the decoded VA into the global maps as a fallback. See
-[Scanner.pas:884-901](DPT.Rsm.Scanner.pas#L884-L901).
+[`HandleModuleGlobalLocalTagRecord`](DPT.Rsm.Scanner.pas).
 
 ### 4.5 `$27` GLOBAL_PRIM_TAG — top-level primitive global
 
@@ -721,8 +747,8 @@ the decoded VA into the global maps as a fallback. See
 $27  <NL: u8>  <Name>  $66 $00 $00  <id-lo>  [<id-hi>]  <VA: 4 bytes>
 ```
 
-Decoded by `HandleGlobalPrimRecord`
-([Scanner.pas:944-1011](DPT.Rsm.Scanner.pas#L944-L1011)). `NL` ∈ `[1, 40]`.
+Decoded by [`HandleGlobalPrimRecord`](DPT.Rsm.Scanner.pas).
+`NL` ∈ `[1, 40]`.
 Anchor `$66 $00 $00` immediately after the name.
 
 Type-id decode is **the most general** of all the tag handlers: if the
@@ -741,7 +767,7 @@ the `TRsmScopeLocalEnumBridge` post-pass exploits to bind every variable
 of that id to the correct `EnumDef` via a single anchor variable.
 
 Important: this branch does **not** gate on `not FScanInProc`. The
-comment at [Scanner.pas:947-957](DPT.Rsm.Scanner.pas#L947-L957) explains
+comment in [`HandleGlobalPrimRecord`](DPT.Rsm.Scanner.pas) explains
 why — early-region globals (`GGlobalInt`, `GGlobalString`) get silently
 skipped when an earlier proc opened `InProc` but emitted no
 local/param/regvar record to flip `FScanSeenLocalSinceProc`.
@@ -1757,6 +1783,79 @@ confirmed (see §4.9 and
 > through this path now: live `evaluate Self.FAd.Land (type=int)`
 > returns `0` = `ltInland` ordinal, matching the manual
 > `read_memory` ground-truth byte at `[FAd + 0x169D]`.
+>
+> **§6.36 closure — record-context bridges for cross-unit record
+> locals and inline NESTED records (no usable type id anywhere).**
+> A value-type record **local** of a cross-unit type carries no
+> resolvable type id at all (`AdrLoc: TXAdresse` decodes with
+> `Local.TypeIdx = $1EA5`, a per-binary alias that resolves to no
+> registry struct), and a record-typed **member** of another record
+> (`TXAdresse.Anschrift: TXAnschrift`) carries `Member.TypeIdx = 0`
+> (the record-field-id-is-zero gap above). The id-based priming
+> (`FindClassIdxByRsmTypeId` / `FindStructByTypeIdx`) therefore can't
+> establish record context at either hop, and a record has no VMT for
+> the §6.32 priming to lean on. Two structural bridges in
+> `DPT.Debugger.EvaluateVariable` close it, both unique-match-guarded
+> like §6.18/§6.19:
+>
+> 1. **First hop (record local).** When the first segment is a local
+>    whose id resolves to no record AND the global-proximity fallback
+>    can't apply (locals have no `$20` file offset),
+>    `FindRecordsByMemberName(Segments[1])` returns the records that
+>    declare the accessed field name; if exactly one is a record, it
+>    is the local's type. Recovers `AdrLoc` → `TXAdresse` via the
+>    field `Anschrift`.
+> 2. **Nested hop (inline record member).** When a member resolved
+>    via the record-hop branch carries no type id (`TypeIdx = 0`,
+>    `PointerTargetTypeIdx = 0`) yet the walk continues, it must be a
+>    nested inline record. `FindRecordBySizeAndMemberName(Member.Size,
+>    Segments[I+1])` matches on the member's `Size` (which equals the
+>    nested record's total byte size — `Anschrift.Size = 112` =
+>    `TXAnschrift`'s `61 + 51`) AND the next field name; a unique hit
+>    primes the next record-hop. `FieldAddr` already points inline at
+>    the nested record's base (the record-hop advanced it by
+>    `Member.Offset`, no deref), so only the context needs priming.
+>
+> Note the controlled DebugTarget fixture also surfaced the §6.36
+> offset-side decode (Shape C in §4.4): `AdrLoc`'s frame offset itself
+> failed to decode before that fix, so the address was wrong on top of
+> the context-priming gap — both had to land for the dotted walk to
+> reach `TXAnschrift.Str`. Pinned end-to-end by
+> `Test.DPT.MCP.Server.TestMcpEvaluateCrossUnitRecordLocalDottedWalk`
+> (`AdrLoc.Anschrift.Str` = "Hauptstr.", with `AdrLoc.Name` = "Firma X"
+> and `AdrLoc.Anschrift.Ort` = "Berlin" as nested-layout leakage
+> guards). The Test.Lib manifestation (where the address DID decode but
+> the type auto-detected as a stray enum/record) is the same end-user
+> symptom reached by a different internal path; the bridges fix both.
+>
+> **Design limit — these record fields need an explicit `type=`; the
+> no-type auto-detect cannot infer them.** The bridges above fix the
+> *navigation* (the dotted walk reaches the right address), but
+> `AutoDetectFormatterName` still cannot infer the terminal *type* of a
+> cross-unit record local or its fields, because the RSM carries no
+> usable type id for them: the record local's per-proc id is the
+> unresolvable §4.15 alias (`AdrLoc` → `$1EA5`, resolves to no struct),
+> and the record-field records the scanner captures hold **no primitive
+> type id** — a `string[N]` field's record is just
+> `$02 <NL> <name> $02 $00 <last-flag> $00 $00 $00` plus the size DWORD
+> (verified byte-level on `TXAnschrift.Str`/`Ort`; the §6.33
+> primitive-id decode applies to *class* `$2C` field records, which these
+> inline record fields don't get). So `evaluate AdrLoc.Anschrift.Str`
+> with no `type=` falls back to **int** (it reads the correct field
+> bytes — `$75614809` = `09 'H' 'a' 'u'` — just under the wrong
+> formatter), and bare `evaluate AdrLoc` **declines** with
+> "could not be auto-typed" rather than fabricating a type. The decline
+> is the *correct* behavior: unlike §6.36 manifestation A (where an
+> interface local's alias id resolves to a bogus record and auto-detect
+> confidently mis-names it), the record-local id resolves to nothing, so
+> the consumer honestly refuses to guess. **The contract is: pass
+> `type=shortstring` (or the right primitive) for record-field
+> terminals.** Pinned by the no-type assertions in
+> `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` (bare `AdrLoc` declines
+> and does not name a record). Whether the primitive type is recoverable
+> from a `$2C`-style record-field record (if the linker emits one for
+> record fields at all) was not investigated — deferred, since the
+> explicit-`type=` path covers the need.
 
 **Terminal-field byte width** (design limitation). Unlike records
 which carry a size DWORD between the name and the field stream
@@ -2789,10 +2888,20 @@ unaffected.
 > four halves (frame-base ESP rebase, reg→reg param spill, narrow-memory
 > param spill, and register-resident locals via the `$16` LOCAL form →
 > `lkRegisterResident`) are decoded and folded into the §4 register-param
-> consumer note. The still-OPEN §6 entries are **§6.29** (per-statement
-> line table) and **§6.36** (non-class locals — interface *and* record —
-> mis-typed via the unreliable per-proc/cross-unit `TypeIdx`; a consumer-
-> side defect, manifestation B pinned by a controlled cross-unit fixture).
+> consumer note. **§6.36 manifestation B** (cross-unit record LOCAL
+> dotted walk — `AdrLoc.Anschrift.Str`) is now **closed**: it needed
+> the §4.4 Shape-C offset decode (the 2-byte cross-unit type alias
+> pushes the BPREL offset to `+5`) **plus** two record-context bridges
+> in the dotted walk (first-hop `FindRecordsByMemberName` for the
+> type-id-less record local, nested-hop `FindRecordBySizeAndMemberName`
+> for the inline nested record), folded into §4.4 + the §4.14 consumer
+> note and pinned by `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` +
+> `TestCrossUnitRecordLocalOffsetAndLayout32`. The still-OPEN §6 entries
+> are **§6.29** (per-statement line table) and **§6.36 manifestation A**
+> (an *interface*-typed local auto-detecting as an unrelated record —
+> the remaining half: needs the auto-detect to decline to a raw pointer
+> when the resolved record/class can't be validated against the live
+> reference, since an interface points at an IMT, not a VMT).
 > The next gap discovered MUST be numbered **§6.37**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
@@ -2995,67 +3104,68 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.36 Non-class locals (interface / record) mis-typed via the unreliable per-proc TypeIdx (`GAP`)
+### 6.36 Interface-typed local mis-typed as an unrelated record (`GAP`)
 
 [DPT.Debugger.pas AutoDetectFormatterName / EvaluateVariable](DPT.Debugger.pas).
-**Root (shared by both manifestations below):** a non-class local's type
-comes from the §6.27/§4.2-unreliable per-proc `TypeIdx` (and, for
-cross-unit types, the §4.15 per-binary alias). The §6.32 VMT-priority
-priming that rescues *class-instance* locals can't help — interfaces and
-records have no directly-readable VMT (`ReadRuntimeClassName` fails) — so
-the consumer trusts the bad id and either mis-types the local or can't
-establish record context for the dotted walk.
+A non-class local's type comes from the §6.27/§4.2-unreliable per-proc
+`TypeIdx` (and, for cross-unit types, the §4.15 per-binary alias). The
+§6.32 VMT-priority priming that rescues *class-instance* locals can't
+help an **interface** local — an interface reference points at an **IMT**,
+not a VMT, so `ReadRuntimeClassName` fails — and the consumer then trusts
+the bad id and mis-types the local.
 
-**Manifestation A — interface local mis-typed as an unrelated record.**
 Found by a live-`evaluate` sweep on `C:\MSE\TEST\Test.Lib.exe`
 (`Test.Base.Collections.TestCLazyUniqueObjectList.AsEnumerable`): the
 interface-typed local `Lst: ILazyUniqueList<TObject>` (a live interface
 reference, ptr `0x116F1166`) auto-detects as **`record TICONDIR`** — an
-unrelated Windows icon-directory struct. Forcing `type=object` yields
-`Object @ 116F1166` (no class — `ReadRuntimeClassName` fails because an
-interface reference points at an **IMT**, not a VMT); `type=int` yields
-the raw ref. So the bare `evaluate Lst` returns a **confidently wrong
-type**, worse than failing — and `Lst.<FieldName>` would then "navigate"
-the bogus `TICONDIR` record into garbage.
+unrelated Windows icon-directory struct. The interface local's per-proc
+`TypeIdx` aliases to a bogus `$2A` registry record (`TICONDIR`), and
+`AutoDetectFormatterName` Path 2 (`TypeIdx` → `FindStructByTypeIdx` →
+record/class) trusts it. Forcing `type=object` yields `Object @ 116F1166`
+(no class — IMT, not VMT); `type=int` yields the raw ref. So the bare
+`evaluate Lst` returns a **confidently wrong type**, worse than failing —
+and `Lst.<FieldName>` would then "navigate" the bogus `TICONDIR` record
+into garbage. (Sibling note: `InternalList: IList<TObject>` in the same
+method returns "Failed to evaluate" — but it is **closure-captured** into
+an anonymous method's `$life`/`__frame` frame, a separate closure-decode
+gap, not this one.)
 
-Here the interface local's per-proc `TypeIdx` aliases to a bogus `$2A`
-registry record (`TICONDIR`), and `AutoDetectFormatterName` Path 2
-(`TypeIdx` → `FindStructByTypeIdx` → record/class) trusts it, so the bare
-`evaluate Lst` returns a wrong type and `Lst.<FieldName>` would navigate
-the bogus `TICONDIR` into garbage. (Sibling note: `InternalList:
-IList<TObject>` in the same method returns "Failed to evaluate" — but it
-is **closure-captured** into an anonymous method's `$life`/`__frame`
-frame, a separate closure-decode gap, not this one.)
+**Fix lead (reproduce-first).** Extend the §6.32 suppression — when a
+local's auto-detected record/class `TypeIdx` can't be validated against
+the live pointer (`ReadRuntimeClassName` finds no matching class for the
+dereferenced value), decline to the raw pointer (`int`) rather than emit
+a misleading record name. Needs a controlled DebugTarget interface-local
+fixture to bench it without the Test.Lib dependency (the record-local
+sibling manifestation got one — `RecordLocalNestedProbe` — when it was
+closed; see below).
 
-**Manifestation B — record local: the dotted walk fails outright.**
-On Test.Lib, `Test.Business.Utils.TestAdAddressEmpty.NameSetAndAddressSet`'s
-`Ad: TAdresse` (a record declared cross-unit in `Base.Types.Business`):
-`evaluate Ad` auto-detects "(enum) 7" (the `Name[1]` shortstring length
-byte read as an ordinal — `Ad`'s `TypeIdx` aliased to an enum) and
-`evaluate Ad.Anschrift.Str` fails outright, because the dotted-walk
-record-hop priming can't establish record context from the non-record
-`TypeIdx`. **Reproduced WITHOUT Test.Lib** by a controlled cross-unit
-fixture — `DebugTarget.RecTypes.TXAdresse` used as the local `AdrLoc` in
-`RecordLocalNestedProbe` (`AdrLoc.Anschrift.Str` → "Failed to evaluate");
-an inline *same-unit* record (`TAdrLike`) resolves fine, so the **cross-
-unit boundary** (§4.15 per-binary alias) is the trigger. Pinned by
-[Test.DPT.MCP.Server.TestMcpEvaluateCrossUnitRecordLocalDottedWalk](../Test/Test.DPT.MCP.Server.pas)
-(currently red).
-
-**Fix leads (reproduce-first).**
-* *Manifestation A:* extend the §6.32 suppression — when a local's
-  auto-detected record/class type can't be validated against the live
-  pointer (`ReadRuntimeClassName` finds no matching class), decline to the
-  raw pointer (`int`) rather than emit a misleading record name.
-* *Manifestation B:* recover the record LOCAL so the walk can record-hop.
-  Two sub-hops: (1) the first hop needs the cross-unit record discovered +
-  matched (the existing `FindBestRecordForGlobalAndField` name-fallback
-  isn't recovering `TXAdresse` — confirm whether the cross-unit value
-  record reaches `FClasses`); (2) the nested hop `Anschrift → TXAnschrift`
-  needs the member's record type, which `TRsmClassMember` carries neither
-  as a resolvable `TypeIdx` (§4.14 "record-field id = 0") nor as a type
-  name — a possible hard wall. The controlled DebugTarget cross-unit
-  fixture above is the bench for working this.
+> **Manifestation B (cross-unit record LOCAL dotted walk) is closed.**
+> `Ad: TAdresse` → `Ad.Anschrift.Str` on Test.Lib (and its controlled
+> repro `AdrLoc: DebugTarget.RecTypes.TXAdresse` in
+> `RecordLocalNestedProbe`) needed three pieces, all now landed and
+> documented elsewhere: (1) the §4.4 **Shape-C** offset decode — a
+> cross-unit record local carries a 2-byte type alias (Hi byte not
+> `$2E`/`$2F`) that pushes its BPREL offset to `+5`, so the local's
+> *address* itself failed to decode (synthesized `-10000` sentinel);
+> (2) the first-hop **record-local context bridge**
+> (`FindRecordsByMemberName`) and (3) the nested-hop
+> **inline-record bridge** (`FindRecordBySizeAndMemberName`), both folded
+> into the §4.14 consumer note. Pinned by
+> `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` (live walk →
+> "Hauptstr.", with `Name`/`Ort` nested-layout guards) +
+> `TestCrossUnitRecordLocalOffsetAndLayout32` (the `-153` offset decode +
+> record layout). The Test.Lib symptom there ("(enum) 7" auto-detect)
+> was the same end-user failure reached by a different internal path —
+> the address decoded but the type aliased to an enum; the bridges fix
+> the navigation regardless of which way the bad id lands.
+>
+> One residual, documented as a **design limit in §4.14** (not reopened
+> here): the no-`type=` auto-detect still cannot infer the terminal type
+> of these record fields (the RSM carries no primitive id for them), so
+> bare `evaluate AdrLoc.Anschrift.Str` falls back to `int` and bare
+> `evaluate AdrLoc` honestly declines. The contract is to pass
+> `type=shortstring` for record-field terminals; the navigation is what
+> §6.36-B fixed.
 
 ---
 

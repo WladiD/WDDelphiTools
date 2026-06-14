@@ -151,6 +151,7 @@ type
     function  HandleRegVarRecord(var P: NativeInt): Boolean;
     function  HandleLocalRecord(var P: NativeInt): Boolean;
     function  DecodeTypeIdByStructuralLookahead(APayloadStart: NativeInt): UInt32;
+    function  IsLocalOffsetTerminatorAt(APos: NativeInt): Boolean;
     function  HandleModuleGlobalLocalTagRecord(var P: NativeInt): Boolean;
     function  HandleGlobalPrimRecord(var P: NativeInt): Boolean;
     function  HandleEnumConstantRecord(var P: NativeInt): Boolean;
@@ -823,6 +824,27 @@ begin
   Result := ByteAt(APayloadStart + 3);
 end;
 
+function TRsmScanner.IsLocalOffsetTerminatorAt(APos: NativeInt): Boolean;
+// True when the byte at APos opens a record that can legally follow a
+// proc-body local's BPREL-offset payload: the next local/param/regvar,
+// the next proc, a scope-end, an inline enum const/def, the type
+// registry, or the $9C $17 trailing-init signature. Used to validate
+// a speculatively-decoded offset (the byte after a real offset must be
+// one of these), shared by the inline-var form and the §6.36 2-byte
+// cross-unit-type form below.
+var
+  TB: Byte;
+begin
+  Result := False;
+  if (APos < 0) or (APos >= FSz) then Exit;
+  TB := ByteAt(APos);
+  Result := (TB = TRsmTag.LOCAL_TAG) or (TB = TRsmTag.PROC_TAG) or
+            (TB = TRsmTag.SCOPE_END) or (TB = TRsmTag.PARAM_TAG) or
+            (TB = TRsmTag.REGVAR_TAG) or (TB = TRsmTag.ENUM_CONST_TAG) or
+            (TB = TRsmTag.ENUM_DEF_TAG) or (TB = TRsmTag.TYPE_REGISTRY_TAG) or
+            ((TB = $9C) and (APos + 1 < FSz) and (ByteAt(APos + 1) = $17));
+end;
+
 function TRsmScanner.HandleParamRecord(var P: NativeInt): Boolean;
 // Parameter record: $22 NameLen Name $62 $00 $00 <type-id 2 bytes>.
 // Unlike LOCAL_TAG, this record does NOT carry a frame offset:
@@ -1013,15 +1035,7 @@ begin
       end;
       // A real local sits below EBP -> non-positive offset.
       if Ofs > 0 then Continue;
-      if TermPos >= FSz then Continue;
-      var TB: Byte := ByteAt(TermPos);
-      if not ((TB = TRsmTag.LOCAL_TAG) or (TB = TRsmTag.PROC_TAG) or
-              (TB = TRsmTag.SCOPE_END) or (TB = TRsmTag.PARAM_TAG) or
-              (TB = TRsmTag.REGVAR_TAG) or (TB = TRsmTag.ENUM_CONST_TAG) or
-              (TB = TRsmTag.ENUM_DEF_TAG) or (TB = TRsmTag.TYPE_REGISTRY_TAG) or
-              ((TB = $9C) and (TermPos + 1 < FSz) and
-               (ByteAt(TermPos + 1) = $17))) then
-        Continue;
+      if not IsLocalOffsetTerminatorAt(TermPos) then Continue;
       Loc.BpOffset := Ofs;
       if TypeW = 1 then
         Loc.TypeIdx := ByteAt(PayloadStart + 4)
@@ -1082,6 +1096,47 @@ begin
       end;
     end;
   end;
+
+  // §6.36 closure (offset side): a record LOCAL of a CROSS-UNIT type
+  // carries a linker-minted 2-byte per-proc type alias whose Hi byte
+  // (PayloadStart+4) is NOT $2E/$2F, so the $2E/$2F branch above misses
+  // and the classic 1-byte-type branches read the alias Hi byte as the
+  // offset and fail (the BPREL offset actually sits one byte later, at
+  // PayloadStart+5). Observed on DebugTarget's
+  //   AdrLoc: DebugTarget.RecTypes.TXAdresse
+  // -> payload <66 00 00 A5 1E 9D FD 63>: type alias $1EA5 at +3..+4,
+  // wide offset $FD9D at +5..+6 = (SmallInt-1) div 4 = -153 (= -$99,
+  // the 153-byte record at the frame bottom), SCOPE_END ($63) at +7.
+  // This is the offset-side analogue of the §6.15 type-id structural
+  // lookahead: only taken when the classic decode left the synthesized
+  // sentinel, and accepted only when the decoded offset is non-positive
+  // (locals sit below EBP) AND a valid continuation tag follows it.
+  if (Loc.BpOffset <= -10000) and (PayloadStart + 6 < FSz) and
+     (ByteAt(PayloadStart) = $66) and (ByteAt(PayloadStart + 1) = $00) and
+     (ByteAt(PayloadStart + 2) = $00) then
+  begin
+    var OB: Byte := ByteAt(PayloadStart + 5);
+    var Ofs: Int32;
+    var TermPos: NativeInt;
+    if (OB and 1) = 0 then
+    begin
+      Ofs     := Int32(ShortInt(OB)) div 2;
+      TermPos := PayloadStart + 6;
+    end
+    else
+    begin
+      var W: Word := Word(OB) or (Word(ByteAt(PayloadStart + 6)) shl 8);
+      Ofs     := (Int32(SmallInt(W)) - 1) div 4;
+      TermPos := PayloadStart + 7;
+    end;
+    if (Ofs <= 0) and IsLocalOffsetTerminatorAt(TermPos) then
+    begin
+      Loc.BpOffset := Ofs;
+      Loc.TypeIdx  := UInt32(ByteAt(PayloadStart + 3)) or
+                      (UInt32(ByteAt(PayloadStart + 4)) shl 8);
+    end;
+  end;
+
   FProcs[FProcs.Count - 1].Locals.Add(Loc);
   Inc(FScanLocalIdx);
   FScanSeenLocalSinceProc := True;

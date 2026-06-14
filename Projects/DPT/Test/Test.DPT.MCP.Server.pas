@@ -2683,6 +2683,42 @@ begin
     Assert.IsTrue(Line.Contains('Hauptstr.'),
       'cross-unit record-local dotted walk: AdrLoc.Anschrift.Str must read ' +
       '"Hauptstr.", got: ' + Line);
+
+    // Layout guard 1: the leading shortstring of the OUTER record must
+    // read correctly too (proves the local's frame offset -- the §6.36
+    // 2-byte-cross-unit-type offset decode -- lands on the record base,
+    // not a lucky empty slot).
+    Line := Fixture.Eval('AdrLoc.Name', 'shortstring');
+    Assert.IsTrue(Line.Contains('Firma X'),
+      'AdrLoc.Name must read "Firma X" (record base resolved), got: ' + Line);
+
+    // Layout guard 2: the SECOND field of the nested record must read
+    // correctly (proves the nested-record bridge resolved TXAnschrift's
+    // real layout, not just an offset-0 coincidence). Ort sits at
+    // Anschrift offset 61 -- a wrong nested record would not yield "Berlin".
+    Line := Fixture.Eval('AdrLoc.Anschrift.Ort', 'shortstring');
+    Assert.IsTrue(Line.Contains('Berlin'),
+      'AdrLoc.Anschrift.Ort must read "Berlin" (nested record offset 61), ' +
+      'got: ' + Line);
+
+    // No-type (auto-detect) contract for these cross-unit record fields:
+    // the RSM carries no primitive type id for record-field/record-local
+    // terminals (verified byte-level -- the field record's typeinfo is
+    // <02 00 flag 00 00 00> + the size DWORD, no type), so auto-detect
+    // cannot infer "shortstring" -- explicit type= is required (documented
+    // design limit, DPT.Rsm.Format.md §4.14 + §6.36). The CORRECT honest
+    // behavior is to DECLINE (bare AdrLoc, an unresolvable alias id),
+    // NOT to fabricate a wrong record type the way §6.36 manifestation A
+    // does for interface locals. Pin that: bare AdrLoc must report a
+    // could-not-auto-type / Failed message and must NOT name a record.
+    Line := Fixture.EvalAuto('AdrLoc');
+    Assert.IsTrue(Line.Contains('could not be auto-typed') or
+                  Line.Contains('Failed to evaluate'),
+      'bare AdrLoc (no type) must decline with a helpful message rather ' +
+      'than fabricate a type, got: ' + Line);
+    Assert.IsFalse(Line.Contains('TXAdresse') or Line.Contains('TXAnschrift'),
+      'bare AdrLoc must NOT confidently name a record type (no metadata to ' +
+      'do so -- the §6.36-A false-positive trap), got: ' + Line);
   finally
     Fixture.Free;
   end;
