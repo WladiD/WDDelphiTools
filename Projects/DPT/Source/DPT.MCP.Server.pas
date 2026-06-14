@@ -769,7 +769,14 @@ begin
     'chains, and class-typed fields inside a record (e.g. "MyRec.FObj.FField") ' +
     'transition back to the dereferencing class hop automatically. Returns an ' +
     'error when the variable name is unknown, a navigated field does not exist ' +
-    'on the resolved class or record, or the type is not in the supported list.');
+    'on the resolved class or record, or the type is not in the supported list. ' +
+    'Symbolic evaluation is BEST-EFFORT: locals, globals, class fields, enums, ' +
+    'and records navigated with an explicit type= resolve directly, but ' +
+    'auto-typing (omitting type=) can fail for cross-unit record fields and ' +
+    'interface-typed locals, where the .rsm carries no usable type id. On any ' +
+    'failure the error message names the concrete next step -- a type= to ' +
+    'retry (with the already-resolved bytes and field address inline), or the ' +
+    'get_locals / get_registers / read_memory fallback to read the value raw.');
   var SchemaEvaluate := TJSONObject.Create;
   SchemaEvaluate.AddPair('type', 'object');
   var PropEvaluate := TJSONObject.Create;

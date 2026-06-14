@@ -290,9 +290,17 @@ type
     /// Builds the hint message returned via <c>EvaluateVariable</c>'s
     /// <c>AHint</c> out parameter when auto-detection found nothing.
     /// The MCP layer surfaces this so the caller learns WHICH
-    /// explicit <c>type=</c> arg to retry with.
+    /// explicit <c>type=</c> arg to retry with -- and, since the walk
+    /// already located the field, it includes the resolved bytes (LE)
+    /// and address inline so the caller often needs no second call.
     function  BuildAutoDetectHint(const AName: String;
-      const ARawBytes: TBytes): String;
+      const ARawBytes: TBytes; AAddr: Pointer): String;
+    /// Builds the hint for the OTHER evaluate-failure class: the name /
+    /// field could not be resolved at all (no bytes read). Dot-aware --
+    /// points a dotted-path failure at field-name verification +
+    /// get_locals, and a bare-name failure at get_locals / Unit.VarName
+    /// qualification, with the get_registers + read_memory raw fallback.
+    function  BuildUnresolvedHint(const AName: String): String;
     /// Shared between FormatString / FormatAnsiString / FormatWideString.
     /// Reads a Delphi long string given the pointer payload stored at
     /// the field: 0 means empty/nil, otherwise points at the character
@@ -2978,6 +2986,14 @@ begin
   if (Length(RawBytes) = 0) and AName.Contains('.') then
   begin
     Phase('begin dotted-walk');
+    // Provisional recovery hint: the walk has many early Exit points
+    // (field not found, nil mid-chain, record context not establishable),
+    // any of which leaves the call a failure. Seed the dotted-navigation
+    // hint up front so every one of those exits carries it; it is only
+    // ever surfaced on failure (the MCP layer reads AHint only when the
+    // call returns False) and is overridden by the auto-detect hint when
+    // the walk succeeds but typing declines.
+    AHint := BuildUnresolvedHint(AName);
     // Path 2: dotted field-chain walk. The first segment must resolve
     // to an instance pointer (a local or global object reference); each
     // subsequent segment dereferences the current object, looks up the
@@ -3383,7 +3399,15 @@ begin
   end;
 
 
-  if Length(RawBytes) = 0 then Exit;
+  if Length(RawBytes) = 0 then
+  begin
+    // Nothing resolved: unknown whole name, or a dotted walk that found
+    // no field / no context (the mid-walk Exits already set the dotted
+    // hint provisionally; this covers the non-dotted unknown-name path).
+    if AHint = '' then
+      AHint := BuildUnresolvedHint(AName);
+    Exit;
+  end;
   Phase('format ' + AType);
 
   // Consolidate the address handle for IsLocal callers so the
@@ -3574,31 +3598,91 @@ begin
   end;
 
   if AType = '' then
-    AHint := BuildAutoDetectHint(AName, RawBytes);
+    AHint := BuildAutoDetectHint(AName, RawBytes, Addr)
+  // Explicit but unsupported type literal (e.g. type=foo): no formatter
+  // matched and the auto-detect paths were all gated off by the non-empty
+  // AType. Name the allowed set rather than failing opaquely.
+  else if AHint = '' then
+  begin
+    var UnusedFmt: TEvaluateFormatter;
+    if not FFormatters.TryGetValue(LowerCase(AType), UnusedFmt) then
+      AHint := Format(
+        'Unsupported type "%s". Allowed: int, int64, string, ansistring, ' +
+        'widestring, shortstring, single, double, extended, object.', [AType]);
+  end;
 end;
 
-function TDebugger.BuildAutoDetectHint(const AName: String; const ARawBytes: TBytes): String;
-// Generates a one-line hint that names the most likely concrete
-// "type=" argument the user should try after auto-detection declined.
-// The MCP layer appends this to the "Failed to evaluate" message so
-// the caller learns WHAT to retry, not just THAT the call failed.
+function TDebugger.BuildAutoDetectHint(const AName: String;
+  const ARawBytes: TBytes; AAddr: Pointer): String;
+// Generates a one-line hint for the auto-detect-declined failure class:
+// the walk LOCATED the field (bytes were read) but no formatter could be
+// inferred from the RSM type metadata. Beyond naming the "type=" args to
+// retry, it includes the resolved bytes (LE) and -- when known -- the
+// field address, so the caller has the data inline: it can read_memory
+// there for the full value (e.g. a ShortString longer than 8 bytes) or
+// just retry with an explicit type=, without re-deriving the address.
 var
-  PtrVal: UIntPtr;
+  PtrVal  : UIntPtr;
+  HexBytes: String;
+  AddrStr : String;
+  I       : Integer;
 begin
   Result := '';
   if Length(ARawBytes) < FTargetPointerSize then Exit;
+
+  HexBytes := '';
+  for I := 0 to Length(ARawBytes) - 1 do
+    HexBytes := HexBytes + IntToHex(ARawBytes[I], 2) + ' ';
+  HexBytes := Trim(HexBytes);
+
+  AddrStr := '';
+  if Assigned(AAddr) then
+    AddrStr := Format(' at address %s (read_memory there for the full value)',
+      [IntToHex(NativeUInt(AAddr), FTargetPointerSize * 2)]);
+
   PtrVal := 0;
   Move(ARawBytes[0], PtrVal, FTargetPointerSize);
   if PtrVal = 0 then
+    // Keep the literal substrings 'nil pointer' and 'type=object' -- the
+    // auto-detect nil-global pin asserts on them.
     Result := Format(
-      '%s holds 0 (nil pointer or zero-valued primitive). ' +
-      'Auto-detection cannot pick a formatter for nil. ' +
-      'Try type=object for a class reference, type=int for an integer, ' +
-      'or type=string for a string.', [AName])
+      '%s holds 0 (nil pointer or zero-valued primitive); auto-detection ' +
+      'cannot pick a formatter for nil. Resolved bytes (LE): %s%s. ' +
+      'Retry with type=object (class reference), type=int, or type=string.',
+      [AName, HexBytes, AddrStr])
   else
     Result := Format(
       '%s could not be auto-typed (no RSM type metadata for this field). ' +
-      'Try one of: type=object, type=int, type=int64, type=string.', [AName]);
+      'Resolved bytes (LE): %s%s. Retry with an explicit type= ' +
+      '(shortstring, int, int64, double, object, string).',
+      [AName, HexBytes, AddrStr]);
+end;
+
+function TDebugger.BuildUnresolvedHint(const AName: String): String;
+// Hint for the OTHER failure class: nothing was read because the name /
+// field could not be resolved. Points the caller at the right next tool
+// per the failure shape -- a dotted path is a navigation failure (verify
+// each field name; the first segment must be an object/record), a bare
+// name is an unknown-symbol failure (get_locals / Unit.VarName). Both
+// note the raw read_memory fallback. Names only tools that actually
+// exist on the server (no read_global_variable); addresses come from
+// get_registers / get_stack_trace / evaluate <obj> type=object.
+begin
+  if AName.Contains('.') then
+    Result := Format(
+      'Could not navigate "%s". Verify each field name exists on the ' +
+      'resolved type (call get_locals for the valid first-segment / local ' +
+      'names); the first segment must be an object reference (pointers are ' +
+      'dereferenced) or a record (navigated inline). For raw inspection, ' +
+      'get the base address from get_registers (EBP/RBP + the bp_offset ' +
+      'from get_locals) or evaluate the first segment with type=object ' +
+      '("@ <hex addr>"), then read_memory.', [AName])
+  else
+    Result := Format(
+      'Unknown variable "%s". Call get_locals for in-scope local names, or ' +
+      'qualify a global as Unit.VarName. When no symbols are available, use ' +
+      'get_stack_slots / get_stack_memory, or get_registers + read_memory.',
+      [AName]);
 end;
 
 function TDebugger.DeriveTypeHintFromVariableName(const AName: String): String;

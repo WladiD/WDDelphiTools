@@ -1736,6 +1736,9 @@ begin
         'Unknown name must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(6));
       Assert.IsTrue(OutputWriter.GetLine(6).Contains('isError'),
         'Unknown-name response must be flagged as an error: ' + OutputWriter.GetLine(6));
+      // The unknown-name failure must point at the recovery tool.
+      Assert.IsTrue(OutputWriter.GetLine(6).Contains('get_locals'),
+        'Unknown-name error must name the get_locals recovery step: ' + OutputWriter.GetLine(6));
 
       // Known variable, but unsupported type literal. The handler must
       // also fail rather than fall through to a default decoding.
@@ -1745,6 +1748,9 @@ begin
         'Unsupported type must produce a Failed-to-evaluate error: ' + OutputWriter.GetLine(7));
       Assert.IsTrue(OutputWriter.GetLine(7).Contains('isError'),
         'Unsupported-type response must be flagged as an error: ' + OutputWriter.GetLine(7));
+      // The unsupported-type failure must list the allowed type literals.
+      Assert.IsTrue(OutputWriter.GetLine(7).Contains('Allowed:'),
+        'Unsupported-type error must list the allowed types: ' + OutputWriter.GetLine(7));
     finally
       Server.Free;
       InputReader.Free;
@@ -2719,6 +2725,13 @@ begin
     Assert.IsFalse(Line.Contains('TXAdresse') or Line.Contains('TXAnschrift'),
       'bare AdrLoc must NOT confidently name a record type (no metadata to ' +
       'do so -- the §6.36-A false-positive trap), got: ' + Line);
+    // The failure must be self-recovering: the resolved bytes are inline
+    // (the walk already located the field) and a concrete type= retry is
+    // named, so the agent needs no second call to get the data.
+    Assert.IsTrue(Line.Contains('Resolved bytes'),
+      'decline must carry the resolved bytes inline, got: ' + Line);
+    Assert.IsTrue(Line.Contains('type='),
+      'decline must name a concrete type= to retry, got: ' + Line);
   finally
     Fixture.Free;
   end;
