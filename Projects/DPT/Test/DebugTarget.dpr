@@ -3,7 +3,7 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma;
+uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes;
 var
   GGlobalInt: Integer = Integer($87654321);
   GGlobalString: string = 'Hello Global';
@@ -919,6 +919,26 @@ begin
 end;
 {$IFDEF DT_RR_O_OFF}{$OPTIMIZATION OFF}{$UNDEF DT_RR_O_OFF}{$ENDIF}
 {$IFDEF DT_RR_W_ON}{$STACKFRAMES ON}{$UNDEF DT_RR_W_ON}{$ENDIF}
+// §6.36 fixture: a classic var-block LOCAL of a CROSS-UNIT record
+// (DebugTarget.RecTypes.TXAdresse: leading shortstring + nested record),
+// mirroring Test.Lib's `Ad: TAdresse` (declared in Base.Types.Business).
+// The cross-unit boundary is the trigger: the local's per-proc TypeIdx and
+// the nested Anschrift member's TypeIdx get the §4.2/§4.15 unreliable alias
+// and need not resolve to a record, so the dotted-walk record-hop priming
+// fails -- `AdrLoc.Anschrift.Str` does not resolve. (An inline same-unit
+// record resolves fine, which is why the earlier inline TAdrLike probe did
+// NOT reproduce.) Sentinels match the Test.Lib repro.
+procedure RecordLocalNestedProbe;
+var
+  AdrLoc : TXAdresse;
+begin
+  AdrLoc := Default(TXAdresse);
+  AdrLoc.Name          := 'Firma X';
+  AdrLoc.Anschrift.Str := 'Hauptstr.';
+  AdrLoc.Anschrift.Ort := 'Berlin';
+  Writeln('RecLocalNested ', AdrLoc.Name, ' ', AdrLoc.Anschrift.Str, ' ',
+    AdrLoc.Anschrift.Ort); Flush(Output); // rec-local-nested bp here
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1126,6 +1146,8 @@ begin
     // §6.35 round 2: reach the standalone proc whose three Integer locals
     // are register-allocated into distinct callee-saved registers.
     RegResidentLocalsProbe;
+    // §6.36: reach the complex record-local probe (TAdresse-like shape).
+    RecordLocalNestedProbe;
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;

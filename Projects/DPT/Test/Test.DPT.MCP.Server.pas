@@ -95,6 +95,8 @@ type
     [Test]
     procedure TestMcpEvaluateRegisterResidentLocal;
     [Test]
+    procedure TestMcpEvaluateCrossUnitRecordLocalDottedWalk;
+    [Test]
     procedure TestMcpEvaluateClassFieldPointerToRecordDeref;
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
@@ -2645,6 +2647,42 @@ begin
     Line := Fixture.Eval('RR3', 'int');
     Assert.IsTrue(Line.Contains('CCCC0003'),
       'register-resident RR3 must read EDI = $CCCC0003, got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.36 record-local dotted-walk pin — controlled, no Test.Lib
+///   dependency. Reproduces Test.Lib's <c>Ad.Anschrift.Str</c> failure
+///   with a CROSS-UNIT record local: <c>RecordLocalNestedProbe</c>'s
+///   <c>AdrLoc: DebugTarget.RecTypes.TXAdresse</c> (a leading shortstring
+///   + a nested <c>TXAnschrift</c> of shortstrings, declared in a separate
+///   unit so it is cross-unit like <c>Base.Types.Business.TAdresse</c>).
+///   The cross-unit boundary is the trigger: the local's per-proc
+///   <c>TypeIdx</c> and the nested member's <c>TypeIdx</c> get the
+///   §4.2/§4.15 unreliable per-binary alias and don't resolve to a record,
+///   so the dotted-walk record-hop priming can't establish record context
+///   and <c>AdrLoc.Anschrift.Str</c> fails. (An inline SAME-unit record
+///   resolves fine, so it does NOT reproduce — see the earlier TAdrLike
+///   probe.) Sentinel mirrors the Test.Lib repro. Red = "Failed to
+///   evaluate"; green = "Hauptstr." once the record local + nested-record
+///   member are recovered.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateCrossUnitRecordLocalDottedWalk;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 939);
+  try
+    Line := Fixture.Eval('AdrLoc.Anschrift.Str', 'shortstring');
+    Assert.IsTrue(Line.Contains('Hauptstr.'),
+      'cross-unit record-local dotted walk: AdrLoc.Anschrift.Str must read ' +
+      '"Hauptstr.", got: ' + Line);
   finally
     Fixture.Free;
   end;

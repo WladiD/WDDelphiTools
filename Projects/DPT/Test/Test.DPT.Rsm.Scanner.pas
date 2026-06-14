@@ -59,6 +59,22 @@ type
     /// decode within the $16 payload is the open part of §6.35.
     [Test]
     procedure TestRegisterResidentLocalUsesDistinctForm32;
+    /// §4.14 class field-block own-field COUNT. A class's backward
+    /// Format-B field block is introduced by `<count:u16> 02 00 00 00 00`
+    /// immediately before the first (offset-4) field record; the u16 is
+    /// the number of the class's OWN fields (verified across classes with
+    /// distinct counts: TInner=2, TClassFieldHost=3, TWithRec=5). This is
+    /// the "length" the 64 KB backward `ScanWindow` heuristic stands in
+    /// for. NOTE it does NOT close that window: the intro's
+    /// `02 00 00 00 00` is byte-identical to the inter-field separator
+    /// (a non-terminal field's `02 00 <flag> 00` anchor + `00 00 00` pad
+    /// reads, 7 bytes before the next field's DWORD, as
+    /// `02 00 02 00 00 00 00`), so the count is only meaningful at field1
+    /// and field1 cannot be located by pattern alone. The count can
+    /// validate an already-bounded run, not bound the scan. Pins the
+    /// decode so it is recorded knowledge.
+    [Test]
+    procedure TestClassFieldBlockOwnFieldCount32;
     /// Classes / records collected from Win32 RSM. The DebugTarget
     /// fixture defines TBase, TDerived, TLightStatus host record and
     /// several other shapes; we assert the byte-level scan caught
@@ -945,6 +961,71 @@ begin
       'stack-resident Integer LScratch must use the $66 LOCAL form');
     Assert.AreEqual($66, Integer(FormStackI64),
       'stack-resident Int64 LB6 must use the $66 LOCAL form');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestClassFieldBlockOwnFieldCount32;
+var
+  S: TRsmScanner;
+
+  // Locate a class's FIRST own-field record (offset-4 field named AName,
+  // followed by the `02 00` field anchor and preceded by the
+  // `<count:u16> 02 00 00 00 00` block intro) and return the decoded u16
+  // own-field count. Name- + shape-anchored, so it survives rebuilds and
+  // ignores the same field name's other (record-field-form) occurrences.
+  function FirstFieldOwnCount(const AName: String; out ACount: Integer): Boolean;
+  var
+    P, EndP: NativeInt;
+    Nm     : String;
+  begin
+    Result := False;
+    EndP := S.Sz - (5 + Length(AName) + 2);
+    P := 8;
+    while P < EndP do
+    begin
+      // <DWORD off = 4> <namelen> <AName> $02 $00 ...
+      if (S.ByteAt(P) = $04) and (S.ByteAt(P + 1) = $00) and
+         (S.ByteAt(P + 2) = $00) and (S.ByteAt(P + 3) = $00) and
+         (S.ByteAt(P + 4) = Length(AName)) and
+         S.ReadIdentifier(P + 4, Nm) and SameText(Nm, AName) and
+         (S.ByteAt(P + 5 + Length(AName)) = $02) and
+         (S.ByteAt(P + 5 + Length(AName) + 1) = $00) and
+         // block intro `02 00 00 00 00` in the 5 bytes before the DWORD
+         (S.ByteAt(P - 5) = $02) and (S.ByteAt(P - 4) = $00) and
+         (S.ByteAt(P - 3) = $00) and (S.ByteAt(P - 2) = $00) and
+         (S.ByteAt(P - 1) = $00) then
+      begin
+        // own-field count: the u16 immediately before the block intro.
+        ACount := Integer(S.ByteAt(P - 7)) or (Integer(S.ByteAt(P - 6)) shl 8);
+        Exit(True);
+      end;
+      Inc(P);
+    end;
+  end;
+
+var
+  CntInner, CntHost, CntWithRec: Integer;
+begin
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromFile(ResolveExePath(False));
+    // §4.14: a class's backward field block is introduced by a u16 count of
+    // the class's OWN fields. Verified against distinct counts so the value
+    // can't be a coincidence: TInner has 2 own fields (FInnerInt @ offset 4,
+    // FInnerStr), TClassFieldHost 3 (FHostNested/FHostInt/FHostRtlList),
+    // TWithRec 5 (FOrigin/FBounds/FPair/FNestedObj/FName).
+    Assert.IsTrue(FirstFieldOwnCount('FInnerInt', CntInner),
+      'TInner first-field block intro not found');
+    Assert.IsTrue(FirstFieldOwnCount('FHostNested', CntHost),
+      'TClassFieldHost first-field block intro not found');
+    Assert.IsTrue(FirstFieldOwnCount('FOrigin', CntWithRec),
+      'TWithRec first-field block intro not found');
+
+    Assert.AreEqual(2, CntInner,  'TInner own-field count header must be 2');
+    Assert.AreEqual(3, CntHost,   'TClassFieldHost own-field count header must be 3');
+    Assert.AreEqual(5, CntWithRec, 'TWithRec own-field count header must be 5');
   finally
     S.Free;
   end;

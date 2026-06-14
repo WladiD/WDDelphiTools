@@ -1657,6 +1657,27 @@ as a post-process to drop members that the `$2C` records never
 confirmed (see §4.9 and
 [DPT.Rsm.FormatALinker.pas `PruneSpuriousMembers`](DPT.Rsm.FormatALinker.pas)).
 
+> **The field block IS preceded by an own-field COUNT — but it cannot
+> tighten the `ScanWindow`.** Immediately before the first (offset-4)
+> field record sits `<count:u16> 02 00 00 00 00`, where the `u16` is the
+> number of the class's OWN fields. Verified across distinct counts:
+> `TInner`=2, `TOuter`=3, `TClassFieldHost`=3, `TWithRec`=5,
+> `TDeepDerived`=1, `TMyComp`=1 (pinned by
+> [Test.DPT.Rsm.Scanner.TestClassFieldBlockOwnFieldCount32](../Test/Test.DPT.Rsm.Scanner.pas)).
+> This is the "length" the 64 KB backward `ScanWindow` heuristic stands
+> in for — but it is **not usable as a scan bound**, because the intro's
+> `02 00 00 00 00` is byte-identical to the inter-field separator: a
+> non-terminal field ends `… 02 00 <flag=02> 00`, so the seven bytes
+> before the *next* field's offset-DWORD read as `02 00 02 00 00 00 00`
+> — i.e. a spurious "count = 2" followed by the same `02 00 00 00 00`.
+> The genuine count is therefore only distinguishable **at field 1**, and
+> field 1 cannot be located by pattern alone (that is exactly what the
+> backward walk is trying to find). So the count can *validate* an
+> already-bounded run but cannot *bound* the scan; the `ScanWindow` +
+> `AMinStartOff` + `PruneSpuriousMembers` remains the robust collector.
+> (The decode is recorded as knowledge by the pin above; the negative is
+> the reason this heuristic window stays.)
+
 > **Consumer note — `Member.TypeIdx = 0` is the common case for
 > record-typed fields.** The Format-A linker populates
 > `Member.TypeIdx` for class-typed fields that resolve to a
@@ -2768,8 +2789,11 @@ unaffected.
 > four halves (frame-base ESP rebase, reg→reg param spill, narrow-memory
 > param spill, and register-resident locals via the `$16` LOCAL form →
 > `lkRegisterResident`) are decoded and folded into the §4 register-param
-> consumer note. So the only still-OPEN §6 entry is **§6.29** (per-statement
-> line table). The next gap discovered MUST be numbered **§6.36**, not §6.1.
+> consumer note. The still-OPEN §6 entries are **§6.29** (per-statement
+> line table) and **§6.36** (non-class locals — interface *and* record —
+> mis-typed via the unreliable per-proc/cross-unit `TypeIdx`; a consumer-
+> side defect, manifestation B pinned by a controlled cross-unit fixture).
+> The next gap discovered MUST be numbered **§6.37**, not §6.1.
 > Numbers are never reused or recycled — commit messages, code comments,
 > and pin docstrings reference closed §6.N entries by their original
 > number long after the §6 entry itself is gone, and renumbering would
@@ -2970,6 +2994,68 @@ Pinned by
 [`…TestModuleRecordChain32`/`…64`](../Test/Test.DPT.Rsm.Scanner.pas)
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
+
+### 6.36 Non-class locals (interface / record) mis-typed via the unreliable per-proc TypeIdx (`GAP`)
+
+[DPT.Debugger.pas AutoDetectFormatterName / EvaluateVariable](DPT.Debugger.pas).
+**Root (shared by both manifestations below):** a non-class local's type
+comes from the §6.27/§4.2-unreliable per-proc `TypeIdx` (and, for
+cross-unit types, the §4.15 per-binary alias). The §6.32 VMT-priority
+priming that rescues *class-instance* locals can't help — interfaces and
+records have no directly-readable VMT (`ReadRuntimeClassName` fails) — so
+the consumer trusts the bad id and either mis-types the local or can't
+establish record context for the dotted walk.
+
+**Manifestation A — interface local mis-typed as an unrelated record.**
+Found by a live-`evaluate` sweep on `C:\MSE\TEST\Test.Lib.exe`
+(`Test.Base.Collections.TestCLazyUniqueObjectList.AsEnumerable`): the
+interface-typed local `Lst: ILazyUniqueList<TObject>` (a live interface
+reference, ptr `0x116F1166`) auto-detects as **`record TICONDIR`** — an
+unrelated Windows icon-directory struct. Forcing `type=object` yields
+`Object @ 116F1166` (no class — `ReadRuntimeClassName` fails because an
+interface reference points at an **IMT**, not a VMT); `type=int` yields
+the raw ref. So the bare `evaluate Lst` returns a **confidently wrong
+type**, worse than failing — and `Lst.<FieldName>` would then "navigate"
+the bogus `TICONDIR` record into garbage.
+
+Here the interface local's per-proc `TypeIdx` aliases to a bogus `$2A`
+registry record (`TICONDIR`), and `AutoDetectFormatterName` Path 2
+(`TypeIdx` → `FindStructByTypeIdx` → record/class) trusts it, so the bare
+`evaluate Lst` returns a wrong type and `Lst.<FieldName>` would navigate
+the bogus `TICONDIR` into garbage. (Sibling note: `InternalList:
+IList<TObject>` in the same method returns "Failed to evaluate" — but it
+is **closure-captured** into an anonymous method's `$life`/`__frame`
+frame, a separate closure-decode gap, not this one.)
+
+**Manifestation B — record local: the dotted walk fails outright.**
+On Test.Lib, `Test.Business.Utils.TestAdAddressEmpty.NameSetAndAddressSet`'s
+`Ad: TAdresse` (a record declared cross-unit in `Base.Types.Business`):
+`evaluate Ad` auto-detects "(enum) 7" (the `Name[1]` shortstring length
+byte read as an ordinal — `Ad`'s `TypeIdx` aliased to an enum) and
+`evaluate Ad.Anschrift.Str` fails outright, because the dotted-walk
+record-hop priming can't establish record context from the non-record
+`TypeIdx`. **Reproduced WITHOUT Test.Lib** by a controlled cross-unit
+fixture — `DebugTarget.RecTypes.TXAdresse` used as the local `AdrLoc` in
+`RecordLocalNestedProbe` (`AdrLoc.Anschrift.Str` → "Failed to evaluate");
+an inline *same-unit* record (`TAdrLike`) resolves fine, so the **cross-
+unit boundary** (§4.15 per-binary alias) is the trigger. Pinned by
+[Test.DPT.MCP.Server.TestMcpEvaluateCrossUnitRecordLocalDottedWalk](../Test/Test.DPT.MCP.Server.pas)
+(currently red).
+
+**Fix leads (reproduce-first).**
+* *Manifestation A:* extend the §6.32 suppression — when a local's
+  auto-detected record/class type can't be validated against the live
+  pointer (`ReadRuntimeClassName` finds no matching class), decline to the
+  raw pointer (`int`) rather than emit a misleading record name.
+* *Manifestation B:* recover the record LOCAL so the walk can record-hop.
+  Two sub-hops: (1) the first hop needs the cross-unit record discovered +
+  matched (the existing `FindBestRecordForGlobalAndField` name-fallback
+  isn't recovering `TXAdresse` — confirm whether the cross-unit value
+  record reaches `FClasses`); (2) the nested hop `Anschrift → TXAnschrift`
+  needs the member's record type, which `TRsmClassMember` carries neither
+  as a resolvable `TypeIdx` (§4.14 "record-field id = 0") nor as a type
+  name — a possible hard wall. The controlled DebugTarget cross-unit
+  fixture above is the bench for working this.
 
 ---
 
