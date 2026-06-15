@@ -35,6 +35,8 @@ uses
 
   System.SysUtils,
 
+  WDDT.FileVersion,
+
   DPT.Detection,
   DPT.PrintPath.Task,
   DPT.Types;
@@ -350,9 +352,13 @@ begin
 end;
 
 class procedure TDptInstructionScreen.PrintHeader;
+var
+  Version: TFileVersion;
 begin
+  Version := TFileVersion.Create(ParamStr(0));
   Writeln('Delphi Processing Tools (DPT) [' + {$IFDEF CPUX64}'Win64'{$ELSE}'Win32'{$ENDIF} + ']');
-  Writeln('Version 1.1 - 2026 - Waldemar Derr');
+  Writeln('Version ' + Version.FileVersionToString(False, False, True) + ' - ' +
+    FormatDateTime('yyyy', Version.BuildDateTime) + ' - Waldemar Derr');
   Writeln('https://github.com/WladiD/WDDelphiTools/tree/master/Projects/DPT');
   Writeln;
 end;
