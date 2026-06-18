@@ -111,7 +111,7 @@ type
     [Test]
     procedure TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField;
     [Test]
-    procedure TestMcpEvaluateGetterBackedPropertyEmitsHint;
+    procedure TestMcpEvaluateGetterBackedPropertyViaCallInjection;
     [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
@@ -3159,18 +3159,27 @@ begin
 end;
 
 /// <summary>
-///   §6.37 property fallback, getter-backed path (b). A property whose
-///   read accessor is a METHOD (<c>property CalcProp: Integer read
-///   GetCalcInt;</c> / <c>Greeting: string read GetGreeting;</c>) has
-///   no statically readable backing field -- the value only exists
-///   after the getter runs in the target. Until call injection is
-///   supported, the walk must fail with a PRECISE, actionable hint
-///   ("getter-backed" / "call injection") instead of the generic
-///   "could not navigate" message, so the user understands WHY it
-///   failed and what is missing. (This is the documented escape hatch
-///   for the VCL <c>Caption</c> realtest case.)
+///   §6.37 property fallback, getter-backed path (b) — CALL INJECTION.
+///   A property whose read accessor is a METHOD
+///   (<c>property CalcProp: Integer read GetCalcInt;</c> /
+///   <c>Greeting: string read GetGreeting;</c>) has no statically
+///   readable backing field; its value only exists once the accessor
+///   runs. The evaluator resolves the getter's proc address
+///   (<c>TPropHost.GetCalcInt</c> via the §6.37 GetterName + owning
+///   class) and CALL-INJECTS it on the paused thread, depositing the
+///   result in a target scratch slot.
+///   <list type="bullet">
+///     <item><c>CalcProp</c> (Integer getter, returns
+///       <c>FBackedInt + 1 = $12345679</c>) — exercises the ordinal
+///       EAX/RAX-return path.</item>
+///     <item><c>Greeting</c> (string getter, returns
+///       <c>'Hello, ' + FBackingStr = 'Hello, World'</c>) — exercises
+///       the managed-return ABI (hidden <c>@Result</c> in EDX/RDX).</item>
+///   </list>
+///   Win32 deterministic bench for the call-injection machinery the VCL
+///   <c>Result.Caption</c> realtest needs.
 /// </summary>
-procedure TMcpServerTests.TestMcpEvaluateGetterBackedPropertyEmitsHint;
+procedure TMcpServerTests.TestMcpEvaluateGetterBackedPropertyViaCallInjection;
 var
   Fixture: TMcpEvalFixture;
   ExePath: String;
@@ -3180,21 +3189,17 @@ begin
   Fixture := TMcpEvalFixture.CreateAtBreakpoint(
     ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 578);
   try
-    // Getter-backed integer property.
+    // Getter-backed Integer property: GetCalcInt returns $12345679.
     Line := Fixture.Eval('GGlobalPropHost.CalcProp', 'int');
-    Assert.IsTrue(Line.Contains('isError'),
-      'Getter-backed CalcProp must report an error, got: ' + Line);
-    Assert.IsTrue(Line.Contains('getter-backed'),
-      'CalcProp hint must name the getter-backed cause, got: ' + Line);
-    Assert.IsTrue(Line.Contains('call injection'),
-      'CalcProp hint must mention call injection as the missing path, got: ' + Line);
+    Assert.IsTrue(Line.Contains('12345679'),
+      'Getter-backed CalcProp must resolve via call injection to ' +
+      '$12345679 (FBackedInt + 1), got: ' + Line);
 
-    // Getter-backed string property -- same precise hint, not a
-    // managed-string garbage read.
+    // Getter-backed string property: GetGreeting returns 'Hello, World'.
     Line := Fixture.Eval('GGlobalPropHost.Greeting', 'string');
-    Assert.IsTrue(Line.Contains('getter-backed'),
-      'Getter-backed string property Greeting must emit the getter-backed ' +
-      'hint too, got: ' + Line);
+    Assert.IsTrue(Line.Contains('Hello, World'),
+      'Getter-backed string property Greeting must resolve via call ' +
+      'injection (managed @Result) to ''Hello, World'', got: ' + Line);
   finally
     Fixture.Free;
   end;

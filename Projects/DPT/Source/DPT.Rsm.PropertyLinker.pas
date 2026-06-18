@@ -137,6 +137,7 @@ procedure TRsmPropertyLinker.Run(ABuf: PByte; ASz: NativeInt);
 // synthesize a new skRecord TRsmClassInfo when the name is known.
 var
   AliasIdToField : IKeyValue<UInt32, String>;
+  MethodIdToName : IKeyValue<UInt32, String>;
   TypeIdToName   : IKeyValue<UInt32, String>;
   P              : NativeInt;
   NL             : Byte;
@@ -196,6 +197,7 @@ begin
   if FClasses.Count = 0 then Exit;
 
   AliasIdToField := Collections.NewPlainKeyValue<UInt32, String>;
+  MethodIdToName := Collections.NewPlainKeyValue<UInt32, String>;
   TypeIdToName   := Collections.NewPlainKeyValue<UInt32, String>;
   LastClsIdx     := -1;
   P              := 1;
@@ -219,6 +221,31 @@ begin
                               (UInt32(ByteAt(P + 2 + NL + 4)) shl 8);
         if (TypeId <> 0) and (not TypeIdToName.ContainsKey(TypeId)) then
           TypeIdToName[TypeId] := Name;
+      end;
+      Inc(P);
+      Continue;
+    end;
+    // ---- $2E method record ----------------------------------
+    // Builds a (method id -> short name) map so getter-backed
+    // properties can recover their read accessor's name. A getter
+    // method's $2E record carries the SAME 2-byte id the property's
+    // $31 record stores as TargetId, at name_end+4..+5, behind the
+    // fixed "00 00 00 E8" body anchor (e.g. GetCalcInt -> $3391 ==
+    // CalcProp's TargetId). §6.37 / §4.16.
+    if B = $2E then
+    begin
+      NL := ByteAt(P + 1);
+      if (NL >= 2) and (NL <= 64) and (P + 2 + NL + 6 < FSz) then
+      begin
+        After := P + 2 + NL;
+        if DwordAtEquals(After, $00, $00, $00, $E8) and
+           ReadIdentifier(P + 1, Name) then
+        begin
+          var MethodId: UInt32 := UInt32(ByteAt(After + 4)) or
+                                  (UInt32(ByteAt(After + 5)) shl 8);
+          if (MethodId <> 0) and (not MethodIdToName.ContainsKey(MethodId)) then
+            MethodIdToName[MethodId] := Name;
+        end;
       end;
       Inc(P);
       Continue;
@@ -335,6 +362,10 @@ begin
       // and UnderlyingField names the field. Otherwise the
       // property is getter-backed and UnderlyingField stays empty.
       AliasIdToField.TryGetValue(Prop.TargetId, Prop.UnderlyingField);
+      // Getter-backed: no $2C field carried the target, so the target
+      // is a $2E method id -- recover the getter's short name.
+      if Prop.UnderlyingField = '' then
+        MethodIdToName.TryGetValue(Prop.TargetId, Prop.GetterName);
       Cls.Properties.Add(Prop);
       FClasses[LastClsIdx] := Cls;
       Inc(P);

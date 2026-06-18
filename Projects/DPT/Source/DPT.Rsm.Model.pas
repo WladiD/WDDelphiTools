@@ -183,6 +183,16 @@ type
     /// (i.e. the property is field-backed). Empty for getter-backed
     /// properties.
     UnderlyingField: String;
+    /// Getter method's SHORT name when <see cref="TargetId"/> matched a
+    /// <c>$2E</c> method record instead of a <c>$2C</c> field (i.e. the
+    /// property is getter-backed, <c>read GetX</c>). Empty for field-
+    /// backed properties. Qualified with the owning class name
+    /// (<c>&lt;Class&gt;.&lt;GetterName&gt;</c>) this resolves to the
+    /// getter's <c>$28</c> proc record / code address, which the
+    /// evaluator's call-injection path invokes on the paused thread.
+    /// The getter method record carries the same 2-byte id as
+    /// <see cref="TargetId"/> at its <c>name_end+4..+5</c>.
+    GetterName     : String;
   end;
 
   /// <summary>

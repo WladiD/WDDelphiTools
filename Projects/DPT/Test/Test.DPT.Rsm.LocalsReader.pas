@@ -177,6 +177,18 @@ type
     /// filter in the PropertyLinker would surface here.
     [Test]
     procedure TestPropertyLinkerHandlesRecordProperties32;
+    /// §6.37 PIN (getter-name recovery). A getter-backed property's
+    /// <c>$31</c> TargetId points at the getter's <c>$2E</c> method
+    /// record (which carries the same 2-byte id at <c>name_end+4..+5</c>),
+    /// NOT at a <c>$2C</c> field. The PropertyLinker resolves that to
+    /// <see cref="TRsmClassProperty.GetterName"/> so the evaluator can
+    /// build the qualified getter name (<c>TPropHost.GetCalcInt</c>) and
+    /// call-inject it. Pins <c>CalcProp → GetCalcInt</c> and
+    /// <c>Greeting → GetGreeting</c>, and that the field-backed
+    /// <c>PlainProp</c> has an EMPTY GetterName (leakage guard: a field
+    /// target must NOT be mis-resolved to a method).
+    [Test]
+    procedure TestPropertyGetterNameRecovered32;
     {$IFDEF CPUX64}
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
@@ -1474,6 +1486,49 @@ begin
              [Integer(Prop.PrimitiveTypeId)]));
     Assert.AreEqual('', Prop.UnderlyingField,
       'RecLabel is getter-backed -- UnderlyingField must stay empty.');
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestPropertyGetterNameRecovered32;
+var
+  Reader : TRsmReader;
+  Prop   : TRsmClassProperty;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(False));
+
+    // CalcProp (read GetCalcInt): the $31 TargetId points at the $2E
+    // method record "GetCalcInt", so GetterName must recover it.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'CalcProp', Prop),
+      'TPropHost.CalcProp must be in the property list');
+    Assert.AreEqual('GetCalcInt', Prop.GetterName,
+      'CalcProp is getter-backed: GetterName must resolve to the $2E ' +
+      'method record name (TargetId -> method id at name_end+4..+5). ' +
+      'Got: ''' + Prop.GetterName + '''');
+    Assert.AreEqual('', Prop.UnderlyingField,
+      'CalcProp getter-backed -- UnderlyingField must stay empty.');
+
+    // Greeting (read GetGreeting): string getter, same mechanism.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'Greeting', Prop),
+      'TPropHost.Greeting must be in the property list');
+    Assert.AreEqual('GetGreeting', Prop.GetterName,
+      'Greeting getter name must resolve to GetGreeting. Got: ''' +
+      Prop.GetterName + '''');
+
+    // Leakage guard: PlainProp is FIELD-backed (read FPlainInt). Its
+    // TargetId matches a $2C field, NOT a $2E method, so GetterName
+    // must stay EMPTY -- a field target must never be mis-resolved to
+    // a method name.
+    Assert.IsTrue(Reader.FindClassProperty('TPropHost', 'PlainProp', Prop),
+      'TPropHost.PlainProp must be in the property list');
+    Assert.AreEqual('FPlainInt', Prop.UnderlyingField,
+      'PlainProp must stay field-backed (FPlainInt).');
+    Assert.AreEqual('', Prop.GetterName,
+      'PlainProp is field-backed -- GetterName must stay empty (leakage ' +
+      'guard). Got: ''' + Prop.GetterName + '''');
   finally
     Reader.Free;
   end;

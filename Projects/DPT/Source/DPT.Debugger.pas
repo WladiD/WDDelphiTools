@@ -188,6 +188,27 @@ type
     FBreakpointLock          : TCriticalSection;
     FBreakpoints             : IList<TBreakpoint>;
     FContinueEvent           : TEvent;
+    // --- Getter call-injection (§6.37) ----------------------------
+    // A property getter cannot be read statically: its value is
+    // computed by the accessor method. To resolve e.g. Result.Caption
+    // (TControl.Caption read GetText) the evaluator must RUN the getter
+    // in the target on the paused thread. Because the debuggee is frozen
+    // between WaitForDebugEvent / ContinueDebugEvent and only the debug-
+    // loop thread may pump events, the MCP-server thread cannot run the
+    // call itself: it parks a request here, wakes the loop's BP-pause
+    // wait, and the loop performs the call via a self-contained nested
+    // event pump (PerformInjectedCallOnDebugThread) before returning to
+    // the paused state. See §4.16 / §6.37 in DPT.Rsm.Format.md.
+    FCallInjectRequest       : Boolean;    // MCP thread -> debug loop
+    FCallReturnEvent         : TEvent;     // debug loop -> MCP thread
+    FCallGetterAddr          : UIntPtr;    // resolved getter code address
+    FCallArgSelf             : UIntPtr;    // instance pointer (EAX/RCX)
+    FCallArgResultPtr        : UIntPtr;    // hidden @Result (EDX/RDX); 0 = none
+    FCallScratch             : UIntPtr;    // VirtualAllocEx page (0 = none)
+    FCallTrampoline          : UIntPtr;    // = FCallScratch + 0 ($CC INT3)
+    FCallResultSlot          : UIntPtr;    // = FCallScratch + 16 (string @Result)
+    FCallResultReg           : UInt64;     // captured EAX/RAX at return
+    FCallOk                  : Boolean;    // call completed & captured
     FFinishedEvent           : TEvent;
     FFirstBreak              : Boolean;
     FIgnoredExceptions       : IList<String>;
@@ -230,6 +251,29 @@ type
     FThreadHandle            : THandle;
     FThreadId                : Cardinal;
     procedure ApplyBreakpointsToThread(AThreadHandle: THandle);
+    /// Lazily reserves the target-side scratch page used by getter
+    /// call-injection: byte 0 is an INT3 ($CC) return trampoline; offset
+    /// 16 is the slot a managed-result getter writes its string pointer
+    /// into. Returns False if VirtualAllocEx / the $CC write fails.
+    function  EnsureCallScratch: Boolean;
+    /// Runs AGetterAddr in the target on the paused thread with ASelf as
+    /// the instance (EAX/RCX) and -- when AStringResult -- the scratch
+    /// result slot as the hidden @Result (EDX/RDX). Parks a request for
+    /// the debug-loop thread (which alone may pump debug events) and
+    /// blocks on FCallReturnEvent. Returns the captured EAX/RAX in
+    /// AOrdinal. MUST be called from the MCP/evaluator thread while the
+    /// target is paused at a breakpoint. §6.37.
+    function  CallTargetFunction(AGetterAddr, ASelf: UIntPtr;
+      AStringResult: Boolean; out AOrdinal: UInt64): Boolean;
+    /// Performs one parked getter call on the DEBUG-LOOP thread: saves
+    /// the paused thread's context, rewrites it into a call frame
+    /// (args + return = trampoline + RIP = getter, HW breakpoints off),
+    /// ContinueDebugEvent, then a self-contained nested pump until the
+    /// trampoline INT3 fires; captures EAX/RAX, restores the saved
+    /// context, and leaves the target frozen in the original paused
+    /// state. §6.37.
+    procedure PerformInjectedCallOnDebugThread(AProcessId, AThreadId: Cardinal;
+      AThreadHandle: THandle);
     {$IFDEF CPUX64}
     function  GetContextFlags(AFlags: Cardinal): Cardinal;
     {$ENDIF}
@@ -554,6 +598,7 @@ begin
   FBreakOnNativeFirstChance := False;
   FContinueEvent := TEvent.Create(nil, False, False, '');
   FBreakpointHitEvent := TEvent.Create(nil, False, False, '');
+  FCallReturnEvent := TEvent.Create(nil, False, False, '');
   FReadyEvent := TEvent.Create(nil, False, False, '');
   FFinishedEvent := TEvent.Create(nil, True, False, '');
   FOutputBuffer := Collections.NewPlainList<TCapturedOutputLine>;
@@ -789,6 +834,7 @@ begin
   FFinishedEvent.Free;
   FReadyEvent.Free;
   FBreakpointHitEvent.Free;
+  FCallReturnEvent.Free;
   FContinueEvent.Free;
   FBreakpointLock.Free;
   FExceptionLock.Free;
@@ -2022,6 +2068,191 @@ begin
   SetTargetContext(AThreadHandle, Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
 end;
 
+function TDebugger.EnsureCallScratch: Boolean;
+var
+  P      : Pointer;
+  CC     : Byte;
+  Written: NativeUInt;
+begin
+  if FCallScratch <> 0 then Exit(True);
+  Result := False;
+  if FProcessHandle = 0 then Exit;
+  P := VirtualAllocEx(FProcessHandle, nil, 64, MEM_COMMIT or MEM_RESERVE,
+    PAGE_EXECUTE_READWRITE);
+  if P = nil then Exit;
+  CC := $CC; // INT3 return trampoline
+  if not WriteProcessMemory(FProcessHandle, P, @CC, 1, Written) then Exit;
+  FCallScratch    := UIntPtr(P);
+  FCallTrampoline := FCallScratch;        // INT3 at offset 0
+  FCallResultSlot := FCallScratch + 16;   // managed @Result slot
+  Result := True;
+end;
+
+function TDebugger.CallTargetFunction(AGetterAddr, ASelf: UIntPtr;
+  AStringResult: Boolean; out AOrdinal: UInt64): Boolean;
+var
+  Zero   : UInt64;
+  Written: NativeUInt;
+begin
+  Result := False;
+  AOrdinal := 0;
+  if (AGetterAddr = 0) or (ASelf = 0) then Exit;
+  if not EnsureCallScratch then Exit;
+  // Clear the managed-result slot so a stale pointer is never read back.
+  Zero := 0;
+  WriteProcessMemory(FProcessHandle, Pointer(FCallResultSlot), @Zero, 8, Written);
+  FCallGetterAddr := AGetterAddr;
+  FCallArgSelf    := ASelf;
+  if AStringResult then FCallArgResultPtr := FCallResultSlot
+  else FCallArgResultPtr := 0;
+  FCallOk        := False;
+  FCallResultReg := 0;
+  FCallReturnEvent.ResetEvent;
+  // Park the request and wake the debug-loop thread, which is blocked in
+  // HandleException's breakpoint-pause wait on FContinueEvent.
+  FCallInjectRequest := True;
+  FContinueEvent.SetEvent;
+  if FCallReturnEvent.WaitFor(15000) <> wrSignaled then
+  begin
+    FCallInjectRequest := False;
+    Exit;
+  end;
+  AOrdinal := FCallResultReg;
+  Result := FCallOk;
+  // For a non-managed (ordinal / pointer / object) return the value is
+  // in EAX/RAX; deposit it into the scratch slot so the caller can read
+  // it back through the normal "FieldAddr -> ReadProcessMemory" path,
+  // uniformly with the managed-string case (where the getter already
+  // wrote the string pointer into the slot via the hidden @Result arg).
+  if Result and (not AStringResult) then
+    WriteProcessMemory(FProcessHandle, Pointer(FCallResultSlot),
+      @FCallResultReg, 8, Written);
+end;
+
+procedure TDebugger.PerformInjectedCallOnDebugThread(AProcessId, AThreadId: Cardinal;
+  AThreadHandle: THandle);
+var
+  Saved, Call: TContext;
+  {$IFDEF CPUX64}
+  SavedWow, CallWow: TWow64Context;
+  RetWow           : TWow64Context;
+  {$ENDIF}
+  RetCtx : TContext;
+  NewSp  : UIntPtr;
+  Tramp  : UIntPtr;
+  Written: NativeUInt;
+  Ev     : TDebugEvent;
+  Done   : Boolean;
+  Iter   : Integer;
+  C      : Cardinal;
+  A      : UIntPtr;
+begin
+  FCallOk := False;
+  if not GetTargetContext(AThreadHandle, CONTEXT_FULL or CONTEXT_DEBUG_REGISTERS,
+       Saved{$IFDEF CPUX64}, SavedWow{$ENDIF}) then Exit;
+  Call := Saved;
+  {$IFDEF CPUX64}
+  CallWow := SavedWow;
+  {$ENDIF}
+  Tramp := FCallTrampoline;
+
+  // Rewrite the paused thread's context into a call frame: push the
+  // trampoline return address, point the PC at the getter, load the
+  // Delphi register-ABI args (Self in EAX/RCX; hidden @Result in
+  // EDX/RDX for managed-return getters), clear the trap flag, and
+  // disable hardware breakpoints for the duration of the call. The
+  // stack is grown 16-byte aligned BELOW the live frame so the getter
+  // can never clobber the paused method's locals.
+  {$IFDEF CPUX64}
+  if FTargetIs32Bit then
+  begin
+    NewSp := (UIntPtr(SavedWow.Esp) and not UIntPtr(15)) - 4;
+    if not WriteProcessMemory(FProcessHandle, Pointer(NewSp), @Tramp, 4, Written) then Exit;
+    CallWow.Esp := Cardinal(NewSp);
+    CallWow.Eip := Cardinal(FCallGetterAddr);
+    CallWow.Eax := Cardinal(FCallArgSelf);
+    if FCallArgResultPtr <> 0 then CallWow.Edx := Cardinal(FCallArgResultPtr);
+    CallWow.EFlags := CallWow.EFlags and not Cardinal($100);
+    CallWow.Dr7 := 0;
+  end
+  else
+  begin
+    NewSp := (UIntPtr(Saved.Rsp) and not UIntPtr(15)) - 8;
+    if not WriteProcessMemory(FProcessHandle, Pointer(NewSp), @Tramp, 8, Written) then Exit;
+    Call.Rsp := NewSp;
+    Call.Rip := FCallGetterAddr;
+    Call.Rcx := FCallArgSelf;
+    if FCallArgResultPtr <> 0 then Call.Rdx := FCallArgResultPtr;
+    Call.EFlags := Call.EFlags and not DWORD($100);
+    Call.Dr7 := 0;
+  end;
+  {$ELSE}
+  NewSp := (UIntPtr(Saved.Esp) and not UIntPtr(15)) - 4;
+  if not WriteProcessMemory(FProcessHandle, Pointer(NewSp), @Tramp, 4, Written) then Exit;
+  Call.Esp := Cardinal(NewSp);
+  Call.Eip := Cardinal(FCallGetterAddr);
+  Call.Eax := Cardinal(FCallArgSelf);
+  if FCallArgResultPtr <> 0 then Call.Edx := Cardinal(FCallArgResultPtr);
+  Call.EFlags := Call.EFlags and not Cardinal($100);
+  Call.Dr7 := 0;
+  {$ENDIF}
+
+  if not SetTargetContext(AThreadHandle, Call{$IFDEF CPUX64}, CallWow{$ENDIF}) then Exit;
+
+  // Run the getter. The debuggee is frozen with the BP event pending;
+  // continuing it executes the getter, which RETs into the INT3
+  // trampoline and raises EXCEPTION_BREAKPOINT at FCallTrampoline.
+  ContinueDebugEvent(AProcessId, AThreadId, DBG_CONTINUE);
+
+  Done := False;
+  Iter := 0;
+  while (not Done) and (Iter < 20000) do
+  begin
+    Inc(Iter);
+    if not WaitForDebugEvent(Ev, 10000) then Break;
+    if Ev.dwDebugEventCode = EXCEPTION_DEBUG_EVENT then
+    begin
+      C := Ev.Exception.ExceptionRecord.ExceptionCode;
+      A := UIntPtr(Ev.Exception.ExceptionRecord.ExceptionAddress);
+      if ((C = EXCEPTION_BREAKPOINT) or (C = STATUS_WX86_BREAKPOINT)) and
+         (Ev.dwThreadId = AThreadId) and (A = Tramp) then
+      begin
+        // Capture the getter's return value (EAX/RAX) before restoring.
+        if GetTargetContext(AThreadHandle, CONTEXT_FULL,
+             RetCtx{$IFDEF CPUX64}, RetWow{$ENDIF}) then
+        begin
+          {$IFDEF CPUX64}
+          if FTargetIs32Bit then FCallResultReg := RetWow.Eax
+          else FCallResultReg := RetCtx.Rax;
+          {$ELSE}
+          FCallResultReg := RetCtx.Eax;
+          {$ENDIF}
+          FCallOk := True;
+        end;
+        // Restore the paused context (PC back at the BP line, HW BPs
+        // re-enabled). Leave the trampoline event PENDING (no
+        // ContinueDebugEvent) so the target stays frozen in the
+        // original paused state; the outer loop resumes from here on
+        // the user's next continue.
+        SetTargetContext(AThreadHandle, Saved{$IFDEF CPUX64}, SavedWow{$ENDIF});
+        Done := True;
+        Break;
+      end;
+    end;
+    // Any other event while the getter runs: pass it through (let the
+    // app's own SEH handle a foreign exception) so the getter proceeds.
+    if Ev.dwDebugEventCode = EXCEPTION_DEBUG_EVENT then
+      ContinueDebugEvent(Ev.dwProcessId, Ev.dwThreadId, DBG_EXCEPTION_NOT_HANDLED)
+    else
+      ContinueDebugEvent(Ev.dwProcessId, Ev.dwThreadId, DBG_CONTINUE);
+  end;
+
+  if not Done then
+    // Best-effort restore so a timed-out / failed call doesn't strand
+    // the thread mid-getter.
+    SetTargetContext(AThreadHandle, Saved{$IFDEF CPUX64}, SavedWow{$ENDIF});
+end;
+
 function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
 begin
   Result := SetBreakpoint(AUnitName, ALineNumber, False);
@@ -2283,6 +2514,22 @@ begin
 
           FContinueEvent.ResetEvent;
           FContinueEvent.WaitFor(INFINITE);
+          // §6.37 getter call-injection: while paused at this BP an
+          // evaluate of a getter-backed property parks a request and
+          // signals FContinueEvent. Service every pending request here
+          // (running the getter via a self-contained nested pump) and
+          // re-wait, until a genuine continue arrives with no request.
+          // Purely additive: with no request this loop is skipped and
+          // the original resume below runs unchanged.
+          while FCallInjectRequest do
+          begin
+            FCallInjectRequest := False;
+            PerformInjectedCallOnDebugThread(ADebugEvent.dwProcessId,
+              ADebugEvent.dwThreadId, CurrentThread);
+            FCallReturnEvent.SetEvent;
+            FContinueEvent.ResetEvent;
+            FContinueEvent.WaitFor(INFINITE);
+          end;
 
           EF := CtxGetEFlags(Context{$IFDEF CPUX64}, Wow64Context{$ENDIF});
           EF := EF or $10000; // RF
@@ -2769,6 +3016,76 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
     Result := ReadClassNameFromVMT(VMTPtr, AClassName);
   end;
 
+  // Resolve one VMT's parent VMT + class name. Promoted to a sibling so
+  // BOTH the field walk (FindFieldViaVmtWalk) and the property walk
+  // (FindPropertyViaVmtWalk) can drive the same live-VMT ancestor chain.
+  //
+  // Try ReadTargetPointer at <VMTPtr - cand> for the candidate offset;
+  // a non-zero pointer whose own VMT-classname slot resolves to a valid
+  // class name is taken as vmtParent. Delphi's layout puts vmtParent
+  // 8 bytes (Win32) / 16 bytes (Win64) before vmtClassName, but
+  // CPP_ABI_ADJUST and version-specific RTL additions shift the exact
+  // offset, so we probe both the direct and the indirected form.
+  function TryReadParentVMT(AVMT: UIntPtr; out AParentVMT: UIntPtr;
+    out AParentName: String): Boolean;
+  var
+    Ofs, SelfPtrOfs: Integer;
+    Cand, Indirect, CandSelfPtr: UIntPtr;
+    Name: String;
+  begin
+    Result := False;
+    AParentVMT := 0;
+    AParentName := '';
+    // Delphi 12's vmtParent slot stores an indirection address, not
+    // the parent VMT directly: VMT-48 (Win32) / VMT-120 (Win64)
+    // holds the address of a slot whose contents are the actual
+    // parent VMT pointer. The compiler emits this indirection so
+    // cross-unit class references can be patched by the linker.
+    // We confirm the resolved VMT by checking its self-anchor at
+    // VMT-vmtSelfPtr (-88 / -176).
+    if FTargetIs32Bit then
+    begin
+      Ofs        := 48;
+      SelfPtrOfs := 88;
+    end
+    else
+    begin
+      Ofs        := 120;
+      SelfPtrOfs := 176;
+    end;
+    if NativeInt(AVMT) <= Ofs then Exit;
+    Indirect := ReadTargetPointer(Pointer(NativeInt(AVMT) - Ofs));
+    if Indirect = 0 then Exit;
+    // First try: the slot value IS the parent VMT (older Delphi
+    // versions without the indirection).
+    if NativeInt(Indirect) > SelfPtrOfs then
+    begin
+      CandSelfPtr := ReadTargetPointer(
+        Pointer(NativeInt(Indirect) - SelfPtrOfs));
+      if CandSelfPtr = Indirect then
+        Cand := Indirect
+      else
+        Cand := 0;
+    end
+    else
+      Cand := 0;
+    // Second try: dereference once more (Delphi 12+ external class
+    // indirection).
+    if Cand = 0 then
+    begin
+      Cand := ReadTargetPointer(Pointer(Indirect));
+      if Cand = 0 then Exit;
+      if NativeInt(Cand) <= SelfPtrOfs then Exit;
+      CandSelfPtr := ReadTargetPointer(Pointer(NativeInt(Cand) - SelfPtrOfs));
+      if CandSelfPtr <> Cand then Exit;
+    end;
+    if not ReadClassNameFromVMT(Cand, Name) then Exit;
+    if Length(Name) = 0 then Exit;
+    AParentVMT := Cand;
+    AParentName := Name;
+    Result := True;
+  end;
+
   // Live ancestor walk: when FindClassMember can't find AFieldName in
   // AStartClassName's RSM-derived chain, follow the runtime VMT's
   // vmtParent slot up through each ancestor and try the lookup again
@@ -2781,74 +3098,6 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
     out AMember: TRsmClassMember): Boolean;
   const
     MaxDepth = 32;
-
-    // Try ReadTargetPointer at <VMTPtr - cand> for each candidate
-    // offset; the first one that yields a non-zero pointer whose
-    // own VMT-classname slot resolves to a valid class name is
-    // taken as vmtParent. Delphi's layout puts vmtParent 8 bytes
-    // (Win32) / 16 bytes (Win64) before vmtClassName, but
-    // CPP_ABI_ADJUST and version-specific RTL additions shift the
-    // exact offset, so we probe both.
-    function TryReadParentVMT(AVMT: UIntPtr; out AParentVMT: UIntPtr;
-      out AParentName: String): Boolean;
-    var
-      Ofs, SelfPtrOfs: Integer;
-      Cand, Indirect, CandSelfPtr: UIntPtr;
-      Name: String;
-    begin
-      Result := False;
-      AParentVMT := 0;
-      AParentName := '';
-      // Delphi 12's vmtParent slot stores an indirection address, not
-      // the parent VMT directly: VMT-48 (Win32) / VMT-120 (Win64)
-      // holds the address of a slot whose contents are the actual
-      // parent VMT pointer. The compiler emits this indirection so
-      // cross-unit class references can be patched by the linker.
-      // We confirm the resolved VMT by checking its self-anchor at
-      // VMT-vmtSelfPtr (-88 / -176).
-      if FTargetIs32Bit then
-      begin
-        Ofs        := 48;
-        SelfPtrOfs := 88;
-      end
-      else
-      begin
-        Ofs        := 120;
-        SelfPtrOfs := 176;
-      end;
-      if NativeInt(AVMT) <= Ofs then Exit;
-      Indirect := ReadTargetPointer(Pointer(NativeInt(AVMT) - Ofs));
-      if Indirect = 0 then Exit;
-      // First try: the slot value IS the parent VMT (older Delphi
-      // versions without the indirection).
-      if NativeInt(Indirect) > SelfPtrOfs then
-      begin
-        CandSelfPtr := ReadTargetPointer(
-          Pointer(NativeInt(Indirect) - SelfPtrOfs));
-        if CandSelfPtr = Indirect then
-          Cand := Indirect
-        else
-          Cand := 0;
-      end
-      else
-        Cand := 0;
-      // Second try: dereference once more (Delphi 12+ external class
-      // indirection).
-      if Cand = 0 then
-      begin
-        Cand := ReadTargetPointer(Pointer(Indirect));
-        if Cand = 0 then Exit;
-        if NativeInt(Cand) <= SelfPtrOfs then Exit;
-        CandSelfPtr := ReadTargetPointer(Pointer(NativeInt(Cand) - SelfPtrOfs));
-        if CandSelfPtr <> Cand then Exit;
-      end;
-      if not ReadClassNameFromVMT(Cand, Name) then Exit;
-      if Length(Name) = 0 then Exit;
-      AParentVMT := Cand;
-      AParentName := Name;
-      Result := True;
-    end;
-
   var
     VMTPtr     : UIntPtr;
     ParentVMT  : UIntPtr;
@@ -2867,6 +3116,46 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
       if not TryReadParentVMT(VMTPtr, ParentVMT, ParentName) then
         Exit; // TObject reached or unresolvable
       if FLocalsReader.FindClassMember(ParentName, AFieldName, AMember) then
+        Exit(True);
+      VMTPtr := ParentVMT;
+      Inc(Depth);
+    end;
+  end;
+
+  // Property analog of FindFieldViaVmtWalk. FindClassProperty alone walks
+  // only the RSM ParentName chain, which for RTL/VCL ancestors (e.g.
+  // TControl, where Caption is declared) is often not linked all the way
+  // up -- so an inherited property misses even though the inherited FIELD
+  // path already resolves via the live VMT. Mirror that: try
+  // FindClassProperty on the start class first, then on each live-VMT
+  // ancestor's class name. This is what lets TControl.Caption resolve on
+  // a TFormAd instance, the same way FindFieldViaVmtWalk resolves the
+  // inherited field TControl.FText.
+  function FindPropertyViaVmtWalk(AObjPtr: UIntPtr;
+    const AStartClassName, APropName: String;
+    out AProp: TRsmClassProperty; out AOwnerClass: String): Boolean;
+  const
+    MaxDepth = 32;
+  var
+    VMTPtr, ParentVMT: UIntPtr;
+    ParentName       : String;
+    Depth            : Integer;
+  begin
+    Result := False;
+    AProp := Default(TRsmClassProperty);
+    AOwnerClass := '';
+    if not Assigned(FLocalsReader) then Exit;
+    if FLocalsReader.FindClassProperty(AStartClassName, APropName, AProp, AOwnerClass) then
+      Exit(True);
+    if AObjPtr = 0 then Exit;
+    VMTPtr := ReadTargetPointer(Pointer(AObjPtr));
+    if VMTPtr = 0 then Exit;
+    Depth := 0;
+    while (VMTPtr <> 0) and (Depth < MaxDepth) do
+    begin
+      if not TryReadParentVMT(VMTPtr, ParentVMT, ParentName) then
+        Exit; // TObject reached or unresolvable
+      if FLocalsReader.FindClassProperty(ParentName, APropName, AProp, AOwnerClass) then
         Exit(True);
       VMTPtr := ParentVMT;
       Inc(Depth);
@@ -3259,21 +3548,59 @@ begin
                 //     the text lives in native window state; only call
                 //     injection -- not yet supported -- can recover it.)
                 var Prop: TRsmClassProperty;
-                if not FLocalsReader.FindClassProperty(ClsName, Segments[I], Prop) then
+                var OwnerClass: String;
+                if not FindPropertyViaVmtWalk(ObjPtr, ClsName, Segments[I],
+                         Prop, OwnerClass) then
                   Exit;
                 if Prop.UnderlyingField = '' then
                 begin
+                  // Getter-backed: the value only exists once the accessor
+                  // method runs. Resolve the getter's code address
+                  // (declared on OwnerClass, e.g. TControl.GetText for a
+                  // VCL Caption) and CALL-INJECT it on the paused thread.
+                  // The result is deposited in the target-side scratch
+                  // slot (the ordinal value, or -- for a managed string
+                  // return -- the string pointer the getter wrote via the
+                  // hidden @Result arg); point the terminal read at that
+                  // slot so the normal formatter pipeline handles it.
+                  var GetterAddr: UIntPtr := 0;
+                  if (Prop.GetterName <> '') and (OwnerClass <> '') then
+                  begin
+                    var ProcIdx: Integer :=
+                      FLocalsReader.FindProcByName(OwnerClass + '.' + Prop.GetterName);
+                    if ProcIdx >= 0 then
+                      GetterAddr := FBaseAddress + $1000 +
+                        FLocalsReader.Procs[ProcIdx].SegmentOffset;
+                  end;
+                  var IsStrResult: Boolean := Prop.PrimitiveTypeId = $04; // UnicodeString
+                  var GetterOrdinal: UInt64 := 0;
+                  if (GetterAddr <> 0) and
+                     CallTargetFunction(GetterAddr, ObjPtr, IsStrResult, GetterOrdinal) then
+                  begin
+                    FieldAddr := Pointer(FCallResultSlot);
+                    Member := Default(TRsmClassMember);
+                    Member.PrimitiveTypeId := Prop.PrimitiveTypeId;
+                    // Property value is terminal data, not a navigable
+                    // class/record context: reset the hop state so a
+                    // following segment (object-returning getter) class-
+                    // hops by dereferencing the slot.
+                    PrevContextIdx  := -1;
+                    ContextIsRecord := False;
+                    Continue;
+                  end;
+                  // Getter not resolvable / call failed -- precise hint.
+                  var GetterDisplay: String := Prop.GetterName;
+                  if GetterDisplay = '' then GetterDisplay := '<unknown>';
                   AHint := Format(
-                    'Property "%s" on %s is getter-backed: its read ' +
-                    'accessor is a method (a Get* function), not a field, ' +
-                    'so the value is computed at runtime and is not stored ' +
-                    'anywhere to read directly. Resolving it requires ' +
-                    'calling the getter on the paused thread (call ' +
-                    'injection), which DPT does not yet support. Note: a ' +
-                    'naive backing field (e.g. FText for a VCL Caption) is ' +
-                    'often empty because the value lives in native window/' +
-                    'runtime state, not the field.',
-                    [Segments[I], ClsName]);
+                    'Property "%s" on %s is getter-backed (read accessor ' +
+                    '%s): its value is computed at runtime. DPT resolves ' +
+                    'this by calling the getter on the paused thread, but ' +
+                    'that could not be completed here (getter address not ' +
+                    'resolved or the call did not return). A naive backing ' +
+                    'field (e.g. FText for a VCL Caption) is typically ' +
+                    'empty because the value lives in native window/runtime ' +
+                    'state, not the field.',
+                    [Segments[I], ClsName, GetterDisplay]);
                   Exit;
                 end;
                 // Field-backed: resolve the underlying field by name on

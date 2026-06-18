@@ -145,7 +145,14 @@ type
     ///   getter-backed distinction.
     /// </summary>
     function  FindClassProperty(const AClassName, APropertyName: String;
-      out AProperty: TRsmClassProperty): Boolean;
+      out AProperty: TRsmClassProperty): Boolean; overload;
+    /// As above, but also reports the class the property was actually
+    /// declared on (AOwnerClass) -- the start class or an ancestor up
+    /// the ParentName chain. The caller needs it to qualify a
+    /// getter-backed property's accessor (e.g. TControl.GetText, not
+    /// TFormAd.GetText) when resolving the getter's proc address.
+    function  FindClassProperty(const AClassName, APropertyName: String;
+      out AProperty: TRsmClassProperty; out AOwnerClass: String): Boolean; overload;
     function  FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String;
       out AMember: TRsmClassMember): Boolean;
     function  IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
@@ -1318,9 +1325,19 @@ end;
 
 function TRsmReader.FindClassProperty(const AClassName, APropertyName: String;
   out AProperty: TRsmClassProperty): Boolean;
+var
+  OwnerClass: String;
+begin
+  Result := FindClassProperty(AClassName, APropertyName, AProperty, OwnerClass);
+end;
+
+function TRsmReader.FindClassProperty(const AClassName, APropertyName: String;
+  out AProperty: TRsmClassProperty; out AOwnerClass: String): Boolean;
 // Walks the class chain (own then ancestors) looking for a property
 // of the requested name. Properties live in TRsmClassInfo.Properties,
-// populated by TRsmPropertyLinker during RunPostProcess.
+// populated by TRsmPropertyLinker during RunPostProcess. AOwnerClass
+// reports the class the match was declared on (needed to qualify a
+// getter-backed property's accessor proc).
 const
   MaxChainDepth = 32;
 var
@@ -1331,6 +1348,7 @@ var
 begin
   Result := False;
   AProperty := Default(TRsmClassProperty);
+  AOwnerClass := '';
   FClasses := FScanner.Classes;
   CurrentClass := AClassName;
   Steps := 0;
@@ -1344,6 +1362,7 @@ begin
         if SameText(Info.Properties[I].Name, APropertyName) then
         begin
           AProperty := Info.Properties[I];
+          AOwnerClass := Info.Name;
           Exit(True);
         end;
     CurrentClass := Info.ParentName;
