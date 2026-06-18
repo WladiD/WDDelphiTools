@@ -93,6 +93,8 @@ type
     procedure TestFormatClass_ClassVarPreserved;
     [Test]
     procedure TestFormatClass_NoSeparatorBetweenConstAndVar;
+    [Test]
+    procedure TestFormatClass_ClassLevelAttributeStillSorts;
   end;
 
 implementation
@@ -1281,6 +1283,77 @@ begin
 
   Assert.IsFalse(LResult.Contains('{ ---'),
     'No section separator must appear inside the class body. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_ClassLevelAttributeStillSorts;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // A class decorated with a class-level attribute (e.g. [TestFixture] on a
+  // DUnitX test class) must still have its members sorted. The attribute token
+  // preceding the type name previously caused the whole declaration to be
+  // parsed as an unrecognised (unparsed) construct and skipped entirely, so
+  // neither fields nor methods were sorted.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  [TestFixture]' + #13#10 +
+    '  TFoo = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    FZebra: Integer;  // the zebra field' + #13#10 +
+    '    FAlpha: String;   // the alpha field' + #13#10 +
+    '    FMiddle: Boolean; // the middle field' + #13#10 +
+    '   public' + #13#10 +
+    '    [Test]' + #13#10 +
+    '    procedure Zebra;' + #13#10 +
+    '    [Test]' + #13#10 +
+    '    procedure Alpha;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // The class-level attribute must survive intact, on its own line before the type name.
+  Assert.IsTrue(LResult.Contains('[TestFixture]'),
+    'Class-level attribute must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('[TestFixture]', LResult) < Pos('TFoo = class', LResult),
+    'Attribute must stay before the type name. Actual:' + #13#10 + LResult);
+
+  // Fields are sorted alphabetically despite the class-level attribute.
+  Assert.IsTrue(
+    (Pos('FAlpha', LResult) < Pos('FMiddle', LResult)) and
+    (Pos('FMiddle', LResult) < Pos('FZebra', LResult)),
+    'Fields of an attribute-decorated class must be sorted. Actual:' + #13#10 + LResult);
+
+  // Each field's trailing comment must travel with its field during the sort,
+  // staying on the same line and not migrating to a neighbouring field.
+  Assert.IsTrue(LResult.Contains('// the alpha field'),
+    'Alpha field comment must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('// the middle field'),
+    'Middle field comment must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('// the zebra field'),
+    'Zebra field comment must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(
+    (Pos('// the alpha field', LResult) < Pos('// the middle field', LResult)) and
+    (Pos('// the middle field', LResult) < Pos('// the zebra field', LResult)),
+    'Field comments must move with their fields (alpha, middle, zebra). Actual:' + #13#10 + LResult);
+  // The comment must stay glued to the same field line after sorting.
+  Assert.IsTrue(Pos('FAlpha', LResult) < Pos('// the alpha field', LResult),
+    'Alpha comment must stay on the FAlpha line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(Pos('// the alpha field', LResult) < Pos('FMiddle', LResult),
+    'Alpha comment must precede the next field. Actual:' + #13#10 + LResult);
+
+  // Methods are sorted alphabetically too, with their [Test] member attributes
+  // travelling along (Alpha before Zebra, each still preceded by its [Test]).
+  Assert.IsTrue(Pos('procedure Alpha;', LResult) < Pos('procedure Zebra;', LResult),
+    'Methods of an attribute-decorated class must be sorted. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('    [Test]' + #13#10 + '    procedure Alpha;'),
+    '[Test] must stay directly before Alpha after sorting. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('    [Test]' + #13#10 + '    procedure Zebra;'),
+    '[Test] must stay directly before Zebra after sorting. Actual:' + #13#10 + LResult);
 end;
 
 end.
