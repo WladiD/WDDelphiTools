@@ -3241,7 +3241,50 @@ begin
               // offset (single-inheritance Delphi keeps field offsets
               // stable across the entire descent of the declaring class).
               if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
-                Exit;
+              begin
+                // §6.37 PROPERTY fallback. The segment is neither an own
+                // field nor an inherited field on the runtime class
+                // chain -- try it as a PROPERTY (parsed from the $31
+                // records into TRsmClassInfo.Properties; §4.16).
+                //   * Field-backed (read FField): bridge to the
+                //     underlying field's byte offset and continue the
+                //     walk exactly as if the user had named the field.
+                //     Covers the easy, deterministic case.
+                //   * Getter-backed (read GetX): the value only exists
+                //     after running the accessor in the target process,
+                //     so there is nothing to read statically -- emit a
+                //     precise hint instead of the generic "could not
+                //     navigate" failure. (The canonical example is a VCL
+                //     Caption, whose FText backing field is empty because
+                //     the text lives in native window state; only call
+                //     injection -- not yet supported -- can recover it.)
+                var Prop: TRsmClassProperty;
+                if not FLocalsReader.FindClassProperty(ClsName, Segments[I], Prop) then
+                  Exit;
+                if Prop.UnderlyingField = '' then
+                begin
+                  AHint := Format(
+                    'Property "%s" on %s is getter-backed: its read ' +
+                    'accessor is a method (a Get* function), not a field, ' +
+                    'so the value is computed at runtime and is not stored ' +
+                    'anywhere to read directly. Resolving it requires ' +
+                    'calling the getter on the paused thread (call ' +
+                    'injection), which DPT does not yet support. Note: a ' +
+                    'naive backing field (e.g. FText for a VCL Caption) is ' +
+                    'often empty because the value lives in native window/' +
+                    'runtime state, not the field.',
+                    [Segments[I], ClsName]);
+                  Exit;
+                end;
+                // Field-backed: resolve the underlying field by name on
+                // the same runtime/RSM class chain, then fall through to
+                // the FieldAddr advance below as if it had been named.
+                if not FLocalsReader.FindClassMember(
+                         ClsName, Prop.UnderlyingField, Member) then
+                  if not FindFieldViaVmtWalk(
+                           ObjPtr, Prop.UnderlyingField, Member) then
+                    Exit;
+              end;
             end;
             FieldAddr := Pointer(ObjPtr + Member.Offset);
           end

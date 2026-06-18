@@ -2079,6 +2079,23 @@ against two fixtures in
       `UnderlyingField`, `PrimitiveTypeId` distinguishes Integer vs
       string.
 
+> **Consumer note — the dotted walk resolves properties (§6.37).** When
+> a dotted segment (`Obj.Caption`) is neither an own field nor an
+> inherited field on the runtime class chain, the class-hop branch of
+> [DPT.Debugger.pas EvaluateVariable](DPT.Debugger.pas) now falls back to
+> `Reader.FindClassProperty` and splits on the read accessor:
+> **field-backed** properties (`UnderlyingField <> ''`) bridge to the
+> underlying field's byte offset and resolve exactly as if the user had
+> named the field (closed; pinned by
+> `TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField`), while
+> **getter-backed** properties (`UnderlyingField = ''`) emit a precise
+> "getter-backed / call injection not yet supported" hint instead of a
+> generic navigation failure (open — see §6.37 for why and the close
+> plan). This is what turns `Result.Caption` from `"Could not navigate"`
+> into an explanatory message: `Caption` is `TControl.Caption read
+> GetText`, getter-backed, so the value lives in native window state, not
+> a readable field.
+
 ### 4.17 `$64` / `$66` / `$67` / `$70` — cross-unit symbol-import table
 
 The Delphi linker emits one segment per unit a compilation unit
@@ -3196,6 +3213,77 @@ closed; see below).
 > `evaluate AdrLoc` honestly declines. The contract is to pass
 > `type=shortstring` for record-field terminals; the navigation is what
 > §6.36-B fixed.
+
+### 6.37 Getter-backed property reads need call injection (`GAP`)
+
+[DPT.Debugger.pas EvaluateVariable](DPT.Debugger.pas) — the §6.37
+dotted-walk property fallback (class-hop branch). When a dotted segment
+names a property rather than a field, the walk now consults
+`Reader.FindClassProperty` (the §4.16 `$31` data) and splits on the
+read accessor:
+
+* **Field-backed** (`property Foo: Integer read FFoo;`,
+  `UnderlyingField <> ''`) — **closed**. The walk bridges to the
+  underlying field's byte offset and resolves exactly as if the user had
+  named the field. Pinned by
+  [Test.DPT.MCP.Server.TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField](../Test/Test.DPT.MCP.Server.pas)
+  (`GGlobalPropHost.PlainProp` → `FPlainInt = $AABBCCDD`, asserted equal
+  to the direct-field read).
+
+* **Getter-backed** (`property Bar: Integer read GetBar;`,
+  `UnderlyingField = ''`) — **open**. The value is computed by the
+  accessor method and is not stored anywhere readable; the canonical
+  case is a VCL `Caption` (`TControl.Caption read GetText → GetWindowText`),
+  whose `FText` backing field is empty because the text lives in native
+  window state. The walk currently emits a precise hint
+  (`"… is getter-backed … requires calling the getter … call injection
+  … not yet supported"`) instead of the generic "could not navigate"
+  failure. Pinned by
+  [Test.DPT.MCP.Server.TestMcpEvaluateGetterBackedPropertyEmitsHint](../Test/Test.DPT.MCP.Server.pas)
+  (`GGlobalPropHost.CalcProp` / `.Greeting`).
+
+**Why call injection isn't implemented yet (architecture, not encoding).**
+The `.rsm` already carries everything needed — the `$31` record names the
+getter as the read target (§4.16). The blocker is the debugger's
+execution model: while paused, `TDebugger.HandleException` blocks the
+sole `TDebuggerThread` loop on `FContinueEvent.WaitFor(INFINITE)`, and the
+OS freezes the entire debuggee between `WaitForDebugEvent` /
+`ContinueDebugEvent`. No target code — neither a context-hijack of the
+paused thread nor a `CreateRemoteThread` stub — can run until the loop
+pumps `ContinueDebugEvent`, so any call-injection scheme must be driven
+*through* that loop as a nested run-and-return rather than from the MCP
+worker thread that services `evaluate`.
+
+**Concrete plan to close it (deferred).**
+1. Allocate a scratch page in the target (`VirtualAllocEx`) holding a
+   1-byte `$CC` (INT3) trampoline used as the synthetic return address,
+   plus (for managed-return getters) a pointer-sized result slot.
+2. Snapshot the paused thread's context (`GetTargetContext`, Wow64-aware).
+3. Build the call frame per the Delphi `register` ABI: Win32 — Self in
+   EAX, and for `function: string` the hidden `@Result` in EDX (the
+   compiler rewrites it to `procedure(Self; var Result: string)`);
+   push the INT3 trampoline as the return address; set EIP = getter VA.
+   Win64 — Self in RCX, `@Result` in RDX, 32-byte shadow space, return
+   address on the stack.
+4. Add a one-shot "call-return" mode to the `TDebuggerThread` loop:
+   `SetTargetContext`, signal `FContinueEvent`, and on the next
+   `EXCEPTION_BREAKPOINT` at the trampoline address, capture the return
+   value (EAX/RAX for ordinals; for a string, read the result slot →
+   pointer to the Delphi long-string, then its bytes), restore the
+   snapshot context, and hand the value back to `evaluate` without
+   advancing the user-visible PC.
+5. Guard hard: only fire for a getter whose VA resolves in-module, with a
+   re-entrancy/timeout backstop (a second INT3 watchdog) and a depth=1
+   cap, since running VCL code on the paused UI thread can pump messages.
+   A cheap partial win that needs no execution at all: disassemble a
+   *trivial* getter (`mov eax,[eax+disp]; ret`) and extract the field
+   displacement directly — covers simple `read GetX` forwarders, though
+   not `Caption` (whose getter is non-trivial).
+
+A deterministic bench already exists for the close: `DebugTarget.dpr`
+`TPropHost.CalcProp` (Integer getter) and `.Greeting` (string getter) at
+the `PropertyProbe` breakpoint (line 578) exercise both the ordinal and
+the managed-return ABI paths without the flaky TFW realtest.
 
 ---
 

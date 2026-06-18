@@ -109,6 +109,10 @@ type
     [Test]
     procedure TestMcpEvaluateInheritedFieldViaVmtWalk;
     [Test]
+    procedure TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField;
+    [Test]
+    procedure TestMcpEvaluateGetterBackedPropertyEmitsHint;
+    [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
     procedure TestMcpEvaluateAutoTypeDetection;
@@ -3108,6 +3112,89 @@ begin
     Line := Fixture.Eval('AEmpty.FTag', 'int');
     Assert.IsTrue(Line.Contains('2088533116'),
       'AEmpty.FTag must equal 2088533116 ($7C7C7C7C, inherited from TComponent), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.37 property fallback, field-backed path (a). When a dotted
+///   segment names a PROPERTY whose read accessor is a direct field
+///   (<c>property PlainProp: Integer read FPlainInt;</c>), the dotted
+///   walk must bridge the property to its underlying field's byte
+///   offset and read it exactly as if the user had named the field.
+///   <c>GGlobalPropHost</c> is a live <c>TPropHost</c> at the
+///   <c>PropertyProbe</c> breakpoint (DebugTarget.dpr line 578);
+///   <c>PlainProp</c> bridges to <c>FPlainInt = $AABBCCDD</c>. Asserts
+///   the property and the underlying field read the SAME value, proving
+///   the bridge (and that property navigation is no longer a flat
+///   "could not navigate" failure).
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 578);
+  try
+    // Control: the underlying field reads $AABBCCDD (asserted on the
+    // hex form, which is stable regardless of signed/unsigned decimal
+    // rendering).
+    Line := Fixture.Eval('GGlobalPropHost.FPlainInt', 'int');
+    Assert.IsTrue(Line.Contains('AABBCCDD'),
+      'Underlying field FPlainInt must equal $AABBCCDD, got: ' + Line);
+
+    // The field-backed property PlainProp must resolve to the SAME
+    // value via the §6.37 bridge.
+    Line := Fixture.Eval('GGlobalPropHost.PlainProp', 'int');
+    Assert.IsTrue(Line.Contains('AABBCCDD'),
+      'Field-backed property PlainProp must bridge to FPlainInt ' +
+      '($AABBCCDD), got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.37 property fallback, getter-backed path (b). A property whose
+///   read accessor is a METHOD (<c>property CalcProp: Integer read
+///   GetCalcInt;</c> / <c>Greeting: string read GetGreeting;</c>) has
+///   no statically readable backing field -- the value only exists
+///   after the getter runs in the target. Until call injection is
+///   supported, the walk must fail with a PRECISE, actionable hint
+///   ("getter-backed" / "call injection") instead of the generic
+///   "could not navigate" message, so the user understands WHY it
+///   failed and what is missing. (This is the documented escape hatch
+///   for the VCL <c>Caption</c> realtest case.)
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateGetterBackedPropertyEmitsHint;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 578);
+  try
+    // Getter-backed integer property.
+    Line := Fixture.Eval('GGlobalPropHost.CalcProp', 'int');
+    Assert.IsTrue(Line.Contains('isError'),
+      'Getter-backed CalcProp must report an error, got: ' + Line);
+    Assert.IsTrue(Line.Contains('getter-backed'),
+      'CalcProp hint must name the getter-backed cause, got: ' + Line);
+    Assert.IsTrue(Line.Contains('call injection'),
+      'CalcProp hint must mention call injection as the missing path, got: ' + Line);
+
+    // Getter-backed string property -- same precise hint, not a
+    // managed-string garbage read.
+    Line := Fixture.Eval('GGlobalPropHost.Greeting', 'string');
+    Assert.IsTrue(Line.Contains('getter-backed'),
+      'Getter-backed string property Greeting must emit the getter-backed ' +
+      'hint too, got: ' + Line);
   finally
     Fixture.Free;
   end;
