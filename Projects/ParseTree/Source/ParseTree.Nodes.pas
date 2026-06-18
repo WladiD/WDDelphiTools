@@ -141,6 +141,7 @@ type
     FEqualsToken           : TSyntaxToken;
     FGenericParameterTokens: IList<TSyntaxToken>; // e.g. <T>, <TKey, TValue>
     FIdentifier            : TSyntaxToken;
+    FLeadingAttributeTokens: IList<TSyntaxToken>; // e.g. [TestFixture] before the type name
     FSemicolon             : TSyntaxToken;
     FTrailingTokens        : IList<TSyntaxToken>;
     FTypeExtraTokens       : IList<TSyntaxToken>; // e.g. (stNone, stInto) for enums
@@ -155,6 +156,7 @@ type
     property EqualsToken: TSyntaxToken read FEqualsToken write FEqualsToken;
     property GenericParameterTokens: IList<TSyntaxToken> read FGenericParameterTokens;
     property Identifier: TSyntaxToken read FIdentifier write FIdentifier;
+    property LeadingAttributeTokens: IList<TSyntaxToken> read FLeadingAttributeTokens;
     property Semicolon: TSyntaxToken read FSemicolon write FSemicolon;
     property TrailingTokens: IList<TSyntaxToken> read FTrailingTokens;
     property TypeExtraTokens: IList<TSyntaxToken> read FTypeExtraTokens;
@@ -673,6 +675,7 @@ begin
   FGenericParameterTokens := Collections.NewList<TSyntaxToken>;
   FTypeExtraTokens := Collections.NewList<TSyntaxToken>;
   FBaseListTokens := Collections.NewList<TSyntaxToken>;
+  FLeadingAttributeTokens := Collections.NewList<TSyntaxToken>;
   FVisibilitySections := Collections.NewList<TVisibilitySectionSyntax>;
   FTrailingTokens := Collections.NewList<TSyntaxToken>;
 end;

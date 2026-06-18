@@ -143,6 +143,8 @@ var
   LToken: TSyntaxToken;
 begin
   if ADecl = nil then Exit;
+  for LToken in ADecl.LeadingAttributeTokens do
+    WriteToken(LToken);
   WriteToken(ADecl.Identifier);
   for LToken in ADecl.GenericParameterTokens do
     WriteToken(LToken);

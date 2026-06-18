@@ -644,12 +644,27 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
 var
   LNestLevel: Integer;
   LTypeKind: TTokenKind;
+  LScanBase: Integer;
 begin
+  // Skip past any leading attribute blocks [ ... ] (e.g. [TestFixture] on a
+  // DUnitX class) for the kind peek-ahead below. The attribute tokens are
+  // consumed into LeadingAttributeTokens once the node exists.
+  LScanBase := FPosition;
+  while (LScanBase < FTokens.Count) and (FTokens[LScanBase].Kind = tkOpenBracket) do
+  begin
+    var LAttrNest: Integer := 0;
+    repeat
+      if FTokens[LScanBase].Kind = tkOpenBracket then Inc(LAttrNest)
+      else if FTokens[LScanBase].Kind = tkCloseBracket then Dec(LAttrNest);
+      Inc(LScanBase);
+    until (LScanBase >= FTokens.Count) or (FTokens[LScanBase].Kind = tkEOF) or (LAttrNest = 0);
+  end;
+
   // Peek ahead to determine the specific type declaration class to instantiate
   LTypeKind := tkUnknown;
-  if (Current <> nil) and (Current.Kind = tkIdentifier) then
+  if (LScanBase < FTokens.Count) and (FTokens[LScanBase].Kind = tkIdentifier) then
   begin
-    var LScan: Integer := FPosition + 1;
+    var LScan: Integer := LScanBase + 1;
     // Skip generic type parameters <T>
     if (LScan < FTokens.Count) and (FTokens[LScan].Kind = tkLessThan) then
     begin
@@ -674,6 +689,18 @@ begin
     Result := TRecordDeclarationSyntax.Create
   else
     Result := TTypeDeclarationSyntax.Create;
+
+  // Consume the leading attribute blocks [ ... ] so they roundtrip and the
+  // type name is reached. Each block may nest, so track bracket depth.
+  while (Current <> nil) and (Current.Kind = tkOpenBracket) do
+  begin
+    var LAttrNest: Integer := 0;
+    repeat
+      if Current.Kind = tkOpenBracket then Inc(LAttrNest)
+      else if Current.Kind = tkCloseBracket then Dec(LAttrNest);
+      Result.LeadingAttributeTokens.Add(NextToken);
+    until (Current = nil) or (Current.Kind = tkEOF) or (LAttrNest = 0);
+  end;
 
   Result.Identifier := MatchToken(tkIdentifier);
 
@@ -801,9 +828,11 @@ begin
   begin
     TypeSec := TTypeSectionSyntax.Create;
     TypeSec.TypeKeyword := MatchToken(tkTypeKeyword);
-    
-    while (Current <> nil) and 
-          (Current.Kind = tkIdentifier) do
+
+    // A type declaration may be preceded by attribute blocks (e.g. [TestFixture]),
+    // so an opening bracket also starts a declaration, not just an identifier.
+    while (Current <> nil) and
+          ((Current.Kind = tkIdentifier) or (Current.Kind = tkOpenBracket)) do
     begin
       TypeSec.Declarations.Add(ParseTypeDeclaration);
     end;
