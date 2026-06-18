@@ -2147,12 +2147,17 @@ to the getter's proc name `TPropHost.GetCalcInt`, which
 >   `.Greeting` → `'Hello, World'` managed-string path). The native
 >   Win64 register ABI is realtest-only — see §6.37.
 >
-> This is what turns `Result.Caption` (`TControl.Caption read GetText →
-> GetWindowText`) from `"Could not navigate"` into the live form title:
-> the getter is run in the target and `GetWindowText` reads the native
-> window state the static `FText` field doesn't hold. When the getter
-> address can't be resolved or the call doesn't return, the walk emits a
-> precise hint instead of a generic navigation failure.
+> On a clean binary this turns `Obj.Caption` (`TControl.Caption read
+> GetText → GetWindowText`) into the live form title: the getter runs in
+> the target and `GetWindowText` reads the native window state the static
+> `FText` field doesn't hold. When the getter address can't be resolved
+> or the call doesn't return, the walk emits a precise hint instead of a
+> generic navigation failure. **Caveat (§6.37):** on a *large* binary
+> (e.g. the live `TFW.exe`) the `$31` → owning-class attribution
+> mis-resolves, so `TControl.Caption` is not attributed to `TControl` and
+> `FindPropertyViaVmtWalk` does not find it — the engine is ready but the
+> property is invisible to it there until the §6.37 attribution gap is
+> closed.
 
 ### 4.17 `$64` / `$66` / `$67` / `$70` — cross-unit symbol-import table
 
@@ -3272,25 +3277,53 @@ closed; see below).
 > `type=shortstring` for record-field terminals; the navigation is what
 > §6.36-B fixed.
 
-### 6.37 Native-Win64 getter call-injection ABI (`UNCERTAIN`)
+### 6.37 `$31` property attribution is unreliable on large binaries (`GAP`)
 
-The §6.37 dotted-walk property support (field-backed bridge + getter-
-backed **call injection**) is implemented and documented in §4.16. The
-only residual uncertainty is the **native Win64** register ABI for the
-injected call: the Win32 / Wow64 path (`Self`→EAX, hidden `@Result`→EDX)
-is pinned deterministically by
-[Test.DPT.MCP.Server.TestMcpEvaluateGetterBackedPropertyViaCallInjection](../Test/Test.DPT.MCP.Server.pas)
-(`GGlobalPropHost.CalcProp` → `$12345679`, `.Greeting` → `'Hello, World'`),
-but the **native** Win64 path (`Self`→RCX, hidden `@Result`→RDX, 16-byte
-stack alignment, 32-byte shadow space) cannot be benched the same way:
-live-debugging a Win64 target through the MCP is blocked by the §6.17
-proc-boundary off-by-one, so there is no deterministic Win64-target unit
-fixture. The native path is therefore verified only by the
-`fixture-result-eval` realtest (`evaluate Result.Caption` on the Win64
-`TFW.exe` → the live form title). Close this once a deterministic
-Win64-target bench exists (needs §6.17 resolved first), or downgrade to a
-§4 note if the realtest confirms the native ABI and the design choice to
-rely on it stands.
+The §6.37 dotted-walk property support — field-backed bridge, getter-name
+`$2E` decode, `FindPropertyViaVmtWalk`, and getter **call injection** — is
+implemented and Win32/Wow64-verified deterministically (§4.16;
+[Test.DPT.MCP.Server.TestMcpEvaluateGetterBackedPropertyViaCallInjection](../Test/Test.DPT.MCP.Server.pas):
+`GGlobalPropHost.CalcProp` → `$12345679` ordinal path, `.Greeting` →
+`'Hello, World'` managed-string path). The call-injection engine works.
+
+**But `evaluate Result.Caption` still fails on the live `TFW.exe`** — and
+a standalone-reader probe of that exact `.rsm` (`C:\MSE-26.04-Mongo\TFW`,
+a **Win32** build despite the zero-extended 16-digit MCP address display)
+shows why, and it is **not** in the call-injection path:
+
+* `TControl`, `TWinControl`, `TCustomForm`, `TForm`, `TFormAd` are all
+  discovered (`FindClassByName ≥ 0`) and their inherited *fields* resolve
+  (live `Result.FText` navigates), but every one has
+  **`Properties = nil`** — `TControl.Caption` is **not attributed** to
+  `TControl`.
+* `TRsmPropertyLinker` attributes **99 443** properties across 30 081
+  classes, but the owner-attribution is wrong at this scale: of the 51
+  `Caption`-named properties, the owners are garbage
+  (`TWordHelper`/`underlying=FIndex`, `pitem`, `TItem`/`getter=SetStyle`,
+  `TEvent`/`underlying=RefCount`, …) — none is the real
+  `TControl.Caption` (`getter=GetText`, `primId=$04`).
+* The getter proc itself IS present and findable:
+  `FindProcByName('TControl.GetText') = 13892`. So **once the property is
+  correctly attributed, call injection would resolve it** — the gap is
+  purely the `$31` → owning-class attribution.
+
+This is the §4.16 block-owner caveat biting at scale: the PropertyLinker
+resolves a `$31`'s owner from the preceding `$2C` block's WIDE parent
+type-id via `FRsmTypeIdToClassIdx`, and on a huge binary those wide ids
+collide / mis-resolve (the same family as the §6.33 unit-local-id
+collision that needed a member-name-set match to fix). The DebugTarget
+fixture has no collisions so it attributes cleanly; TFW does not.
+
+**Next investigator's lead.** Apply a §6.33-style robust attribution to
+`$31` property records — don't trust the wide parent-id alone; corroborate
+the owning class by the surrounding `$2C` field block's member-name set
+(or another structural anchor) before attributing. Reproduce-first with a
+heavy-fixture pin in `Test.DPT.Rsm.Taifun` asserting
+`FindClassProperty('TControl','Caption')` resolves to `getter=GetText`,
+`primId=$04` on the TFW corpus (red today), plus a leakage guard that the
+bogus `TWordHelper`/`pitem` `Caption` attributions disappear. This is a
+multi-round RSM-attribution investigation in its own right, independent of
+the (working) call-injection machinery.
 
 ---
 
