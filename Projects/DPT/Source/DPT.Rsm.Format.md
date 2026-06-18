@@ -3242,6 +3242,30 @@ read accessor:
   [Test.DPT.MCP.Server.TestMcpEvaluateGetterBackedPropertyEmitsHint](../Test/Test.DPT.MCP.Server.pas)
   (`GGlobalPropHost.CalcProp` / `.Greeting`).
 
+**Realtest finding — the property lookup must walk the live VMT, like
+the field lookup does (prerequisite, currently open).** The
+`fixture-result-eval` realtest (`evaluate Result.Caption` on a live
+`TFormAd` at `Tfw.Playground.SlimFixtures:97`) showed the getter-backed
+hint does **not** fire for `Caption`: it still returns the generic
+"Could not navigate". Cause: the §6.37 fallback resolves the property via
+`Reader.FindClassProperty`, which walks only the **RSM `ParentName`
+chain**, and that chain from `TFormAd` does not reach `TControl` (where
+`Caption`'s `$31` record is declared). By contrast the *field* path
+(`FindFieldViaVmtWalk`) walks the **live VMT ancestor chain**, so the
+sibling probe `evaluate Result.FText` (an inherited field on `TControl`)
+*does* navigate — it just reads empty, because the caption lives in
+native window state. So inherited fields resolve but inherited properties
+don't. The fix is a property analog of `FindFieldViaVmtWalk` — promote
+the nested `TryReadParentVMT` to a sibling and add
+`FindPropertyViaVmtWalk` that calls `FindClassProperty` on each live-VMT
+ancestor name. This is a prerequisite to closing the getter-backed case
+(you cannot inject a getter you never located) and would, on its own,
+flip `Result.Caption` from the generic failure to the precise
+getter-backed hint. It still needs confirming that `TFW.rsm` actually
+carries a `$31` record for `TControl.Caption` and that the linker
+attributes it to the (RTL-defined) `TControl` class — verify with a
+standalone `TRsmReader` probe before implementing.
+
 **Why call injection isn't implemented yet (architecture, not encoding).**
 The `.rsm` already carries everything needed — the `$31` record names the
 getter as the read target (§4.16). The blocker is the debugger's
