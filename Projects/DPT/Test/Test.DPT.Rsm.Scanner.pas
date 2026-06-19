@@ -1280,31 +1280,32 @@ begin
     if AUse64Bit then
     begin
       // .map entries (segment:offset) + segment start (RVA):
-      //   GGlobalInt   0002:00021EC4 + 0002 starts at RVA $155000
-      //   GGlobalLight 0002:00021FCC
-      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $178000
+      //   GGlobalInt   0002:00021EE0 + 0002 starts at RVA $156000
+      //   GGlobalLight 0002:00021FEC
+      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $179000
       // Note: the segment-base RVAs drift by $1000 (one page) every
       // time DebugTarget.dpr grows past a page boundary in .data or
       // .bss. Cross-check Win64/DebugTarget.map after any fixture
       // additions; the offsets within each segment stay stable.
-      // (Drifted +$1000 here when the §6.30 inline-var fixtures'
-      // string literals grew .data past a page boundary.)
-      ExpectedInt   := $00155000 + $00021EC4;  // $176EC4
-      ExpectedLight := $00155000 + $00021FCC;  // $176FCC
-      ExpectedField := $00178000 + $0000C710;  // $184710
+      // (Drifted +$1000 again when the §6.37 published-property
+      // fixture TRttiPropHost grew .data past a page boundary.)
+      ExpectedInt   := $00156000 + $00021EE0;  // $177EE0
+      ExpectedLight := $00156000 + $00021FEC;  // $177FEC
+      ExpectedField := $00179000 + $0000C710;  // $185710
     end
     else
     begin
-      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E3000
+      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E4000
       //   GGlobalLight 0003:00003BDC
-      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E8000
+      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E9000
       // Like the Win64 branch above, the segment-base VAs drift
       // by $1000 every time DebugTarget.dpr grows past a page
       // boundary -- cross-check Win32/DebugTarget.map after any
-      // fixture addition.
-      ExpectedInt   := $004E3000 + $00003BD4;  // $004E6BD4
-      ExpectedLight := $004E3000 + $00003BDC;  // $004E6BDC
-      ExpectedField := $004E8000 + $000068D0;  // $004EE8D0
+      // fixture addition. (Drifted +$1000 again with the §6.37
+      // TRttiPropHost published-property fixture.)
+      ExpectedInt   := $004E4000 + $00003BD4;  // $004E7BD4
+      ExpectedLight := $004E4000 + $00003BDC;  // $004E7BDC
+      ExpectedField := $004E9000 + $000068D0;  // $004EF8D0
     end;
 
     Assert.IsTrue(S.GlobalVa.TryGetValue('gglobalint', Va),
@@ -2138,7 +2139,7 @@ end;
 
 procedure TRsmScannerTests.TestRegisterParamEnumTypeIdNotTruncated32;
 const
-  TLightStatusPrimary : UInt32 = $2E81; // program-local enum
+  TLightStatusPrimary : UInt32 = $2E89; // program-local enum (Hi=$2E; low byte drifts with type-registry position as DebugTarget.dpr grows)
   // Per-binary alias the linker mints for the cross-unit RTL enum
   // TThreadPriority's $21 REGVAR record. NOT the $2A registry primary
   // ($3370) — the alias→primary bridge is the residual §6.15 work.
@@ -2382,62 +2383,69 @@ procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes32;
 // values come straight from §4.1's Win32 byte-evidence table;
 // re-pin both together if the linker shifts class ids.
 const
-  Win32Anchor    : Byte   = $11;
   // Sentinel returned by the helper when the marker isn't found
   // within the search window (catches a regression that drops the
-  // `$11 $2E` recognition entirely, vs. a regression that finds it
-  // but reads the owner-ref wrong).
+  // `$2E` owner-id marker recognition entirely, vs. a regression that
+  // finds it but reads the owner-ref wrong).
   NotFound       : UInt32 = $FFFFFFFF;
-  TDerivedOwner  : UInt32 = $2E21;
-  TPropHostOwner : UInt32 = $2ED5;
-  TStaleSelfOwner: UInt32 = $2EE5;
+  // Owner-ref = the class's $2A raw type id. These are program-local
+  // ids ($2E hi byte) that the linker shifts as DebugTarget.dpr grows
+  // (re-pin together when they drift; the §6.37 TRttiPropHost fixture
+  // shifted them +8: $2E21->$2E29, $2ED5->$2EDD, $2EE5->$2EED, in
+  // lockstep with TLightStatus $2E81->$2E89). The byte just BEFORE the
+  // `$2E` marker (the §6.22 "platform anchor", $11 historically) is
+  // per-proc parameter-signature data, NOT a constant -- it drifted to
+  // $19 here -- so the scan no longer keys on it.
+  TDerivedOwner  : UInt32 = $2E29;
+  TPropHostOwner : UInt32 = $2EDD;
+  TStaleSelfOwner: UInt32 = $2EED;
 var
   S: TRsmScanner;
 
-  function FindProcStart(const AProcName: String): NativeInt;
+  // Scan EVERY `$28 <NL> <name>` record for AName and return the
+  // owner-ref from the FIRST occurrence that actually carries the
+  // `<anchor> $2E` marker. A proc can appear more than once in the
+  // stream -- a forward / external reference ($80 / $00 sub-form has no
+  // address payload and hence no marker; §4.1) can precede the real
+  // definition -- so taking the first byte match (the old FindProcStart)
+  // could land on a markerless ref and wrongly report NotFound. Skipping
+  // markerless occurrences finds the definition regardless of order.
+  function OwnerRefByName(const AName: String): UInt32;
   var
     NL: Byte; I, K: NativeInt; OK: Boolean;
+    ScanFrom, ScanTo, P: NativeInt;
   begin
-    NL := Length(AProcName);
-    Result := -1;
+    Result := NotFound;
+    NL := Length(AName);
     if NL = 0 then Exit;
     for I := 0 to S.Sz - 2 - NL do
     begin
-      if (S.ByteAt(I) = $28) and (S.ByteAt(I + 1) = NL) then
-      begin
-        OK := True;
-        for K := 1 to NL do
-          if S.ByteAt(I + 1 + K) <> Byte(AProcName[K]) then
-          begin OK := False; Break; end;
-        if OK then Exit(I);
-      end;
+      if (S.ByteAt(I) <> $28) or (S.ByteAt(I + 1) <> NL) then Continue;
+      OK := True;
+      for K := 1 to NL do
+        if S.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
+      if not OK then Continue;
+      ScanFrom := I + 2 + NL;
+      ScanTo := ScanFrom + 40;
+      if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+      // The owner-ref sits right after the marker's `$2E` byte (the
+      // owning class's $2A id HI byte): a single `$00` for a plain
+      // proc, or `<lo> $2E` (= $2Exx LE) for an instance method. Key on
+      // that `$2E` -- NOT on the preceding per-proc anchor byte (§6.22),
+      // which is parameter-signature data and not constant. The first
+      // `$2E` after the name is the marker for every DebugTarget proc
+      // (the address payload + sub-tag carry none).
+      for P := ScanFrom to ScanTo do
+        if S.ByteAt(P) = $2E then
+        begin
+          if S.ByteAt(P + 1) = $00 then Exit(0);
+          Exit(UInt32(S.ByteAt(P + 1)) or (UInt32(S.ByteAt(P + 2)) shl 8));
+        end;
+      // markerless occurrence (forward / external ref) -- keep looking.
     end;
   end;
 
-  function ExtractOwnerRef(AProcStart: NativeInt; AAnchor: Byte): UInt32;
-  // Returns $00 for plain procs (single sentinel after $2E),
-  // the 2-byte LE owner-id for instance methods, or NotFound
-  // when the marker isn't located within the search window.
-  var
-    NL: Byte; ScanFrom, ScanTo, P: NativeInt;
-  begin
-    Result := NotFound;
-    if AProcStart < 0 then Exit;
-    NL := S.ByteAt(AProcStart + 1);
-    ScanFrom := AProcStart + 2 + NL;
-    ScanTo := ScanFrom + 40;
-    if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
-    for P := ScanFrom to ScanTo do
-      if (S.ByteAt(P) = AAnchor) and (S.ByteAt(P + 1) = $2E) then
-      begin
-        if S.ByteAt(P + 2) = $00 then Exit(0);
-        Result := UInt32(S.ByteAt(P + 2)) or (UInt32(S.ByteAt(P + 3)) shl 8);
-        Exit;
-      end;
-  end;
-
 var
-  ProcOff : NativeInt;
   OwnerRef: UInt32;
 begin
   S := TRsmScanner.Create;
@@ -2445,18 +2453,14 @@ begin
     S.LoadFromFile(ResolveExePath(False));
 
     // 1. Plain proc: single $00 sentinel.
-    ProcOff := FindProcStart('TargetProcedure');
-    Assert.IsTrue(ProcOff >= 0, 'TargetProcedure $28 record not found');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    OwnerRef := OwnerRefByName('TargetProcedure');
     Assert.AreEqual<UInt32>(0, OwnerRef,
       Format('TargetProcedure (plain proc) owner-ref must be $00 ' +
-             'sentinel; got $%x. NotFound=$%x means the $11 $2E ' +
-             'anchor scan failed entirely.', [OwnerRef, NotFound]));
+             'sentinel; got $%x. NotFound=$%x means no $28 occurrence ' +
+             'carried the $11 $2E marker.', [OwnerRef, NotFound]));
 
     // 2. Instance method on TDerived: owner-ref = TDerived's $2A id.
-    ProcOff := FindProcStart('TDerived.TouchSelf');
-    Assert.IsTrue(ProcOff >= 0, 'TDerived.TouchSelf $28 record not found');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    OwnerRef := OwnerRefByName('TDerived.TouchSelf');
     Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
       Format('TDerived.TouchSelf owner-ref must equal $%x ' +
              '(TDerived''s $2A raw id); got $%x. Drift means ' +
@@ -2471,18 +2475,14 @@ begin
     // middle anchor), which this pin intentionally doesn't cover;
     // re-pinning the short form is deferred until a §6 gap depends
     // on it.
-    ProcOff := FindProcStart('TPropHost.Create');
-    Assert.IsTrue(ProcOff >= 0, 'TPropHost.Create $28 record not found');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    OwnerRef := OwnerRefByName('TPropHost.Create');
     Assert.AreEqual<UInt32>(TPropHostOwner, OwnerRef,
       Format('TPropHost.Create owner-ref must equal $%x ' +
              '(TPropHost''s $2A raw id); got $%x.',
              [TPropHostOwner, OwnerRef]));
 
     // 4. Different class, different owner-ref (leakage guard).
-    ProcOff := FindProcStart('TStaleSelfHost.Probe');
-    Assert.IsTrue(ProcOff >= 0, 'TStaleSelfHost.Probe $28 record not found');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win32Anchor);
+    OwnerRef := OwnerRefByName('TStaleSelfHost.Probe');
     Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
       Format('TStaleSelfHost.Probe owner-ref must equal $%x; got $%x.',
              [TStaleSelfOwner, OwnerRef]));
@@ -2658,23 +2658,24 @@ procedure TRsmScannerTests.TestRsmProcEntryRvaNotInLineTableWireForm32;
 // dedicated section, not a token run). Ground truth from
 // DebugTarget.map (segment .text), block
 // "Line numbers for DebugTarget(...DebugTarget.dpr)":
-//     18 0001:000DA004   (= TargetProcedure entry)
-//     19 0001:000DA00A
-//     20 0001:000DA032
+//     18 0001:000DA014   (= TargetProcedure entry)
+//     19 0001:000DA01A
+//     20 0001:000DA042
 // These are .text segment offsets. The Win32 proc-address wire form is
 // (VA shl 4) or $07 with VA = offset + $401000 (image base + .text
 // RVA). We search the whole .rsm byte buffer for each encoded DWORD.
 // The proc-ENTRY RVA is present (it is the $28 record's own address
-// payload, $DB0047 LE = 47 00 DB 04); the two per-statement RVAs are
+// payload, $DB0147 LE = 47 01 DB 04); the two per-statement RVAs are
 // absent. NOTE: these are fixture-build offsets, not .rsm file offsets;
 // they are as stable as the rebuilt fixture (same class as the §6.6.1
 // decoded-VA pins) and are paired with the source line numbers, which
-// is the relationship being pinned.
+// is the relationship being pinned. (Drifted +$10 with the §6.37
+// TRttiPropHost fixture; re-pinned from DebugTarget.map line table.)
 const
   TextBase      = UInt32($401000);  // Win32 image base + .text RVA
-  EntryOffset   = UInt32($000DA004); // line 18 -- proc entry
-  Line19Offset  = UInt32($000DA00A);
-  Line20Offset  = UInt32($000DA032);
+  EntryOffset   = UInt32($000DA014); // line 18 -- proc entry
+  Line19Offset  = UInt32($000DA01A);
+  Line20Offset  = UInt32($000DA042);
 var
   S: TRsmScanner;
 
@@ -2803,21 +2804,23 @@ begin
     if S.Sz = 0 then
       Assert.Pass('RSM fixture missing -- skipped.');
 
-    // CONTROL: the proc ENTRY ($DA004) appears ONLY in the `$28`
+    // CONTROL: the proc ENTRY ($DA014) appears ONLY in the `$28`
     // record's token form, and in NONE of the other integer forms.
-    Assert.IsTrue(TokenForm($DA004),
-      'TargetProcedure entry $DA004 token must be present (its $28 ' +
+    // (Offsets drifted +$10 with the §6.37 TRttiPropHost fixture;
+    // re-pinned from DebugTarget.map's line-number table.)
+    Assert.IsTrue(TokenForm($DA014),
+      'TargetProcedure entry $DA014 token must be present (its $28 ' +
       'address slot) -- finder sanity / control');
-    Assert.IsFalse(AbsVa($DA004),  'entry $DA004 abs-VA must NOT appear');
-    Assert.IsFalse(RawU32($DA004), 'entry $DA004 raw-u32 must NOT appear');
-    Assert.IsFalse(Raw3($DA004),   'entry $DA004 raw-3-byte must NOT appear');
+    Assert.IsFalse(AbsVa($DA014),  'entry $DA014 abs-VA must NOT appear');
+    Assert.IsFalse(RawU32($DA014), 'entry $DA014 raw-u32 must NOT appear');
+    Assert.IsFalse(Raw3($DA014),   'entry $DA014 raw-3-byte must NOT appear');
 
     // Mid-statement line addresses: absent in ALL four integer forms.
-    AssertAllFormsAbsent($DA00A, 'line19 $DA00A');
-    AssertAllFormsAbsent($DA032, 'line20 $DA032');
-    AssertAllFormsAbsent($DA040, 'line21 $DA040');
-    AssertAllFormsAbsent($DA059, 'line25 $DA059');
-    AssertAllFormsAbsent($DA067, 'line26 $DA067');
+    AssertAllFormsAbsent($DA01A, 'line19 $DA01A');
+    AssertAllFormsAbsent($DA042, 'line20 $DA042');
+    AssertAllFormsAbsent($DA050, 'line21 $DA050');
+    AssertAllFormsAbsent($DA069, 'line25 $DA069');
+    AssertAllFormsAbsent($DA077, 'line26 $DA077');
   finally
     S.Free;
   end;
@@ -2859,8 +2862,13 @@ begin
     // +4 directory offset, +8 header size, +C version
     Assert.AreEqual<UInt32>($420, U32At($4),
       'directory offset (+4) must be $420');
-    Assert.AreEqual<UInt32>($20, U32At($8),
-      'header size (+8) must be $20');
+    // +8 is a small count, not a literal header size: it tracks the
+    // module/unit population and increments as DebugTarget.dpr gains
+    // fixtures (observed $20 -> $21 when the §6.37 TRttiPropHost
+    // published-property unit was added). Re-pin against the current
+    // build rather than treating it as a frozen constant.
+    Assert.AreEqual<UInt32>($21, U32At($8),
+      'header field (+8) count mismatch vs current build');
     Assert.AreEqual<UInt32>($1, U32At($C),
       'version (+C) must be 1');
 
@@ -2983,12 +2991,22 @@ begin
       // +7..+8 is a u16 aux/flags field (NOT padding): $0000 for the
       // leaf enum units, $0002 for the program/.dpr -- meaning
       // UNCERTAIN, so it is not asserted here.
-      // Name window is $100: the program/.dpr source file is a full
-      // path (C:\Users\...\DebugTarget.dpr), so the basename sits
-      // deeper than for the bare-basename enum units.
-      Assert.IsTrue(ContainsAscii(P, $100, Names[K]),
-        Format('module[%d]: source file %s not at record head', [K, Names[K]]));
+      // The enum units carry a bare basename near the head ($100
+      // window). The program record only carries the PROGRAM name
+      // ("DebugTarget") at its head; its full source-file path
+      // (C:\...\DebugTarget.dpr) lives in a TRAILING $70 source-file
+      // record just past the module record, and that gap grows as the
+      // program references more units / the .dpr grows (observed at
+      // rel +1107 after the §6.37 TRttiPropHost fixture, past the
+      // 974-byte module record). So for the last module search a
+      // generous window that spans into the trailing $70 record rather
+      // than the module record alone.
       Size := U16At(P + 5);
+      var NameWindow: Integer := $100;
+      if K = High(Names) then NameWindow := $1000;
+      Assert.IsTrue(ContainsAscii(P, NameWindow, Names[K]),
+        Format('module[%d]: source file %s not within record + trailing ' +
+               '$70 window', [K, Names[K]]));
       Assert.IsTrue(Size > 9, Format('module[%d]: implausible size %d', [K, Size]));
       P := P + Size;
     end;
