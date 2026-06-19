@@ -3359,20 +3359,45 @@ Probed on the TFW corpus, both halves fail:
   returns wrong names. (It is correct on `DebugTarget` only because a
   small binary has no id collisions.)
 
-**Conclusion after two rounds.** Large-binary property evaluation is
-blocked by a *fundamental* limitation: the `$31` (owner via wide
-parent-id), `$2C` (alias→field), and `$2E` (method-id→name) records all
-rely on 2-byte ids + loose body anchors that COLLIDE at TFW scale, so
-every id cross-reference (`$31`→owner, `$31`→field, `$31`→getter) is
-unreliable there. The member-name-set match (round 1) repairs the
-`$31`→owner half for classes whose `$2C` block exactly equals their
-member set, but not the brittle big RTL classes, and it does not repair
-the `$31`→getter half at all. Closing this properly needs a deeper
-re-derivation of these records — a real per-record length/owner field (so
-ids need not be guessed) or a tighter structural anchor that survives
-collisions — i.e. a standalone multi-round RSM-format investigation on the
-order of §6.9/§6.33, not a consumer-side patch. The
-deterministically-pinned call-injection engine (§4.16) is correct and
+**Round 3 (file-offset proximity to the class-name offset) — refuted; the
+`$31` records are in a separate region, physically disconnected from class
+definitions.** `TRsmClassInfo.TypeIdx` is the trustworthy, collision-free
+file offset of the class NAME (`Info.TypeIdx := UInt32(AClassNameOff)`), so
+the lead was: attribute a `$31` to the class with the nearest-preceding
+name offset (the §6.10 per-unit file-offset-proximity pattern). Probed on
+the TFW corpus:
+- The bytes at `TControl`'s name offset (`0xC8B690`) are its **method**
+  region — `…TControl  Create … Self … AOwner … Destroy …` — NOT its
+  `$2C`/`$31` Format-A records; no `$31` appears within 200 KB after it.
+- For every `Caption` `$31` the nearest-preceding class name is an
+  unrelated type at a **huge** distance (29 KB–1.9 MB:
+  `TDelegatedEqualityComparer<Int64>`, `TWinRTImport`, `TComparerThunks…`,
+  …). The Format-A `$31` block lives in its own region, hundreds of KB
+  from any class definition, so proximity carries no owner signal.
+
+**Conclusion after three rounds.** Every reliable-link hypothesis a
+*consumer-side* fix could use is refuted at TFW scale: the `$31`→owner
+wide parent-id collides; the `$2C` member-name-set match is exact-only and
+breaks on the big RTL classes (74-vs-77 block/member mismatch); the
+`$31`→`$2E`→getter decode is collision-garbage (real `GetText` recovered
+for none of the 51 `Caption` records); and the records are physically
+disconnected from class defs so file-offset proximity fails. The Format-A
+`$31`/`$2C`/`$2E` records cross-reference purely via 2-byte ids + loose
+body anchors that are simply not unique in a 30 k-class binary, and they
+carry no decoded length/owner field to anchor on. **Closing
+`Result.Caption` on a large binary therefore requires re-deriving the true
+Format-A record structure — a real per-record length/owner field, or a
+collision-proof structural anchor for the owner AND the getter — i.e. a
+standalone, multi-session RSM-format reverse-engineering effort on the
+order of §6.9/§6.33, not a further consumer-side heuristic.** (Most
+promising concrete sub-leads for that effort, in priority order: decode
+why the `$2C` field block count differs from the discovered member count
+for big RTL classes — closing it may make a *subset/containment*
+member-set match viable; and find the byte that ties a `$31`/`$2C` block
+to its owning unit so the otherwise-colliding parent id can be
+unit-scoped, as §6.10/§6.33 did for fields.)
+
+The deterministically-pinned call-injection engine (§4.16) is correct and
 unaffected; it resolves any getter-backed property whose owner + getter
 the reader can identify, which today means the clean small-binary regime
 (and those large-binary classes whose `$2C` block exact-matches).
