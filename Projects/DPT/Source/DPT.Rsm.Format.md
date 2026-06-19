@@ -3283,6 +3283,38 @@ fixture to bench it without the Test.Lib dependency (the record-local
 sibling manifestation got one — `RecordLocalNestedProbe` — when it was
 closed; see below).
 
+**Live-RTTI lead (consumer-only; the §6.37/§6.38 collision-free principle
+applied here).** The bad answer originates from trusting the colliding RSM
+2-byte `TypeIdx`; live RTTI read from the target is the authoritative,
+collision-free cross-check, exactly as it is for properties (§6.38). Two
+uses, in increasing ambition:
+
+1. **Validator / suppressor (the safe win).** Before `AutoDetectFormatterName`
+   Path 2 emits a record/class for a non-class local, sanity-check the
+   auto-detected struct against the live value: dereference the pointer,
+   read `[obj] → VMT → vmtTypeInfo` and confirm the class TypeInfo name
+   matches (or is an ancestor of) the auto-detected struct. On a mismatch —
+   or when the slot is an **interface** reference (points at an IMT, no
+   readable VMT at `[ptr]`) — decline to the raw pointer instead of the
+   wrong record. This is the RTTI form of the §6.32 suppression and kills
+   the `TICONDIR` false positive directly.
+2. **Implementing-class recovery (best-effort upgrade).** An interface
+   reference can be walked back to its object: the IMT's first slot points
+   at a `TInterfaceEntry`/offset that yields the implementing instance, whose
+   class RTTI carries an **implemented-interfaces table** (GUID + name per
+   interface). That can name the *implementing class* (and, via GUID match,
+   the interface) live and collision-free.
+
+**Hard limit of the RTTI route.** RTTI describes *types*, not *which type a
+local was declared as*. It can recover the implementing class / interface
+GUID of the live reference, but **not** the local's declared static type
+(`ILazyUniqueList<TObject>`) — that binding lives only in the (here
+unreliable) RSM per-proc `TypeIdx`. So RTTI is decisive for *suppressing the
+wrong answer* and *naming the runtime class*, but closing the gap to the
+exact declared interface type still needs the RSM `TypeIdx` decode fixed.
+(And it is consumer-only: no standalone `TRsmReader` test can exercise it —
+it needs a live/MCP pin, like the §6.38 tests.)
+
 > **Manifestation B (cross-unit record LOCAL dotted walk) is closed.**
 > `Ad: TAdresse` → `Ad.Anschrift.Str` on Test.Lib (and its controlled
 > repro `AdrLoc: DebugTarget.RecTypes.TXAdresse` in
