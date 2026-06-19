@@ -2496,85 +2496,74 @@ end;
 
 {$IFDEF CPUX64}
 procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes64;
-// §6.22 closure pin (Win64). Same shape as the Win32 sibling but
-// the platform-anchor byte is $3D instead of $11; class ids are
-// also different per-build. Round-1 observations:
+// §6.22 closure pin (Win64). Same shape as the Win32 sibling. The
+// per-proc "anchor" byte just before the `$2E` owner-id marker is NOT
+// constant (§6.22) -- it drifted $3D -> $45 here -- so the scan keys on
+// the `$2E` marker itself (anchor-agnostic), exactly like the Win32
+// sibling. Class ids are per-build and drift in lockstep with the
+// registry (+8 with the §6.37 TRttiPropHost fixture):
 //   * TargetProcedure → $00 sentinel (plain)
-//   * TDerived.TouchSelf → $2E65 owner-ref
-//   * TStaleSelfHost.Probe → $2FE1 owner-ref
+//   * TDerived.TouchSelf → $2E6D owner-ref (was $2E65)
+//   * TStaleSelfHost.Probe → $2FE9 owner-ref (was $2FE1)
 const
-  Win64Anchor    : Byte   = $3D;
   NotFound       : UInt32 = $FFFFFFFF;
-  TDerivedOwner  : UInt32 = $2E65;
-  TStaleSelfOwner: UInt32 = $2FE1;
+  TDerivedOwner  : UInt32 = $2E6D;
+  TStaleSelfOwner: UInt32 = $2FE9;
 var
   S: TRsmScanner;
 
-  function FindProcStart(const AProcName: String): NativeInt;
+  // Anchor-agnostic owner-ref scan (see the Win32 sibling): for every
+  // `$28 <NL> <name>` record matching AName, return the owner-ref from
+  // the first occurrence carrying the `$2E` marker -- $00 for a plain
+  // proc, or `<lo> $2Exx/$2Fxx` for an instance method -- skipping
+  // markerless forward/external refs. Keys on the `$2E` marker, NOT the
+  // drifting per-proc anchor byte before it (§6.22).
+  function OwnerRefByName(const AName: String): UInt32;
   var
     NL: Byte; I, K: NativeInt; OK: Boolean;
+    ScanFrom, ScanTo, P: NativeInt;
   begin
-    NL := Length(AProcName);
-    Result := -1;
+    Result := NotFound;
+    NL := Length(AName);
     if NL = 0 then Exit;
     for I := 0 to S.Sz - 2 - NL do
     begin
-      if (S.ByteAt(I) = $28) and (S.ByteAt(I + 1) = NL) then
-      begin
-        OK := True;
-        for K := 1 to NL do
-          if S.ByteAt(I + 1 + K) <> Byte(AProcName[K]) then
-          begin OK := False; Break; end;
-        if OK then Exit(I);
-      end;
+      if (S.ByteAt(I) <> $28) or (S.ByteAt(I + 1) <> NL) then Continue;
+      OK := True;
+      for K := 1 to NL do
+        if S.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
+      if not OK then Continue;
+      ScanFrom := I + 2 + NL;
+      ScanTo := ScanFrom + 40;
+      if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+      for P := ScanFrom to ScanTo do
+        if S.ByteAt(P) = $2E then
+        begin
+          if S.ByteAt(P + 1) = $00 then Exit(0);
+          Exit(UInt32(S.ByteAt(P + 1)) or (UInt32(S.ByteAt(P + 2)) shl 8));
+        end;
     end;
   end;
 
-  function ExtractOwnerRef(AProcStart: NativeInt; AAnchor: Byte): UInt32;
-  var
-    NL: Byte; ScanFrom, ScanTo, P: NativeInt;
-  begin
-    Result := NotFound;
-    if AProcStart < 0 then Exit;
-    NL := S.ByteAt(AProcStart + 1);
-    ScanFrom := AProcStart + 2 + NL;
-    ScanTo := ScanFrom + 40;
-    if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
-    for P := ScanFrom to ScanTo do
-      if (S.ByteAt(P) = AAnchor) and (S.ByteAt(P + 1) = $2E) then
-      begin
-        if S.ByteAt(P + 2) = $00 then Exit(0);
-        Result := UInt32(S.ByteAt(P + 2)) or (UInt32(S.ByteAt(P + 3)) shl 8);
-        Exit;
-      end;
-  end;
-
 var
-  ProcOff : NativeInt;
   OwnerRef: UInt32;
 begin
   S := TRsmScanner.Create;
   try
     S.LoadFromFile(ResolveExePath(True));
 
-    ProcOff := FindProcStart('TargetProcedure');
-    Assert.IsTrue(ProcOff >= 0, 'TargetProcedure $28 record not found (Win64)');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    OwnerRef := OwnerRefByName('TargetProcedure');
     Assert.AreEqual<UInt32>(0, OwnerRef,
       Format('TargetProcedure (plain, Win64) owner-ref must be $00; ' +
-             'got $%x. NotFound=$%x means the $3D $2E anchor missed.',
-             [OwnerRef, NotFound]));
+             'got $%x. NotFound=$%x means no $28 occurrence carried the ' +
+             '$2E marker.', [OwnerRef, NotFound]));
 
-    ProcOff := FindProcStart('TDerived.TouchSelf');
-    Assert.IsTrue(ProcOff >= 0, 'TDerived.TouchSelf $28 record not found (Win64)');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    OwnerRef := OwnerRefByName('TDerived.TouchSelf');
     Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
       Format('TDerived.TouchSelf (Win64) owner-ref must equal $%x; got $%x.',
              [TDerivedOwner, OwnerRef]));
 
-    ProcOff := FindProcStart('TStaleSelfHost.Probe');
-    Assert.IsTrue(ProcOff >= 0, 'TStaleSelfHost.Probe $28 record not found (Win64)');
-    OwnerRef := ExtractOwnerRef(ProcOff, Win64Anchor);
+    OwnerRef := OwnerRefByName('TStaleSelfHost.Probe');
     Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
       Format('TStaleSelfHost.Probe (Win64) owner-ref must equal $%x; got $%x.',
              [TStaleSelfOwner, OwnerRef]));

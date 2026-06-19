@@ -80,18 +80,11 @@ type
 
   [TestFixture]
   TRsmTfwTests = class(TRsmHeavyFixtureTests)
-  public const
-    /// Single source of truth for the TFW fixture location. The .rsm
-    /// sidecar and the .map (both loaded by the base) are derived from
-    /// this exe path.
-    TfwExePath      = 'C:\MSE\TFW\TFW.exe';
-    TfwMapPath      = 'C:\MSE\TFW\TFW.map';
-    /// Win64 variant of the fixture, used by §6.2 (Win64 proc-address
-    /// VAs > 2 MB) reverse-engineering. Only consumed when the test
-    /// exe is itself 64-bit (the .rsm at ~1.17 GB is too tight for a
-    /// 32-bit process address space alongside the Win32 TFW load).
-    TfwWin64ExePath = 'C:\MSE\TFW\TFW.Win64.Debug.exe';
-    TfwWin64MapPath = 'C:\MSE\TFW\TFW.Win64.Debug.map';
+  // Fixture location: the TFW corpus lives in the in-repo, project-
+  // relative RsmTaifunData folder (resolved CWD-relative at runtime by
+  // the unit-level TfwExePath / TfwMapPath / TfwWin64ExePath /
+  // TfwWin64MapPath functions below, mirroring ResolveExePath's two-form
+  // fallback). The .rsm sidecar + .map are derived from the exe path.
   strict private
     {$IFDEF CPUX64}
     /// Win64 reader / map. The reader exposes Procs[].SegmentOffset
@@ -424,12 +417,12 @@ type
   /// re-loading the multi-second fixture.
   [TestFixture]
   TRsmTestLibTests = class(TRsmHeavyFixtureTests)
-  public const
-    /// The §6.31 corpus: a real binary whose classes follow the
-    /// codebase's 'C'-prefix convention (CJwksValidator et al.) — TFW is
-    /// all 'T'-prefixed and so cannot exercise the convention-free
-    /// class-discovery gate.
-    TestLibExePath = 'C:\MSE\TEST\Test.Lib.exe';
+  // The §6.31 corpus: a real binary whose classes follow the codebase's
+  // 'C'-prefix convention (CJwksValidator et al.) — TFW is all
+  // 'T'-prefixed and so cannot exercise the convention-free
+  // class-discovery gate. Lives in the in-repo, project-relative
+  // RsmTaifunData folder, resolved at runtime by the unit-level
+  // TestLibExePath function below.
   public
     /// One-time setup: loads Test.Lib.rsm (+ .map) once via the base.
     [SetupFixture]
@@ -476,6 +469,25 @@ type
   end;
 
 implementation
+
+// Heavy-fixture corpus location. The TFW / Test.Lib binaries (+ their
+// .map / .rsm sidecars) live in-repo under Projects\DPT\Test\RsmTaifunData
+// (current builds, committed alongside the tests) rather than at a
+// machine-specific absolute path. Resolved CWD-relative with the same
+// two-form fallback ResolveExePath uses: the build host runs with the
+// repo root as CWD, a direct run from the Test dir does not.
+function RsmTaifunDataPath(const AFile: String): String;
+begin
+  Result := ExpandFileName('Projects\DPT\Test\RsmTaifunData\' + AFile);
+  if not TFile.Exists(Result) then
+    Result := ExpandFileName('RsmTaifunData\' + AFile);
+end;
+
+function TfwExePath: String;      begin Result := RsmTaifunDataPath('TFW.exe'); end;
+function TfwMapPath: String;      begin Result := RsmTaifunDataPath('TFW.map'); end;
+function TfwWin64ExePath: String; begin Result := RsmTaifunDataPath('TFW.Win64.Debug.exe'); end;
+function TfwWin64MapPath: String; begin Result := RsmTaifunDataPath('TFW.Win64.Debug.map'); end;
+function TestLibExePath: String;  begin Result := RsmTaifunDataPath('Test.Lib.exe'); end;
 
 { TRsmHeavyFixtureTests }
 
@@ -2012,19 +2024,22 @@ var
   Found    : Boolean;
 begin
   if ShouldSkip then Exit;
-  // §6.33 SHAPE PIN (large binary). Decodes the body=9 managed-
-  // reference $2C field record for CJwksValidator.FExpectedTenantId in
-  // the ~240 MB Test.Lib.rsm and pins the byte layout the §6.33
-  // investigation established:
+  // §6.33 SHAPE PIN (large binary). Decodes the managed-reference $2C
+  // field record for CJwksValidator.FExpectedTenantId in the current
+  // Test.Lib.rsm (RsmTaifunData corpus) and pins the byte layout:
   //   $2C <NL> 'FExpectedTenantId' 00 <scope> 00 <typeLo> <2*off>
-  //       9C 01 <sec-lo> <sec-hi> 07 00 00 08 <parentLo> <parentHi>
+  //       9C 09 <6 secondary bytes> 07 00 00 08 <parentLo> <parentHi>
   //   * After+3 = $04 = the single-byte UnicodeString id (the WHOLE
-  //     type id; NOT a 2-byte value)
+  //     type id; NOT a 2-byte value) -- position unchanged
   //   * After+4 = $20 = 2 x the field's instance offset (16) -- a
   //     positional byte, NOT a type-id high byte. This is why folding
   //     it in produced the unmapped $2004 the old linker emitted.
-  //   * BodyLen = 9, "$9C $01" marker at After+5..+6
-  // This is the decoded format result of §6.33 (the body=9 byte shape).
+  //   * BodyLen = 13, "$9C $09" marker at After+5..+6
+  // The current corpus emits the longer body=13 / "$9C $09" managed-
+  // reference form (a newer Delphi managed-field encoding -- the
+  // secondary-id section grew from 2 to 6 bytes); the older builds
+  // emitted body=9 / "$9C $01". The UnicodeString id stays at After+3
+  // either way, which is what the §6.33-C attribution reads.
   // The end-to-end member resolution that consumes it -- the field
   // record's parent id $0391 is a unit-local id colliding across ~18
   // unrelated types -- is closed by §6.33-C
@@ -2062,12 +2077,13 @@ begin
     end;
     if EndOff < 0 then begin Inc(P); Continue; end;
     // Pin the decoded shape.
-    Assert.AreEqual<Integer>(9, EndOff - After,
-      'FExpectedTenantId field record must be body=9 (managed reference)');
+    Assert.AreEqual<Integer>(13, EndOff - After,
+      'FExpectedTenantId field record must be body=13 (managed reference, ' +
+      'current $9C $09 form)');
     Assert.AreEqual<Byte>($9C, FReader.Scanner.ByteAt(After + 5),
       'managed-ref marker byte 1 at After+5');
-    Assert.AreEqual<Byte>($01, FReader.Scanner.ByteAt(After + 6),
-      'managed-ref marker byte 2 at After+6');
+    Assert.AreEqual<Byte>($09, FReader.Scanner.ByteAt(After + 6),
+      'managed-ref marker byte 2 at After+6 (current $09 form)');
     Assert.AreEqual<Byte>($04, FReader.Scanner.ByteAt(After + 3),
       'After+3 is the single-byte UnicodeString id $04');
     Assert.AreEqual<Byte>(Byte(2 * CFieldOff), FReader.Scanner.ByteAt(After + 4),

@@ -1083,8 +1083,15 @@ var
       Member := FClasses[Idx].Members[Mi];
       if (Member.TypeIdx <> 0) or (Member.PrimitiveTypeId <> 0) then Continue;
       BodyLen := RecEnd[K] - RecAfter[K];
-      if (BodyLen = 9) and (ByteAt(RecAfter[K] + 5) = $9C) and
-         (ByteAt(RecAfter[K] + 6) = $01) then
+      // Managed-reference field (e.g. a UnicodeString) -- the single-byte
+      // primitive id sits at After+3 behind the `$9C` marker. Two encodings
+      // seen across Delphi versions: the older body=9 / `$9C $01` form
+      // (2-byte secondary section) and the current body=13 / `$9C $09` form
+      // (6-byte secondary section). The prim id is at After+3 in BOTH; only
+      // the trailing secondary section differs, so accept either length.
+      if (ByteAt(RecAfter[K] + 5) = $9C) and
+         (((BodyLen = 9)  and (ByteAt(RecAfter[K] + 6) = $01)) or
+          ((BodyLen = 13) and (ByteAt(RecAfter[K] + 6) = $09))) then
         Member.PrimitiveTypeId := UInt16(ByteAt(RecAfter[K] + 3))
       else if (BodyLen = 14) or (BodyLen = 15) then
         Member.PrimitiveTypeId :=

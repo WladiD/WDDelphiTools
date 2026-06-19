@@ -32,6 +32,7 @@ Win32
 /Projects/DPT/Lint/*.Tests.txt
 /Projects/DPT/Test/Win*/*
 /Projects/DPT/Test/FormatTaifunData
+/Projects/DPT/Test/RsmTaifunData
 /Projects/DPT/Test/Test.DPT.exe
 /Projects/DPT/Test/Test.DPT.res
 /Projects/DPT/Test/Test.DptDebugger.exe
