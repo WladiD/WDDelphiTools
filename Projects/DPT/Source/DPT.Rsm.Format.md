@@ -3314,16 +3314,48 @@ collide / mis-resolve (the same family as the §6.33 unit-local-id
 collision that needed a member-name-set match to fix). The DebugTarget
 fixture has no collisions so it attributes cleanly; TFW does not.
 
-**Next investigator's lead.** Apply a §6.33-style robust attribution to
-`$31` property records — don't trust the wide parent-id alone; corroborate
-the owning class by the surrounding `$2C` field block's member-name set
-(or another structural anchor) before attributing. Reproduce-first with a
-heavy-fixture pin in `Test.DPT.Rsm.Taifun` asserting
-`FindClassProperty('TControl','Caption')` resolves to `getter=GetText`,
-`primId=$04` on the TFW corpus (red today), plus a leakage guard that the
-bogus `TWordHelper`/`pitem` `Caption` attributions disappear. This is a
-multi-round RSM-attribution investigation in its own right, independent of
-the (working) call-injection machinery.
+**Round 1 (member-name-set match) — partial, refuted as a complete fix.**
+The §6.33 technique was prototyped in the PropertyLinker: index every
+class by its SORTED member-name set (with a collision count so an
+ambiguous set is never guessed), accumulate the current `$2C` field
+block's names, and on a UNIQUE exact-set match bind the block's `$31`
+properties to that class instead of the colliding wide parent-id.
+Findings (probed on `C:\MSE-26.04-Mongo\TFW`):
+- **Viable in principle.** `TControl` (88 members), `TWinControl` (55),
+  `TCustomForm` (77), `TFormAd` (496) each have a UNIQUE member-name set
+  (`setCollisions = 1`), so a correct block match is unambiguous.
+- **Works for many classes.** With the match in place, Caption attributed
+  correctly to `TContainedAction`, `TCustomLabel`, `TListItem`,
+  `TCustomTaskDialog`, … (their `$2C` block exactly equals their member
+  set).
+- **But NOT for `TControl` — the exact-set match is too brittle for the
+  big RTL form classes.** The `$2C` field block the PropertyLinker walks
+  for the `TCustomForm`-fields region has **74** names while the
+  discovered member set has **77** (off by 3), so the sorted key misses
+  the index and the `$31` falls back to the (wrong) wide parent-id
+  (→ `TZipAbstract`). No `blockCnt = 88` `TControl` block precedes a
+  `Caption` `$31` at all — suggesting the RTL form classes' `$31`
+  properties are NOT laid out immediately after their own `$2C` field
+  block the way main-program classes are. The prototype was reverted
+  (it adds an index-build cost against the protected `Test.DPT.Rsm.Taifun`
+  perf budget without resolving the target case).
+
+**Next investigator's lead (round 2).** Two sub-questions, reproduce-first
+on the TFW corpus: (a) *why* does the `$2C` block count (74) differ from
+the discovered member count (77) for `TCustomForm` — is it dropped
+records (`NL > 40`, a different anchor), a split block, or members the
+discoverer adds from a non-`$2C` source? Closing that may let an exact-set
+match work. (b) Where does `TControl`'s `Caption` `$31` actually sit
+relative to its `$2C` field block? If RTL property records are detached
+from their field block, the block-adjacency assumption is wrong and the
+owner must come from another anchor (e.g. linking the property's
+TargetId→`$2E` getter to the qualified `$28` proc `TControl.GetText`,
+whose name already carries the owner). A robust round-2 fix likely needs
+a subset/containment match (block names ⊆ exactly one class's members,
+gated on block size for safety + a leakage guard) rather than exact-set
+equality. This remains a multi-round RSM-attribution investigation,
+independent of the (working, deterministically-pinned) call-injection
+machinery.
 
 ---
 
