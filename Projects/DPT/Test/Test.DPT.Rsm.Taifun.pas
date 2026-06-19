@@ -483,11 +483,30 @@ begin
     Result := ExpandFileName('RsmTaifunData\' + AFile);
 end;
 
-function TfwExePath: String;      begin Result := RsmTaifunDataPath('TFW.exe'); end;
-function TfwMapPath: String;      begin Result := RsmTaifunDataPath('TFW.map'); end;
-function TfwWin64ExePath: String; begin Result := RsmTaifunDataPath('TFW.Win64.Debug.exe'); end;
-function TfwWin64MapPath: String; begin Result := RsmTaifunDataPath('TFW.Win64.Debug.map'); end;
-function TestLibExePath: String;  begin Result := RsmTaifunDataPath('Test.Lib.exe'); end;
+function TfwExePath: String;      
+begin 
+  Result := RsmTaifunDataPath('TFW.exe'); 
+end;
+
+function TfwMapPath: String;      
+begin 
+  Result := RsmTaifunDataPath('TFW.map'); 
+end;
+
+function TfwWin64ExePath: String; 
+begin 
+  Result := RsmTaifunDataPath('TFW.Win64.Debug.exe'); 
+end;
+
+function TfwWin64MapPath: String; 
+begin 
+  Result := RsmTaifunDataPath('TFW.Win64.Debug.map'); 
+end;
+
+function TestLibExePath: String;  
+begin 
+  Result := RsmTaifunDataPath('Test.Lib.exe'); 
+end;
 
 { TRsmHeavyFixtureTests }
 
