@@ -2105,59 +2105,70 @@ to the getter's proc name `TPropHost.GetCalcInt`, which
 (with a leakage guard that field-backed `PlainProp` keeps an EMPTY
 `GetterName`).
 
-> **Consumer note — the dotted walk resolves properties (§6.37).** When
-> a dotted segment (`Obj.Caption`) is neither an own field nor an
-> inherited field on the runtime class chain, the class-hop branch of
-> [DPT.Debugger.pas EvaluateVariable](DPT.Debugger.pas) falls back to
-> `FindPropertyViaVmtWalk` (which tries `Reader.FindClassProperty` on the
-> runtime class AND each live-VMT ancestor — so an inherited property
-> like `TControl.Caption` resolves on a `TFormAd` instance, mirroring how
-> `FindFieldViaVmtWalk` resolves the inherited field `TControl.FText`)
-> and splits on the read accessor:
+> **Consumer note — the dotted walk resolves properties two ways.** When
+> a dotted segment (`Obj.Caption`) is neither an own field nor an inherited
+> field on the runtime class chain, the class-hop branch of
+> [DPT.Debugger.pas EvaluateVariable](DPT.Debugger.pas) resolves it as a
+> property. Two sources are tried, **live RTTI first**:
 >
-> * **Field-backed** (`UnderlyingField <> ''`) — bridges to the
->   underlying field's byte offset and resolves exactly as if the user
->   had named the field. Pinned by
->   `TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField`
->   (`GGlobalPropHost.PlainProp` → `FPlainInt = $AABBCCDD`).
+> **1. Live runtime RTTI — primary, collision-proof (the path the Delphi
+> IDE uses).** `TryResolvePublishedProperty` reads the running instance's
+> RTTI straight from the VMT: `[Obj] → VMT`, `[VMT − vmtTypeInfo] →`
+> class `TTypeInfo`, then walks the `tkClass` `TTypeData` published-property
+> table and its `ParentInfo` ancestor chain for the property name
+> (`vmtTypeInfo = vmtClassName − 4·PtrSize` = −72 Win32 / −168 Win64; see
+> System.TypInfo). The matched `TPropInfo.GetProc` is decoded by its top
+> byte/qword: `PROPSLOT_FIELD ($FF…)` → a **field offset** (read inline);
+> `PROPSLOT_VIRTUAL ($FE…)` → a **VMT slot** (resolved against the live
+> VMT) → call injection; otherwise a **static getter address** → call
+> injection. The property type's RTTI kind (`tkUString`/`tkLString`/
+> `tkWString` → managed string) drives the call's hidden-`@Result` ABI.
+> This is **collision-free** because it reads the actual runtime metadata,
+> so it works on arbitrarily large binaries where the RSM Format-A id
+> cross-references collide (§6.37 history). It covers any **published**
+> property — which is what `Caption` and most inspectable VCL properties
+> are. Pinned by
+> `Test.DPT.MCP.Server.TestMcpEvaluatePublishedPropertyViaLiveRtti`
+> (`DebugTarget` `{$M+} TRttiPropHost`: `RttiPlain` field-offset path,
+> `RttiCalc` static-getter + call-injection, `RttiText` managed-string
+> getter) and proven live on TFW: `evaluate Result.Caption` →
+> `001- Adresse suchen` (the form title, exactly as the IDE shows it),
+> while the backing field `Result.FText` reads empty (the caption lives in
+> native window state, recovered only by running `GetText`).
 >
-> * **Getter-backed** (`UnderlyingField = ''`) — **CALL INJECTION**. The
->   value only exists once the accessor runs, so the evaluator resolves
->   the getter's code address (via `GetterName` + owning class, above)
->   and runs it in the target on the paused thread. Because the debuggee
->   is frozen between `WaitForDebugEvent` / `ContinueDebugEvent` and only
->   the sole `TDebuggerThread` may pump events, the MCP worker thread
->   cannot run the call itself: `CallTargetFunction` parks a request
->   (`FCallInjectRequest`) and wakes the loop's breakpoint-pause wait;
->   `PerformInjectedCallOnDebugThread` (on the debug thread) snapshots the
->   paused context, rewrites it into a call frame — `Self` in EAX (Win32)
->   / RCX (Win64), the hidden `@Result` pointer in EDX/RDX for a managed
->   (`string`) return, the return address pointing at a `$CC` INT3
->   trampoline on a `VirtualAllocEx` scratch page, PC = getter, HW
->   breakpoints disabled, 16-byte-aligned stack grown below the live
->   frame — `ContinueDebugEvent`s, and a self-contained nested event pump
->   waits for the trampoline INT3. It captures EAX/RAX (ordinal/pointer
->   returns) or reads the scratch result slot (managed-string returns),
->   restores the snapshot context, and leaves the target frozen in the
->   original paused state. The result is deposited into the scratch slot
->   so the **normal formatter pipeline** reads it through `FieldAddr`
->   exactly like a field. Pinned (Win32/Wow64) by
->   `TestMcpEvaluateGetterBackedPropertyViaCallInjection`
->   (`GGlobalPropHost.CalcProp` → `$12345679` ordinal path,
->   `.Greeting` → `'Hello, World'` managed-string path). The native
->   Win64 register ABI is realtest-only — see §6.37.
+> **2. RSM `$31` property records — fallback (small / clean binaries).**
+> When the property is NOT published (no RTTI — e.g. a plain `public`
+> getter property), the walk falls back to `FindPropertyViaVmtWalk`
+> (`Reader.FindClassProperty` on the runtime class AND each live-VMT
+> ancestor). Field-backed (`UnderlyingField <> ''`) bridges to the
+> underlying field's offset; getter-backed (`GetterName` via the §4.16
+> `$2E` decode + owning class) call-injects the getter. Pinned by
+> `TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField` and
+> `TestMcpEvaluateGetterBackedPropertyViaCallInjection`
+> (`GGlobalPropHost.PlainProp`/`CalcProp`/`Greeting`). This path is
+> reliable on small binaries; on large binaries the `$31`/`$2C`/`$2E`
+> 2-byte id cross-references collide (the three-round investigation
+> formerly tracked as §6.37), so a non-published getter property on a huge
+> binary may not resolve — a narrow residual, since published properties
+> (the common inspectable case) go through path 1.
 >
-> On a clean binary this turns `Obj.Caption` (`TControl.Caption read
-> GetText → GetWindowText`) into the live form title: the getter runs in
-> the target and `GetWindowText` reads the native window state the static
-> `FText` field doesn't hold. When the getter address can't be resolved
-> or the call doesn't return, the walk emits a precise hint instead of a
-> generic navigation failure. **Caveat (§6.37):** on a *large* binary
-> (e.g. the live `TFW.exe`) the `$31` → owning-class attribution
-> mis-resolves, so `TControl.Caption` is not attributed to `TControl` and
-> `FindPropertyViaVmtWalk` does not find it — the engine is ready but the
-> property is invisible to it there until the §6.37 attribution gap is
-> closed.
+> **Call-injection mechanism (shared by both paths).** Because the
+> debuggee is frozen between `WaitForDebugEvent` / `ContinueDebugEvent` and
+> only the sole `TDebuggerThread` may pump events, the MCP worker thread
+> cannot run a getter itself: `CallTargetFunction` parks a request
+> (`FCallInjectRequest`) and wakes the loop's breakpoint-pause wait;
+> `PerformInjectedCallOnDebugThread` (on the debug thread) snapshots the
+> paused context, rewrites it into a call frame — `Self` in EAX (Win32) /
+> RCX (Win64), the hidden `@Result` pointer in EDX/RDX for a managed
+> (`string`) return, the return address pointing at a `$CC` INT3
+> trampoline on a `VirtualAllocEx` scratch page, PC = getter, HW
+> breakpoints disabled, 16-byte-aligned stack grown below the live frame —
+> `ContinueDebugEvent`s, and a self-contained nested event pump waits for
+> the trampoline INT3. It captures EAX/RAX (ordinal/pointer) or reads the
+> scratch result slot (managed string), restores the snapshot context, and
+> leaves the target frozen in the original paused state. The result is
+> deposited into the scratch slot so the **normal formatter pipeline**
+> reads it through `FieldAddr` exactly like a field.
 
 ### 4.17 `$64` / `$66` / `$67` / `$70` — cross-unit symbol-import table
 
@@ -3277,130 +3288,29 @@ closed; see below).
 > `type=shortstring` for record-field terminals; the navigation is what
 > §6.36-B fixed.
 
-### 6.37 `$31` property attribution is unreliable on large binaries (`GAP`)
+### 6.37 Getter-backed / published property evaluation — CLOSED
 
-The §6.37 dotted-walk property support — field-backed bridge, getter-name
-`$2E` decode, `FindPropertyViaVmtWalk`, and getter **call injection** — is
-implemented and Win32/Wow64-verified deterministically (§4.16;
-[Test.DPT.MCP.Server.TestMcpEvaluateGetterBackedPropertyViaCallInjection](../Test/Test.DPT.MCP.Server.pas):
-`GGlobalPropHost.CalcProp` → `$12345679` ordinal path, `.Greeting` →
-`'Hello, World'` managed-string path). The call-injection engine works.
+Closed: `evaluate Obj.Caption`-style property reads now resolve, including on
+large binaries. Mechanism in §4.16 ("Consumer note — the dotted walk
+resolves properties two ways"): **live runtime RTTI** (VMT → `vmtTypeInfo`
+→ published-property table → `GetProc` decode → field read or getter **call
+injection**) is the primary, collision-proof path for published properties,
+with the RSM `$31`/`$2C`/`$2E` records as the small-binary fallback for
+non-published ones. Proven live on TFW (`Result.Caption` →
+`001- Adresse suchen`, the form title the IDE shows) and pinned
+deterministically by `TestMcpEvaluatePublishedPropertyViaLiveRtti`,
+`TestMcpEvaluateGetterBackedPropertyViaCallInjection`,
+`TestMcpEvaluateFieldBackedPropertyResolvesUnderlyingField`, and
+`TestPropertyGetterNameRecovered32`.
 
-**But `evaluate Result.Caption` still fails on the live `TFW.exe`** — and
-a standalone-reader probe of that exact `.rsm` (`C:\MSE-26.04-Mongo\TFW`,
-a **Win32** build despite the zero-extended 16-digit MCP address display)
-shows why, and it is **not** in the call-injection path:
-
-* `TControl`, `TWinControl`, `TCustomForm`, `TForm`, `TFormAd` are all
-  discovered (`FindClassByName ≥ 0`) and their inherited *fields* resolve
-  (live `Result.FText` navigates), but every one has
-  **`Properties = nil`** — `TControl.Caption` is **not attributed** to
-  `TControl`.
-* `TRsmPropertyLinker` attributes **99 443** properties across 30 081
-  classes, but the owner-attribution is wrong at this scale: of the 51
-  `Caption`-named properties, the owners are garbage
-  (`TWordHelper`/`underlying=FIndex`, `pitem`, `TItem`/`getter=SetStyle`,
-  `TEvent`/`underlying=RefCount`, …) — none is the real
-  `TControl.Caption` (`getter=GetText`, `primId=$04`).
-* The getter proc itself IS present and findable:
-  `FindProcByName('TControl.GetText') = 13892`. So **once the property is
-  correctly attributed, call injection would resolve it** — the gap is
-  purely the `$31` → owning-class attribution.
-
-This is the §4.16 block-owner caveat biting at scale: the PropertyLinker
-resolves a `$31`'s owner from the preceding `$2C` block's WIDE parent
-type-id via `FRsmTypeIdToClassIdx`, and on a huge binary those wide ids
-collide / mis-resolve (the same family as the §6.33 unit-local-id
-collision that needed a member-name-set match to fix). The DebugTarget
-fixture has no collisions so it attributes cleanly; TFW does not.
-
-**Round 1 (member-name-set match) — partial, refuted as a complete fix.**
-The §6.33 technique was prototyped in the PropertyLinker: index every
-class by its SORTED member-name set (with a collision count so an
-ambiguous set is never guessed), accumulate the current `$2C` field
-block's names, and on a UNIQUE exact-set match bind the block's `$31`
-properties to that class instead of the colliding wide parent-id.
-Findings (probed on `C:\MSE-26.04-Mongo\TFW`):
-- **Viable in principle.** `TControl` (88 members), `TWinControl` (55),
-  `TCustomForm` (77), `TFormAd` (496) each have a UNIQUE member-name set
-  (`setCollisions = 1`), so a correct block match is unambiguous.
-- **Works for many classes.** With the match in place, Caption attributed
-  correctly to `TContainedAction`, `TCustomLabel`, `TListItem`,
-  `TCustomTaskDialog`, … (their `$2C` block exactly equals their member
-  set).
-- **But NOT for `TControl` — the exact-set match is too brittle for the
-  big RTL form classes.** The `$2C` field block the PropertyLinker walks
-  for the `TCustomForm`-fields region has **74** names while the
-  discovered member set has **77** (off by 3), so the sorted key misses
-  the index and the `$31` falls back to the (wrong) wide parent-id
-  (→ `TZipAbstract`). No `blockCnt = 88` `TControl` block precedes a
-  `Caption` `$31` at all — suggesting the RTL form classes' `$31`
-  properties are NOT laid out immediately after their own `$2C` field
-  block the way main-program classes are. The prototype was reverted
-  (it adds an index-build cost against the protected `Test.DPT.Rsm.Taifun`
-  perf budget without resolving the target case).
-
-**Round 2 (owner-from-getter-proc) — refuted; the `$31`/`$2E` id
-cross-references are themselves collision-unreliable at scale.** The lead
-was: a getter-backed property's TargetId → `$2E` getter short name, and
-the `$28` proc table carries QUALIFIED names (`TControl.GetText`) that
-already encode the owner — so bypass the block attribution entirely.
-Probed on the TFW corpus, both halves fail:
-- **170 distinct `".GetText"` procs** (one per class). The getter short
-  name alone is hopelessly ambiguous for picking an owner statically;
-  it could only be disambiguated at *evaluate* time against the live VMT
-  chain.
-- **Worse, the TargetId → `$2E` getter decode is garbage at scale.** Of
-  the 51 `Caption` `$31` records, the recovered getter short-names are
-  nonsense (`CurrButtonScaling`, `SetStyle`, `GetValue`, `Rehash`, …) and
-  **22 map to no `$2E` record at all**; the real `GetText` appears for
-  **none** of them. The `$2E` `00 00 00 E8` body anchor + 2-byte method
-  id collides massively across a 30 k-class binary, so `MethodIdToName`
-  returns wrong names. (It is correct on `DebugTarget` only because a
-  small binary has no id collisions.)
-
-**Round 3 (file-offset proximity to the class-name offset) — refuted; the
-`$31` records are in a separate region, physically disconnected from class
-definitions.** `TRsmClassInfo.TypeIdx` is the trustworthy, collision-free
-file offset of the class NAME (`Info.TypeIdx := UInt32(AClassNameOff)`), so
-the lead was: attribute a `$31` to the class with the nearest-preceding
-name offset (the §6.10 per-unit file-offset-proximity pattern). Probed on
-the TFW corpus:
-- The bytes at `TControl`'s name offset (`0xC8B690`) are its **method**
-  region — `…TControl  Create … Self … AOwner … Destroy …` — NOT its
-  `$2C`/`$31` Format-A records; no `$31` appears within 200 KB after it.
-- For every `Caption` `$31` the nearest-preceding class name is an
-  unrelated type at a **huge** distance (29 KB–1.9 MB:
-  `TDelegatedEqualityComparer<Int64>`, `TWinRTImport`, `TComparerThunks…`,
-  …). The Format-A `$31` block lives in its own region, hundreds of KB
-  from any class definition, so proximity carries no owner signal.
-
-**Conclusion after three rounds.** Every reliable-link hypothesis a
-*consumer-side* fix could use is refuted at TFW scale: the `$31`→owner
-wide parent-id collides; the `$2C` member-name-set match is exact-only and
-breaks on the big RTL classes (74-vs-77 block/member mismatch); the
-`$31`→`$2E`→getter decode is collision-garbage (real `GetText` recovered
-for none of the 51 `Caption` records); and the records are physically
-disconnected from class defs so file-offset proximity fails. The Format-A
-`$31`/`$2C`/`$2E` records cross-reference purely via 2-byte ids + loose
-body anchors that are simply not unique in a 30 k-class binary, and they
-carry no decoded length/owner field to anchor on. **Closing
-`Result.Caption` on a large binary therefore requires re-deriving the true
-Format-A record structure — a real per-record length/owner field, or a
-collision-proof structural anchor for the owner AND the getter — i.e. a
-standalone, multi-session RSM-format reverse-engineering effort on the
-order of §6.9/§6.33, not a further consumer-side heuristic.** (Most
-promising concrete sub-leads for that effort, in priority order: decode
-why the `$2C` field block count differs from the discovered member count
-for big RTL classes — closing it may make a *subset/containment*
-member-set match viable; and find the byte that ties a `$31`/`$2C` block
-to its owning unit so the otherwise-colliding parent id can be
-unit-scoped, as §6.10/§6.33 did for fields.)
-
-The deterministically-pinned call-injection engine (§4.16) is correct and
-unaffected; it resolves any getter-backed property whose owner + getter
-the reader can identify, which today means the clean small-binary regime
-(and those large-binary classes whose `$2C` block exact-matches).
+The three-round consumer-side attribution investigation that preceded the
+RTTI solution (member-name-set match; owner-from-getter; file-offset
+proximity — all refuted at TFW scale because the RSM Format-A 2-byte id
+cross-references collide in a 30k-class binary) is preserved in git history;
+its conclusion (why RTTI, not RSM, is authoritative for published properties
+at scale) is summarised in §4.16. Narrow residual, documented as a design
+limit in §4.16: a NON-published getter-backed property on a huge binary has
+no RTTI and hits the colliding RSM id space, so it may not resolve there.
 
 ---
 

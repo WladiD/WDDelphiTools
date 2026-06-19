@@ -966,6 +966,48 @@ begin
   Writeln('CSP ', LScratch, ' ', FMarker); Flush(Output); // bp here - const-str params NOT on this line
   Writeln('CSP-post ', AFirst, ' ', ASecond); Flush(Output); // params used AFTER -> spilled/kept
 end;
+// §6.37 round-4 fixture: PUBLISHED properties resolved via the live
+// instance's runtime RTTI (VMT -> vmtTypeInfo -> property table), the
+// collision-proof path the Delphi IDE uses for Caption-style properties --
+// NOT the RSM $31 records. {$M+} makes a plain class emit published
+// property RTTI (same mechanism TPersistent/TComponent rely on).
+type
+  {$M+}
+  TRttiPropHost = class
+  private
+    FRttiInt    : Integer;
+    FRttiBacking: string;
+    function GetRttiCalc: Integer;
+    function GetRttiText: string;
+  published
+    /// Field-backed published property -> RTTI GetProc encodes a field offset.
+    property RttiPlain: Integer read FRttiInt;
+    /// Getter-backed Integer published property -> RTTI GetProc = static method addr.
+    property RttiCalc: Integer read GetRttiCalc;
+    /// Getter-backed string published property -> managed-return getter.
+    property RttiText: string read GetRttiText;
+  end;
+  {$M-}
+var
+  GGlobalRttiPropHost: TRttiPropHost;
+function TRttiPropHost.GetRttiCalc: Integer;
+begin
+  Result := FRttiInt + 1;     // = $5BEEF5B2
+end;
+function TRttiPropHost.GetRttiText: string;
+begin
+  Result := 'RTTI:' + FRttiBacking;   // = 'RTTI:World'
+end;
+procedure RttiPropertyProbe;
+begin
+  GGlobalRttiPropHost := TRttiPropHost.Create;
+  GGlobalRttiPropHost.FRttiInt     := Integer($5BEEF5B1);
+  GGlobalRttiPropHost.FRttiBacking := 'World';
+  Writeln('RttiProp ',                                                 // rtti-property bp here
+          GGlobalRttiPropHost.RttiPlain, ' ',
+          GGlobalRttiPropHost.RttiCalc, ' ',
+          GGlobalRttiPropHost.RttiText); Flush(Output);
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1173,6 +1215,9 @@ begin
     // §6.35 round 2: reach the standalone proc whose three Integer locals
     // are register-allocated into distinct callee-saved registers.
     RegResidentLocalsProbe;
+    // §6.37 round 4: reach RttiPropertyProbe with a live published-property
+    // instance so the VMT-RTTI property resolver pin has a BP context.
+    RttiPropertyProbe;
     // §6.36: reach the complex record-local probe (TAdresse-like shape).
     RecordLocalNestedProbe;
     // §6.35: const-string register params read at a post-clobber PC.
@@ -1208,5 +1253,6 @@ begin
     GGlobalNonTHost.Free;
     GGlobalFrameless.Free;
     GGlobalByteParam.Free;
+    GGlobalRttiPropHost.Free;
   end;
 end.

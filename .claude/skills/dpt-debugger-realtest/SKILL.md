@@ -1,6 +1,6 @@
 ---
 name: dpt-debugger-realtest
-description: Run an extensive real-world test of the DPT MCP debugger by debugging the large TFW VCL application while a FitNesse acceptance suite drives it through real code paths. The skill carries a catalog of named test cases (default `suite-smoke` for the end-to-end debugger smoke test; `enum-evaluate` for the dotted-walk evaluator chain via `Self.FAd.Land` on TFormAd). Activate when the user wants to "test the DPT debugger", run a "Debugger-Echttest"/"real test"/"umfangreicher Test" of the MCP debugger, validate the mcp__DPT__* tools end-to-end against TFW, reproduce the debugger workflow (start session → run a FitNesse suite as workload → set breakpoints → inspect → teardown), or run a specific named test case from the catalog. Also activate when a FitNesse suite "hangs" while TFW runs under the debugger, or when the user asks "which tests are available" / "list tests".
+description: Run an extensive real-world test of the DPT MCP debugger by debugging the large TFW VCL application while a FitNesse acceptance suite drives it through real code paths. The skill carries a catalog of named test cases (default `suite-smoke` for the end-to-end debugger smoke test; `enum-evaluate` for the dotted-walk evaluator chain via `Self.FAd.Land` on TFormAd; `fixture-result-eval` for evaluating a Slim fixture's `Result` and the property-vs-field evaluator gap via `Result.Caption`). Activate when the user wants to "test the DPT debugger", run a "Debugger-Echttest"/"real test"/"umfangreicher Test" of the MCP debugger, validate the mcp__DPT__* tools end-to-end against TFW, reproduce the debugger workflow (start session → run a FitNesse suite as workload → set breakpoints → inspect → teardown), or run a specific named test case from the catalog. Also activate when a FitNesse suite "hangs" while TFW runs under the debugger, or when the user asks "which tests are available" / "list tests".
 user-invocable: true
 ---
 
@@ -31,6 +31,7 @@ the reporting differ.
 |---|---|---|---|
 | `suite-smoke` | End-to-end debugger contract: session launch from entry point, pending → active breakpoint resolution at `Tfw.Ad.Form:1120` (`TFormAd.Create`), `ignore_exception` (Delphi `EPrinter`) + `set_break_on_native_first_chance(false)` for native printer/Wow64 noise, `wait_until_paused` orchestration loop, suite finishes 7/0, teardown frees port 9000. The big regression net for any change touching `DPT.Debugger.pas` / `DPT.MCP.Server.pas`. | Adressen FitNesse suite (`ATDD.Master.Stammdaten.Adressen`) | **Yes** (default) |
 | `enum-evaluate` | The dotted-walk evaluator chain `class → pointer-to-record → enum-field`. Canonical TFW probe: `evaluate Self.FAd.Land` inside `TFormAd.TblAdDataChange`. Reports per-link verdict (which segments resolve through the evaluator vs. which still need the manual `read_memory` walk). Use after closing any §6 entry that should unblock another link in the chain. | Adressen FitNesse suite (triggers `TblAdDataChange` during `AdresseAnlegen`/`AdresseEditieren`) | No (opt-in only) |
+| `fixture-result-eval` | Evaluating a function's `Result` on a Slim fixture, and **published-property resolution via live RTTI**. BP at `Tfw.Playground.SlimFixtures:97` (the `end;` of `TSlimFormCreateFixture.CreateAdForm`, after `Result:=Screen.FocusedForm as TFormAd`). Probes: `evaluate Result` (object → `TFormAd @ <hex>`, GREEN) and `evaluate Result.Caption` (published property → GREEN, the form title e.g. `001- Adresse suchen`, resolved the way the IDE does — VMT runtime RTTI → `GetProc` → getter **call injection**; §4.16/§6.37). Regression net for the property-evaluation path (RTTI walk + call injection). | Playground FitNesse test (`Playground.CodeCafe.SampleA`, mode `test`) — drives `CreateAdForm` | No (opt-in only) |
 
 ### Invocation rules
 
@@ -390,6 +391,107 @@ re-fired BP. The post-suite Indy `EIdConnClosedGracefully` is
 expected; either ignore-by-class or let `terminate_debug_session`
 end the run.
 
+## Test case: `fixture-result-eval` (opt-in)
+
+Validates two things at the `Result` of a Slim fixture function:
+the **object resolution** of a function return value, and
+**published-property resolution via the live instance's runtime RTTI**.
+Born from a live IDE screenshot probe (`Result.Caption` →
+`'001- Adresse suchen'` in the Delphi IDE); the MCP evaluator now
+reproduces it the same way the IDE does (VMT RTTI → `GetProc` → getter
+call injection; §4.16/§6.37). The deliverable is the per-probe verdict —
+now a regression net for the property-evaluation path.
+
+### Anchors
+
+| Element | Detail |
+|---|---|
+| Unit / fixture | `TSlimFormCreateFixture.CreateAdForm: TFormAd` (`C:\Source\TFW\PAS\Tfw.Playground.SlimFixtures.pas`) |
+| Breakpoint | **`Tfw.Playground.SlimFixtures:97`** — the `end;` of `CreateAdForm`, i.e. *after* `Result:=Screen.FocusedForm as TFormAd;` (line 96), so `Result` is assigned. (Lines are build-stable but re-confirm by reading the source; the `begin` form-create lines 94–96 are: `AdShowForm([accAdd,accPut,accDel]); Result:=Screen.FocusedForm as TFormAd;`.) |
+| Workload to reach BP | FitNesse **test** page `Playground.CodeCafe.SampleA` (mode `test`, *not* `suite`) — calls `CreateAdForm`. The fixture is invoked more than once, so the BP fires repeatedly. |
+| Result type | `TFormAd` (object) |
+| Probed property | `Caption` — a VCL **property** (TControl.Caption → GetText), *not* an RSM field |
+
+### Procedure
+
+Steps 1–8 of `suite-smoke` apply verbatim (resolve SUT, read LOGIN,
+pre-flight port + state, build TFW, ignore `EPrinter` +
+`EIdSocketError` + `EIdCouldNotBindSocket` +
+`set_break_on_native_first_chance(false)`, start, continue, wait for
+Slim on port 9000, and **confirm the port-9000 owner is the build you
+launched** — see the pitfall below). Differences are step 5 (BP) and
+step 9/10 (workload + at-pause probes).
+
+#### 5'. Queue the BP at the fixture's Result line
+
+```
+mcp__DPT__set_breakpoint(unit="Tfw.Playground.SlimFixtures", line=97)
+```
+
+#### 9'. Start the Playground test in the background
+
+```
+RunFitnesse.bat Playground.CodeCafe.SampleA test
+```
+cwd `C:\Source\TEST\FitNesse`, background, `unset NoDefaultCurrentDirectoryInExePath`
+first. Note the second arg is **`test`** (single page), not `suite`,
+and the page is **not** prefixed with `ATDD.`. A clean run is
+**1 Tests, 0 Failures** — but the suite result is not the deliverable
+here; the at-pause probes are.
+
+#### 10'. At the pause: probe Result, then the property
+
+When `wait_until_paused` reports `paused_reason=breakpoint`,
+`unit=Tfw.Playground.SlimFixtures`, `line=97`,
+`procedure=…TSlimFormCreateFixture.CreateAdForm`, on a real worker
+thread id, run:
+
+1. `get_stack_trace` — expect the Slim-fixture chain:
+   `CreateAdForm:97 ← System.Rtti.Invoke/DispatchInvoke ←
+   Slim.Exec.TSlimStmtCallBase.ExecuteMember:459 ← CheckSynchronize ←
+   FMX.Platform.Win.TPlatformWin.ThreadSync ← TApplication.ProcessMessage`.
+2. **`evaluate Result` as `"object"`** → expected GREEN:
+   `TFormAd @ <hex>` (e.g. `TFormAd @ E9A657E0`). This proves the
+   evaluator resolves a function's `Result` slot to the live object.
+3. **`evaluate Result.Caption` as `"string"`** → expected **GREEN**:
+   the form title, e.g. `001- Adresse suchen` (matches the Delphi IDE).
+   `Caption` is a VCL **published property** (`TControl.Caption` →
+   `GetText`); the evaluator resolves it via the live instance's runtime
+   RTTI (VMT → `vmtTypeInfo` → published-property table → `GetProc`),
+   then **call-injects** the getter on the paused thread — the same path
+   the IDE uses (§4.16 / §6.37, closed). This was the gap this case was
+   created for; if it ever regresses to `Could not navigate` or an empty
+   value, the RTTI-property path or call injection broke — call that out.
+4. **`evaluate Result.FText` as `"string"`** (backing-field attempt) →
+   navigates without error but is typically **empty**: for a VCL form
+   the live caption is the native window text, not cached in
+   `TControl.FText` at this point. Documents that the naive
+   backing-field route does not recover the caption either. (Recovering
+   the real string would need a `GetWindowText(Handle)` call, which the
+   MCP cannot invoke — so there is no pure read_memory ground-truth for
+   this one; that is the point of the gap.)
+
+#### 11'. Reporting format
+
+```
+fixture-result-eval (Tfw.Playground.SlimFixtures:97 / TSlimFormCreateFixture.CreateAdForm):
+  Result          : <object-result>            -- <verdict>   (expect TFormAd @ <hex>)
+  Result.Caption  : <value>                     -- <verdict>   (published property via RTTI; expect the form title)
+  Result.FText    : <string or empty>          -- <verdict>   (backing field; expect empty)
+```
+`Result.Caption` returning the form title (e.g. `001- Adresse suchen`)
+while `Result.FText` is empty is the success signal: it proves the
+RTTI-property + call-injection path ran the getter (the value lives in
+native window state, not the field). A regression to `Could not navigate`
+or an empty Caption means the property-evaluation path broke.
+
+#### 12'. Teardown
+
+Same as `enum-evaluate` 12': `remove_breakpoint(Tfw.Playground.SlimFixtures, 97)`
+then `continue` so the test wraps up gracefully, let the post-test
+`EIdConnClosedGracefully` (Delphi, ignorable) appear, then
+`terminate_debug_session`. Confirm port 9000 → FREE.
+
 ## Quick command reference
 
 | Phase | Call |
@@ -428,6 +530,22 @@ end the run.
    locals/frames come from the `.rsm` sidecar next to the EXE.
 6. **Never leave a session open** — always `terminate_debug_session` so
    port 9000 frees and the next run's pre-flight passes.
+7. **A rogue TFW from a *different* build dir can own port 9000** —
+   observed live: a separate `C:\MSE-26.04-MCP-Mongo\TFW\TFW.exe` was
+   listening on 9000, so the debugged `C:\MSE-26.04-Mongo\TFW\TFW.exe`
+   hit `EIdCouldNotBindSocket` (its Slim server never bound) and the
+   FitNesse workload connected to the *rogue* instance instead. The
+   suite still passed (7/0) but the **breakpoints never fired** because
+   the workload never touched the debugged process. Symptoms: an
+   `EIdCouldNotBindSocket` during startup that you must NOT dismiss as
+   noise, plus a BP that resolves to `active` yet never hits during a
+   green run. Guard: after the Slim server is up, **confirm the
+   port-9000 owner is the exact path you launched** —
+   `Get-NetTCPConnection -LocalPort 9000 -State Listen` →
+   `Get-CimInstance Win32_Process -Filter "ProcessId=<pid>"` and check
+   `CommandLine`. Re-run the port pre-flight between back-to-back runs;
+   `EIdCouldNotBindSocket` early in a run almost always means a
+   competing instance — kill it and restart.
 
 ## Parameters when invoked
 
@@ -435,11 +553,15 @@ end the run.
   `Test cases (catalog)` table above. `list` is reserved and means
   "show the catalog, run nothing". Anything else is treated as a
   case name. Default when omitted: `suite-smoke`.
-- A different **suite** path may be given; default
-  `ATDD.Master.Stammdaten.Adressen`. Convert slash-notation to dot-notation
-  and prefix `ATDD.`.
+- A different **workload** path may be given. `suite-smoke` /
+  `enum-evaluate` default to the `ATDD.Master.Stammdaten.Adressen`
+  *suite*; `fixture-result-eval` defaults to the
+  `Playground.CodeCafe.SampleA` *test* page (mode `test`, no `ATDD.`
+  prefix). Convert slash-notation to dot-notation; only prefix `ATDD.`
+  for the Stammdaten suites.
 - Optional **breakpoint(s)** as `Unit:Line` — overrides the chosen
   test case's default BP. Without an override, each test case picks
   its own: `suite-smoke` queues `Tfw.Ad.Form:1120`, `enum-evaluate`
-  queues `Tfw.Ad.Form:2274`. If no test case is named AND no
+  queues `Tfw.Ad.Form:2274`, `fixture-result-eval` queues
+  `Tfw.Playground.SlimFixtures:97`. If no test case is named AND no
   breakpoint is given, the bare `suite-smoke` default applies.

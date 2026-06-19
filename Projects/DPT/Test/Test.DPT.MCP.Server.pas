@@ -113,6 +113,8 @@ type
     [Test]
     procedure TestMcpEvaluateGetterBackedPropertyViaCallInjection;
     [Test]
+    procedure TestMcpEvaluatePublishedPropertyViaLiveRtti;
+    [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
     procedure TestMcpEvaluateAutoTypeDetection;
@@ -3200,6 +3202,55 @@ begin
     Assert.IsTrue(Line.Contains('Hello, World'),
       'Getter-backed string property Greeting must resolve via call ' +
       'injection (managed @Result) to ''Hello, World'', got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.37 round 4 — PUBLISHED property resolution via the LIVE instance's
+///   runtime RTTI (VMT → vmtTypeInfo → property table), the collision-proof
+///   path the Delphi IDE uses for Caption-style properties (independent of
+///   the RSM Format-A id space that collides on large binaries).
+///   <c>TRttiPropHost</c> ({$M+}) at the <c>RttiPropertyProbe</c> BP
+///   exposes three PUBLISHED properties:
+///   <list type="bullet">
+///     <item><c>RttiPlain</c> (field-backed) → RTTI GetProc encodes a field
+///       offset → reads <c>FRttiInt = $5BEEF5B1</c> directly.</item>
+///     <item><c>RttiCalc</c> (getter-backed Integer) → RTTI GetProc = static
+///       getter address → call-injected → <c>$5BEEF5B2</c>.</item>
+///     <item><c>RttiText</c> (getter-backed string) → call-injected managed
+///       return → <c>'RTTI:World'</c>.</item>
+///   </list>
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluatePublishedPropertyViaLiveRtti;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 1006);
+  try
+    // Field-backed published property -> RTTI field-offset path.
+    Line := Fixture.Eval('GGlobalRttiPropHost.RttiPlain', 'int');
+    Assert.IsTrue(Line.Contains('5BEEF5B1'),
+      'Field-backed published property RttiPlain must resolve via live ' +
+      'RTTI to $5BEEF5B1, got: ' + Line);
+
+    // Getter-backed Integer published property -> RTTI static getter +
+    // call injection.
+    Line := Fixture.Eval('GGlobalRttiPropHost.RttiCalc', 'int');
+    Assert.IsTrue(Line.Contains('5BEEF5B2'),
+      'Getter-backed published property RttiCalc must resolve via live ' +
+      'RTTI getter address + call injection to $5BEEF5B2, got: ' + Line);
+
+    // Getter-backed string published property -> managed-return call.
+    Line := Fixture.Eval('GGlobalRttiPropHost.RttiText', 'string');
+    Assert.IsTrue(Line.Contains('RTTI:World'),
+      'Getter-backed published string property RttiText must resolve via ' +
+      'live RTTI getter + call injection to ''RTTI:World'', got: ' + Line);
   finally
     Fixture.Free;
   end;

@@ -274,6 +274,23 @@ type
     /// state. §6.37.
     procedure PerformInjectedCallOnDebugThread(AProcessId, AThreadId: Cardinal;
       AThreadHandle: THandle);
+    /// Reads a length-prefixed ShortString from the target at AAddr
+    /// (1 length byte + that many ANSI chars). §6.37.
+    function  ReadTargetShortString(AAddr: UIntPtr; out AStr: String): Boolean;
+    /// Resolves a PUBLISHED property from the LIVE instance's runtime RTTI
+    /// (VMT -> vmtTypeInfo -> TTypeData property table, walking the
+    /// ParentInfo ancestor chain) -- the collision-proof source the Delphi
+    /// IDE uses, independent of the RSM Format-A id space. Decodes the
+    /// property's GetProc: a field offset (AIsField), a static getter
+    /// address, or a virtual getter resolved through the live VMT slot.
+    /// AIsStringResult/APrimIdHint come from the property type's RTTI kind.
+    /// Returns False when the property is not a published property of the
+    /// instance's class chain (the caller then falls back to the RSM
+    /// $31 path). §6.37 round 4.
+    function  TryResolvePublishedProperty(AObjPtr: UIntPtr;
+      const APropName: String; out AIsField: Boolean; out AFieldOffset: UInt32;
+      out AGetterAddr: UIntPtr; out AIsStringResult: Boolean;
+      out APrimIdHint: UInt16): Boolean;
     {$IFDEF CPUX64}
     function  GetContextFlags(AFlags: Cardinal): Cardinal;
     {$ENDIF}
@@ -2253,6 +2270,155 @@ begin
     SetTargetContext(AThreadHandle, Saved{$IFDEF CPUX64}, SavedWow{$ENDIF});
 end;
 
+function TDebugger.ReadTargetShortString(AAddr: UIntPtr; out AStr: String): Boolean;
+var
+  LenB, Chars: TBytes;
+  Len: Integer;
+begin
+  Result := False;
+  AStr := '';
+  LenB := ReadProcessMemory(Pointer(AAddr), 1);
+  if Length(LenB) < 1 then Exit;
+  Len := LenB[0];
+  Result := True;
+  if Len = 0 then Exit;
+  Chars := ReadProcessMemory(Pointer(AAddr + 1), Len);
+  if Length(Chars) < Len then Exit(False);
+  AStr := TEncoding.ANSI.GetString(Chars, 0, Len);
+end;
+
+function TDebugger.TryResolvePublishedProperty(AObjPtr: UIntPtr;
+  const APropName: String; out AIsField: Boolean; out AFieldOffset: UInt32;
+  out AGetterAddr: UIntPtr; out AIsStringResult: Boolean;
+  out APrimIdHint: UInt16): Boolean;
+// Delphi runtime RTTI layout (System.TypInfo): an object's VMT slot
+// vmtTypeInfo points at the class TTypeInfo; for a tkClass that is
+//   Kind:Byte  Name:ShortString  ClassType:ptr  ParentInfo:^PTypeInfo
+//   PropCount:SmallInt  UnitName:ShortString  PropData(PropCount:Word +
+//   array of TPropInfo). Each TPropInfo is
+//   PropType:^PTypeInfo  GetProc:ptr  SetProc:ptr  StoredProc:ptr
+//   Index:Int32  Default:Int32  NameIndex:Int16  Name:ShortString.
+// GetProc's top byte/qword encodes the access: PROPSLOT_FIELD ($FF..) =
+// a field offset; PROPSLOT_VIRTUAL ($FE..) = a VMT slot; else a static
+// method address.
+const
+  tkClass    = 7;
+  tkLString  = 10;
+  tkWString  = 11;
+  tkUString  = 18;
+var
+  PtrSize        : Integer;
+  VmtClassNameOfs: Integer;
+  VmtTypeInfoOfs : Integer;
+  VMT, TI, TD    : UIntPtr;
+  PropData, PropOff: UIntPtr;
+  Depth          : Integer;
+  KindB          : TBytes;
+  Name           : String;
+  NameLen, UnitLen: Integer;
+  PropCountW     : Integer;
+  PropGuard      : Integer;
+  Mask, FieldMark, VirtMark, Masked: UInt64;
+begin
+  Result := False;
+  AIsField := False; AFieldOffset := 0; AGetterAddr := 0;
+  AIsStringResult := False; APrimIdHint := 0;
+  if AObjPtr = 0 then Exit;
+  PtrSize := FTargetPointerSize;
+  if FTargetIs32Bit then VmtClassNameOfs := 56 else VmtClassNameOfs := 136;
+  VmtTypeInfoOfs := VmtClassNameOfs + 4 * PtrSize; // 72 (Win32) / 168 (Win64)
+  VMT := ReadTargetPointer(Pointer(AObjPtr));
+  if VMT = 0 then Exit;
+  TI := ReadTargetPointer(Pointer(NativeInt(VMT) - VmtTypeInfoOfs));
+  if TI = 0 then Exit;
+
+  if FTargetIs32Bit then
+  begin
+    Mask := $FF000000; FieldMark := $FF000000; VirtMark := $FE000000;
+  end
+  else
+  begin
+    Mask := UInt64($FF00000000000000);
+    FieldMark := UInt64($FF00000000000000);
+    VirtMark := UInt64($FE00000000000000);
+  end;
+
+  Depth := 0;
+  while (TI <> 0) and (Depth < 64) do
+  begin
+    Inc(Depth);
+    KindB := ReadProcessMemory(Pointer(TI), 1);
+    if (Length(KindB) < 1) or (KindB[0] <> tkClass) then Exit;
+    // Name ShortString at TI+1 -> TypeData begins after it.
+    if not ReadTargetShortString(TI + 1, Name) then Exit;
+    NameLen := Length(Name);
+    TD := TI + 2 + UIntPtr(NameLen);
+    // TypeData: ClassType(ptr) ParentInfo(ptr) PropCount(2) UnitName(sstr)
+    var ParentInfoSlot: UIntPtr := TD + UIntPtr(PtrSize);
+    var UnitNameOff: UIntPtr := TD + UIntPtr(2 * PtrSize) + 2;
+    var UB: TBytes := ReadProcessMemory(Pointer(UnitNameOff), 1);
+    if Length(UB) < 1 then Exit;
+    UnitLen := UB[0];
+    PropData := UnitNameOff + 1 + UIntPtr(UnitLen);
+    var PCB: TBytes := ReadProcessMemory(Pointer(PropData), 2);
+    if Length(PCB) < 2 then Exit;
+    PropCountW := PCB[0] or (PCB[1] shl 8);
+    PropOff := PropData + 2;
+    PropGuard := 0;
+    while (PropGuard < PropCountW) and (PropGuard < 8192) do
+    begin
+      Inc(PropGuard);
+      var GetProc: UIntPtr := ReadTargetPointer(Pointer(PropOff + UIntPtr(PtrSize)));
+      var NameFieldOff: UIntPtr := PropOff + UIntPtr(4 * PtrSize) + 10;
+      var PName: String;
+      if not ReadTargetShortString(NameFieldOff, PName) then Exit;
+      if SameText(PName, APropName) then
+      begin
+        Masked := UInt64(GetProc) and Mask;
+        if Masked = FieldMark then
+        begin
+          AIsField := True;
+          AFieldOffset := UInt32(UInt64(GetProc) and not Mask);
+        end
+        else if Masked = VirtMark then
+          AGetterAddr := ReadTargetPointer(
+            Pointer(VMT + UIntPtr(UInt64(GetProc) and not Mask)))
+        else
+          AGetterAddr := GetProc;
+        // Property type kind -> result typing (managed string vs ordinal).
+        var PropTypePP: UIntPtr := ReadTargetPointer(Pointer(PropOff));
+        if PropTypePP <> 0 then
+        begin
+          var PropTypeTI: UIntPtr := ReadTargetPointer(Pointer(PropTypePP));
+          if PropTypeTI <> 0 then
+          begin
+            var PKB: TBytes := ReadProcessMemory(Pointer(PropTypeTI), 1);
+            if Length(PKB) >= 1 then
+            begin
+              if (PKB[0] = tkLString) or (PKB[0] = tkWString) or
+                 (PKB[0] = tkUString) then
+              begin
+                AIsStringResult := True;
+                APrimIdHint := $04;   // string (matches the $31 prim id)
+              end
+              else
+                APrimIdHint := $02;   // ordinal best-effort (Integer)
+            end;
+          end;
+        end;
+        Exit(True);
+      end;
+      // Tail: advance past this TPropInfo (fixed part + ShortString name).
+      PropOff := NameFieldOff + 1 + UIntPtr(Length(PName));
+    end;
+    // Ascend: ParentInfo is ^PTypeInfo -> deref once for the slot value,
+    // once more for the parent TypeInfo.
+    var ParentInfoField: UIntPtr := ReadTargetPointer(Pointer(ParentInfoSlot));
+    if ParentInfoField = 0 then Break;
+    TI := ReadTargetPointer(Pointer(ParentInfoField));
+  end;
+end;
+
 function TDebugger.SetBreakpoint(const AUnitName: string; ALineNumber: Integer): Boolean;
 begin
   Result := SetBreakpoint(AUnitName, ALineNumber, False);
@@ -3531,10 +3697,53 @@ begin
               // stable across the entire descent of the declaring class).
               if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
               begin
-                // §6.37 PROPERTY fallback. The segment is neither an own
-                // field nor an inherited field on the runtime class
-                // chain -- try it as a PROPERTY (parsed from the $31
-                // records into TRsmClassInfo.Properties; §4.16).
+                // §6.37 round 4 -- LIVE RTTI first. For a PUBLISHED
+                // property the authoritative source is the running
+                // instance's runtime RTTI (VMT -> vmtTypeInfo -> property
+                // table), exactly what the Delphi IDE uses for
+                // Caption-style properties. This is collision-proof on
+                // large binaries where the RSM Format-A $31/$2C/$2E id
+                // cross-references are unreliable (§6.37). Field-backed
+                // properties yield a field offset; getter-backed ones
+                // yield the getter's code address, which we call-inject.
+                var RIsField    : Boolean;
+                var RFieldOfs   : UInt32;
+                var RGetterAddr : UIntPtr;
+                var RIsStr      : Boolean;
+                var RPrimId     : UInt16;
+                if TryResolvePublishedProperty(ObjPtr, Segments[I], RIsField,
+                     RFieldOfs, RGetterAddr, RIsStr, RPrimId) then
+                begin
+                  if RIsField then
+                  begin
+                    Member := Default(TRsmClassMember);
+                    Member.PrimitiveTypeId := RPrimId;
+                    FieldAddr := Pointer(ObjPtr + RFieldOfs);
+                    PrevContextIdx  := -1;
+                    ContextIsRecord := False;
+                    Continue;
+                  end
+                  else if RGetterAddr <> 0 then
+                  begin
+                    var ROrd: UInt64;
+                    if CallTargetFunction(RGetterAddr, ObjPtr, RIsStr, ROrd) then
+                    begin
+                      FieldAddr := Pointer(FCallResultSlot);
+                      Member := Default(TRsmClassMember);
+                      Member.PrimitiveTypeId := RPrimId;
+                      PrevContextIdx  := -1;
+                      ContextIsRecord := False;
+                      Continue;
+                    end;
+                  end;
+                end;
+                // §6.37 PROPERTY fallback (RSM). The segment is neither an
+                // own field nor an inherited field on the runtime class
+                // chain, and not a published property -- try it as a
+                // property parsed from the $31 records into
+                // TRsmClassInfo.Properties (§4.16). Reliable on small
+                // binaries; on large binaries the id cross-refs collide
+                // (§6.37) so the live-RTTI path above is preferred.
                 //   * Field-backed (read FField): bridge to the
                 //     underlying field's byte offset and continue the
                 //     walk exactly as if the user had named the field.
