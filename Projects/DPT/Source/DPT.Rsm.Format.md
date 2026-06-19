@@ -3340,22 +3340,42 @@ Findings (probed on `C:\MSE-26.04-Mongo\TFW`):
   (it adds an index-build cost against the protected `Test.DPT.Rsm.Taifun`
   perf budget without resolving the target case).
 
-**Next investigator's lead (round 2).** Two sub-questions, reproduce-first
-on the TFW corpus: (a) *why* does the `$2C` block count (74) differ from
-the discovered member count (77) for `TCustomForm` — is it dropped
-records (`NL > 40`, a different anchor), a split block, or members the
-discoverer adds from a non-`$2C` source? Closing that may let an exact-set
-match work. (b) Where does `TControl`'s `Caption` `$31` actually sit
-relative to its `$2C` field block? If RTL property records are detached
-from their field block, the block-adjacency assumption is wrong and the
-owner must come from another anchor (e.g. linking the property's
-TargetId→`$2E` getter to the qualified `$28` proc `TControl.GetText`,
-whose name already carries the owner). A robust round-2 fix likely needs
-a subset/containment match (block names ⊆ exactly one class's members,
-gated on block size for safety + a leakage guard) rather than exact-set
-equality. This remains a multi-round RSM-attribution investigation,
-independent of the (working, deterministically-pinned) call-injection
-machinery.
+**Round 2 (owner-from-getter-proc) — refuted; the `$31`/`$2E` id
+cross-references are themselves collision-unreliable at scale.** The lead
+was: a getter-backed property's TargetId → `$2E` getter short name, and
+the `$28` proc table carries QUALIFIED names (`TControl.GetText`) that
+already encode the owner — so bypass the block attribution entirely.
+Probed on the TFW corpus, both halves fail:
+- **170 distinct `".GetText"` procs** (one per class). The getter short
+  name alone is hopelessly ambiguous for picking an owner statically;
+  it could only be disambiguated at *evaluate* time against the live VMT
+  chain.
+- **Worse, the TargetId → `$2E` getter decode is garbage at scale.** Of
+  the 51 `Caption` `$31` records, the recovered getter short-names are
+  nonsense (`CurrButtonScaling`, `SetStyle`, `GetValue`, `Rehash`, …) and
+  **22 map to no `$2E` record at all**; the real `GetText` appears for
+  **none** of them. The `$2E` `00 00 00 E8` body anchor + 2-byte method
+  id collides massively across a 30 k-class binary, so `MethodIdToName`
+  returns wrong names. (It is correct on `DebugTarget` only because a
+  small binary has no id collisions.)
+
+**Conclusion after two rounds.** Large-binary property evaluation is
+blocked by a *fundamental* limitation: the `$31` (owner via wide
+parent-id), `$2C` (alias→field), and `$2E` (method-id→name) records all
+rely on 2-byte ids + loose body anchors that COLLIDE at TFW scale, so
+every id cross-reference (`$31`→owner, `$31`→field, `$31`→getter) is
+unreliable there. The member-name-set match (round 1) repairs the
+`$31`→owner half for classes whose `$2C` block exactly equals their
+member set, but not the brittle big RTL classes, and it does not repair
+the `$31`→getter half at all. Closing this properly needs a deeper
+re-derivation of these records — a real per-record length/owner field (so
+ids need not be guessed) or a tighter structural anchor that survives
+collisions — i.e. a standalone multi-round RSM-format investigation on the
+order of §6.9/§6.33, not a consumer-side patch. The
+deterministically-pinned call-injection engine (§4.16) is correct and
+unaffected; it resolves any getter-backed property whose owner + getter
+the reader can identify, which today means the clean small-binary regime
+(and those large-binary classes whose `$2C` block exact-matches).
 
 ---
 
