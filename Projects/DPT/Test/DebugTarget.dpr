@@ -1008,6 +1008,49 @@ begin
           GGlobalRttiPropHost.RttiCalc, ' ',
           GGlobalRttiPropHost.RttiText); Flush(Output);
 end;
+// §6.38 fixture: PUBLIC (non-published) properties resolved via the
+// EXTENDED-RTTI PropDataEx table -- the walk added to
+// TryResolveRttiProperty after the published PropData loop. Mirrors
+// TFormAd.IniName on TFW: a public getter property the published-only walk
+// misses. {$M+} guarantees the class emits a TypeInfo; the properties sit
+// under `public`, so they land in PropDataEx (the extended table), NOT the
+// published PropData table -- exactly the shape the ext-walk decodes.
+// (On this small binary the RSM $31 fallback can also serve these; the
+// ext-walk's distinctive value -- resolving when the $31 ids collide on a
+// 30k-class binary -- is proven live on TFW per Format.md §6.38. Here the
+// pin guards that the ext-walk returns the CORRECT value; evaluating
+// ExtPubText, the SECOND ext entry, also guards the TPropInfoEx stride-skip
+// past ExtPubPlain.)
+type
+  {$M+}
+  TExtPubPropHost = class
+  private
+    FExtInt    : Integer;
+    FExtBacking: string;
+    function GetExtText: string;
+  public
+    /// Public field-backed property -> ext-RTTI GetProc encodes a field offset.
+    property ExtPubPlain: Integer read FExtInt;
+    /// Public getter-backed string property -> ext-RTTI static getter,
+    /// call-injected (the TFormAd.IniName analog).
+    property ExtPubText: string read GetExtText;
+  end;
+  {$M-}
+var
+  GGlobalExtPubPropHost: TExtPubPropHost;
+function TExtPubPropHost.GetExtText: string;
+begin
+  Result := 'Ext:' + FExtBacking;   // = 'Ext:Public'
+end;
+procedure ExtPubPropertyProbe;
+begin
+  GGlobalExtPubPropHost := TExtPubPropHost.Create;
+  GGlobalExtPubPropHost.FExtInt     := Integer($EA571C01);
+  GGlobalExtPubPropHost.FExtBacking := 'Public';
+  Writeln('ExtPubProp ',                                               // ext-pub-property bp here
+          GGlobalExtPubPropHost.ExtPubPlain, ' ',
+          GGlobalExtPubPropHost.ExtPubText); Flush(Output);
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1218,6 +1261,10 @@ begin
     // §6.37 round 4: reach RttiPropertyProbe with a live published-property
     // instance so the VMT-RTTI property resolver pin has a BP context.
     RttiPropertyProbe;
+    // §6.38: reach ExtPubPropertyProbe with a live instance whose PUBLIC
+    // properties live only in the extended-RTTI PropDataEx table, so the
+    // ext-RTTI property-walk pin has a BP context.
+    ExtPubPropertyProbe;
     // §6.36: reach the complex record-local probe (TAdresse-like shape).
     RecordLocalNestedProbe;
     // §6.35: const-string register params read at a post-clobber PC.
@@ -1254,5 +1301,6 @@ begin
     GGlobalFrameless.Free;
     GGlobalByteParam.Free;
     GGlobalRttiPropHost.Free;
+    GGlobalExtPubPropHost.Free;
   end;
 end.

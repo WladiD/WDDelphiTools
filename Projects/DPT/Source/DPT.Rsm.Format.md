@@ -2112,12 +2112,25 @@ to the getter's proc name `TPropHost.GetCalcInt`, which
 > property. Two sources are tried, **live RTTI first**:
 >
 > **1. Live runtime RTTI — primary, collision-proof (the path the Delphi
-> IDE uses).** `TryResolvePublishedProperty` reads the running instance's
+> IDE uses).** `TryResolveRttiProperty` reads the running instance's
 > RTTI straight from the VMT: `[Obj] → VMT`, `[VMT − vmtTypeInfo] →`
-> class `TTypeInfo`, then walks the `tkClass` `TTypeData` published-property
-> table and its `ParentInfo` ancestor chain for the property name
+> class `TTypeInfo`, then at each level of the `ParentInfo` ancestor chain
+> walks **two** property tables for the name
 > (`vmtTypeInfo = vmtClassName − 4·PtrSize` = −72 Win32 / −168 Win64; see
-> System.TypInfo). The matched `TPropInfo.GetProc` is decoded by its top
+> System.TypInfo):
+>
+> * the **published `PropData`** table (`PropCount:Word` + that many
+>   `TPropInfo`), which carries `published` properties (`Caption` etc.);
+> * the **extended-RTTI `PropDataEx`** table that immediately follows it
+>   (`PropCount:Word` + that many `TPropInfoEx` = `Flags:Byte`,
+>   `Info:PPropInfo`, `AttrData(Len:Word` **including itself**`)`), which
+>   carries `public` properties — the default `{$RTTI}` state emits
+>   property RTTI for `[vcPublic, vcPublished]`. Each `TPropInfoEx.Info`
+>   points at a `TPropInfo` of the **identical shape**, so the same decode
+>   is reused; entries are gated to visibility `Flags and 3 >= 2`
+>   (public/published) so a private/protected entry stays unreachable (§6.38).
+>
+> The matched `TPropInfo.GetProc` is decoded by its top
 > byte/qword: `PROPSLOT_FIELD ($FF…)` → a **field offset** (read inline);
 > `PROPSLOT_VIRTUAL ($FE…)` → a **VMT slot** (resolved against the live
 > VMT) → call injection; otherwise a **static getter address** → call
@@ -2125,20 +2138,25 @@ to the getter's proc name `TPropHost.GetCalcInt`, which
 > `tkWString` → managed string) drives the call's hidden-`@Result` ABI.
 > This is **collision-free** because it reads the actual runtime metadata,
 > so it works on arbitrarily large binaries where the RSM Format-A id
-> cross-references collide (§6.37 history). It covers any **published**
-> property — which is what `Caption` and most inspectable VCL properties
-> are. Pinned by
+> cross-references collide (§6.37 history). It covers any **published or
+> public** property. Pinned by
 > `Test.DPT.MCP.Server.TestMcpEvaluatePublishedPropertyViaLiveRtti`
-> (`DebugTarget` `{$M+} TRttiPropHost`: `RttiPlain` field-offset path,
+> (`DebugTarget` `{$M+} TRttiPropHost`: published `RttiPlain` field-offset,
 > `RttiCalc` static-getter + call-injection, `RttiText` managed-string
-> getter) and proven live on TFW: `evaluate Result.Caption` →
-> `001- Adresse suchen` (the form title, exactly as the IDE shows it),
+> getter) and `TestMcpEvaluatePublicPropertyViaExtendedRtti`
+> (`{$M+} TExtPubPropHost`: public `ExtPubPlain` field-offset + public
+> `ExtPubText` getter, the second guarding the `TPropInfoEx` stride-skip).
+> Proven live on TFW: `evaluate Result.Caption` → `001- Adresse suchen`
+> (published, the form title the IDE shows) and `evaluate Result.IniName` →
+> `TFormAd` (public — `CBaseForm.IniName`, `read GetIniName` returning
+> `ClassName`, resolved via the `PropDataEx` walk + getter call injection),
 > while the backing field `Result.FText` reads empty (the caption lives in
 > native window state, recovered only by running `GetText`).
 >
 > **2. RSM `$31` property records — fallback (small / clean binaries).**
-> When the property is NOT published (no RTTI — e.g. a plain `public`
-> getter property), the walk falls back to `FindPropertyViaVmtWalk`
+> When the property is on neither RTTI table (e.g. a `strict private`
+> getter property the default `{$RTTI}` does not emit), the walk falls back
+> to `FindPropertyViaVmtWalk`
 > (`Reader.FindClassProperty` on the runtime class AND each live-VMT
 > ancestor). Field-backed (`UnderlyingField <> ''`) bridges to the
 > underlying field's offset; getter-backed (`GetterName` via the §4.16
@@ -2148,9 +2166,14 @@ to the getter's proc name `TPropHost.GetCalcInt`, which
 > (`GGlobalPropHost.PlainProp`/`CalcProp`/`Greeting`). This path is
 > reliable on small binaries; on large binaries the `$31`/`$2C`/`$2E`
 > 2-byte id cross-references collide (the three-round investigation
-> formerly tracked as §6.37), so a non-published getter property on a huge
-> binary may not resolve — a narrow residual, since published properties
-> (the common inspectable case) go through path 1.
+> formerly tracked as §6.37), so this fallback is unreliable at TFW scale.
+> Both **published and public** properties avoid it entirely now — they go
+> through path 1, including via the extended-RTTI `PropDataEx` table (§6.38,
+> closed). The only residual is a property emitted on NEITHER RTTI table
+> (e.g. a `strict private` getter the default `{$RTTI}` omits) on a huge
+> binary: it has no collision-free source and may not resolve — a narrow
+> design limit, not a tracked gap, since such properties are rarely the
+> inspection target.
 >
 > **Call-injection mechanism (shared by both paths).** Because the
 > debuggee is frozen between `WaitForDebugEvent` / `ContinueDebugEvent` and
@@ -3308,9 +3331,13 @@ RTTI solution (member-name-set match; owner-from-getter; file-offset
 proximity — all refuted at TFW scale because the RSM Format-A 2-byte id
 cross-references collide in a 30k-class binary) is preserved in git history;
 its conclusion (why RTTI, not RSM, is authoritative for published properties
-at scale) is summarised in §4.16. Narrow residual, documented as a design
-limit in §4.16: a NON-published getter-backed property on a huge binary has
-no RTTI and hits the colliding RSM id space, so it may not resolve there.
+at scale) is summarised in §4.16. The narrow residual once noted here — a
+NON-published `public` getter property that the published-only walk missed —
+was closed by §6.38 (the extended-RTTI `PropDataEx` walk added to
+`TryResolveRttiProperty`); see §4.16 path 1. The only remaining limit is a
+property emitted on NEITHER RTTI table (e.g. a `strict private` getter the
+default `{$RTTI}` omits) on a huge binary, a narrow design limit documented in
+§4.16, not a tracked gap.
 
 ---
 

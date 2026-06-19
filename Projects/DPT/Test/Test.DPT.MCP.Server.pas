@@ -115,6 +115,8 @@ type
     [Test]
     procedure TestMcpEvaluatePublishedPropertyViaLiveRtti;
     [Test]
+    procedure TestMcpEvaluatePublicPropertyViaExtendedRtti;
+    [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
     procedure TestMcpEvaluateAutoTypeDetection;
@@ -3251,6 +3253,59 @@ begin
     Assert.IsTrue(Line.Contains('RTTI:World'),
       'Getter-backed published string property RttiText must resolve via ' +
       'live RTTI getter + call injection to ''RTTI:World'', got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.38 — PUBLIC (non-published) property resolution via the EXTENDED-RTTI
+///   PropDataEx table. <c>TExtPubPropHost</c> ({$M+}) exposes its properties
+///   under <c>public</c>, so they live in the extended-RTTI table that follows
+///   the published PropData (which is empty here), NOT in the published table
+///   the §6.37 walk read. <c>TryResolveRttiProperty</c> now continues
+///   past the published loop into PropDataEx, decodes each <c>TPropInfoEx</c>
+///   (Flags, Info→TPropInfo, AttrData), gates on visibility ≥ public, and
+///   reuses the same GetProc field/getter decode + call injection.
+///   <list type="bullet">
+///     <item><c>ExtPubPlain</c> (public, field-backed) → ext-RTTI GetProc =
+///       field offset → reads <c>FExtInt = $EA571C01</c>.</item>
+///     <item><c>ExtPubText</c> (public, getter-backed string) → ext-RTTI
+///       static getter → call-injected → <c>'Ext:Public'</c>. Being the
+///       SECOND PropDataEx entry, resolving it also guards the
+///       <c>TPropInfoEx</c> stride-skip (Flags + Info + AttrData[Len]) past
+///       ExtPubPlain — a desynced stride would mis-read or miss it.</item>
+///   </list>
+///   This is the deterministic regression net for the public-property walk;
+///   the gap it closes (resolving where the RSM $31 ids collide at scale) is
+///   proven live on TFW: <c>evaluate Result.IniName → TFormAd</c>
+///   (CBaseForm.IniName, a public getter property), per Format.md §6.38.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluatePublicPropertyViaExtendedRtti;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 1050);
+  try
+    // Public field-backed property -> extended-RTTI field-offset path.
+    Line := Fixture.Eval('GGlobalExtPubPropHost.ExtPubPlain', 'int');
+    Assert.IsTrue(Line.Contains('EA571C01'),
+      'Public field-backed property ExtPubPlain must resolve via the ' +
+      'extended-RTTI PropDataEx walk to $EA571C01, got: ' + Line);
+
+    // Public getter-backed string property (the TFormAd.IniName analog) ->
+    // ext-RTTI static getter + call injection. Second PropDataEx entry, so
+    // a correct result also proves the TPropInfoEx stride-skip past the
+    // first entry (leakage/desync guard).
+    Line := Fixture.Eval('GGlobalExtPubPropHost.ExtPubText', 'string');
+    Assert.IsTrue(Line.Contains('Ext:Public'),
+      'Public getter-backed string property ExtPubText must resolve via the ' +
+      'extended-RTTI PropDataEx walk + call injection to ''Ext:Public'', ' +
+      'got: ' + Line);
   finally
     Fixture.Free;
   end;

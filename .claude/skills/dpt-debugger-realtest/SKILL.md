@@ -31,7 +31,7 @@ the reporting differ.
 |---|---|---|---|
 | `suite-smoke` | End-to-end debugger contract: session launch from entry point, pending → active breakpoint resolution at `Tfw.Ad.Form:1120` (`TFormAd.Create`), `ignore_exception` (Delphi `EPrinter`) + `set_break_on_native_first_chance(false)` for native printer/Wow64 noise, `wait_until_paused` orchestration loop, suite finishes 7/0, teardown frees port 9000. The big regression net for any change touching `DPT.Debugger.pas` / `DPT.MCP.Server.pas`. | Adressen FitNesse suite (`ATDD.Master.Stammdaten.Adressen`) | **Yes** (default) |
 | `enum-evaluate` | The dotted-walk evaluator chain `class → pointer-to-record → enum-field`. Canonical TFW probe: `evaluate Self.FAd.Land` inside `TFormAd.TblAdDataChange`. Reports per-link verdict (which segments resolve through the evaluator vs. which still need the manual `read_memory` walk). Use after closing any §6 entry that should unblock another link in the chain. | Adressen FitNesse suite (triggers `TblAdDataChange` during `AdresseAnlegen`/`AdresseEditieren`) | No (opt-in only) |
-| `fixture-result-eval` | Evaluating a function's `Result` on a Slim fixture, and **published-property resolution via live RTTI**. BP at `Tfw.Playground.SlimFixtures:97` (the `end;` of `TSlimFormCreateFixture.CreateAdForm`, after `Result:=Screen.FocusedForm as TFormAd`). Probes: `evaluate Result` (object → `TFormAd @ <hex>`, GREEN) and `evaluate Result.Caption` (published property → GREEN, the form title e.g. `001- Adresse suchen`, resolved the way the IDE does — VMT runtime RTTI → `GetProc` → getter **call injection**; §4.16/§6.37). Regression net for the property-evaluation path (RTTI walk + call injection). | Playground FitNesse test (`Playground.CodeCafe.SampleA`, mode `test`) — drives `CreateAdForm` | No (opt-in only) |
+| `fixture-result-eval` | Evaluating a function's `Result` on a Slim fixture, and **published-property resolution via live RTTI**. BP at `Tfw.Playground.SlimFixtures:97` (the `end;` of `TSlimFormCreateFixture.CreateAdForm`, after `Result:=Screen.FocusedForm as TFormAd`). Probes: `evaluate Result` (object → `TFormAd @ <hex>`, GREEN), `evaluate Result.Caption` (published property → GREEN, the form title e.g. `001- Adresse suchen`, resolved the way the IDE does — VMT runtime RTTI → `GetProc` → getter **call injection**; §4.16/§6.37), `evaluate Result.cmLst.Caption` (intermediate object hop + published property → GREEN, expected `Leistungen`), and `evaluate Result.IniName` (a **`public`** (non-published) property → currently **RED gap**: `Could not navigate`; ground-truth `TFormAd` — the published-RTTI walk can't reach public properties). Regression net for the property-evaluation path (RTTI walk + call injection). | Playground FitNesse test (`Playground.CodeCafe.SampleA`, mode `test`) — drives `CreateAdForm` | No (opt-in only) |
 
 ### Invocation rules
 
@@ -393,14 +393,15 @@ end the run.
 
 ## Test case: `fixture-result-eval` (opt-in)
 
-Validates two things at the `Result` of a Slim fixture function:
-the **object resolution** of a function return value, and
-**published-property resolution via the live instance's runtime RTTI**.
-Born from a live IDE screenshot probe (`Result.Caption` →
-`'001- Adresse suchen'` in the Delphi IDE); the MCP evaluator now
-reproduces it the same way the IDE does (VMT RTTI → `GetProc` → getter
-call injection; §4.16/§6.37). The deliverable is the per-probe verdict —
-now a regression net for the property-evaluation path.
+Validates three things at the `Result` of a Slim fixture function:
+the **object resolution** of a function return value,
+**published-property resolution via the live instance's runtime RTTI**,
+and that the dotted walk survives an **intermediate object hop before the
+property** (`Result.cmLst.Caption`). Born from a live IDE screenshot probe
+(`Result.Caption` → `'001- Adresse suchen'` in the Delphi IDE); the MCP
+evaluator now reproduces it the same way the IDE does (VMT RTTI →
+`GetProc` → getter call injection; §4.16/§6.37). The deliverable is the
+per-probe verdict — now a regression net for the property-evaluation path.
 
 ### Anchors
 
@@ -411,6 +412,8 @@ now a regression net for the property-evaluation path.
 | Workload to reach BP | FitNesse **test** page `Playground.CodeCafe.SampleA` (mode `test`, *not* `suite`) — calls `CreateAdForm`. The fixture is invoked more than once, so the BP fires repeatedly. |
 | Result type | `TFormAd` (object) |
 | Probed property | `Caption` — a VCL **property** (TControl.Caption → GetText), *not* an RSM field |
+| Nested-object probe | `Result.cmLst.Caption` — hop through the `cmLst` child component (an RSM field on `TFormAd`), then its published `Caption` property. Expected value: `Leistungen`. |
+| String-property probe (gap) | `Result.IniName` — `CBaseForm`'s storage/section name property (`read GetIniName`, returns `ClassName`). Ground-truth value `TFormAd`, but declared **`public`** (not `published`), so it is currently a **RED gap**: the evaluator's published-RTTI walk can't reach it → `Could not navigate`. |
 
 ### Procedure
 
@@ -462,7 +465,36 @@ thread id, run:
    the IDE uses (§4.16 / §6.37, closed). This was the gap this case was
    created for; if it ever regresses to `Could not navigate` or an empty
    value, the RTTI-property path or call injection broke — call that out.
-4. **`evaluate Result.FText` as `"string"`** (backing-field attempt) →
+4. **`evaluate Result.cmLst.Caption` as `"string"`** → expected **GREEN**:
+   `Leistungen`. This chains an **intermediate object hop**
+   (`Result.cmLst` dereferences the `cmLst` child component on the form —
+   an RSM field on `TFormAd`) into the **published-property + call-injection**
+   resolution on the nested instance (`cmLst.Caption`, via the same
+   VMT-RTTI → `GetProc` → getter-injection path as probe 3). It is the
+   deeper cousin of `Result.Caption`: where that proves one property hop,
+   this proves the dotted walk survives an object-field hop *before* the
+   property resolution. If it regresses to `Could not navigate` the
+   object-field capture broke; if it returns empty the call-injection path
+   on the nested instance broke — call out which.
+5. **`evaluate Result.IniName` as `"string"`** → currently **RED**
+   (documented gap), `Could not navigate "Result.IniName"`. Ground-truth
+   value would be `TFormAd`: `IniName` is `CBaseForm`'s storage/section
+   name property (`Base.UI.Forms.Base.pas:198`, `read GetIniName`), and
+   `GetIniName` returns `ClassName` (`:736`), which for a `TFormAd`
+   instance is `TFormAd`. **Why it fails:** `IniName` is declared in a
+   **`public`** section, *not* `published`. The MCP evaluator resolves
+   properties only through the **published**-property RTTI table
+   (VMT → `vmtTypeInfo` → published-property table → `GetProc`), which is
+   exactly why `Result.Caption` (published on `TControl`) succeeds while a
+   `public`-only property has no RTTI entry to walk and navigation fails.
+   The Delphi IDE reads it via full debug info (TD32/line symbols), a path
+   the MCP does not parse. Closing this gap would mean resolving public
+   properties — either parsing the getter from `.rsm`/debug info and
+   call-injecting it, or walking the public-property symbols. Until then
+   this probe is the regression net for that gap: a **flip to GREEN
+   returning `TFormAd`** is the payoff to call out; staying `Could not
+   navigate` is the expected current state.
+6. **`evaluate Result.FText` as `"string"`** (backing-field attempt) →
    navigates without error but is typically **empty**: for a VCL form
    the live caption is the native window text, not cached in
    `TControl.FText` at this point. Documents that the naive
@@ -475,15 +507,20 @@ thread id, run:
 
 ```
 fixture-result-eval (Tfw.Playground.SlimFixtures:97 / TSlimFormCreateFixture.CreateAdForm):
-  Result          : <object-result>            -- <verdict>   (expect TFormAd @ <hex>)
-  Result.Caption  : <value>                     -- <verdict>   (published property via RTTI; expect the form title)
-  Result.FText    : <string or empty>          -- <verdict>   (backing field; expect empty)
+  Result               : <object-result>       -- <verdict>   (expect TFormAd @ <hex>)
+  Result.Caption       : <value>               -- <verdict>   (published property via RTTI; expect the form title)
+  Result.cmLst.Caption : <value>               -- <verdict>   (object hop + property; expect "Leistungen")
+  Result.IniName       : <value>               -- <verdict>   (PUBLIC property gap; currently "Could not navigate", would be "TFormAd")
+  Result.FText         : <string or empty>     -- <verdict>   (backing field; expect empty)
 ```
 `Result.Caption` returning the form title (e.g. `001- Adresse suchen`)
 while `Result.FText` is empty is the success signal: it proves the
 RTTI-property + call-injection path ran the getter (the value lives in
 native window state, not the field). A regression to `Could not navigate`
 or an empty Caption means the property-evaluation path broke.
+`Result.cmLst.Caption` returning `Leistungen` additionally proves the
+dotted walk survives an intermediate object hop before resolving the
+published property on the nested instance.
 
 #### 12'. Teardown
 

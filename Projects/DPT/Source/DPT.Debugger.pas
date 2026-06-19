@@ -277,17 +277,19 @@ type
     /// Reads a length-prefixed ShortString from the target at AAddr
     /// (1 length byte + that many ANSI chars). §6.37.
     function  ReadTargetShortString(AAddr: UIntPtr; out AStr: String): Boolean;
-    /// Resolves a PUBLISHED property from the LIVE instance's runtime RTTI
-    /// (VMT -> vmtTypeInfo -> TTypeData property table, walking the
-    /// ParentInfo ancestor chain) -- the collision-proof source the Delphi
-    /// IDE uses, independent of the RSM Format-A id space. Decodes the
-    /// property's GetProc: a field offset (AIsField), a static getter
-    /// address, or a virtual getter resolved through the live VMT slot.
-    /// AIsStringResult/APrimIdHint come from the property type's RTTI kind.
-    /// Returns False when the property is not a published property of the
-    /// instance's class chain (the caller then falls back to the RSM
-    /// $31 path). §6.37 round 4.
-    function  TryResolvePublishedProperty(AObjPtr: UIntPtr;
+    /// Resolves a PUBLISHED or PUBLIC property from the LIVE instance's
+    /// runtime RTTI (VMT -> vmtTypeInfo -> TTypeData), walking the ParentInfo
+    /// ancestor chain -- the collision-proof source the Delphi IDE uses,
+    /// independent of the RSM Format-A id space. At each class level it reads
+    /// the published PropData table AND the extended-RTTI PropDataEx table
+    /// that follows it (the latter carries public properties, gated to
+    /// visibility >= public; §6.38). Decodes the property's GetProc: a field
+    /// offset (AIsField), a static getter address, or a virtual getter
+    /// resolved through the live VMT slot. AIsStringResult/APrimIdHint come
+    /// from the property type's RTTI kind. Returns False when the property is
+    /// on neither table of the instance's class chain (the caller then falls
+    /// back to the RSM $31 path). §6.37 round 4 / §6.38.
+    function  TryResolveRttiProperty(AObjPtr: UIntPtr;
       const APropName: String; out AIsField: Boolean; out AFieldOffset: UInt32;
       out AGetterAddr: UIntPtr; out AIsStringResult: Boolean;
       out APrimIdHint: UInt16): Boolean;
@@ -2287,7 +2289,7 @@ begin
   AStr := TEncoding.ANSI.GetString(Chars, 0, Len);
 end;
 
-function TDebugger.TryResolvePublishedProperty(AObjPtr: UIntPtr;
+function TDebugger.TryResolveRttiProperty(AObjPtr: UIntPtr;
   const APropName: String; out AIsField: Boolean; out AFieldOffset: UInt32;
   out AGetterAddr: UIntPtr; out AIsStringResult: Boolean;
   out APrimIdHint: UInt16): Boolean;
@@ -2301,6 +2303,13 @@ function TDebugger.TryResolvePublishedProperty(AObjPtr: UIntPtr;
 // GetProc's top byte/qword encodes the access: PROPSLOT_FIELD ($FF..) =
 // a field offset; PROPSLOT_VIRTUAL ($FE..) = a VMT slot; else a static
 // method address.
+// Immediately AFTER the published PropData array comes the extended-RTTI
+// PropDataEx table (PropCount:Word + array of TPropInfoEx = Flags:Byte,
+// Info:PPropInfo, AttrData(Len:Word incl. itself)), which carries PUBLIC
+// properties (default {$RTTI} emits public+published). This routine walks
+// BOTH tables per level: a published name resolves in PropData; a public
+// one (e.g. CBaseForm.IniName on TFW) resolves via Info -> TPropInfo in
+// PropDataEx, gated to visibility >= public. §6.38.
 const
   tkClass    = 7;
   tkLString  = 10;
@@ -2318,7 +2327,55 @@ var
   NameLen, UnitLen: Integer;
   PropCountW     : Integer;
   PropGuard      : Integer;
-  Mask, FieldMark, VirtMark, Masked: UInt64;
+  Mask, FieldMark, VirtMark: UInt64;
+
+  // Decode a matched TPropInfo (identical shape in the published PropData
+  // table and the extended-RTTI PropDataEx table) into the out-params.
+  // APropInfo is the TPropInfo record base. GetProc's top byte/qword encodes
+  // access: PROPSLOT_FIELD ($FF..) = inline field offset; PROPSLOT_VIRTUAL
+  // ($FE..) = a VMT slot resolved against the live instance VMT; else a
+  // static getter address. The property type kind drives string-vs-ordinal.
+  function DecodeMatchedProp(APropInfo: UIntPtr): Boolean;
+  var
+    GetProc, PropTypePP, PropTypeTI: UIntPtr;
+    MaskedLocal: UInt64;
+    PKB: TBytes;
+  begin
+    GetProc := ReadTargetPointer(Pointer(APropInfo + UIntPtr(PtrSize)));
+    MaskedLocal := UInt64(GetProc) and Mask;
+    if MaskedLocal = FieldMark then
+    begin
+      AIsField := True;
+      AFieldOffset := UInt32(UInt64(GetProc) and not Mask);
+    end
+    else if MaskedLocal = VirtMark then
+      AGetterAddr := ReadTargetPointer(
+        Pointer(VMT + UIntPtr(UInt64(GetProc) and not Mask)))
+    else
+      AGetterAddr := GetProc;
+    PropTypePP := ReadTargetPointer(Pointer(APropInfo));
+    if PropTypePP <> 0 then
+    begin
+      PropTypeTI := ReadTargetPointer(Pointer(PropTypePP));
+      if PropTypeTI <> 0 then
+      begin
+        PKB := ReadProcessMemory(Pointer(PropTypeTI), 1);
+        if Length(PKB) >= 1 then
+        begin
+          if (PKB[0] = tkLString) or (PKB[0] = tkWString) or
+             (PKB[0] = tkUString) then
+          begin
+            AIsStringResult := True;
+            APrimIdHint := $04;   // string (matches the $31 prim id)
+          end
+          else
+            APrimIdHint := $02;   // ordinal best-effort (Integer)
+        end;
+      end;
+    end;
+    Result := True;
+  end;
+
 begin
   Result := False;
   AIsField := False; AFieldOffset := 0; AGetterAddr := 0;
@@ -2368,49 +2425,57 @@ begin
     while (PropGuard < PropCountW) and (PropGuard < 8192) do
     begin
       Inc(PropGuard);
-      var GetProc: UIntPtr := ReadTargetPointer(Pointer(PropOff + UIntPtr(PtrSize)));
       var NameFieldOff: UIntPtr := PropOff + UIntPtr(4 * PtrSize) + 10;
       var PName: String;
       if not ReadTargetShortString(NameFieldOff, PName) then Exit;
-      if SameText(PName, APropName) then
-      begin
-        Masked := UInt64(GetProc) and Mask;
-        if Masked = FieldMark then
-        begin
-          AIsField := True;
-          AFieldOffset := UInt32(UInt64(GetProc) and not Mask);
-        end
-        else if Masked = VirtMark then
-          AGetterAddr := ReadTargetPointer(
-            Pointer(VMT + UIntPtr(UInt64(GetProc) and not Mask)))
-        else
-          AGetterAddr := GetProc;
-        // Property type kind -> result typing (managed string vs ordinal).
-        var PropTypePP: UIntPtr := ReadTargetPointer(Pointer(PropOff));
-        if PropTypePP <> 0 then
-        begin
-          var PropTypeTI: UIntPtr := ReadTargetPointer(Pointer(PropTypePP));
-          if PropTypeTI <> 0 then
-          begin
-            var PKB: TBytes := ReadProcessMemory(Pointer(PropTypeTI), 1);
-            if Length(PKB) >= 1 then
-            begin
-              if (PKB[0] = tkLString) or (PKB[0] = tkWString) or
-                 (PKB[0] = tkUString) then
-              begin
-                AIsStringResult := True;
-                APrimIdHint := $04;   // string (matches the $31 prim id)
-              end
-              else
-                APrimIdHint := $02;   // ordinal best-effort (Integer)
-            end;
-          end;
-        end;
+      if SameText(PName, APropName) and DecodeMatchedProp(PropOff) then
         Exit(True);
-      end;
       // Tail: advance past this TPropInfo (fixed part + ShortString name).
       PropOff := NameFieldOff + 1 + UIntPtr(Length(PName));
     end;
+
+    // §6.38 Extended-RTTI (public) property table. Immediately after the
+    // published PropData array comes PropDataEx: PropCount:Word followed by
+    // PropCount x TPropInfoEx = Flags:Byte, Info:PPropInfo, AttrData(Len:Word
+    // INCLUDING itself). Info targets a TPropInfo of the SAME shape decoded
+    // above, so a public property (Flags and 3 = 2) resolves its getter or
+    // field exactly like a published one -- collision-free, the metadata the
+    // IDE reads. Default {$RTTI} emits public+published property RTTI; PropOff
+    // already points at PropDataEx after the published loop.
+    var ExCB: TBytes := ReadProcessMemory(Pointer(PropOff), 2);
+    if Length(ExCB) = 2 then
+    begin
+      var ExCount: Integer := ExCB[0] or (ExCB[1] shl 8);
+      var ExOff: UIntPtr := PropOff + 2;
+      var ExGuard: Integer := 0;
+      while (ExGuard < ExCount) and (ExGuard < 8192) do
+      begin
+        Inc(ExGuard);
+        var FlagsB: TBytes := ReadProcessMemory(Pointer(ExOff), 1);
+        if Length(FlagsB) < 1 then Break;
+        var ExFlags: Byte := FlagsB[0];
+        var InfoPtr: UIntPtr := ReadTargetPointer(Pointer(ExOff + 1));
+        var AttrOff: UIntPtr := ExOff + 1 + UIntPtr(PtrSize);
+        var AttrLenB: TBytes := ReadProcessMemory(Pointer(AttrOff), 2);
+        if Length(AttrLenB) < 2 then Break;
+        var AttrLen: Integer := AttrLenB[0] or (AttrLenB[1] shl 8);
+        if AttrLen < 2 then AttrLen := 2;
+        if InfoPtr <> 0 then
+        begin
+          var EName: String;
+          if ReadTargetShortString(InfoPtr + UIntPtr(4 * PtrSize) + 10, EName) then
+          begin
+            // Visibility gate: only public/published (low 2 bits >= 2); a
+            // private/protected entry stays unreachable (leakage guard).
+            if ((ExFlags and 3) >= 2) and SameText(EName, APropName) and
+               DecodeMatchedProp(InfoPtr) then
+              Exit(True);
+          end;
+        end;
+        ExOff := AttrOff + UIntPtr(AttrLen);
+      end;
+    end;
+
     // Ascend: ParentInfo is ^PTypeInfo -> deref once for the slot value,
     // once more for the parent TypeInfo.
     var ParentInfoField: UIntPtr := ReadTargetPointer(Pointer(ParentInfoSlot));
@@ -3697,21 +3762,22 @@ begin
               // stable across the entire descent of the declaring class).
               if not FindFieldViaVmtWalk(ObjPtr, Segments[I], Member) then
               begin
-                // §6.37 round 4 -- LIVE RTTI first. For a PUBLISHED
-                // property the authoritative source is the running
-                // instance's runtime RTTI (VMT -> vmtTypeInfo -> property
-                // table), exactly what the Delphi IDE uses for
-                // Caption-style properties. This is collision-proof on
-                // large binaries where the RSM Format-A $31/$2C/$2E id
-                // cross-references are unreliable (§6.37). Field-backed
-                // properties yield a field offset; getter-backed ones
-                // yield the getter's code address, which we call-inject.
+                // §6.37 round 4 / §6.38 -- LIVE RTTI first. The
+                // authoritative source for a PUBLISHED or PUBLIC property is
+                // the running instance's runtime RTTI (VMT -> vmtTypeInfo ->
+                // published PropData table AND the extended-RTTI PropDataEx
+                // table), exactly what the Delphi IDE uses for Caption-style
+                // (published) and IniName-style (public) properties. This is
+                // collision-proof on large binaries where the RSM Format-A
+                // $31/$2C/$2E id cross-references are unreliable (§6.37/§6.38).
+                // Field-backed properties yield a field offset; getter-backed
+                // ones yield the getter's code address, which we call-inject.
                 var RIsField    : Boolean;
                 var RFieldOfs   : UInt32;
                 var RGetterAddr : UIntPtr;
                 var RIsStr      : Boolean;
                 var RPrimId     : UInt16;
-                if TryResolvePublishedProperty(ObjPtr, Segments[I], RIsField,
+                if TryResolveRttiProperty(ObjPtr, Segments[I], RIsField,
                      RFieldOfs, RGetterAddr, RIsStr, RPrimId) then
                 begin
                   if RIsField then
