@@ -3263,9 +3263,13 @@ Found by a live-`evaluate` sweep on `C:\MSE\TEST\Test.Lib.exe`
 interface-typed local `Lst: ILazyUniqueList<TObject>` (a live interface
 reference, ptr `0x116F1166`) auto-detects as **`record TICONDIR`** — an
 unrelated Windows icon-directory struct. The interface local's per-proc
-`TypeIdx` aliases to a bogus `$2A` registry record (`TICONDIR`), and
-`AutoDetectFormatterName` Path 2 (`TypeIdx` → `FindStructByTypeIdx` →
-record/class) trusts it. Forcing `type=object` yields `Object @ 116F1166`
+`TypeIdx` aliases to a bogus `$2A` registry record (`TICONDIR`), and the
+**record-terminal fallback** `TryGetRecordTerminalName`
+(`FindClassIdxByRsmTypeId(MatchedLocalTypeIdx)` → `skRecord`, inside
+`EvaluateVariable`) trusts it and emits the record. (Corrected this session:
+the misroute is that fallback, NOT `AutoDetectFormatterName` Path 2 — Path 2's
+`ClassLookup` only returns `'object'` for `skClass`, never a record.) Forcing
+`type=object` yields `Object @ 116F1166`
 (no class — IMT, not VMT); `type=int` yields the raw ref. So the bare
 `evaluate Lst` returns a **confidently wrong type**, worse than failing —
 and `Lst.<FieldName>` would then "navigate" the bogus `TICONDIR` record
@@ -3274,36 +3278,42 @@ method returns "Failed to evaluate" — but it is **closure-captured** into
 an anonymous method's `$life`/`__frame` frame, a separate closure-decode
 gap, not this one.)
 
-**Fix lead (reproduce-first).** Extend the §6.32 suppression — when a
-local's auto-detected record/class `TypeIdx` can't be validated against
-the live pointer (`ReadRuntimeClassName` finds no matching class for the
-dereferenced value), decline to the raw pointer (`int`) rather than emit
-a misleading record name. Needs a controlled DebugTarget interface-local
-fixture to bench it without the Test.Lib dependency (the record-local
-sibling manifestation got one — `RecordLocalNestedProbe` — when it was
-closed; see below).
+**Refuted approach — live-slot validation alone (implemented + reverted this
+session).** The obvious tier-1 — at the record-terminal fallback, deref the
+slot and (a) re-route to `object` when `ReadRuntimeClassName` resolves a known
+class, else (b) suppress the record when the slot "looks like a live
+reference" (`P → VMT/IMT → first slot`, three readable pointer hops) — was
+built and **reverted as unsafe**. The slot bytes are **byte-identical**
+between (i) an interface/object reference mis-typed as a record and (ii) a
+*genuine* record whose FIRST field is an object / interface / string
+reference. Suppressing (ii) emits a confidently-wrong `object` for a real
+record — the very failure class this gap is about — and no leakage guard can
+separate the two from the slot alone, so the heuristic merely trades one wrong
+answer for another. (The safe direction does hold and was verified live: a
+scalar-first record like `GGlobalMixed` keeps `record TMixedRec` under the
+heuristic — the hazard is purely the reference-first-field record.)
 
-**Live-RTTI lead (consumer-only; the §6.37/§6.38 collision-free principle
-applied here).** The bad answer originates from trusting the colliding RSM
-2-byte `TypeIdx`; live RTTI read from the target is the authoritative,
-collision-free cross-check, exactly as it is for properties (§6.38). Two
-uses, in increasing ambition:
+**Observability blocker (current Test.Lib build).** The live repro could not
+be re-observed this session: a BP anywhere in `AsEnumerable` (lines 223 / 227)
+on `C:\MSE\TEST\Test.Lib.exe` pauses at a PC whose `FindProcContaining` maps
+to **`TestHtml.WriteLn`**, not `AsEnumerable` — a §6.17-class Win64
+proc-boundary mismapping — so `Lst` is not even a resolvable local there
+(`get_locals` returns `TestHtml.WriteLn`'s `Self`/`msg`). Restoring correct
+PC→proc mapping on this binary is a prerequisite to observing or pinning any
+§6.36 fix live (DebugTarget cannot stand in: its small registry never produces
+the id collision, so an interface/record local there simply declines with "no
+RSM type metadata" — neither the misroute nor the fallback fires).
 
-1. **Validator / suppressor (the safe win).** Before `AutoDetectFormatterName`
-   Path 2 emits a record/class for a non-class local, sanity-check the
-   auto-detected struct against the live value: dereference the pointer,
-   read `[obj] → VMT → vmtTypeInfo` and confirm the class TypeInfo name
-   matches (or is an ancestor of) the auto-detected struct. On a mismatch —
-   or when the slot is an **interface** reference (points at an IMT, no
-   readable VMT at `[ptr]`) — decline to the raw pointer instead of the
-   wrong record. This is the RTTI form of the §6.32 suppression and kills
-   the `TICONDIR` false positive directly.
-2. **Implementing-class recovery (best-effort upgrade).** An interface
-   reference can be walked back to its object: the IMT's first slot points
-   at a `TInterfaceEntry`/offset that yields the implementing instance, whose
-   class RTTI carries an **implemented-interfaces table** (GUID + name per
-   interface). That can name the *implementing class* (and, via GUID match,
-   the interface) live and collision-free.
+**Real path forward.** A correct fix needs a reliable interface-vs-record
+discriminator that does NOT come from the slot bytes — e.g. an RSM signal that
+the local's declared type is an interface, so the bogus record alias is
+rejected by *kind* rather than guessed from memory. Only behind such a kind
+check is the live-RTTI recovery safe: an interface reference can then be walked
+back to its implementing object (the IMT yields the instance, whose class RTTI
+carries an **implemented-interfaces table** of GUID + name), naming the
+*implementing class* / interface live and collision-free. On its own, that
+RTTI walk has the same byte-level ambiguity as the refuted slot validation, so
+it must be gated, not used standalone.
 
 **Hard limit of the RTTI route.** RTTI describes *types*, not *which type a
 local was declared as*. It can recover the implementing class / interface
