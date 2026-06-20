@@ -464,6 +464,22 @@ type
     procedure Detach;
     function  GetAddressFromSymbol(const ASymbolName: string): Pointer;
     function  GetAddressFromUnitLine(const AUnitName: string; ALineNumber: Integer): Pointer;
+    /// §6.39: returns the .rsm proc index for a code segment offset, using the
+    /// .map as the authoritative PC->proc source when the .rsm proc-address
+    /// decode disagrees. The .rsm does not always carry a usable code address
+    /// for a proc (on Test.Lib the extended $A0 form stores no address; the
+    /// decoder mis-reads a metadata DWORD), so FindProcContaining can land in
+    /// the wrong neighbour. The .map's ProcNameFromAddr is reliable; we bridge
+    /// its Unit.Class.Method name to the .rsm's Class.Method name and look the
+    /// proc up by name. AFindContainingIdx is the FindProcContaining result;
+    /// it is kept when it agrees with the .map (good binaries) and overridden
+    /// only on disagreement (the §6.39 mis-decode case). AProcStartSegmentOffset
+    /// returns the corrected proc-start code offset (the .map proc VA when the
+    /// override fires -- the .rsm SegmentOffset is the mis-decoded one), so
+    /// callers reading the prologue (ProcUsesEbpFrame / spill-home) hit the
+    /// real code, not the drifted address.
+    function  MapCorrectedProcIdx(ASegmentOffset: NativeUInt;
+      AFindContainingIdx: Integer; out AProcStartSegmentOffset: NativeUInt): Integer;
     function  GetRegisters(AThreadHandle: THandle): TRegisters;
     function  GetCapturedOutput(ASinceIndex: Integer = 0): TArray<TCapturedOutputLine>;
     function  GetCapturedOutputCount: Integer;
@@ -1720,13 +1736,75 @@ begin
     FLocalsReader.RecomputeProcSizes;
 end;
 
+function TDebugger.MapCorrectedProcIdx(ASegmentOffset: NativeUInt;
+  AFindContainingIdx: Integer; out AProcStartSegmentOffset: NativeUInt): Integer;
+
+  // True when the .map's qualified name (Unit.Class.Method) names the same
+  // proc as the .rsm name (Class.Method) -- i.e. ARsm equals AMap or is its
+  // trailing dotted segment(s).
+  function SuffixMatch(const AMap, ARsm: String): Boolean;
+  begin
+    Result := SameText(AMap, ARsm) or AMap.EndsWith('.' + ARsm, True);
+  end;
+
+var
+  MapName  : String;
+  S        : String;
+  P        : Integer;
+  Guard    : Integer;
+  MapOffset: Integer;
+begin
+  Result := AFindContainingIdx;
+  // Default proc-start = the .rsm SegmentOffset (correct on good binaries).
+  if (AFindContainingIdx >= 0) and Assigned(FLocalsReader) then
+    AProcStartSegmentOffset := FLocalsReader.Procs[AFindContainingIdx].SegmentOffset
+  else
+    AProcStartSegmentOffset := ASegmentOffset;
+  if not Assigned(FMapScanner) or not Assigned(FLocalsReader) then Exit;
+  // The .map names the proc actually at this PC. ProcNames[].VA and the line
+  // table share one VA space, and the breakpoint resolver uses
+  // base + $1000 + LineInfo.VA, so ASegmentOffset (= RIP - base - $1000)
+  // queries ProcNameFromAddr in the right space by construction. MapOffset is
+  // the byte offset of the PC within the proc, so the proc start (in the same
+  // code-offset space) is ASegmentOffset - MapOffset.
+  MapName := FMapScanner.ProcNameFromAddr(ASegmentOffset, MapOffset);
+  if MapName = '' then Exit;
+  // Keep FindProcContaining when it already agrees with the .map -- on
+  // binaries whose proc-address decode is correct the two coincide, so this
+  // is a no-op there (no overload/ambiguity risk introduced).
+  if (AFindContainingIdx >= 0) and
+     SuffixMatch(MapName, FLocalsReader.Procs[AFindContainingIdx].Name) then
+    Exit;
+  // Disagreement (or no containing proc): trust the .map. Bridge its
+  // Unit.Class.Method name to the .rsm's Class.Method by stripping leading
+  // dotted segments until a proc resolves by name (longest suffix first, so
+  // the first hit is the intended proc -- class names carry no dots).
+  S := MapName;
+  Guard := 0;
+  while (S <> '') and (Guard < 12) do
+  begin
+    Inc(Guard);
+    var Idx: Integer := FLocalsReader.FindProcByName(S);
+    if Idx >= 0 then
+    begin
+      if (MapOffset >= 0) and (NativeUInt(MapOffset) <= ASegmentOffset) then
+        AProcStartSegmentOffset := ASegmentOffset - NativeUInt(MapOffset);
+      Exit(Idx);
+    end;
+    P := Pos('.', S);
+    if P <= 0 then Break;
+    S := Copy(S, P + 1, Length(S));
+  end;
+end;
+
 function TDebugger.GetCurrentProcedureName(AThreadHandle: THandle): String;
 const
   CodeSectionRVA = $1000;
 var
-  ProcIdx   : Integer;
-  Regs      : TRegisters;
-  SegmentOff: NativeUInt;
+  ProcIdx     : Integer;
+  Regs        : TRegisters;
+  SegmentOff  : NativeUInt;
+  ProcStartOff: NativeUInt;
 begin
   Result := '';
   if not Assigned(FLocalsReader) then
@@ -1740,6 +1818,7 @@ begin
   SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  ProcIdx := MapCorrectedProcIdx(SegmentOff, ProcIdx, ProcStartOff);   // §6.39: .map-authoritative PC->proc
   if ProcIdx >= 0 then
     Result := FLocalsReader.Procs[ProcIdx].Name;
 end;
@@ -1749,13 +1828,14 @@ function TDebugger.GetLocalAddress(AThreadHandle: THandle; const AName: String;
 const
   CodeSectionRVA = $1000;
 var
-  BaseAddr  : NativeInt;
-  FrameInfo : TStackFrameInfo;
-  ProcIdx   : Integer;
-  Proc      : TRsmProc;
-  Regs      : TRegisters;
-  SegmentOff: NativeUInt;
-  I         : Integer;
+  BaseAddr    : NativeInt;
+  FrameInfo   : TStackFrameInfo;
+  ProcIdx     : Integer;
+  Proc        : TRsmProc;
+  Regs        : TRegisters;
+  SegmentOff  : NativeUInt;
+  ProcStartOff: NativeUInt;
+  I           : Integer;
 begin
   Result := False;
   AAddress := nil;
@@ -1770,6 +1850,7 @@ begin
   SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  ProcIdx := MapCorrectedProcIdx(SegmentOff, ProcIdx, ProcStartOff);   // §6.39: .map-authoritative PC->proc
   if ProcIdx < 0 then
     Exit;
 
@@ -1787,7 +1868,7 @@ begin
       BaseAddr := BaseAddr + FrameInfo.LocalSize;
   end
   else if not ProcUsesEbpFrame(Pointer(NativeUInt(FBaseAddress) +
-            CodeSectionRVA + Proc.SegmentOffset)) then
+            CodeSectionRVA + ProcStartOff)) then  // §6.39: .map-corrected proc start
     // §6.35: frameless x86 proc reuses EBP as scratch and addresses its
     // locals off ESP (the frame bottom the TD32 offsets are anchored to).
     BaseAddr := NativeInt(Regs.Esp);
@@ -1830,6 +1911,7 @@ var
   Regs      : TRegisters;
   ResultList: IList<TLocalVar>;
   SegmentOff: NativeUInt;
+  ProcStartOff: NativeUInt;
   SlotAddr  : UIntPtr;
   SpillDisp : Integer;
   SpillWidth: Integer;
@@ -1847,6 +1929,7 @@ begin
   SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
 
   ProcIdx := FLocalsReader.FindProcContaining(SegmentOff);
+  ProcIdx := MapCorrectedProcIdx(SegmentOff, ProcIdx, ProcStartOff);   // §6.39: .map-authoritative PC->proc
   if ProcIdx < 0 then
     Exit;
 
@@ -1861,7 +1944,10 @@ begin
   // above saved RBP). To recover that anchor on x64 we add the prologue's
   // LocalSize to RBP, mirroring what the IDE debugger does.
   Proc := FLocalsReader.Procs[ProcIdx];
-  ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + Proc.SegmentOffset);
+  // §6.39: ProcStartOff is the .map-corrected proc start (the .rsm
+  // Proc.SegmentOffset can be the mis-decoded address); the prologue reads
+  // below (ProcUsesEbpFrame / TryFindRegParamSpillDisp) must hit real code.
+  ProcStart := Pointer(NativeUInt(FBaseAddress) + CodeSectionRVA + ProcStartOff);
 
   BaseAddr := NativeInt(Regs.Ebp);
   Frameless := False;

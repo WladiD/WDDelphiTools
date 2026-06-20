@@ -3293,16 +3293,17 @@ answer for another. (The safe direction does hold and was verified live: a
 scalar-first record like `GGlobalMixed` keeps `record TMixedRec` under the
 heuristic — the hazard is purely the reference-first-field record.)
 
-**Observability blocker (current Test.Lib build).** The live repro could not
-be re-observed this session: a BP anywhere in `AsEnumerable` (lines 223 / 227)
-on `C:\MSE\TEST\Test.Lib.exe` pauses at a PC whose `FindProcContaining` maps
-to **`TestHtml.WriteLn`**, not `AsEnumerable` — a §6.17-class Win64
-proc-boundary mismapping — so `Lst` is not even a resolvable local there
-(`get_locals` returns `TestHtml.WriteLn`'s `Self`/`msg`). Restoring correct
-PC→proc mapping on this binary is a prerequisite to observing or pinning any
-§6.36 fix live (DebugTarget cannot stand in: its small registry never produces
-the id collision, so an interface/record local there simply declines with "no
-RSM type metadata" — neither the misroute nor the fallback fires).
+**Observability blocker — RESOLVED by §6.39.** The reason `Lst` was not even a
+resolvable local was the §6.39 `.rsm` proc-offset mis-decode: a BP in
+`AsEnumerable` mapped (via `FindProcContaining`) to **`TestHtml.WriteLn`**, so
+`get_locals` returned the wrong proc's `Self`/`msg`. With the §6.39 consumer
+`.map` fallback (`MapCorrectedProcIdx`) this is fixed — live-verified: at the
+`AsEnumerable` BP, `get_locals` now reports `AsEnumerable` with `Lst` in scope.
+So §6.36 is now **observable**: bare `evaluate Lst` → `record TICONDIR` (the
+interface-mistyped-as-record symptom this gap is about), `type=object` →
+`Object @ <hex>` (the live IMT ref). DebugTarget still cannot stand in for a
+*pinned* repro: its small registry never produces the id collision, so an
+interface/record local there simply declines with "no RSM type metadata".
 
 **Real path forward.** A correct fix needs a reliable interface-vs-record
 discriminator that does NOT come from the slot bytes — e.g. an RSM signal that
@@ -3380,6 +3381,157 @@ was closed by §6.38 (the extended-RTTI `PropDataEx` walk added to
 property emitted on NEITHER RTTI table (e.g. a `strict private` getter the
 default `{$RTTI}` omits) on a huge binary, a narrow design limit documented in
 §4.16, not a tracked gap.
+
+### 6.39 `.rsm` proc `SegmentOffset` drifts below the true code RVA — CLOSED (consumer-side)
+
+**Closed (live-verified).** The consumer `.map` PC→proc fallback
+([DPT.Debugger.pas `MapCorrectedProcIdx`](DPT.Debugger.pas), wired into
+`GetLocals`/`GetCurrentProcedureName`/`GetLocalAddress`) resolves the defect.
+Verified live on `C:\MSE\TEST\Test.Lib.exe` (a build with a matching detailed
+`.map`): at a BP in `TestCLazyUniqueObjectList.AsEnumerable`, `get_locals`
+reports `procedure = TestCLazyUniqueObjectList.AsEnumerable` with its real
+locals — **including `Lst`** (`evaluate Lst type=object` → `Object @ 101D67D6`,
+matching the slot). The earlier session observed the opposite on the
+then-current Test.Lib build — the same AsEnumerable PC resolved to
+`TestHtml.WriteLn` with only `Self`/`msg`, `Lst` "Unknown variable" — which is
+the mis-decode this fix targets. (Caveat: that was a different Test.Lib build,
+so this is not a controlled A/B on one binary; the proof here is that the
+consumer path is correct-by-construction — prefer the authoritative `.map` on
+disagreement — and produces the right result live.) Regression-clean (full DPT
+suite green; `TestBreakpointInTarget32` still passes — the override never fires
+on correctly-decoded binaries). The mechanism is summarised in the §4.16-style
+consumer note below; the underlying reader-level `.rsm` proc-address mis-decode
+is NOT repaired (the address is simply absent from the container — see the
+investigation log retained below) but is rendered harmless by the `.map`
+fallback. Two operational notes surfaced while verifying: the target needs a
+detailed `.map` next to it (no `.map` ⇒ `FMapScanner` nil ⇒ no fallback and no
+line breakpoints — rebuild with `/p:DCC_MapFile=3`), and a raw-offset gap
+sentinel was abandoned because Test.Lib rebuilds shift the layout. This also
+unblocks the §6.36 observability (a `public`/interface local is now reachable
+to inspect).
+
+--- investigation log (retained) ---
+
+[DPT.Rsm.Scanner.pas `HandleProcRecord` / `DecodeProcAddrPayload`](DPT.Rsm.Scanner.pas)
+→ [DPT.Rsm.Reader.pas `FindProcContaining`](DPT.Rsm.Reader.pas) →
+[DPT.Debugger.pas `GetLocals`](DPT.Debugger.pas). On `Test.Lib` (the §6.31/§6.36
+corpus, committed under `RsmTaifunData`) the proc-address decode records a
+`SegmentOffset` that sits **below** the proc's true code RVA, by a
+**piecewise-constant** delta that steps up by region (see round-2 root cause
+below) — so the live PC→proc lookup
+(`SegmentOff := RIP − base − $1000`, fed to `FindProcContaining`) lands in the
+wrong, lower-drifted **neighbouring** proc. This is what surfaced as the §6.36
+observability blocker: a BP in `TestCLazyUniqueObjectList.AsEnumerable` makes
+`get_locals` report `TestHtml.WriteLn`, hiding the in-scope locals.
+
+Reproduced offline against the then-committed Test.Lib fixture (no live session)
+for `TestCLazyUniqueObjectList.AsEnumerable` — a standalone `TRsmReader` probe
+(`Test.DPT.Rsm.Taifun.TRsmTestLibTests`) showed `FindProcContaining` at the
+proc's true `.map` offset returning the drifted neighbour. (The probe is not
+kept as a committed test: it pinned raw offsets, which the later Test.Lib
+rebuild invalidated — see the verification note at the end of this entry.)
+Figures from that build:
+
+| proc | `.map` RVA | `.rsm` SegmentOffset | delta |
+|---|---|---|---|
+| `TestCLazyUniqueObjectList.AsEnumerable` | `$021960AC` | `$2182648` (size `$3F8`) | **~$13A64** |
+| `TestHtml.WriteLn` | `$021A78DC` | `$219304C` (size `$321C`) | **~$14890** |
+
+`FindProcContaining($21950AC)` — the live offset for AsEnumerable
+(`.map RVA $021960AC − $1000`) — returns **`TestHtml.WriteLn`**, not
+AsEnumerable, exactly reproducing the live mismap. Note the `.rsm` table is
+internally **consistent** (each proc round-trips on its own recorded
+`SegmentOffset`), and the address did **not** fail to decode (it is non-zero) —
+this is distinct from the closed §6.17 (`Size = 0` name-only entries). The two
+deltas differ ($13A64 vs $14890), so it is **not** a constant skew: the decode
+under-counts. Most procs/binaries are unaffected (TFW's locals + §6.38 worked).
+
+**Root-caused (round 2) — the `$A0` form's fixed +7 address slot is wrong for
+extended/forward `$A0` records.** Test.Lib is **Win32** (the `$28` records use
+the `$A0` sub-tag; the `.pdata` segment has length 0 — the earlier "Win64"
+label in §6.36 was wrong). Ground truth is the **EXE itself**: at the `.map`
+RVA `$021970AC` (`= $1000 + segrel $021960AC`) the bytes are
+`55 8B EC 33 C9 51 51 51 51 53 …` — a textbook Win32 Delphi prologue, i.e. the
+real AsEnumerable. At the `.rsm`-decoded RVA `$2183648` the bytes are RTTI/data,
+not code. So **the `.map` is correct and the `.rsm` decode is wrong**.
+
+`DecodeProcAddrPayload`'s `$A0` branch reads the address DWORD at a **fixed
+payload+7** (`TryWin32(AStartOff+7)` on Win32). Comparing two records (bytes
+from the `$28` tag, payload begins after `$28 NL <name>`):
+
+```
+TSingleRec.InternalGetWords (CORRECT, segOff $982C):
+  payload: A0 00 00 | 3A A4 7A 0C | C7 82 0A 04 | ...     ; +7 = C7 82 0A 04
+           $040A82C7 >>4 - $401000 = $982C   ✓ address IS at +7
+TestCLazyUniqueObjectList.AsEnumerable (WRONG, true segOff $021960AC):
+  payload: A0 00 00 | 2B 67 6B 3A | 87 64 83 25 | C1 08 02 98 | D4 B2 21 04 | 'Self'…
+           +7 = 87 64 83 25 -> $2583648 - $401000 = $2182648  (valid-looking but WRONG)
+```
+
+The true address DWORD (`(VA<<4)|7` for VA `$25970AC` = `C7 0A 97 25`) is
+**absent** — not just from AsEnumerable's record but from the **entire 240 MB
+`.rsm`** (round-3 full-buffer scan below). It is a closure-bearing method
+(locals `Self/Enum/Item/Lst/__frame`, plus a separate
+`…AsEnumerable$ActRec.$0$Body` proc), so its `$A0` record carries extended
+metadata where +7 lands on a non-address field. The piecewise-constant
+**plateaus** in the `.rsm`-vs-`.map` delta (0 at the start, then `$37420` over
+a VCL run, `$dc6c` over a long ImageEn run, `$13094` over FMX, `$13a64` at the
+Test region — identical across dozens of unrelated units, so not join noise)
+are the signature of this: within a region the extended-`$A0` records share a
+shape, so the +7 mis-read is consistently off; across regions the shape (and
+the offset) changes.
+
+**Round 3 — the address is NOT in the `.rsm` at all (decisive).** A survey of
+every `$A0` proc record joined against the `.map` (unique `Class.Method` keys)
+showed the +7 decode matches the true `.map` offset for **only 73 of 69,262**
+procs — it is wrong for **~99.9%**, not a rare edge case. For every wrong proc
+the true address is absent from a 64-byte payload window in all three
+encodings (`(VA<<4)|7`, raw VA, raw segrel). A full-buffer scan of the 240 MB
+`.rsm` for AsEnumerable's address (`C7 0A 97 25` and raw `AC 70 59 02`) returned
+**0 hits**, while a control scan for a known-present address
+(`TSingleRec.InternalGetWords` = `C7 82 0A 04`) returned **1 hit** — so the
+scanner works and the address is genuinely **not stored**. Conclusion: for the
+extended `$A0` form, `DecodeProcAddrPayload` reads a metadata DWORD at +7 that
+*looks* like a valid VA (passes the `&$0F=7` + range checks) but isn't; the real
+code address is simply not present in the container in any DWORD form. The 73
+"correct" procs are the simple `$A0` records that genuinely carry the address at
++7.
+
+**Fix — consumer-side `.map` fallback, NOT a decode tweak (IMPLEMENTED;
+live-verification pending).** Since the address isn't in the `.rsm`, no decode
+change can recover it. The debugger already loads the `.map` (`FMapScanner`) and
+uses it authoritatively for breakpoints (`GetAddressFromUnitLine`). Implemented
+in [DPT.Debugger.pas `MapCorrectedProcIdx`](DPT.Debugger.pas): after
+`FindProcContaining`, resolve the proc the `.map` says is at the PC via
+`FMapScanner.ProcNameFromAddr(SegOff)` (ProcNames[].VA and the line table share
+one VA space, and the BP resolver uses `base + $1000 + LineInfo.VA`, so
+`SegOff = RIP - base - $1000` queries it in the right space by construction);
+keep `FindProcContaining` when its name already suffix-matches the `.map` name
+(good binaries — no-op, no overload risk), otherwise bridge the `.map`
+`Unit.Class.Method` to the `.rsm` `Class.Method` by stripping leading dotted
+segments until `FindProcByName` hits, and read that proc's locals (whose
+`BpOffset`s are independent of the broken code-address decode). The helper also
+returns the **`.map`-corrected proc-start offset** (`SegOff − ProcNameFromAddr`'s
+offset out-param) so the x86 prologue reads (`ProcUsesEbpFrame` /
+`TryFindRegParamSpillDisp` in `GetLocals`/`GetLocalAddress`) hit real code, not
+the drifted address. Wired into all three consumers. Regression-clean: the full
+DPT suite stays green (DebugTarget's `.rsm` decodes fine, so the override never
+fires there).
+
+**Live verification still pending.** It is consumer-only and live-only, so it
+needs a live session at a mis-decoded proc. This was **not** confirmable this
+turn: the `C:\MSE\TEST` Test.Lib was rebuilt mid-investigation (the prior build
+was TestInsight-conditional), and on the rebuilt binary **no breakpoint in
+`Test.Base.Collections` fires** at all — `AsEnumerable` lines 220/222/227/228
+AND the always-executed standalone `CountItems` (151/154) resolve to `active`
+addresses yet never trigger, though the test runs and passes. (BPs fire normally
+on DebugTarget — `TestBreakpointInTarget32` passes — so this is a property of
+the rebuilt Test.Lib, not the debugger.) A prior raw-offset gap sentinel was
+removed: the rebuild shifted the layout, so its hardcoded `$21950AC` started
+resolving to an unrelated proc — exactly the raw-offset fragility the skill
+warns against. Closure needs a stable Test.Lib build where line breakpoints fire
+(matching `-V -VR` `.rsm` + detailed `.map`, non-TestInsight); then confirm
+`get_locals`/`evaluate Lst` at `AsEnumerable` resolve correctly.
 
 ---
 
