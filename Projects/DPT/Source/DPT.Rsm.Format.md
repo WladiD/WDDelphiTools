@@ -3248,35 +3248,64 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.36 Interface-typed local mis-typed as an unrelated record (`GAP`)
+### 6.36 Cross-unit reference-typed local (interface) mis-typed as an unrelated record (`GAP — open, live-recoverable; NOT a design limit`)
 
-[DPT.Debugger.pas AutoDetectFormatterName / EvaluateVariable](DPT.Debugger.pas).
-A non-class local's type comes from the §6.27/§4.2-unreliable per-proc
-`TypeIdx` (and, for cross-unit types, the §4.15 per-binary alias). The
-§6.32 VMT-priority priming that rescues *class-instance* locals can't
-help an **interface** local — an interface reference points at an **IMT**,
-not a VMT, so `ReadRuntimeClassName` fails — and the consumer then trusts
-the bad id and mis-types the local.
+[DPT.Debugger.pas AutoDetectFormatterName / TryGetRecordTerminalName /
+EvaluateVariable](DPT.Debugger.pas). A stack local whose declared type is a
+*reference type from another unit* (an interface, or a cross-unit record) is
+auto-detected as an unrelated record, because the one type byte the compact
+`.rsm` stack-local form stores does not carry that cross-unit type — it
+collides with a same-low-id record in the registry.
 
-Found by a live-`evaluate` sweep on `C:\MSE\TEST\Test.Lib.exe`
-(`Test.Base.Collections.TestCLazyUniqueObjectList.AsEnumerable`): the
-interface-typed local `Lst: ILazyUniqueList<TObject>` (a live interface
-reference, ptr `0x116F1166`) auto-detects as **`record TICONDIR`** — an
-unrelated Windows icon-directory struct. The interface local's per-proc
-`TypeIdx` aliases to a bogus `$2A` registry record (`TICONDIR`), and the
-**record-terminal fallback** `TryGetRecordTerminalName`
-(`FindClassIdxByRsmTypeId(MatchedLocalTypeIdx)` → `skRecord`, inside
-`EvaluateVariable`) trusts it and emits the record. (Corrected this session:
-the misroute is that fallback, NOT `AutoDetectFormatterName` Path 2 — Path 2's
-`ClassLookup` only returns `'object'` for `skClass`, never a record.) Forcing
-`type=object` yields `Object @ 116F1166`
-(no class — IMT, not VMT); `type=int` yields the raw ref. So the bare
-`evaluate Lst` returns a **confidently wrong type**, worse than failing —
-and `Lst.<FieldName>` would then "navigate" the bogus `TICONDIR` record
-into garbage. (Sibling note: `InternalList: IList<TObject>` in the same
-method returns "Failed to evaluate" — but it is **closure-captured** into
-an anonymous method's `$life`/`__frame` frame, a separate closure-decode
-gap, not this one.)
+**Live repro (current `C:\MSE\TEST\Test.Lib.exe`, Jun-20 08:36).** In
+`Test.Base.Collections.TestCLazyUniqueObjectList.AsEnumerable` (source line
+213, `.map` RVA `$02186C2C`) the local `Lst: ILazyUniqueList<TObject>`
+auto-detects as **`record TICONDIR`** (a Windows icon-directory struct). The
+misroute is the **record-terminal fallback** `TryGetRecordTerminalName`
+(`FindClassIdxByRsmTypeId(TypeIdx) → skRecord`), NOT `AutoDetectFormatterName`
+Path 2 (whose `ClassLookup` only ever returns `'object'`, for `skClass`).
+`type=object` → `Object @ <ptr>` (no class — `Lst` is an interface ref so
+`[ptr]` is an IMT, not a VMT, and `ReadRuntimeClassName` fails); `type=int` →
+the raw ref. Bare `evaluate Lst` is therefore **confidently wrong** — worse than
+failing — and `Lst.<Field>` would navigate the bogus record into garbage.
+Value-independent: at line 213 `Lst` is still `nil` (slot all-zero) yet the
+record label still appears, proving the misroute is purely type-side. (The
+gap only became observable after §6.39 — before that the BP mis-mapped to
+`TestHtml.WriteLn`. Sibling `InternalList: IList<TObject>` is a separate
+closure-capture decode gap, not this one.)
+
+**Mechanism — the stack-local type byte is lossy for cross-unit reference
+types (byte-level, this session, live build).** Two local encodings exist and
+behave differently:
+
+* **Register-resident** form `16 00 00 <lo> <hi>` carries the **full 2-byte**
+  type id and resolves correctly. Verified: the closure body's `Self` and the
+  outer `__frame` both decode `$0235` = exactly `AsEnumerable$ActRec`'s `$2A`
+  id; `Result` = `$0229`. (The unit assigns its own types a *sequential*
+  `$02xx` "page": `Add$ActRec`=`$0225`, `AsEnumerable$ActRec`=`$0235`, … +8.)
+* **Stack** form `66 00 00 <type> <offset>` carries only **one type byte**.
+  `Lst` = `66 00 00 FA F0`: type `$FA`, offset `$F0`→`−8` — and `−8` is
+  correct (live, the `EBP−8` slot holds the real interface ref `$0FF6A0C6`,
+  whose `[slot]` is IMT `$021973F8`).
+
+That single byte `$FA` does **not** encode `Lst`'s declared type under any
+scheme tested: it is not the type's full id (`ILazyUniqueList\`1`=`$F4B4`,
+open spec `{Base.Collections}ILazyUniqueList<T>`=`$18CE`); not the low byte of
+either (`$B4`/`$CE` ≠ `$FA`); no `$2A` entry with low byte `$FA` exists in this
+unit's block and the `$02xx` page never reaches `$02FA`; the proc header
+(`… C1 08 02 98 D4 B2 | 21 04 'Self'`) is a signature descriptor, byte-identical
+across procs with different locals, NOT a per-proc local-type table. `$FA`
+simply equals `TICONDIR`'s full id `$00FA`, so `FindClassIdxByRsmTypeId($00FA)`
+returns `TICONDIR`. **The cross-unit type IS in the `.rsm`** — in the registry
+(`ILazyUniqueList\`1`) and in the unit's `$64` import segment (token
+`$1807F4B4`) — but the *stack local's one-byte reference to it* is insufficient
+to reach it. This is the reduced `.rsm` being lossy for reference-typed stack
+locals; the reg-resident and same-unit cases are fine. (Two compounding parser
+limits, both real and independently worth fixing, though neither alone fixes
+`Lst`: (1) `ScanTypeRegistry` admits only `T`/`P`-prefixed `$2A` names into
+`FRsmTypeIdToClassIdx`, dropping every interface; (2) interfaces aren't
+discovered as structs — `TRsmStructDiscoverer` knows only the VMT-class trailer
+and the `$0E` record sentinel, and `TRsmStructKind` has no `skInterface`.)
 
 **Refuted approach — live-slot validation alone (implemented + reverted this
 session).** The obvious tier-1 — at the record-terminal fallback, deref the
@@ -3293,38 +3322,86 @@ answer for another. (The safe direction does hold and was verified live: a
 scalar-first record like `GGlobalMixed` keeps `record TMixedRec` under the
 heuristic — the hazard is purely the reference-first-field record.)
 
-**Observability blocker — RESOLVED by §6.39.** The reason `Lst` was not even a
-resolvable local was the §6.39 `.rsm` proc-offset mis-decode: a BP in
-`AsEnumerable` mapped (via `FindProcContaining`) to **`TestHtml.WriteLn`**, so
-`get_locals` returned the wrong proc's `Self`/`msg`. With the §6.39 consumer
-`.map` fallback (`MapCorrectedProcIdx`) this is fixed — live-verified: at the
-`AsEnumerable` BP, `get_locals` now reports `AsEnumerable` with `Lst` in scope.
-So §6.36 is now **observable**: bare `evaluate Lst` → `record TICONDIR` (the
-interface-mistyped-as-record symptom this gap is about), `type=object` →
-`Object @ <hex>` (the live IMT ref). DebugTarget still cannot stand in for a
-*pinned* repro: its small registry never produces the id collision, so an
-interface/record local there simply declines with "no RSM type metadata".
+(§6.39 unblocked observability: before it, the `AsEnumerable` BP mis-mapped to
+`TestHtml.WriteLn` so `Lst` wasn't even in scope. DebugTarget can't host a
+*pinned* repro — its small registry never produces the id collision — so this
+gap needs a live/MCP pin, like §6.38.)
 
-**Real path forward.** A correct fix needs a reliable interface-vs-record
-discriminator that does NOT come from the slot bytes — e.g. an RSM signal that
-the local's declared type is an interface, so the bogus record alias is
-rejected by *kind* rather than guessed from memory. Only behind such a kind
-check is the live-RTTI recovery safe: an interface reference can then be walked
-back to its implementing object (the IMT yields the instance, whose class RTTI
-carries an **implemented-interfaces table** of GUID + name), naming the
-*implementing class* / interface live and collision-free. On its own, that
-RTTI walk has the same byte-level ambiguity as the refuted slot validation, so
-it must be gated, not used standalone.
+**Working path forward — live recovery, gated by a LAYOUT discriminator (this
+supersedes the "gateless / design limit" framing of earlier passes).** The
+blind slot-validation above was correctly reverted because the slot bytes alone
+can't separate an interface ref from a reference-first record. But we do not
+have to look at the slot blind — we have the **resolved record's own member
+layout** from `TRsmStructDiscoverer`, and the **live slot** is authoritative and
+recoverable (proven: `Lst`→`$0FF6A0C6`, `[Lst]`→IMT `$021973F8`). The gate:
 
-**Hard limit of the RTTI route.** RTTI describes *types*, not *which type a
-local was declared as*. It can recover the implementing class / interface
-GUID of the live reference, but **not** the local's declared static type
-(`ILazyUniqueList<TObject>`) — that binding lives only in the (here
-unreliable) RSM per-proc `TypeIdx`. So RTTI is decisive for *suppressing the
-wrong answer* and *naming the runtime class*, but closing the gap to the
-exact declared interface type still needs the RSM `TypeIdx` decode fixed.
-(And it is consumer-only: no standalone `TRsmReader` test can exercise it —
-it needs a live/MCP pin, like the §6.38 tests.)
+1. When `TryGetRecordTerminalName` resolves a record via a **page-truncated**
+   id (`TypeIdx < $0100`, i.e. the high byte was dropped — the low-confidence
+   case this gap is about), inspect that record's first members. `TICONDIR`
+   begins with `idReserved: Word` / `idType: Word` at offset 0 — non-reference
+   scalars. A live `TICONDIR` therefore starts with small word values; it
+   **cannot** present as a valid double-indirect pointer.
+2. Read the live slot. If it is a valid `P → [P]` double pointer (both into
+   image/heap) while the resolved record's leading members are non-reference
+   scalars, the record id is a **collision** → suppress it.
+3. Recover via the §6.37 live-RTTI mechanism: an interface ref → its
+   implementing object → the object's class RTTI + implemented-interfaces table
+   → a real, collision-free name.
+
+This is **principled** (resolved layout vs actual bytes), not the refuted blind
+guess, and it directly removes the confidently-wrong `record TICONDIR` and the
+`Lst.<Field>`-into-garbage hazard. Its honest limit: RTTI names the *runtime*
+implementing class / interface, not necessarily the exact declared generic
+`ILazyUniqueList<TObject>` — but that is a far better answer than a wrong record,
+and a correct one. Needs a live/MCP pin (no standalone `TRsmReader` test).
+
+**Static-route status (open, not a design limit).** Two parser limits are real
+and independently fixable even though neither alone fixes `Lst`: (1) the
+`T`/`P`-prefix filter in `ScanTypeRegistry` drops every interface from
+`FRsmTypeIdToClassIdx`; (2) interfaces are not discovered as structs
+(`TRsmStructKind` has no `skInterface`). The deeper blocker for `Lst` is the
+one-byte stack-local type code itself (see mechanism above) — a reduced-format
+loss, NOT proof the type is unrecoverable in principle (Delphi's own debugger
+resolves it from richer DCU/TDS info). Leads already checked and refuted so
+future passes don't redo them: a per-proc proc-header type table (the header is
+a fixed signature descriptor, byte-identical across procs with different
+locals); the `$ActRec` field route (the real interface id never sits adjacent
+to an `Lst` field, and `$F4B4`/`$18CE` are reused 56/414× — not collision-free);
+and a unit-`$02xx`-page alias for `$FA` (none exists; the page never reaches
+`$02FA`). The remaining un-refuted static idea is recovering the dropped page
+byte from the unit's `$64` import segment by scope (`ILazyUniqueList\`1` is
+listed there, token `$1807F4B4`) — speculative, given the `$FA`↔`$B4` low-byte
+mismatch, so the live path above is the primary route.
+
+**IMPLEMENTED & live-verified — the confidently-wrong record is gone.** The
+layout-gated guard now ships in
+[DPT.Debugger.pas `EvaluateVariable` / `TryGetRecordTerminalName` /
+`TryRecoverReferenceType`](DPT.Debugger.pas). At the record-terminal fallback,
+for a LOCAL whose resolved record's first member is a sub-pointer scalar
+(1-2 bytes at offset 0) yet whose live slot is a valid double-indirect reference
+(`slot → [slot]`, both readable), the record is suppressed: it tries to name the
+runtime type (strict VMT self-anchor `[VMT-88]==VMT` for a direct object, else a
+bounded backward scan for the implementing object behind an interface ref), and
+failing that declines with a precise hint — never the bogus record. Live-verified
+on `C:\MSE\TEST\Test.Lib.exe` at `TestCLazyUniqueObjectList.AsEnumerable` line
+222 (`Lst` assigned, slot `$0FFAA0C6` → IMT `$021973F8`): bare `evaluate Lst`
+now declines with "reference-typed local … the live slot is an object/interface
+reference. Use type=object" **instead of** `record TICONDIR`. Regression-clean:
+full DptDebugger suite green both platforms (Win64 232/232; Win32 exit-0,
+including the record-terminal and §6.36-B pins) — the guard never fires on a
+legitimate record (a real scalar-first record can't present a valid double
+pointer where its leading bytes are a 1-2 byte scalar).
+
+**Residual (open enhancement, not a regression).** Implementor-naming is
+best-effort: it resolves *standard object-backed* interfaces (direct object, or
+object a small fixed offset behind the interface ref) but NOT this case —
+`CLazyUniqueObjectList` is a **lazy/proxy** implementor and the interface ref
+`$0FFAA0C6` is itself 2-mod-4 *unaligned*, i.e. not "address of an IMT field in a
+normally-laid-out object", so the backward VMT scan finds no base within range.
+For now such refs decline with the honest hint (correct + safe) rather than
+naming `ILazyUniqueList<TObject>`. Naming proxy-backed interfaces would need an
+IMT→interface map from image RTTI (the §6.37 live-RTTI approach extended to
+interface tables) — the next increment.
 
 > **Manifestation B (cross-unit record LOCAL dotted walk) is closed.**
 > `Ad: TAdresse` → `Ad.Anschrift.Str` on Test.Lib (and its controlled

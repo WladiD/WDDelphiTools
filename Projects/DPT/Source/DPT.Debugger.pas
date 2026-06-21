@@ -19,6 +19,7 @@ uses
   mormot.core.collections,
 
   DPT.MapFileParser,
+  DPT.Rsm.BufferIO,
   DPT.Rsm.Model,
   DPT.Rsm.Reader;
 
@@ -325,7 +326,8 @@ type
     /// record-terminal fallback so a whole-name evaluate of an inline
     /// record surfaces a navigable hint instead of an opaque failure.
     function  TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
-      AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String): Boolean;
+      AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String;
+      out AClsIdx: Integer): Boolean;
     /// Returns True (with the formatted <c>"ClassName @ HexAddr"</c>)
     /// when the raw bytes' leading pointer dereferences to a valid
     /// VMT. Used by EvaluateVariable's class-pointer probe fallback
@@ -3333,6 +3335,81 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
     Result := ReadClassNameFromVMT(VMTPtr, AClassName);
   end;
 
+  // §6.36 collision-guard support. STRICT object detector: a slot is a
+  // genuine live object reference only when [slot] is a Delphi VMT whose
+  // self-pointer anchor (vmtSelfPtr, VMT-88 Win32 / -176 Win64) points
+  // back to the VMT itself. Random heap/stack bytes that merely happen to
+  // be a readable pointer-to-pointer almost never satisfy the self-anchor,
+  // so this is safe to drive a backward scan with.
+  function StrictObjectClassName(ACandBase: UIntPtr; out AClassName: String): Boolean;
+  var
+    VMT, SelfPtr: UIntPtr;
+    SelfOfs, I : Integer;
+  begin
+    Result := False;
+    AClassName := '';
+    if ACandBase = 0 then Exit;
+    VMT := ReadTargetPointer(Pointer(ACandBase));
+    if VMT = 0 then Exit;
+    if FTargetIs32Bit then SelfOfs := 88 else SelfOfs := 176;
+    if NativeInt(VMT) <= SelfOfs then Exit;
+    SelfPtr := ReadTargetPointer(Pointer(NativeInt(VMT) - SelfOfs));
+    if SelfPtr <> VMT then Exit;                  // not a genuine VMT
+    if not ReadClassNameFromVMT(VMT, AClassName) then Exit;
+    // Plausible Delphi identifier (incl. qualified-name / generic
+    // punctuation); rejects a self-anchor coincidence that yields a
+    // garbage name. Reuse the shared RSM identifier-char predicate
+    // (RsmIsPrintableAscii) rather than an ad-hoc set -- a live VMT class
+    // name is ANSI, so each char is in 0..255.
+    if (Length(AClassName) < 2) or (Length(AClassName) > 200) then
+    begin
+      AClassName := '';
+      Exit;
+    end;
+    for I := 1 to Length(AClassName) do
+      if not RsmIsPrintableAscii(Byte(Ord(AClassName[I]))) then
+      begin
+        AClassName := '';
+        Exit;
+      end;
+    Result := True;
+  end;
+
+  // §6.36 recovery: name a reference-typed local whose .rsm type id
+  // collided into an unrelated record. ASlotPtr is the live slot value.
+  // Two shapes: (a) a direct OBJECT reference -- [slot] is the VMT, so
+  // ASlotPtr itself is the instance; (b) an INTERFACE reference -- ASlotPtr
+  // points at an IMT-field slot inside the implementing object, whose base
+  // sits a small fixed distance before it (the interface field is past the
+  // VMT slot). Probe backward for the nearest genuine VMT.
+  function TryRecoverReferenceType(ASlotPtr: UIntPtr; out ADesc: String): Boolean;
+  var
+    CN  : String;
+    I   : Integer;
+    Cand: UIntPtr;
+    Step: UIntPtr;
+  begin
+    Result := False;
+    ADesc  := '';
+    if StrictObjectClassName(ASlotPtr, CN) then
+    begin
+      ADesc := Format('object %s @ %x', [CN, ASlotPtr]);
+      Exit(True);
+    end;
+    Step := SizeOf(Pointer);
+    for I := 1 to 128 do
+    begin
+      Cand := ASlotPtr - UIntPtr(I) * Step;
+      if Cand >= ASlotPtr then Break;             // underflow guard
+      if StrictObjectClassName(Cand, CN) then
+      begin
+        ADesc := Format('interface @ %x (implemented by %s @ %x)',
+          [ASlotPtr, CN, Cand]);
+        Exit(True);
+      end;
+    end;
+  end;
+
   // Resolve one VMT's parent VMT + class name. Promoted to a sibling so
   // BOTH the field walk (FindFieldViaVmtWalk) and the property walk
   // (FindPropertyViaVmtWalk) can drive the same live-VMT ancestor chain.
@@ -4273,8 +4350,66 @@ begin
   if (AType = '') and Assigned(FLocalsReader) then
   begin
     var RecTypeName: String := '';
-    if TryGetRecordTerminalName(AName, IsLocal, MatchedLocalTypeIdx, RecTypeName) then
+    var RecClsIdx  : Integer := -1;
+    if TryGetRecordTerminalName(AName, IsLocal, MatchedLocalTypeIdx, RecTypeName,
+         RecClsIdx) then
     begin
+      // §6.36 layout-gated collision guard. The compact stack-local form
+      // stores only the LOW byte of a 2-byte type id, so a cross-unit
+      // reference-typed local (interface / cross-unit record) loses its
+      // "page" byte and its low byte can collide with an unrelated
+      // T-prefixed record's primary id (e.g. `Lst: ILazyUniqueList<TObject>`
+      // -> $FA == `TICONDIR` $00FA). The record id is therefore SUSPECT for
+      // a LOCAL. Trust it only when the live bytes are consistent with it;
+      // detect the contradiction that proves a collision and recover the
+      // live reference type instead of emitting a confidently-wrong record
+      // (which `.FieldName` would then navigate into garbage). The guard is
+      // principled, NOT the refuted blind slot-check: it fires ONLY when the
+      // resolved record's FIRST member is a sub-pointer scalar (1-2 bytes at
+      // offset 0 -- so a genuine instance's leading bytes CANNOT be a
+      // pointer) yet the live slot holds a valid double-indirect reference
+      // (slot -> [slot], both readable). A real scalar-first record can't
+      // present that, so suppression never steals a legitimate record.
+      // See DPT.Rsm.Format.md §6.36.
+      var IsRefCollision: Boolean := False;
+      var SlotPtr: UIntPtr := 0;
+      if IsLocal and (RecClsIdx >= 0) and
+         (FLocalsReader.Classes[RecClsIdx].Members.Count > 0) and
+         (FLocalsReader.Classes[RecClsIdx].Members[0].Offset = 0) and
+         (FLocalsReader.Classes[RecClsIdx].Members[0].Size >= 1) and
+         (FLocalsReader.Classes[RecClsIdx].Members[0].Size <= 2) then
+      begin
+        if FTargetIs32Bit then
+        begin
+          if Length(RawBytes) >= 4 then
+            SlotPtr := PCardinal(@RawBytes[0])^;
+        end
+        else if Length(RawBytes) >= 8 then
+          SlotPtr := UIntPtr(PUInt64(@RawBytes[0])^);
+        if (SlotPtr <> 0) and (ReadTargetPointer(Pointer(SlotPtr)) <> 0) then
+          IsRefCollision := True;
+      end;
+
+      if IsRefCollision then
+      begin
+        var RefDesc: String;
+        if TryRecoverReferenceType(SlotPtr, RefDesc) then
+        begin
+          AValue := RefDesc;
+          AType  := 'object';
+          Result := True;
+          Exit;
+        end;
+        // Provably a collision but the implementor couldn't be named.
+        // Decline with a precise hint -- never emit the bogus record.
+        AHint := Format('"%s" is a reference-typed local whose declared type ' +
+          'is not recoverable from the .rsm (the compact stack-local type id ' +
+          'collided into record %s -- see Format.md §6.36); the live slot at ' +
+          '%x is an object/interface reference. Use type=object or read_memory.',
+          [AName, RecTypeName, SlotPtr]);
+        Exit;
+      end;
+
       AValue := Format('record %s (use .FieldName to inspect fields)', [RecTypeName]);
       AType  := 'record';
       Result := True;
@@ -4556,26 +4691,29 @@ begin
 end;
 
 function TDebugger.TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
-  AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String): Boolean;
+  AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String;
+  out AClsIdx: Integer): Boolean;
 // Returns True (with the record's type name) when AName refers to a
 // record-typed local or global. Used by EvaluateVariable's
 // record-terminal fallback so a whole-name evaluate of a record
 // surfaces a navigable hint instead of "Failed to evaluate".
+// AClsIdx returns the resolved FClasses index (>=0) so the caller can
+// inspect the record's member layout for the §6.36 collision guard.
 var
   TypeId: UInt32;
-  ClsIdx: Integer;
 begin
   Result := False;
   ARecTypeName := '';
+  AClsIdx := -1;
   if not Assigned(FLocalsReader) then Exit;
   if AIsLocal then
     TypeId := AMatchedLocalTypeIdx
   else
     TypeId := FLocalsReader.FindGlobalTypeIdx(AName);
   if TypeId = 0 then Exit;
-  ClsIdx := FLocalsReader.FindClassIdxByRsmTypeId(TypeId);
-  if (ClsIdx < 0) or (FLocalsReader.Classes[ClsIdx].Kind <> skRecord) then Exit;
-  ARecTypeName := FLocalsReader.Classes[ClsIdx].Name;
+  AClsIdx := FLocalsReader.FindClassIdxByRsmTypeId(TypeId);
+  if (AClsIdx < 0) or (FLocalsReader.Classes[AClsIdx].Kind <> skRecord) then Exit;
+  ARecTypeName := FLocalsReader.Classes[AClsIdx].Name;
   Result := True;
 end;
 
