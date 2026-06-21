@@ -3248,7 +3248,7 @@ Pinned by
 (the §4.19 module-record framing + chain that carries the RTTI bytecode),
 in addition to the integer-form / proc-entry / header pins above.
 
-### 6.36 Cross-unit reference-typed local (interface) mis-typed as an unrelated record (`GAP — open, live-recoverable; NOT a design limit`)
+### 6.36 Cross-unit reference-typed local (interface) mis-typed as an unrelated record (`CLOSED — live recovery names the runtime type`)
 
 [DPT.Debugger.pas AutoDetectFormatterName / TryGetRecordTerminalName /
 EvaluateVariable](DPT.Debugger.pas). A stack local whose declared type is a
@@ -3373,35 +3373,44 @@ byte from the unit's `$64` import segment by scope (`ILazyUniqueList\`1` is
 listed there, token `$1807F4B4`) — speculative, given the `$FA`↔`$B4` low-byte
 mismatch, so the live path above is the primary route.
 
-**IMPLEMENTED & live-verified — the confidently-wrong record is gone.** The
-layout-gated guard now ships in
+**IMPLEMENTED & live-verified — `evaluate Lst` now NAMES the runtime type.** The
+layout-gated guard ships in
 [DPT.Debugger.pas `EvaluateVariable` / `TryGetRecordTerminalName` /
-`TryRecoverReferenceType`](DPT.Debugger.pas). At the record-terminal fallback,
-for a LOCAL whose resolved record's first member is a sub-pointer scalar
-(1-2 bytes at offset 0) yet whose live slot is a valid double-indirect reference
-(`slot → [slot]`, both readable), the record is suppressed: it tries to name the
-runtime type (strict VMT self-anchor `[VMT-88]==VMT` for a direct object, else a
-bounded backward scan for the implementing object behind an interface ref), and
-failing that declines with a precise hint — never the bogus record. Live-verified
-on `C:\MSE\TEST\Test.Lib.exe` at `TestCLazyUniqueObjectList.AsEnumerable` line
-222 (`Lst` assigned, slot `$0FFAA0C6` → IMT `$021973F8`): bare `evaluate Lst`
-now declines with "reference-typed local … the live slot is an object/interface
-reference. Use type=object" **instead of** `record TICONDIR`. Regression-clean:
-full DptDebugger suite green both platforms (Win64 232/232; Win32 exit-0,
-including the record-terminal and §6.36-B pins) — the guard never fires on a
-legitimate record (a real scalar-first record can't present a valid double
-pointer where its leading bytes are a 1-2 byte scalar).
+`TryRecoverReferenceType` / `StrictObjectClassName`](DPT.Debugger.pas). At the
+record-terminal fallback, for a LOCAL whose resolved record's first member is a
+sub-pointer scalar (1-2 bytes at offset 0) yet whose live slot is a valid
+double-indirect reference (`slot → [slot]`, both readable), the record is
+suppressed and the live reference's runtime type recovered:
 
-**Residual (open enhancement, not a regression).** Implementor-naming is
-best-effort: it resolves *standard object-backed* interfaces (direct object, or
-object a small fixed offset behind the interface ref) but NOT this case —
-`CLazyUniqueObjectList` is a **lazy/proxy** implementor and the interface ref
-`$0FFAA0C6` is itself 2-mod-4 *unaligned*, i.e. not "address of an IMT field in a
-normally-laid-out object", so the backward VMT scan finds no base within range.
-For now such refs decline with the honest hint (correct + safe) rather than
-naming `ILazyUniqueList<TObject>`. Naming proxy-backed interfaces would need an
-IMT→interface map from image RTTI (the §6.37 live-RTTI approach extended to
-interface tables) — the next increment.
+* `StrictObjectClassName` validates a candidate as a genuine object by the VMT
+  self-pointer anchor (`[VMT-88]==VMT` Win32 / `-176` Win64) plus a
+  `RsmIsPrintableAscii` name sanity check — strict enough to drive a scan.
+* Direct object reference → named from the slot itself.
+* Interface reference → the implementing object sits a small **pointer-aligned**
+  distance before the (possibly unaligned) interface-field slot. Scan backward
+  on the **target** pointer grid (`FTargetIs32Bit` → 4, else 8 — NOT the Win64
+  debugger's `SizeOf(Pointer)`; and align first, since the slot can be
+  unaligned) for the nearest valid VMT.
+* If neither resolves, decline with a precise hint — never the bogus record.
+
+Live-verified on `C:\MSE\TEST\Test.Lib.exe` at
+`TestCLazyUniqueObjectList.AsEnumerable` line 222 (`Lst` assigned): bare
+`evaluate Lst` now returns
+`interface @ <p> (implemented by CLazyUniqueObjectList<System.TObject> @ <base>)`
+**instead of** `record TICONDIR`. The interface field was at an *unaligned*
+offset 22 inside the object (slot `…A0C6`, base `…A0B0`), which the aligned
+target-grid scan handles. Regression-clean: full DptDebugger suite green both
+platforms (Win64 232/232; Win32 exit-0, record-terminal and §6.36-B pins
+included) — the guard never fires on a legitimate record (a real scalar-first
+record can't present a valid double pointer where its leading bytes are a
+1-2 byte scalar).
+
+**Honest limit (by design, not a gap).** The recovery names the *runtime
+implementing class* (`CLazyUniqueObjectList<System.TObject>`), not the local's
+declared *interface* type (`ILazyUniqueList<TObject>`) — that static binding is
+the truncated stack-local id, unrecoverable here (above). Naming the declared
+interface would need an IMT→interface map from image RTTI; the implementing
+class is the collision-free, useful answer and removes the navigation hazard.
 
 > **Manifestation B (cross-unit record LOCAL dotted walk) is closed.**
 > `Ad: TAdresse` → `Ad.Anschrift.Str` on Test.Lib (and its controlled

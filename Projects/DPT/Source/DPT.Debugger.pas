@@ -3384,23 +3384,32 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
   // VMT slot). Probe backward for the nearest genuine VMT.
   function TryRecoverReferenceType(ASlotPtr: UIntPtr; out ADesc: String): Boolean;
   var
-    CN  : String;
-    I   : Integer;
-    Cand: UIntPtr;
-    Step: UIntPtr;
+    CN   : String;
+    I    : Integer;
+    Cand : UIntPtr;
+    PtrSz: UIntPtr;
+    Base0: UIntPtr;
   begin
     Result := False;
     ADesc  := '';
+    // Direct object reference: the slot IS the instance.
     if StrictObjectClassName(ASlotPtr, CN) then
     begin
       ADesc := Format('object %s @ %x', [CN, ASlotPtr]);
       Exit(True);
     end;
-    Step := SizeOf(Pointer);
-    for I := 1 to 128 do
+    // Interface reference: the slot points at an IMT-field inside the
+    // implementing object; the instance base sits a small, pointer-aligned
+    // distance before it. Use the TARGET pointer size, NOT the debugger's:
+    // a Win64 debugger inspecting a Win32 target must step by 4. And align
+    // first -- the interface slot can itself be unaligned, so a raw
+    // P-N*step walk never lands on the (aligned) object base.
+    if FTargetIs32Bit then PtrSz := 4 else PtrSz := 8;
+    Base0 := ASlotPtr and not (PtrSz - 1);        // align down to ptr grid
+    for I := 0 to 255 do
     begin
-      Cand := ASlotPtr - UIntPtr(I) * Step;
-      if Cand >= ASlotPtr then Break;             // underflow guard
+      if Base0 < UIntPtr(I) * PtrSz then Break;   // underflow guard
+      Cand := Base0 - UIntPtr(I) * PtrSz;
       if StrictObjectClassName(Cand, CN) then
       begin
         ADesc := Format('interface @ %x (implemented by %s @ %x)',
