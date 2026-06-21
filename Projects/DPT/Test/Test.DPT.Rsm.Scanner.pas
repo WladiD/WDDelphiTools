@@ -31,6 +31,13 @@ type
     procedure DoTestProcDeclaringUnitResolves(AUse64Bit: Boolean);
     procedure DoTestContainerHeaderLayout(AUse64Bit: Boolean);
     procedure DoTestModuleRecordChain(AUse64Bit: Boolean);
+    /// Win32 .text offsets of TargetProcedure, read from DebugTarget.map so
+    /// they track fixture drift without hardcoded addresses: AEntryOffset is
+    /// the proc entry; the result is its in-proc per-statement line offsets
+    /// (line-table entries strictly between the entry and the next proc).
+    /// TMapLineNumber.VA is already the .text segment offset (MAPAddrToVA
+    /// strips the .text base), matching what the $27/$28 wire forms encode.
+    function TargetProcLineOffsets(out AEntryOffset: UInt32): TArray<UInt32>;
   public
     /// Loading a non-existent EXE path leaves the scanner empty and
     /// does not raise. Mirrors the reader's behaviour.
@@ -512,6 +519,7 @@ uses
 
   mormot.core.collections,
 
+  DPT.MapFileParser,
   DPT.Rsm.Model,
   DPT.Rsm.Scanner,
   DPT.Rsm.Reader;
@@ -1258,74 +1266,78 @@ end;
 
 procedure TRsmScannerTests.DoTestGlobalVADecodedFromGlobalRecord(
   AUse64Bit: Boolean);
-// Pins the $27 / $20 module-global VA decoding for both forms.
-// Ground truth is the .map file:
-//   Win32: image base $00400000, .data $004E2000, .bss $004E7000.
-//   Win64: image base $140000000, .data $140153000, .bss $140176000.
-// The scanner exposes the decoded value as the absolute VA on
-// Win32 (image base already included) and the RVA-from-image-base
-// on Win64; both extracted as (DWORD shr 4) from the 4-byte slot.
+// Pins the $27 / $20 module-global VA decoding for both forms, RELATIVE to
+// the .map (the ground truth) rather than to hardcoded absolute VAs. The old
+// pin re-broke on every DebugTarget growth: segment-base VAs drift by $1000
+// each time .data / .bss cross a page, so the constants needed a manual
+// cross-check after any fixture addition. Instead, derive each symbol's VA
+// from the .map at runtime and assert the scanner's decoded value differs
+// from it by ONE shared constant across all three globals (which span .data
+// AND .bss). That constant is the image-base/first-segment offset the .rsm
+// keeps but MAPAddrToVA strips (Win32: absolute vs RVA; Win64: image-base RVA
+// vs first-segment RVA) -- a per-build value we read, never hardcode. A
+// uniform delta across two segments proves the $27/$20 decode is correct and
+// segment-agnostic; nothing here drifts with code size.
 var
-  S            : TRsmScanner;
-  ExpectedInt  : UInt32;  // GGlobalInt  ($27, Integer primitive)
-  ExpectedLight: UInt32;  // GGlobalLight ($27, TLightStatus enum, 2-byte id)
-  ExpectedField: UInt32;  // GFieldHost  ($20, TFieldStatusHost record)
-  Va           : UInt32;
+  S    : TRsmScanner;
+  Map  : TMapFileParser;
+  Delta: Int64;
+
+  // VA the scanner decoded for AName (fails the test if absent).
+  function RsmVa(const AName: String): UInt32;
+  begin
+    Assert.IsTrue(S.GlobalVa.TryGetValue(AName, Result),
+      AName + ' VA not decoded by the scanner ($27/$20 module-global form)');
+  end;
+
+  // VA the .map records for ASimpleName (fails the test if absent).
+  function MapVa(const ASimpleName: String): UInt32;
+  var
+    V: UInt64;
+  begin
+    V := Map.VAFromSimpleName(ASimpleName);
+    Assert.IsTrue(V <> 0, ASimpleName + ' not found in the .map publics');
+    Result := UInt32(V);
+  end;
+
+  // Assert the scanner-vs-.map delta for AName equals the shared Delta. The
+  // delta is captured from the first symbol and must hold for every other,
+  // across different segments -- that uniformity is the real invariant.
+  procedure AssertSameDelta(const ARsmName, AMapName: String);
+  var
+    D: Int64;
+  begin
+    D := Int64(RsmVa(ARsmName)) - Int64(MapVa(AMapName));
+    Assert.AreEqual<Int64>(Delta, D,
+      Format('%s: scanner-vs-.map VA delta ($%x) differs from the shared ' +
+        'delta ($%x) -- the $27/$20 VA decode is not consistent with the .map',
+        [ARsmName, D, Delta]));
+  end;
+
 begin
   S := TRsmScanner.Create;
+  Map := TMapFileParser.Create(ChangeFileExt(ResolveExePath(AUse64Bit), '.map'));
   try
     S.LoadFromFile(ResolveExePath(AUse64Bit));
     Assert.IsTrue(S.Sz > 8, 'RSM buffer empty');
 
-    if AUse64Bit then
-    begin
-      // .map entries (segment:offset) + segment start (RVA):
-      //   GGlobalInt   0002:00021EE0 + 0002 starts at RVA $156000
-      //   GGlobalLight 0002:00021FEC
-      //   GFieldHost   0003:0000C710 + 0003 starts at RVA $179000
-      // Note: the segment-base RVAs drift by $1000 (one page) every
-      // time DebugTarget.dpr grows past a page boundary in .data or
-      // .bss. Cross-check Win64/DebugTarget.map after any fixture
-      // additions; the offsets within each segment stay stable.
-      // (Drifted +$1000 again when the §6.37 published-property
-      // fixture TRttiPropHost grew .data past a page boundary.)
-      ExpectedInt   := $00156000 + $00021EE0;  // $177EE0
-      ExpectedLight := $00156000 + $00021FEC;  // $177FEC
-      ExpectedField := $00179000 + $0000C710;  // $185710
-    end
-    else
-    begin
-      //   GGlobalInt   0003:00003BD4 + 0003 starts at VA $004E4000
-      //   GGlobalLight 0003:00003BDC
-      //   GFieldHost   0004:000068D0 + 0004 starts at VA $004E9000
-      // Like the Win64 branch above, the segment-base VAs drift
-      // by $1000 every time DebugTarget.dpr grows past a page
-      // boundary -- cross-check Win32/DebugTarget.map after any
-      // fixture addition. (Drifted +$1000 again with the §6.37
-      // TRttiPropHost published-property fixture.)
-      ExpectedInt   := $004E4000 + $00003BD4;  // $004E7BD4
-      ExpectedLight := $004E4000 + $00003BDC;  // $004E7BDC
-      ExpectedField := $004E9000 + $000068D0;  // $004EF8D0
-    end;
+    // GGlobalInt ($27 Integer primitive): the anchor that fixes the shared
+    // scanner-vs-.map delta. (A missing sibling .map leaves Map empty, so
+    // MapVa would fail clearly.)
+    Delta := Int64(RsmVa('gglobalint')) - Int64(MapVa('GGlobalInt'));
 
-    Assert.IsTrue(S.GlobalVa.TryGetValue('gglobalint', Va),
-      'GGlobalInt VA not decoded');
-    Assert.AreEqual<UInt32>(ExpectedInt, Va,
-      'GGlobalInt VA mismatch vs .map');
+    // GGlobalLight ($27, TLightStatus enum, 2-byte id) -- same .data segment.
+    AssertSameDelta('ggloballight', 'GGlobalLight');
 
-    Assert.IsTrue(S.GlobalVa.TryGetValue('ggloballight', Va),
-      'GGlobalLight VA not decoded');
-    Assert.AreEqual<UInt32>(ExpectedLight, Va,
-      'GGlobalLight VA mismatch vs .map');
-
+    // GFieldHost ($20 module-global record form) -- a DIFFERENT segment
+    // (.bss). Same delta here proves the decode is segment-agnostic AND that
+    // the $20 handler ran (it would otherwise be absent / fail RsmVa).
     Assert.IsTrue(S.GlobalByName.ContainsKey('gfieldhost'),
       'GFieldHost not even registered by name -- $20 module-global ' +
       'handler did not run, likely due to FScanInProc still being True');
-    Assert.IsTrue(S.GlobalVa.TryGetValue('gfieldhost', Va),
-      'GFieldHost VA not decoded ($20 module-global form)');
-    Assert.AreEqual<UInt32>(ExpectedField, Va,
-      'GFieldHost VA mismatch vs .map');
+    AssertSameDelta('gfieldhost', 'GFieldHost');
   finally
+    Map.Free;
     S.Free;
   end;
 end;
@@ -2640,6 +2652,42 @@ begin
   DoTestProcDeclaringUnitResolves(True);
 end;
 
+function TRsmScannerTests.TargetProcLineOffsets(
+  out AEntryOffset: UInt32): TArray<UInt32>;
+var
+  Map : TMapFileParser;
+  Hi  : UInt32;
+  I   : Integer;
+  V   : UInt32;
+begin
+  Result := nil;
+  Map := TMapFileParser.Create(ChangeFileExt(ResolveExePath(False), '.map'));
+  try
+    AEntryOffset := UInt32(Map.VAFromSimpleName('TargetProcedure'));
+    Assert.IsTrue(AEntryOffset <> 0,
+      'TargetProcedure not found in DebugTarget.map publics');
+    // The proc declared right after TargetProcedure bounds its address range
+    // (source order: DeepProcedure, TargetProcedure, LocalsProcedure).
+    Hi := UInt32(Map.VAFromSimpleName('LocalsProcedure'));
+    Assert.IsTrue(Hi > AEntryOffset,
+      'LocalsProcedure must follow TargetProcedure in .text -- bound lookup failed');
+    for I := 0 to Map.LineNumbersCnt - 1 do
+    begin
+      V := UInt32(Map.LineNumberByIndex[I].VA);
+      if (V > AEntryOffset) and (V < Hi) then
+      begin
+        SetLength(Result, Length(Result) + 1);
+        Result[High(Result)] := V;
+      end;
+    end;
+    Assert.IsTrue(Length(Result) >= 2,
+      'expected >= 2 per-statement line offsets within TargetProcedure ' +
+      '(from the .map line table)');
+  finally
+    Map.Free;
+  end;
+end;
+
 procedure TRsmScannerTests.TestRsmProcEntryRvaNotInLineTableWireForm32;
 // §6.29 narrow pin -- see the [Test] docstring in the interface. Pins
 // that per-statement line RVAs are NOT stored as proc-entry address
@@ -2661,12 +2709,12 @@ procedure TRsmScannerTests.TestRsmProcEntryRvaNotInLineTableWireForm32;
 // is the relationship being pinned. (Drifted +$10 with the §6.37
 // TRttiPropHost fixture; re-pinned from DebugTarget.map line table.)
 const
-  TextBase      = UInt32($401000);  // Win32 image base + .text RVA
-  EntryOffset   = UInt32($000DA014); // line 18 -- proc entry
-  Line19Offset  = UInt32($000DA01A);
-  Line20Offset  = UInt32($000DA042);
+  TextBase = UInt32($401000);  // Win32 image base + .text RVA
 var
-  S: TRsmScanner;
+  S          : TRsmScanner;
+  EntryOffset: UInt32;
+  Stmts      : TArray<UInt32>;
+  SOff       : UInt32;
 
   function EncodedFound(AOffset: UInt32): Boolean;
   var
@@ -2697,25 +2745,26 @@ begin
     if S.Sz = 0 then
       Assert.Pass('RSM fixture missing -- skipped.');
 
-    // The proc-entry RVA IS in the .rsm (the $28 record's address slot).
-    Assert.IsTrue(EncodedFound(EntryOffset),
-      'TargetProcedure entry RVA $DA004 must be present in the .rsm ' +
-      '(it is the $28 proc record address payload).');
+    // Entry offset + per-statement line offsets derived from the .map
+    // (no hardcoded addresses -- they track fixture drift).
+    Stmts := TargetProcLineOffsets(EntryOffset);
 
-    // The per-statement line RVAs are NOT stored in the proc-entry
-    // address wire form. This pins a NARROW fact (§6.29): the line
-    // table, if present, is NOT a run of (VA shl 4) or $07 proc-entry
-    // tokens -- it would be delta/RLE-encoded in a dedicated section.
-    // Absence in THIS encoding is not absence in the file. (The
-    // proc -> declaring-unit edge IS recovered; see §4.18 and the
-    // sibling positive pin.)
-    Assert.IsFalse(EncodedFound(Line19Offset),
-      'Line-19 RVA $DA00A must NOT appear in the proc-entry address ' +
-      'wire form -- a line table is delta-encoded, not a token run. ' +
-      'See §6.29.');
-    Assert.IsFalse(EncodedFound(Line20Offset),
-      'Line-20 RVA $DA032 must NOT appear in the proc-entry address ' +
-      'wire form -- see above (§6.29).');
+    // The proc-ENTRY RVA IS in the .rsm (the $28 record's address slot).
+    Assert.IsTrue(EncodedFound(EntryOffset),
+      Format('TargetProcedure entry RVA $%x must be present in the .rsm ' +
+        '(it is the $28 proc record address payload).', [EntryOffset]));
+
+    // The per-statement line RVAs are NOT stored in the proc-entry address
+    // wire form. This pins a NARROW fact (§6.29): the line table, if present,
+    // is NOT a run of (VA shl 4) or $07 proc-entry tokens -- it would be
+    // delta/RLE-encoded in a dedicated section. Absence in THIS encoding is
+    // not absence in the file. (The proc -> declaring-unit edge IS recovered;
+    // see §4.18 and the sibling positive pin.)
+    for SOff in Stmts do
+      Assert.IsFalse(EncodedFound(SOff),
+        Format('per-statement line RVA $%x must NOT appear in the proc-entry ' +
+          'address wire form -- a line table is delta-encoded, not a token ' +
+          'run. See §6.29.', [SOff]));
   finally
     S.Free;
   end;
@@ -2727,7 +2776,10 @@ procedure TRsmScannerTests.TestLineStatementAddrAbsentInAllIntegerForms32;
 const
   TextBase = UInt32($401000);  // Win32 image base + .text RVA
 var
-  S: TRsmScanner;
+  S          : TRsmScanner;
+  EntryOffset: UInt32;
+  Stmts      : TArray<UInt32>;
+  SOff       : UInt32;
 
   function ScanBytes(const AB: array of Byte): Boolean;
   var
@@ -2793,23 +2845,22 @@ begin
     if S.Sz = 0 then
       Assert.Pass('RSM fixture missing -- skipped.');
 
-    // CONTROL: the proc ENTRY ($DA014) appears ONLY in the `$28`
-    // record's token form, and in NONE of the other integer forms.
-    // (Offsets drifted +$10 with the §6.37 TRttiPropHost fixture;
-    // re-pinned from DebugTarget.map's line-number table.)
-    Assert.IsTrue(TokenForm($DA014),
-      'TargetProcedure entry $DA014 token must be present (its $28 ' +
-      'address slot) -- finder sanity / control');
-    Assert.IsFalse(AbsVa($DA014),  'entry $DA014 abs-VA must NOT appear');
-    Assert.IsFalse(RawU32($DA014), 'entry $DA014 raw-u32 must NOT appear');
-    Assert.IsFalse(Raw3($DA014),   'entry $DA014 raw-3-byte must NOT appear');
+    // Entry offset + per-statement line offsets derived from the .map line
+    // table (no hardcoded addresses -- they track fixture drift).
+    Stmts := TargetProcLineOffsets(EntryOffset);
+
+    // CONTROL: the proc ENTRY appears ONLY in the `$28` record's token form,
+    // and in NONE of the other integer forms.
+    Assert.IsTrue(TokenForm(EntryOffset),
+      Format('TargetProcedure entry $%x token must be present (its $28 ' +
+        'address slot) -- finder sanity / control', [EntryOffset]));
+    Assert.IsFalse(AbsVa(EntryOffset),  'entry abs-VA must NOT appear');
+    Assert.IsFalse(RawU32(EntryOffset), 'entry raw-u32 must NOT appear');
+    Assert.IsFalse(Raw3(EntryOffset),   'entry raw-3-byte must NOT appear');
 
     // Mid-statement line addresses: absent in ALL four integer forms.
-    AssertAllFormsAbsent($DA01A, 'line19 $DA01A');
-    AssertAllFormsAbsent($DA042, 'line20 $DA042');
-    AssertAllFormsAbsent($DA050, 'line21 $DA050');
-    AssertAllFormsAbsent($DA069, 'line25 $DA069');
-    AssertAllFormsAbsent($DA077, 'line26 $DA077');
+    for SOff in Stmts do
+      AssertAllFormsAbsent(SOff, Format('line offset $%x', [SOff]));
   finally
     S.Free;
   end;
@@ -2852,12 +2903,18 @@ begin
     Assert.AreEqual<UInt32>($420, U32At($4),
       'directory offset (+4) must be $420');
     // +8 is a small count, not a literal header size: it tracks the
-    // module/unit population and increments as DebugTarget.dpr gains
-    // fixtures (observed $20 -> $21 when the §6.37 TRttiPropHost
-    // published-property unit was added). Re-pin against the current
-    // build rather than treating it as a frozen constant.
-    Assert.AreEqual<UInt32>($21, U32At($8),
-      'header field (+8) count mismatch vs current build');
+    // module/unit population and increments as DebugTarget gains units
+    // (observed $20 -> $21 for the §6.37 TRttiPropHost unit, $21 -> $22
+    // for the §6.36 DebugTarget.IfaceProbe unit). Instead of re-pinning a
+    // literal on every fixture change, assert it RELATIVELY against the
+    // scanner's own discovery: +8 is the count of MODULE records, which is
+    // consistently the number of distinct source-file ($70) records PLUS ONE
+    // (a root/self module that carries no $70). Both move together on a unit
+    // addition, so this invariant survives fixture growth.
+    Assert.AreEqual<UInt32>(UInt32(S.SourceFiles.Count) + 1, U32At($8),
+      Format('header module-count (+8) = $%x must equal the scanner''s ' +
+        'discovered source-file population (%d) + 1 root module',
+        [U32At($8), S.SourceFiles.Count]));
     Assert.AreEqual<UInt32>($1, U32At($C),
       'version (+C) must be 1');
 
@@ -2969,36 +3026,40 @@ begin
       'EnumAlpha module record (magic 61 4D ' +
       IntToHex(PlatByte, 2) + ' 00) not found');
 
-    // Walk the 4-record chain by the size field at +5..+6.
+    // Walk the module-record chain from EnumAlpha by the +5..+6 size field,
+    // validating the FRAMING of every record. Robust to ADDED units (the
+    // chain now also carries DebugTarget.IfaceProbe / DebugTarget.RecTypes,
+    // and the order is the linker's): do NOT assume the expected units are
+    // consecutive or at fixed indices. Validate framing at each step, then
+    // assert each expected program unit appears as a source file somewhere
+    // within the walked span (+ a trailing $70 window for the program's full
+    // .dpr path). +7..+8 is a u16 aux/flags field (UNCERTAIN), not asserted.
     P := Start;
-    for K := 0 to High(Names) do
+    var Steps: Integer := 0;
+    while IsMagic(P) and (Steps < 64) do
     begin
-      Assert.IsTrue(IsMagic(P),
-        Format('module[%d] (%s): magic missing at chain step', [K, Names[K]]));
       Assert.AreEqual<Byte>($25, S.ByteAt(P + 4),
-        Format('module[%d] (%s): tag byte +4 must be $25', [K, Names[K]]));
-      // +7..+8 is a u16 aux/flags field (NOT padding): $0000 for the
-      // leaf enum units, $0002 for the program/.dpr -- meaning
-      // UNCERTAIN, so it is not asserted here.
-      // The enum units carry a bare basename near the head ($100
-      // window). The program record only carries the PROGRAM name
-      // ("DebugTarget") at its head; its full source-file path
-      // (C:\...\DebugTarget.dpr) lives in a TRAILING $70 source-file
-      // record just past the module record, and that gap grows as the
-      // program references more units / the .dpr grows (observed at
-      // rel +1107 after the §6.37 TRttiPropHost fixture, past the
-      // 974-byte module record). So for the last module search a
-      // generous window that spans into the trailing $70 record rather
-      // than the module record alone.
+        Format('module record at chain step %d: tag byte +4 must be $25',
+          [Steps]));
       Size := U16At(P + 5);
-      var NameWindow: Integer := $100;
-      if K = High(Names) then NameWindow := $1000;
-      Assert.IsTrue(ContainsAscii(P, NameWindow, Names[K]),
-        Format('module[%d]: source file %s not within record + trailing ' +
-               '$70 window', [K, Names[K]]));
-      Assert.IsTrue(Size > 9, Format('module[%d]: implausible size %d', [K, Size]));
+      Assert.IsTrue(Size > 9,
+        Format('module record at chain step %d: implausible size %d',
+          [Steps, Size]));
       P := P + Size;
+      Inc(Steps);
     end;
+    Assert.IsTrue(Steps >= Length(Names),
+      Format('module-record chain too short: walked %d well-framed records, ' +
+        'expected at least %d (one per program unit)', [Steps, Length(Names)]));
+
+    // The program record only carries the PROGRAM name ("DebugTarget") at its
+    // head; its full source-file path lives in a TRAILING $70 record just past
+    // the chain -- so search the whole chain span plus a generous tail.
+    var SpanLimit: Integer := Integer(P - Start) + $1000;
+    for K := 0 to High(Names) do
+      Assert.IsTrue(ContainsAscii(Start, SpanLimit, Names[K]),
+        Format('expected program unit %s not found as a source file within ' +
+          'the module-record chain span', [Names[K]]));
   finally
     S.Free;
   end;

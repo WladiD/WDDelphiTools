@@ -3,7 +3,7 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes;
+uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes, DebugTarget.IfaceProbe;
 var
   GGlobalInt: Integer = Integer($87654321);
   GGlobalString: string = 'Hello Global';
@@ -1265,6 +1265,10 @@ begin
     // properties live only in the extended-RTTI PropDataEx table, so the
     // ext-RTTI property-walk pin has a BP context.
     ExtPubPropertyProbe;
+    // §6.36: reach the interface-typed local probe (separate unit) so the
+    // live-recovery pin (type=object names the implementing class) has a BP
+    // context.
+    InterfaceLocalProbe;
     // §6.36: reach the complex record-local probe (TAdresse-like shape).
     RecordLocalNestedProbe;
     // §6.35: const-string register params read at a post-clobber PC.

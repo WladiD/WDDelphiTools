@@ -328,6 +328,22 @@ type
     function  TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
       AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String;
       out AClsIdx: Integer): Boolean;
+    /// §6.36 recovery support. Validates <paramref name="ACandBase"/> as a
+    /// genuine live object base: <c>[ACandBase]</c> is a Delphi VMT whose
+    /// self-pointer anchor (<c>[VMT-88]==VMT</c> Win32 / <c>-176</c> Win64)
+    /// points back to itself and whose class-name slot yields a plausible
+    /// identifier. Strict enough to drive a backward scan without false hits.
+    function  StrictObjectClassName(ACandBase: UIntPtr;
+      out AClassName: String): Boolean;
+    /// §6.36 recovery. Names the runtime type behind a live reference slot:
+    /// a direct object reference, or an interface reference (slot points at an
+    /// IMT-field inside the implementing object) whose instance base sits a
+    /// pointer-aligned distance before it (found by a backward VMT scan on the
+    /// TARGET pointer grid). Returns a formatted description; False when no
+    /// genuine object is reachable. Shared by the record-collision guard and
+    /// the <c>type=object</c> formatter.
+    function  TryRecoverReferenceType(ASlotPtr: UIntPtr;
+      out ADesc: String): Boolean;
     /// Returns True (with the formatted <c>"ClassName @ HexAddr"</c>)
     /// when the raw bytes' leading pointer dereferences to a valid
     /// VMT. Used by EvaluateVariable's class-pointer probe fallback
@@ -3335,90 +3351,6 @@ function TDebugger.EvaluateVariable(const AName: String; var AType: String;
     Result := ReadClassNameFromVMT(VMTPtr, AClassName);
   end;
 
-  // §6.36 collision-guard support. STRICT object detector: a slot is a
-  // genuine live object reference only when [slot] is a Delphi VMT whose
-  // self-pointer anchor (vmtSelfPtr, VMT-88 Win32 / -176 Win64) points
-  // back to the VMT itself. Random heap/stack bytes that merely happen to
-  // be a readable pointer-to-pointer almost never satisfy the self-anchor,
-  // so this is safe to drive a backward scan with.
-  function StrictObjectClassName(ACandBase: UIntPtr; out AClassName: String): Boolean;
-  var
-    VMT, SelfPtr: UIntPtr;
-    SelfOfs, I : Integer;
-  begin
-    Result := False;
-    AClassName := '';
-    if ACandBase = 0 then Exit;
-    VMT := ReadTargetPointer(Pointer(ACandBase));
-    if VMT = 0 then Exit;
-    if FTargetIs32Bit then SelfOfs := 88 else SelfOfs := 176;
-    if NativeInt(VMT) <= SelfOfs then Exit;
-    SelfPtr := ReadTargetPointer(Pointer(NativeInt(VMT) - SelfOfs));
-    if SelfPtr <> VMT then Exit;                  // not a genuine VMT
-    if not ReadClassNameFromVMT(VMT, AClassName) then Exit;
-    // Plausible Delphi identifier (incl. qualified-name / generic
-    // punctuation); rejects a self-anchor coincidence that yields a
-    // garbage name. Reuse the shared RSM identifier-char predicate
-    // (RsmIsPrintableAscii) rather than an ad-hoc set -- a live VMT class
-    // name is ANSI, so each char is in 0..255.
-    if (Length(AClassName) < 2) or (Length(AClassName) > 200) then
-    begin
-      AClassName := '';
-      Exit;
-    end;
-    for I := 1 to Length(AClassName) do
-      if not RsmIsPrintableAscii(Byte(Ord(AClassName[I]))) then
-      begin
-        AClassName := '';
-        Exit;
-      end;
-    Result := True;
-  end;
-
-  // §6.36 recovery: name a reference-typed local whose .rsm type id
-  // collided into an unrelated record. ASlotPtr is the live slot value.
-  // Two shapes: (a) a direct OBJECT reference -- [slot] is the VMT, so
-  // ASlotPtr itself is the instance; (b) an INTERFACE reference -- ASlotPtr
-  // points at an IMT-field slot inside the implementing object, whose base
-  // sits a small fixed distance before it (the interface field is past the
-  // VMT slot). Probe backward for the nearest genuine VMT.
-  function TryRecoverReferenceType(ASlotPtr: UIntPtr; out ADesc: String): Boolean;
-  var
-    CN   : String;
-    I    : Integer;
-    Cand : UIntPtr;
-    PtrSz: UIntPtr;
-    Base0: UIntPtr;
-  begin
-    Result := False;
-    ADesc  := '';
-    // Direct object reference: the slot IS the instance.
-    if StrictObjectClassName(ASlotPtr, CN) then
-    begin
-      ADesc := Format('object %s @ %x', [CN, ASlotPtr]);
-      Exit(True);
-    end;
-    // Interface reference: the slot points at an IMT-field inside the
-    // implementing object; the instance base sits a small, pointer-aligned
-    // distance before it. Use the TARGET pointer size, NOT the debugger's:
-    // a Win64 debugger inspecting a Win32 target must step by 4. And align
-    // first -- the interface slot can itself be unaligned, so a raw
-    // P-N*step walk never lands on the (aligned) object base.
-    if FTargetIs32Bit then PtrSz := 4 else PtrSz := 8;
-    Base0 := ASlotPtr and not (PtrSz - 1);        // align down to ptr grid
-    for I := 0 to 255 do
-    begin
-      if Base0 < UIntPtr(I) * PtrSz then Break;   // underflow guard
-      Cand := Base0 - UIntPtr(I) * PtrSz;
-      if StrictObjectClassName(Cand, CN) then
-      begin
-        ADesc := Format('interface @ %x (implemented by %s @ %x)',
-          [ASlotPtr, CN, Cand]);
-        Exit(True);
-      end;
-    end;
-  end;
-
   // Resolve one VMT's parent VMT + class name. Promoted to a sibling so
   // BOTH the field walk (FindFieldViaVmtWalk) and the property walk
   // (FindPropertyViaVmtWalk) can drive the same live-VMT ancestor chain.
@@ -4699,6 +4631,86 @@ begin
   Result := True;
 end;
 
+function TDebugger.StrictObjectClassName(ACandBase: UIntPtr;
+  out AClassName: String): Boolean;
+// STRICT object detector (§6.36 recovery): a slot is a genuine live object
+// reference only when [slot] is a Delphi VMT whose self-pointer anchor
+// (vmtSelfPtr, VMT-88 Win32 / -176 Win64) points back to the VMT itself.
+// Random heap/stack bytes that merely happen to be a readable
+// pointer-to-pointer almost never satisfy the self-anchor, so this is safe to
+// drive a backward scan with.
+var
+  VMT, SelfPtr: UIntPtr;
+  SelfOfs, I  : Integer;
+begin
+  Result := False;
+  AClassName := '';
+  if ACandBase = 0 then Exit;
+  VMT := ReadTargetPointer(Pointer(ACandBase));
+  if VMT = 0 then Exit;
+  if FTargetIs32Bit then SelfOfs := 88 else SelfOfs := 176;
+  if NativeInt(VMT) <= SelfOfs then Exit;
+  SelfPtr := ReadTargetPointer(Pointer(NativeInt(VMT) - SelfOfs));
+  if SelfPtr <> VMT then Exit;                  // not a genuine VMT
+  if not ReadClassNameFromVMT(VMT, AClassName) then Exit;
+  // Plausible Delphi identifier (incl. qualified-name / generic punctuation);
+  // rejects a self-anchor coincidence that yields a garbage name. Reuse the
+  // shared RSM identifier-char predicate rather than an ad-hoc set -- a live
+  // VMT class name is ANSI, so each char is in 0..255.
+  if (Length(AClassName) < 2) or (Length(AClassName) > 200) then
+  begin
+    AClassName := '';
+    Exit;
+  end;
+  for I := 1 to Length(AClassName) do
+    if not RsmIsPrintableAscii(Byte(Ord(AClassName[I]))) then
+    begin
+      AClassName := '';
+      Exit;
+    end;
+  Result := True;
+end;
+
+function TDebugger.TryRecoverReferenceType(ASlotPtr: UIntPtr;
+  out ADesc: String): Boolean;
+// Names the runtime type behind a live reference slot (§6.36). Two shapes:
+// (a) a direct OBJECT reference -- [slot] is the VMT, so ASlotPtr itself is the
+// instance; (b) an INTERFACE reference -- ASlotPtr points at an IMT-field slot
+// inside the implementing object, whose base sits a pointer-aligned distance
+// before it. Scan backward on the TARGET pointer grid for the nearest genuine
+// VMT. Uses the target pointer size (NOT the debugger's: a Win64 debugger
+// inspecting a Win32 target must step by 4) and aligns first, since the
+// interface slot can itself be unaligned.
+var
+  CN   : String;
+  I    : Integer;
+  Cand : UIntPtr;
+  PtrSz: UIntPtr;
+  Base0: UIntPtr;
+begin
+  Result := False;
+  ADesc  := '';
+  if StrictObjectClassName(ASlotPtr, CN) then
+  begin
+    ADesc := Format('object %s @ %x', [CN, ASlotPtr]);
+    Exit(True);
+  end;
+  PtrSz := FTargetPointerSize;
+  if PtrSz = 0 then PtrSz := 4;
+  Base0 := ASlotPtr and not (PtrSz - 1);        // align down to ptr grid
+  for I := 0 to 255 do
+  begin
+    if Base0 < UIntPtr(I) * PtrSz then Break;   // underflow guard
+    Cand := Base0 - UIntPtr(I) * PtrSz;
+    if StrictObjectClassName(Cand, CN) then
+    begin
+      ADesc := Format('interface @ %x (implemented by %s @ %x)',
+        [ASlotPtr, CN, Cand]);
+      Exit(True);
+    end;
+  end;
+end;
+
 function TDebugger.TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
   AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String;
   out AClsIdx: Integer): Boolean;
@@ -5293,6 +5305,11 @@ begin
   if (VMTPtr <> 0) and ReadClassNameFromVMT(VMTPtr, ClassName) then
     AValue := ClassName + ' @ ' +
               Format('%.*x', [FTargetPointerSize * 2, PtrVal])
+  else if (VMTPtr <> 0) and TryRecoverReferenceType(PtrVal, ClassName) then
+    // §6.36: [PtrVal] is a readable pointer but not a class VMT -- typically
+    // an interface reference (slot -> IMT). Recover and name the implementing
+    // object instead of emitting a bare "Object @ addr".
+    AValue := ClassName
   else
     AValue := 'Object @ ' +
               Format('%.*x', [FTargetPointerSize * 2, PtrVal]);

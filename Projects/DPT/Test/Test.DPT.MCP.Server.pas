@@ -117,6 +117,8 @@ type
     [Test]
     procedure TestMcpEvaluatePublicPropertyViaExtendedRtti;
     [Test]
+    procedure TestMcpEvaluateInterfaceLocalNamesImplementor;
+    [Test]
     procedure TestMcpEvaluateFloatTypes;
     [Test]
     procedure TestMcpEvaluateAutoTypeDetection;
@@ -3306,6 +3308,39 @@ begin
       'Public getter-backed string property ExtPubText must resolve via the ' +
       'extended-RTTI PropDataEx walk + call injection to ''Ext:Public'', ' +
       'got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.36 live recovery: an interface-typed local (declared in the separate
+///   unit DebugTarget.IfaceProbe). `evaluate Iface type=object` must walk the
+///   interface reference back to the implementing object's VMT and NAME the
+///   class (<c>TDbgRecoverableImpl</c>) instead of emitting a bare
+///   <c>"Object @ &lt;addr&gt;"</c>. Pins the consumer-side recovery
+///   (<c>TryRecoverReferenceType</c> / <c>StrictObjectClassName</c>): the
+///   strict VMT self-anchor check and the target-pointer-grid backward scan
+///   that finds the instance base behind a (possibly unaligned) interface-field
+///   slot. The §6.36 id-collision that makes a BARE evaluate hit this recovery
+///   is Test.Lib-only (DebugTarget's small registry never collides), so the
+///   always-reachable type=object route is what pins the recovery here.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateInterfaceLocalNamesImplementor;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.IfaceProbe.pas', 65);
+  try
+    Line := Fixture.Eval('AIface', 'object');
+    Assert.IsTrue(Line.Contains('TDbgRecoverableImpl'),
+      'Interface parameter AIface (type=object) must name the implementing ' +
+      'class TDbgRecoverableImpl via the §6.36 live recovery (walk the ' +
+      'interface ref back to the instance VMT), got: ' + Line);
   finally
     Fixture.Free;
   end;
