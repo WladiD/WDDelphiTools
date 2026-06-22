@@ -7,10 +7,47 @@ uses TaifunFormat.Utils;
 type
   TTaifunTriviaHelper = class
   public
+    // Set by ProcessTrivia when the stripped class banner carried a short
+    // descriptive suffix after the class name (e.g. "{ TFoo - does X }").
+    // Holds the " - <description>" part (including the leading separator) so
+    // the caller can fold it back into the rebuilt class banner. Empty when
+    // there was no description or when the description is the generic
+    // placeholder "Class", which is dropped.
+    ClassBannerSuffix: string;
+    procedure CaptureClassBannerSuffix(const ABannerText, AClassName, ALastClassName: string);
     procedure ProcessTrivia(const AOldTrivia: string; const AClassName: string; const ALastClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
   end;
 
 implementation
+
+procedure TTaifunTriviaHelper.CaptureClassBannerSuffix(const ABannerText, AClassName, ALastClassName: string);
+var
+  LClass, LSuffix: string;
+begin
+  // Which class does this banner belong to? When formatting the first method
+  // of a class, AClassName is set; for trailing trivia of a class-less token
+  // it is the previous class (ALastClassName).
+  LClass := '';
+  if AClassName <> '' then
+    LClass := AClassName
+  else if ALastClassName <> '' then
+    LClass := ALastClassName;
+  if LClass = '' then Exit;
+
+  // Only "{ ClassName - <text> }" carries a foldable description.
+  if Pos(LClass + ' -', ABannerText) <> 1 then Exit;
+
+  // Everything from the separator onwards, e.g. " - Einzelnen Termin drucken".
+  LSuffix := Copy(ABannerText, Length(LClass) + 1, Length(ABannerText));
+
+  // The generic placeholder "- Class" carries no information — drop it so the
+  // banner shrinks to the bare class name.
+  if Pos('- Class', TrimLeadingCRLFSpace(LSuffix)) = 1 then Exit;
+
+  // First banner wins; later lines must not overwrite the captured suffix.
+  if ClassBannerSuffix = '' then
+    ClassBannerSuffix := LSuffix;
+end;
 
 procedure TTaifunTriviaHelper.ProcessTrivia(const AOldTrivia: string; const AClassName: string; const ALastClassName: string; var ATrailingPart, AComments: string; var ALeadingNewlines: Integer; var ATrailingIndent: string);
 var
@@ -21,6 +58,7 @@ begin
   AComments := '';
   ATrailingPart := '';
   ATrailingIndent := '';
+  ClassBannerSuffix := '';
   S := AOldTrivia;
 
   ALeadingNewlines := 0;
@@ -154,6 +192,10 @@ begin
         LIsBanner := True;
         LPrevWasSepBanner := False;
         LPrevWasDashSep := False;
+        // The text line of a "{ === } / { ClassName - desc } / { === }" banner
+        // box. Keep a short description after the class name so the rebuilt
+        // class banner can fold it back in (generic "Class" is dropped).
+        CaptureClassBannerSuffix(TrimCommentChars(LLine), AClassName, ALastClassName);
       end
       else if LPrevWasDashSep and (Pos('{', LLine) > 0) and (Pos('}', LLine) = 0) then
       begin
@@ -165,11 +207,15 @@ begin
         LPrevWasSepBanner := False;
         LPrevWasDashSep := False;
       end;
-      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+      if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
       begin
         LIsBraceComment := True;
         S2 := TrimCommentChars(LLine);
-        
+
+        // Single-line class banner "{ ClassName - desc }" — preserve a short
+        // description after the class name (generic "Class" is dropped).
+        CaptureClassBannerSuffix(S2, AClassName, ALastClassName);
+
         var S2NoSpaces: string := RemoveSpaces(S2);
 
         if S2 = '' then LIsBanner := True

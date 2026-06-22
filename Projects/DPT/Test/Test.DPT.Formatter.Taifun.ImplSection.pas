@@ -429,8 +429,14 @@ begin
 
   LResult := FormatSource(LSource);
 
-  Assert.IsTrue(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'), 'Old banner with descriptive text should be replaced by a standard class banner. Actual result:'#13#10 + LResult);
-  Assert.IsFalse(LResult.Contains('{ TVersionNumber - Operatoren'), 'The descriptive text "- Operatoren" should NOT be preserved. Actual result:'#13#10 + LResult);
+  // A short descriptive comment after the class name (here "- Operatoren") is
+  // information worth keeping: the rebuilt class banner must preserve it,
+  // padded back out to column 73. Only the generic placeholder "- Class" is
+  // dropped (see TestFormatImplementation_OldClassBannerIsReplacedProperly).
+  Assert.IsTrue(LResult.Contains('{ ' + 'TVersionNumber - Operatoren' + StringOfChar(' ', 71 - Length('TVersionNumber - Operatoren')) + ' }'),
+    'Short descriptive text after the class name must be preserved in the rebuilt banner. Actual result:'#13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('{ TVersionNumber' + StringOfChar(' ', 57) + ' }'),
+    'The descriptive text "- Operatoren" must NOT be stripped to a bare banner. Actual result:'#13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_Implementation.TestFormatImplementation_ReplacesIncorrectGenericClassBanner;

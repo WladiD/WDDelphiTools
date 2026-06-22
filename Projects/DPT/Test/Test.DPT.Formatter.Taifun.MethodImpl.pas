@@ -42,6 +42,10 @@ type
     procedure TestFormatMethodImplementation_ConditionalAsmElseBody;
     [Test]
     procedure TestFormatMethodImplementation_GenericMethodWithVarParamAndLocalVar;
+    [Test]
+    procedure TestFormatMethodImplementation_ClassBannerKeepsDescription;
+    [Test]
+    procedure TestFormatMethodImplementation_ClassBannerStripsGenericClass;
   end;
 
 implementation
@@ -594,6 +598,70 @@ begin
   Assert.IsTrue(
     LResult.Contains('AddRange<T>(var AValues: TArray<T>; const AValuesToInsert: array of T);' + #13#10 + 'var'),
     'Local var section must directly follow AddRange signature. Actual:'#13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_MethodImpl.TestFormatMethodImplementation_ClassBannerKeepsDescription;
+var
+  LResult : String;
+  LSource : String;
+begin
+  // A class banner that carries a short, descriptive comment after the class
+  // name (e.g. "{ TFoo - Does important things }") must keep that description
+  // when the banner is rebuilt — only the class-name line changes, the text
+  // after " - " survives, padded back out to column 73.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    '{ TFoo - Does important things' + StringOfChar(' ', 41) + ' }' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    'procedure TFoo.MyMethod;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // The descriptive suffix is preserved inside the rebuilt class banner.
+  Assert.IsTrue(
+    LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+                     '{ ' + 'TFoo - Does important things' + StringOfChar(' ', 71 - Length('TFoo - Does important things')) + ' }' + #13#10 +
+                     '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 +
+                     'procedure TFoo.MyMethod;'),
+    'Class banner must keep the descriptive suffix after the class name. Actual:'#13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_MethodImpl.TestFormatMethodImplementation_ClassBannerStripsGenericClass;
+var
+  LResult : String;
+  LSource : String;
+begin
+  // The generic placeholder suffix " - Class" carries no information and must
+  // be removed: the rebuilt banner shows only the bare class name.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    '{ TBar - Class' + StringOfChar(' ', 57) + ' }' + #13#10 +
+    '{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+    'procedure TBar.MyMethod;' + #13#10 +
+    'begin' + #13#10 +
+    'end;' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  // Only the bare class name remains — the generic " - Class" suffix is gone.
+  Assert.IsTrue(
+    LResult.Contains('{ ' + StringOfChar('=', 71) + ' }' + #13#10 +
+                     '{ ' + 'TBar' + StringOfChar(' ', 71 - Length('TBar')) + ' }' + #13#10 +
+                     '{ ' + StringOfChar('=', 71) + ' }' + #13#10 + #13#10 +
+                     'procedure TBar.MyMethod;'),
+    'Generic " - Class" suffix must be stripped from the class banner. Actual:'#13#10 + LResult);
+  Assert.IsFalse(LResult.Contains('TBar - Class'),
+    'The generic " - Class" suffix must not survive. Actual:'#13#10 + LResult);
 end;
 
 end.

@@ -235,9 +235,15 @@ begin
   end
   else
   begin
+    // For the first method after a section, the banner was already stripped by
+    // FormatImplementationSection (StripBanners), so ProcessTrivia never saw it.
+    // Recover any descriptive suffix from the text StripBanners remembered.
+    if LIsFirstAfterSection and (FTrivia.ClassBannerSuffix = '') and (FBanner.LastClassBannerText <> '') then
+      FTrivia.CaptureClassBannerSuffix(FBanner.LastClassBannerText, LClassName, '');
+
     if (LClassName <> '') and (LClassName <> FLastClassName) then
     begin
-      LBannerText := FBanner.CreateClassBanner(LClassName);
+      LBannerText := FBanner.CreateClassBanner(LClassName, FTrivia.ClassBannerSuffix);
       FLastClassName := LClassName;
     end
     else if (LClassName = '') and ((FLastClassName <> '') or (LIsFirstAfterSection and (LTrailingPart <> ''))) then
@@ -321,7 +327,7 @@ begin
   ClearTrivia(LToken);
   FTrivia.ProcessTrivia(LOldTrivia, '', FLastClassName, LTrailingPart, LComments, LLeadingNewlines, LIndent);
   LPrefix := LTrailingPart + #13#10#13#10;
-  AddLeadingTrivia(LToken, LPrefix + FBanner.CreateClassBanner(LExtractedClass) + LComments);
+  AddLeadingTrivia(LToken, LPrefix + FBanner.CreateClassBanner(LExtractedClass, '') + LComments);
   FLastClassName := LExtractedClass;
   FSuppressNextMethodBanner := True;
 end;

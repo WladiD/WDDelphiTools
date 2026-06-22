@@ -10,8 +10,13 @@ type
     FCachedMethodBanner: string;
     FCachedNestedMethodBanner: string;
   public
+    // The text line ("ClassName - desc") of the banner box that StripBanners
+    // last removed. FormatMethodImplementation reads this for the first method
+    // after a section, where the banner is stripped before ProcessTrivia can
+    // see it, so the descriptive suffix can still be folded back in.
+    LastClassBannerText: string;
     constructor Create;
-    function CreateClassBanner(const AClassName: string): string;
+    function CreateClassBanner(const AClassName: string; const ASuffix: string): string;
     function CreateMethodBanner: string;
     function CreateNestedMethodBanner: string;
     function CreateSectionBanner(const AName: string): string;
@@ -26,13 +31,13 @@ begin
   FCachedNestedMethodBanner := '{ ' + GetSep('-', 26) + ' }' + #13#10 + #13#10;
 end;
 
-function TTaifunBannerHelper.CreateClassBanner(const AClassName: string): string;
+function TTaifunBannerHelper.CreateClassBanner(const AClassName: string; const ASuffix: string): string;
 var
   LRule: string;
 begin
   LRule := '{ ' + GetSep('=', 71) + ' }';
   Result := LRule + #13#10 +
-            '{ ' + PadRight(AClassName, 71) + ' }' + #13#10 +
+            '{ ' + PadRight(AClassName + ASuffix, 71) + ' }' + #13#10 +
             LRule + #13#10 + #13#10;
 end;
 
@@ -63,6 +68,7 @@ var
   LIsText, LIsBanner, LPrevWasSepBanner: Boolean;
 begin
   Result := '';
+  LastClassBannerText := '';
   if not Assigned(AToken) then Exit;
   LTrivia := GetLeadingTrivia(AToken);
   if LTrivia = '' then Exit;
@@ -95,15 +101,21 @@ begin
       else
       begin
         if LPrevWasSepBanner and (Pos('{ ', LLine) > 0) and ((Pos(' }', LLine) > 0) or (Pos('}', LLine) = 0)) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
+        begin
           LIsBanner := True;
+          // Remember the text line of the banner box so a class description can
+          // be recovered by the caller (first banner wins).
+          if LastClassBannerText = '' then LastClassBannerText := TrimCommentChars(LLine);
+        end;
         LPrevWasSepBanner := False;
-        if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then 
+        if not LIsBanner and (Pos('{ ', LLine) > 0) and (Pos(' }', LLine) > 0) and (Pos('///', LLine) = 0) and (Pos('{!', LLine) = 0) then
         begin
           S2 := TrimCommentChars(LLine);
           if S2 = '' then LIsBanner := True
           else if (Pos(' ', S2) = 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True
           else if Pos(' - Class', S2) > 0 then LIsBanner := True
           else if (Pos(' - ', S2) > 0) and (Length(S2) >= 2) and (Pos(S2[1], 'TCIE') > 0) and (S2[2] >= 'A') and (S2[2] <= 'Z') then LIsBanner := True;
+          if LIsBanner and (LastClassBannerText = '') then LastClassBannerText := S2;
         end;
       end;
     end
