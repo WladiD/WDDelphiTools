@@ -181,6 +181,20 @@ type
     /// </summary>
     [Test]
     procedure TestCrossUnitRecordLocalOffsetAndLayout32;
+
+    // §6.36-A static interface route: a user interface (IDbgRecoverable,
+    // declared in DebugTarget.IfaceProbe) is discovered as an skInterface
+    // struct synthesized from its $2A registry entry (no VMT trailer / no
+    // $0E sentinel for the struct discoverer to find), admitted to the
+    // type-id registry, and round-trips by id. Leakage guards: a real
+    // record stays skRecord and a real class stays skClass.
+    procedure DoTestInterfaceDiscoveredAsStruct(AUse64Bit: Boolean);
+    [Test]
+    procedure TestInterfaceDiscoveredAsStruct32;
+    {$IFDEF CPUX64}
+    [Test]
+    procedure TestInterfaceDiscoveredAsStruct64;
+    {$ENDIF}
   end;
 
 implementation
@@ -833,6 +847,76 @@ begin
     R.Free;
   end;
 end;
+
+procedure TRsmReaderTests.DoTestInterfaceDiscoveredAsStruct(AUse64Bit: Boolean);
+var
+  R       : TRsmReader;
+  Ci, Rt  : Integer;
+  Info    : TRsmClassInfo;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(AUse64Bit));
+
+    // (1) The user interface IDbgRecoverable (declared in
+    // DebugTarget.IfaceProbe) is discovered. The struct discoverer can't
+    // find it -- it has no VMT class-trailer and no $0E record sentinel;
+    // the only place its name + 2-byte id co-occur is the $2A registry,
+    // from which ScanTypeRegistry now synthesizes an skInterface entry.
+    Ci := R.FindClassByName('IDbgRecoverable');
+    Assert.IsTrue(Ci >= 0,
+      'IDbgRecoverable not discovered as a struct (interface synthesis missing)');
+    Info := R.Classes[Ci];
+    Assert.AreEqual<Integer>(Ord(skInterface), Ord(Info.Kind),
+      'IDbgRecoverable must be skInterface');
+    // It is NOT a record -- so the dotted walk can never record-hop into it
+    // (the §6.36 mis-typing hazard) -- and NOT a class.
+    Assert.AreNotEqual<Integer>(Ord(skRecord), Ord(Info.Kind),
+      'an interface must not be classified skRecord');
+    Assert.AreNotEqual<Integer>(Ord(skClass), Ord(Info.Kind),
+      'an interface must not be classified skClass');
+
+    // (2) Non-nil empty Members list (ClassParentDeriver /
+    // FieldAliasEnumBridge read Members.Count unconditionally -- a nil list
+    // would crash those passes).
+    Assert.IsTrue(Info.Members <> nil, 'interface Members list must be non-nil');
+    Assert.AreEqual<Integer>(0, Info.Members.Count,
+      'synthesized interface carries no members');
+
+    // (3) Admitted to the type-id registry and round-trips by id. The raw
+    // id is per-build / per-platform (Win32 $4712 vs Win64 $0312), so we
+    // assert the round-trip RELATIONSHIP, never the literal id.
+    Assert.AreNotEqual<UInt32>(0, Info.TypeIdx, 'interface TypeIdx must be non-zero');
+    Rt := R.FindClassIdxByRsmTypeId(Info.TypeIdx);
+    Assert.AreEqual<Integer>(Ci, Rt,
+      'IDbgRecoverable must round-trip: FindClassIdxByRsmTypeId(TypeIdx) = its index');
+
+    // (4) Leakage guards -- interface admission must not reclassify real
+    // types. A known record stays skRecord; a known class stays skClass.
+    Ci := R.FindClassByName('TMixedRec');
+    Assert.IsTrue(Ci >= 0, 'TMixedRec record not discovered (fixture regression)');
+    Assert.AreEqual<Integer>(Ord(skRecord), Ord(R.Classes[Ci].Kind),
+      'TMixedRec must remain a record');
+    Ci := R.FindClassByName('TDerived');
+    Assert.IsTrue(Ci >= 0, 'TDerived class not discovered (fixture regression)');
+    Assert.AreEqual<Integer>(Ord(skClass), Ord(R.Classes[Ci].Kind),
+      'TDerived must remain a class');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestInterfaceDiscoveredAsStruct32;
+begin
+  DoTestInterfaceDiscoveredAsStruct(False);
+end;
+
+{$IFDEF CPUX64}
+procedure TRsmReaderTests.TestInterfaceDiscoveredAsStruct64;
+begin
+  DoTestInterfaceDiscoveredAsStruct(True);
+end;
+{$ENDIF}
 
 initialization
   TDUnitX.RegisterTestFixture(TRsmReaderTests);

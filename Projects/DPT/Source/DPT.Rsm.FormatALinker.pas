@@ -564,7 +564,29 @@ var
   Name   : String;
   Id     : TRawId;
   ClsIdx : Integer;
+  // Interface ($2A I<Upper>) names collected during the walk and
+  // materialized as skInterface structs after it (still within this
+  // method, before the field link). Two facts make that safe:
+  //   * each $2A name maps to a UNIQUE 2-byte id (distinct types never
+  //     share one -- IInterface/IUnknown collide only because they ARE
+  //     the same type), so a $2C field's owning-record ParentId can
+  //     never equal an interface id, and LinkFieldsFromFormatA's
+  //     FindClassIdxForRawId(ParentId) never resolves to an interface;
+  //   * the entries are APPENDED, so every pre-existing FClasses index
+  //     stays valid and the skRecord-only offset/owner indices built
+  //     after this method simply skip them.
+  // Parallel arrays keep it allocation-light; the count is tiny
+  // (a few hundred interfaces even on TFW).
+  IfaceNames  : TArray<String>;
+  IfaceIdKeys : TArray<UInt32>;
+  IfaceCount  : Integer;
+  NewIdx      : Integer;
+  IInfo       : TRsmClassInfo;
+  Dummy       : Integer;
 begin
+  IfaceCount := 0;
+  SetLength(IfaceNames, 64);
+  SetLength(IfaceIdKeys, 64);
   // Walk the byte stream looking for $2A name-id records and
   // populate FRsmTypeIdToClassIdx by joining each registered name
   // against the already-built FClassByName index. The byte-walk
@@ -593,7 +615,16 @@ begin
     NL := ByteAt(P + 1);
     if (NL >= 2) and (NL <= 40) and
        (P + 2 + NL + 5 < FSz) and
-       ((ByteAt(P + 2) = Byte(Ord('T'))) or (ByteAt(P + 2) = Byte(Ord('P')))) and
+       // 'T' (class/record), 'P' (pointer-alias §6.19), or the
+       // interface convention 'I'<Upper> (§6.36-A static route). The
+       // body-flag after the name is shape, not kind (§4.8), so the
+       // I<Upper> name is the only available interface signal -- same
+       // basis as §6.25's phantom-enum drop. The Upper second char
+       // keeps lowercase-second pointer-likes (none start 'I' lower
+       // anyway) and stray 'I...' noise out.
+       ((ByteAt(P + 2) = Byte(Ord('T'))) or (ByteAt(P + 2) = Byte(Ord('P'))) or
+        ((ByteAt(P + 2) = Byte(Ord('I'))) and
+         (ByteAt(P + 3) >= Byte(Ord('A'))) and (ByteAt(P + 3) <= Byte(Ord('Z'))))) and
        (ByteAt(P + 2 + NL + 1) = $00) and
        (ByteAt(P + 2 + NL + 2) = $00) and
        ReadIdentifier(P + 1, Name) then
@@ -630,10 +661,53 @@ begin
       // when Format-A linking did not capture the field's type --
       // the common cross-unit case in real-world binaries.
       FTypeIdByName[LowerCase(Name)] := RawIdKey(Id);
+      // §6.36-A: an I<Upper> name with no discovered class is an
+      // interface (the struct discoverer can't find it -- no VMT
+      // trailer, no $0E sentinel). Defer its synthesis until after
+      // the walk so it never disturbs field attribution.
+      if (ClsIdx < 0) and (Name[1] = 'I') and CharInSet(Name[2], ['A'..'Z']) then
+      begin
+        if IfaceCount = Length(IfaceNames) then
+        begin
+          SetLength(IfaceNames, Length(IfaceNames) * 2);
+          SetLength(IfaceIdKeys, Length(IfaceIdKeys) * 2);
+        end;
+        IfaceNames[IfaceCount]  := Name;
+        IfaceIdKeys[IfaceCount] := RawIdKey(Id);
+        Inc(IfaceCount);
+      end;
       P := P + 2 + NL + 5;
     end
     else
       Inc(P);
+  end;
+
+  // Materialize the collected interfaces as skInterface structs. Each
+  // gets a non-nil empty Members list (ClassParentDeriver /
+  // FieldAliasEnumBridge read Members.Count unconditionally) and zero
+  // parent id, so the Kind-gated passes downstream skip them. The
+  // FClasses entry is APPENDED, so every pre-existing index stays
+  // valid and the skRecord-only offset/owner indices built afterwards
+  // skip it. The registry id map is filled only when the id is free,
+  // so an interface never clobbers a real class/record (in practice
+  // ids are unique, but the guard makes that explicit).
+  for var K := 0 to IfaceCount - 1 do
+  begin
+    if FClassByName.TryGetValue(LowerCase(IfaceNames[K]), Dummy) then
+      Continue; // already discovered or an earlier duplicate in this list
+    IInfo := Default(TRsmClassInfo);
+    IInfo.Name       := IfaceNames[K];
+    IInfo.TypeIdx    := IfaceIdKeys[K];
+    IInfo.Kind       := skInterface;
+    IInfo.Members    := Collections.NewPlainList<TRsmClassMember>;
+    IInfo.Properties := nil;
+    IInfo.ParentName := '';
+    IInfo.ParentRawId := 0;
+    FClasses.Add(IInfo);
+    NewIdx := FClasses.Count - 1;
+    FClassByName[LowerCase(IfaceNames[K])] := NewIdx;
+    if not FRsmTypeIdToClassIdx.ContainsKey(IfaceIdKeys[K]) then
+      FRsmTypeIdToClassIdx[IfaceIdKeys[K]] := NewIdx;
   end;
 end;
 

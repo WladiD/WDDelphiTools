@@ -197,12 +197,25 @@ type
 
   /// <summary>
   ///   Whether a structured type from the RSM type stream is a Delphi
-  ///   class (with a VMT pointer at instance offset 0) or a Delphi
-  ///   record (no VMT, fields start at offset 0). Decides whether
-  ///   navigation through this type dereferences the holding slot
-  ///   (class) or treats it as inline data (record).
+  ///   class (with a VMT pointer at instance offset 0), a Delphi
+  ///   record (no VMT, fields start at offset 0), or an interface
+  ///   (a reference to an IMT, not a VMT). Decides whether navigation
+  ///   through this type dereferences the holding slot (class) or
+  ///   treats it as inline data (record).
+  ///
+  ///   <c>skInterface</c> entries are synthesized from the $2A type
+  ///   registry by name convention (<c>I&lt;Upper&gt;</c>) -- interfaces
+  ///   carry no VMT class-trailer and no $0E record sentinel, so the
+  ///   struct discoverer never finds them; the registry is the only
+  ///   place their name + 2-byte id appear together. They carry an
+  ///   (empty, non-nil) Members list and zero parent id, so every
+  ///   <c>Kind = skClass</c> / <c>Kind = skRecord</c> consumer branch
+  ///   safely skips them (an interface is neither a class instance to
+  ///   format as 'object' nor a record to record-hop into). New
+  ///   ordinal MUST stay trailing (skClass=0 / skRecord=1 are relied
+  ///   on by existing comparisons).
   /// </summary>
-  TRsmStructKind = (skClass, skRecord);
+  TRsmStructKind = (skClass, skRecord, skInterface);
 
   /// <summary>
   ///   A class or record declared in the debugged binary, parsed from

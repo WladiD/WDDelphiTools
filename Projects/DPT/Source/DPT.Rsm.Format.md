@@ -1116,6 +1116,39 @@ enum** — class names and record names also register here, populating
 `FRsmTypeIdToClassIdx` (via `TRsmFormatALinker.ScanTypeRegistry`) and
 `FTypeIdByName` (via the same pass).
 
+**Interfaces register here too — and the `$2A` registry is their ONLY
+discovery anchor (§6.36-A static route).** An interface has no VMT
+class-trailer (§4.11) and no `$0E` record sentinel (§4.12), so
+`TRsmStructDiscoverer` never finds it — yet its name + 2-byte id sit in
+the `$2A` registry exactly like a class's (e.g. DebugTarget's user
+interface `IDbgRecoverable`: body `2A 0F 'IDbgRecoverable' 20 00 00
+<idLo> <idHi>`, id `$4712` Win32 / `$0312` Win64 — per-build,
+platform-divergent). Because the body-flag is shape, not kind (above),
+the only available interface signal at the `$2A` level is the
+`I<Upper>` name convention (the same basis §6.25's phantom-enum drop
+uses). `ScanTypeRegistry` therefore admits `I<Upper>` names alongside
+`T`/`P`, and **synthesizes a `skInterface` `TRsmClassInfo`** for each
+such name that no discovered class already claims — appended to
+`FClasses` after the registry walk (so every pre-existing index and the
+skRecord-only offset/owner indices stay valid), registered in
+`FClassByName`, and mapped into `FRsmTypeIdToClassIdx` under its id
+(only when that id is free). The synthesized entry carries a **non-nil
+empty** `Members` list (`TRsmClassParentDeriver` / `TRsmFieldAliasEnumBridge`
+read `Members.Count` unconditionally) and zero parent id, so every
+`Kind = skClass` / `Kind = skRecord` consumer branch skips it — an
+interface is neither formatted as `'object'` (§4.16 `ClassLookup`) nor
+record-hopped into (the §6.36 mis-typing hazard cannot reach an
+`skInterface`). This is a **static**-route win — it surfaces interfaces
+by name + id to the no-process viewer (RsmDesk) and lets a class
+*member* typed as an interface resolve its id to the interface name. It
+does **not** fix the live `Lst: ILazyUniqueList<TObject>` case, whose
+one-byte stack-local type code is lossy (§6.36 mechanism) and reaches
+no interface id at all. Pinned by
+[Test.DPT.Rsm.Reader.TestInterfaceDiscoveredAsStruct32/64](../Test/Test.DPT.Rsm.Reader.pas)
+(name → `skInterface`, non-zero id round-trips via
+`FindClassIdxByRsmTypeId`, non-nil empty members; leakage guards:
+`TMixedRec` stays `skRecord`, `TDerived` stays `skClass`).
+
 **Owning-unit resolution** (only when same-comp $25 constants are
 pending). The synthesized `EnumDef` needs the owning unit name. Two
 decoupled steps (`HandleTypeRegistryRecord`):
@@ -1882,10 +1915,11 @@ confirmed (see §4.9 and
 > `type=shortstring` (or the right primitive) for record-field
 > terminals.** Pinned by the no-type assertions in
 > `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` (bare `AdrLoc` declines
-> and does not name a record). Whether the primitive type is recoverable
-> from a `$2C`-style record-field record (if the linker emits one for
-> record fields at all) was not investigated — deferred, since the
-> explicit-`type=` path covers the need.
+> and does not name a record). (The earlier "is a `$2C`-style sibling record
+> with the type id emitted elsewhere?" caveat is now resolved: a byte-level
+> sweep found none — the type is genuinely absent, not stored off to the
+> side. The §6.33 primitive-id decode is specific to *class* `$2C` field
+> records; inline record fields don't get one.)
 
 **Terminal-field byte width** (design limitation). Unlike records
 which carry a size DWORD between the name and the field stream
@@ -3040,17 +3074,28 @@ unaffected.
 > type-id-less record local, nested-hop `FindRecordBySizeAndMemberName`
 > for the inline nested record), folded into §4.4 + the §4.14 consumer
 > note and pinned by `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` +
-> `TestCrossUnitRecordLocalOffsetAndLayout32`. The still-OPEN §6 entries
-> are **§6.29** (per-statement line table) and **§6.36 manifestation A**
-> (an *interface*-typed local auto-detecting as an unrelated record —
-> the remaining half: needs the auto-detect to decline to a raw pointer
-> when the resolved record/class can't be validated against the live
-> reference, since an interface points at an IMT, not a VMT).
-> The next gap discovered MUST be numbered **§6.37**, not §6.1.
-> Numbers are never reused or recycled — commit messages, code comments,
-> and pin docstrings reference closed §6.N entries by their original
-> number long after the §6 entry itself is gone, and renumbering would
-> silently invalidate those references.
+> `TestCrossUnitRecordLocalOffsetAndLayout32`. **§6.36 manifestation A**
+> (an *interface*-typed local auto-detecting as an unrelated record) is now
+> **closed** — the layout-gated live recovery in `EvaluateVariable` /
+> `TryRecoverReferenceType` names the runtime implementing class instead of
+> the bogus record (see the §6.36 entry). Its former static-route residual —
+> interface support for the no-process RsmDesk viewer — is **also closed**:
+> `ScanTypeRegistry` now admits `I<Upper>` `$2A` names and synthesizes
+> discovered `skInterface` structs (new `TRsmStructKind` ordinal), pinned by
+> `TestInterfaceDiscoveredAsStruct32/64` and written up in §4.8. (The live
+> `Lst` one-byte-truncation loss remains a documented design limit in §6.36,
+> not an open gap.) **§6.37** (getter-backed / published property
+> evaluation) and **§6.39** (`.rsm` proc `SegmentOffset` drift, fixed
+> consumer-side via the `.map` fallback) are also **closed**. The only
+> still-OPEN tagged §6 entry is **§6.29** (per-statement line table) — and
+> that is now a *confident negative* (four rounds: the Athens `-VR` linker
+> appears not to emit the table at all; lines live only in the `.map`), with
+> its residual closure items explicitly parked as cost/payoff-unfavourable.
+> The highest §6 number ever used is **§6.39**; the next gap discovered MUST
+> be numbered **§6.40**. Numbers are never reused or recycled — commit
+> messages, code comments, and pin docstrings reference closed §6.N entries
+> by their original number long after the §6 entry itself is gone, and
+> renumbering would silently invalidate those references.
 
 ### 6.29 Per-statement address → line table encoding (`GAP`)
 
@@ -3355,11 +3400,15 @@ implementing class / interface, not necessarily the exact declared generic
 `ILazyUniqueList<TObject>` — but that is a far better answer than a wrong record,
 and a correct one. Needs a live/MCP pin (no standalone `TRsmReader` test).
 
-**Static-route status (open, not a design limit).** Two parser limits are real
-and independently fixable even though neither alone fixes `Lst`: (1) the
-`T`/`P`-prefix filter in `ScanTypeRegistry` drops every interface from
-`FRsmTypeIdToClassIdx`; (2) interfaces are not discovered as structs
-(`TRsmStructKind` has no `skInterface`). The deeper blocker for `Lst` is the
+**Static-route status — the two parser limits are now CLOSED (§4.8).** Both
+independently-fixable limits this entry tracked are done: (1) `ScanTypeRegistry`
+now admits `I<Upper>` `$2A` names and (2) synthesizes a discovered
+`skInterface` `TRsmClassInfo` (the new `TRsmStructKind` ordinal) for each,
+appended to `FClasses` / `FClassByName` and mapped into `FRsmTypeIdToClassIdx`
+by id. So an interface is now a first-class discovered type (name + id, by-id
+round-trip) for the no-process viewer and for class members typed as an
+interface — pinned by `Test.DPT.Rsm.Reader.TestInterfaceDiscoveredAsStruct32/64`
+(full §4.8 write-up). This does **NOT** fix `Lst`: the deeper blocker for it is the
 one-byte stack-local type code itself (see mechanism above) — a reduced-format
 loss, NOT proof the type is unrecoverable in principle (Delphi's own debugger
 resolves it from richer DCU/TDS info). Leads already checked and refuted so
