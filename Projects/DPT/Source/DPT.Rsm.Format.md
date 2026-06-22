@@ -2956,15 +2956,40 @@ def still matches a dropped convention, and the leakage guards above);
 `TestTfwEnumTypedFieldResolvesToPrimary` confirm real enum binding is
 unaffected.
 
+**Same-`(name,unit)` synth duplicates — CLOSED (condition (d)).** A
+synthesised `EnumDef` that shares its `(TypeName, UnitName)` with a
+`$03`-sourced def is the **same Delphi type** (a type name is unit-unique),
+so the `$03` is authoritative and the synth is a redundant or
+const-polluted view. `FilterPhantomEnumDefs` now drops it (condition (d),
+[DPT.Rsm.Reader.pas `FilterPhantomEnumDefs`](DPT.Rsm.Reader.pas)).
+Condition (b) missed these: element names shared across sibling enums make
+the first-wins element→type map ambiguous, so a synth whose elements all
+live in its *own* `$03` can still map an element to a *different* `$03`
+enum and fail the "all map to one type" test — e.g. TFW's `TLngTyp`
+(28/28 elements in its `$03`, yet not dropped by (b)), and the
+zero-overlap pollution cases `TCalFirstWeekMode` (0/5), `TThumbButtonState`
+(0/1). A reconnaissance diagnostic found **24** such same-unit synth
+duplicates on `C:\MSE\TFW\TFW.rsm`. The drop is **unit-scoped**, so a
+genuine cross-unit homonym survives — TFW's `TDataType` (synth in
+`VCLTee.TeeSpline`, `$03` in `bmpfilt`, 0/5 overlap) keeps its own
+identity, as do DebugTarget's `EnumAlpha`/`Beta`/`Gamma` `TStatus` trio.
+This subsumes the former "`TTokenKind` doubles" residual (TTokenKind isn't
+doubled on the current TFW build, but the mechanism is identical). Pinned
+by
+[Test.DPT.Rsm.Taifun.TestTfwEnumDefNoSameUnitSynthDuplicate](../Test/Test.DPT.Rsm.Taifun.pas)
+(invariant: no synth survivor shares `(name,unit)` with a `$03` def;
+leakage/non-vacuity: a cross-unit homonym still survives).
+
 **Remaining residual (smaller, not high-confidence-droppable).** After
-(c), what still leaks is:
+(c)/(d), what still leaks is:
 * **`T<Upper>`-named const-borrow phantoms** (`TWMNotifyRE`,
-  `TThumbButtonState`, `TIdPortList`, … carrying named `const`s) — name
-  is byte- and convention-indistinguishable from a real enum, and §6.26
-  refuted any per-record byte discriminator, so these are the
-  **irreducible** remainder. The `skRecord` kind-oracle can't safely
-  prune them either (the `TZUGFeRDXMLObjectTyp` counterexample). The
-  multi-family subset is still caught by the dup-ordinal guard.
+  `TIdPortList`, … carrying named `const`s, with **no** `$03` of their
+  own) — name is byte- and convention-indistinguishable from a real enum,
+  and §6.26 refuted any per-record byte discriminator, so these are the
+  **irreducible** remainder. (d) cannot help: there is no same-name `$03`
+  to supersede them. The `skRecord` kind-oracle can't safely prune them
+  either (the `TZUGFeRDXMLObjectTyp` counterexample). The multi-family
+  subset is still caught by the dup-ordinal guard.
 * **`E<Upper>` / `C<Upper>` families** (`EAplError`, `CExcel`, …) —
   droppable by extending the convention list, but **deferred by design**
   (codebase-specific conventions, higher false-positive risk than
@@ -2973,8 +2998,6 @@ unaffected.
   tradeoff). (**R2 is now CLOSED** — see the R2 bullet above: the
   synthesized def's unit comes from the §4.18 `$70` introducer, retiring
   the name-search + its `T`/`E`/`I` convention crutch.)
-* `TTokenKind` still doubles (a `$03` plus a synthesised variant whose
-  element set only partially overlaps the `$03`).
 
 ---
 
@@ -3684,8 +3707,9 @@ warns against. Closure needs a stable Test.Lib build where line breakpoints fire
    `TRsmStructDiscoverer.Run`.
 5. Runs the post-process passes in `RunPostProcess`, in order:
    `FilterPhantomEnumDefs` (drops synthesized phantom `EnumDef`s — those
-   named after a VMT `skClass`, or fully covered by a single authoritative
-   `$03` enum — §6.25 R1. Runs **first** because the enum bridges below
+   named after a VMT `skClass`, following a non-enum naming convention,
+   sharing a `$03` def's `(name, unit)`, or fully covered by a single
+   authoritative `$03` enum — §6.25. Runs **first** because the enum bridges below
    store indices into `EnumDefs`, so deleting entries afterwards would
    invalidate them — `FClasses` and the `$03`-sourced defs are already
    populated by step 4) →

@@ -408,6 +408,18 @@ type
     /// </summary>
     [Test]
     procedure TestTfwSynthEnumPhantomResidual;
+
+    /// §6.25 TTokenKind-doubling closure pin. FilterPhantomEnumDefs
+    /// condition (d) drops a SYNTHESISED EnumDef that shares its
+    /// (TypeName, UnitName) with a $03-sourced def -- the same Delphi type,
+    /// for which the $03 is authoritative. Asserts the invariant (NO synth
+    /// survivor shares (name,unit) with a $03 def -- 24 such same-unit
+    /// duplicates existed before the fix on TFW) AND the unit-scoping
+    /// leakage guard (a synth whose same-name $03 sibling lives in ANOTHER
+    /// unit -- a genuine cross-unit homonym, e.g. TDataType in
+    /// VCLTee.TeeSpline vs bmpfilt -- still survives).
+    [Test]
+    procedure TestTfwEnumDefNoSameUnitSynthDuplicate;
   end;
 
   /// Tests against the Taifun Test.Lib DUnitX runner (`Test.Lib.exe`,
@@ -1990,6 +2002,66 @@ begin
     Format('§6.25 R2: synthesised EnumDef has a TClass.Method UnitName ' +
            '("%s") -- the $70 introducer source regressed to the old ' +
            'name-search heuristic.', [Leaked]));
+end;
+
+procedure TRsmTfwTests.TestTfwEnumDefNoSameUnitSynthDuplicate;
+// §6.25 closure (d). A synthesised EnumDef that shares its (TypeName,
+// UnitName) with a $03-sourced def is the SAME Delphi type and must be
+// dropped (the $03 is authoritative). The diagnostic this replaced found
+// 24 such same-unit synth duplicates on TFW (TLngTyp, TPictureFormat, ...,
+// incl. zero-element-overlap pollution like TCalFirstWeekMode) plus ONE
+// cross-unit homonym (TDataType: synth in VCLTee.TeeSpline, $03 in bmpfilt)
+// that must SURVIVE.
+var
+  Defs       : IList<TRsmEnumDef>;
+  Names03    : IKeyValue<String, Boolean>;  // lc name           -> $03 exists
+  Names03Unit: IKeyValue<String, Boolean>;  // "lc name|lc unit"  -> $03 exists
+  I          : Integer;
+  Violation  : String;
+  CrossUnitKept: Integer;
+begin
+  if ShouldSkip then Exit;
+  Defs := FReader.EnumDefs;
+  Names03     := Collections.NewPlainKeyValue<String, Boolean>;
+  Names03Unit := Collections.NewPlainKeyValue<String, Boolean>;
+  for I := 0 to Defs.Count - 1 do
+    if not Defs[I].Synthesized then
+    begin
+      Names03[LowerCase(Defs[I].TypeName)] := True;
+      Names03Unit[LowerCase(Defs[I].TypeName) + '|' +
+                  LowerCase(Defs[I].UnitName)] := True;
+    end;
+
+  // (1) Invariant: no surviving SYNTHESISED def shares (name, unit) with a
+  // $03-sourced def. (Before condition (d): 24 violations on TFW.)
+  Violation := '';
+  CrossUnitKept := 0;
+  for I := 0 to Defs.Count - 1 do
+    if Defs[I].Synthesized then
+    begin
+      if Names03Unit.ContainsKey(LowerCase(Defs[I].TypeName) + '|' +
+                                 LowerCase(Defs[I].UnitName)) then
+      begin
+        if Violation = '' then
+          Violation := Defs[I].TypeName + ' (' + Defs[I].UnitName + ')';
+      end
+      // (2) leakage / non-vacuity: a synth whose same-name $03 sibling(s)
+      // live in OTHER units is a genuine cross-unit homonym -- it must NOT
+      // be dropped (the drop is unit-scoped). Counting these also proves
+      // the test isn't vacuously green from all doublings vanishing.
+      else if Names03.ContainsKey(LowerCase(Defs[I].TypeName)) then
+        Inc(CrossUnitKept);
+    end;
+
+  Assert.AreEqual('', Violation,
+    Format('§6.25 (d): synthesised EnumDef "%s" still shares its unit with a ' +
+           '$03-sourced def of the same name -- the same-type duplicate drop ' +
+           'regressed.', [Violation]));
+  Assert.IsTrue(CrossUnitKept > 0,
+    'Leakage/non-vacuity: expected at least one synthesised EnumDef whose ' +
+    'same-name $03 sibling lives in a DIFFERENT unit to survive (a genuine ' +
+    'cross-unit homonym, e.g. TDataType). Zero means either over-drop or no ' +
+    'doublings present at all.');
 end;
 
 { TRsmTestLibTests }

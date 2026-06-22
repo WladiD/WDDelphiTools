@@ -708,7 +708,7 @@ procedure TRsmReader.FilterPhantomEnumDefs;
 // ALSO produces a redundant synthesised duplicate of every contiguous
 // enum that already has a $03.
 //
-// Drops a SYNTHESISED def (never a $03-sourced one) on either condition:
+// Drops a SYNTHESISED def (never a $03-sourced one) on any of (a)/(c)/(d)/(b):
 //   (a) its type name is a real VMT class (skClass) -- a class is not an
 //       enum. This catches class phantoms whose borrowed constants are
 //       NOT in any $03 (named consts / sparse-enum elements), which (b)
@@ -728,6 +728,17 @@ procedure TRsmReader.FilterPhantomEnumDefs;
 //       (TPublishableVariantType <- TTypeKind); the SAME name => a
 //       redundant synthesised duplicate of a contiguous enum. Both are
 //       superseded by the $03 def and removed.
+//   (c) its name follows a definitively-non-enum convention (interface /
+//       pointer alias / C / Windows struct) and shadows no $03 -- the
+//       inline IsNonEnumTypeName drop (§6.25 closure (c)).
+//   (d) it shares its (TypeName, UnitName) with a $03-sourced def -- the
+//       same Delphi type (names are unit-unique), so the $03 is
+//       authoritative and the synth is a duplicate/const-polluted view.
+//       Unit-scoped, so a cross-unit homonym (different unit) survives.
+//       Closes the TTokenKind-style doubling that (b) misses when shared
+//       element names across sibling enums make the element->type map
+//       ambiguous (§6.25; TFW: 24 such same-unit synth duplicates dropped,
+//       the lone cross-unit TDataType kept).
 // Sparse enums survive: the linker emits no $03 for them, so their
 // elements map to no $03 and their name is not a class. They are exactly
 // why the synthesis must stay. The residual still leaking after this:
@@ -793,8 +804,10 @@ var
   Defs       : IList<TRsmEnumDef>;
   ElemToType : IKeyValue<String, String>;  // lc element name -> owning $03 type name
   Names03    : IKeyValue<String, Boolean>; // lc names of $03-sourced enums
+  Names03Unit: IKeyValue<String, Boolean>; // "lc name|lc unit" of $03-sourced enums
   I, J, Ci   : Integer;
   Lc, Common : String;
+  LcName     : String;  // LowerCase(TypeName) of the current def, cached
   AllMapped  : Boolean;
   OwnerName  : String;
 begin
@@ -802,13 +815,17 @@ begin
   // Map every $03-sourced element name to its owning type (first-wins,
   // stable). Synthesised defs are excluded -- only $03 is authoritative.
   // Also collect the $03-sourced TYPE names so the (c) name-convention
-  // drop never removes a synth def that shadows a real $03 enum.
-  ElemToType := Collections.NewPlainKeyValue<String, String>;
-  Names03    := Collections.NewPlainKeyValue<String, Boolean>;
+  // drop never removes a synth def that shadows a real $03 enum, and the
+  // (name|unit) keys so the (d) same-type duplicate drop is unit-scoped.
+  ElemToType  := Collections.NewPlainKeyValue<String, String>;
+  Names03     := Collections.NewPlainKeyValue<String, Boolean>;
+  Names03Unit := Collections.NewPlainKeyValue<String, Boolean>;
   for I := 0 to Defs.Count - 1 do
     if (not Defs[I].Synthesized) and (Defs[I].Elements <> nil) then
     begin
-      Names03[LowerCase(Defs[I].TypeName)] := True;
+      LcName := LowerCase(Defs[I].TypeName);
+      Names03[LcName] := True;
+      Names03Unit[LcName + '|' + LowerCase(Defs[I].UnitName)] := True;
       for J := 0 to Defs[I].Elements.Count - 1 do
       begin
         Lc := LowerCase(Defs[I].Elements[J].Name);
@@ -852,8 +869,27 @@ begin
     // carry non-$03 constants (so (b) can't either). Guards: T<Upper>
     // names are never matched (IsNonEnumTypeName protects them), and a
     // name shadowing a real $03 enum is never dropped.
+    LcName := LowerCase(Defs[I].TypeName);  // reused by (c) and (d)
     if IsNonEnumTypeName(Defs[I].TypeName) and
-       not Names03.ContainsKey(LowerCase(Defs[I].TypeName)) then
+       not Names03.ContainsKey(LcName) then
+    begin
+      Defs.Delete(I);
+      Continue;
+    end;
+    // (d) §6.25 same-type duplicate drop (the TTokenKind-doubling closure).
+    // A synthesised def that shares its (TypeName, UnitName) with a
+    // $03-sourced def IS that same Delphi type -- a type name is unique
+    // within a unit -- so the $03 is its authoritative form and the synth
+    // is a redundant or const-polluted view. (b) misses these: element
+    // names shared across sibling enums make the first-wins element->type
+    // map ambiguous, so a synth whose elements all live in its own $03 can
+    // still map some element to a DIFFERENT $03 enum and fail the
+    // "all map to one type" test (observed on TFW: TLngTyp 28/28 in-$03 yet
+    // not dropped). Unit-scoped, so a genuine cross-unit homonym survives
+    // (TFW's TDataType: a synth in VCLTee.TeeSpline keeps its own identity
+    // because the same-name $03 lives in bmpfilt, a DIFFERENT unit -- and
+    // DebugTarget's EnumAlpha/Beta/Gamma TStatus trio likewise).
+    if Names03Unit.ContainsKey(LcName + '|' + LowerCase(Defs[I].UnitName)) then
     begin
       Defs.Delete(I);
       Continue;
