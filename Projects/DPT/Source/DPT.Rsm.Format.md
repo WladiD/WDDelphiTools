@@ -1149,6 +1149,20 @@ no interface id at all. Pinned by
 `FindClassIdxByRsmTypeId`, non-nil empty members; leakage guards:
 `TMixedRec` stays `skRecord`, `TDerived` stays `skClass`).
 
+**Interface METHODS are not surfaceable (recon, not pursued).** The
+synthesized `skInterface` carries an empty `Members` list by design:
+interface methods are abstract slots with no code, so the linker emits
+**no `$28` proc** for `IDbgRecoverable.Marker` — only for the concrete
+`TDbgRecoverableImpl.Marker` (verified: `IDbgRecoverable.Marker` is absent
+from `DebugTarget.rsm`; only the impl-class method exists). Attaching
+methods to the interface would require reverse-engineering the
+**implements** relationship (`IDbgRecoverable → TDbgRecoverableImpl`) from
+the unexplained bytes between the two `$2A` entries
+(`… 12 47 | f9 da 04 36 00 20 00 00 c7 fd da 04 b8 02 26 14 2e | "TDbgRecoverableImpl"`)
+and then back-mapping the impl's methods — a likely confident-negative,
+deliberately not pursued. The static route delivers interface *name + id*,
+not its method list.
+
 **Owning-unit resolution** (only when same-comp $25 constants are
 pending). The synthesized `EnumDef` needs the owning unit name. Two
 decoupled steps (`HandleTypeRegistryRecord`):
