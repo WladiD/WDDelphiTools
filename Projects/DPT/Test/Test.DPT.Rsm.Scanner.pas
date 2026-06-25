@@ -2151,13 +2151,16 @@ end;
 
 procedure TRsmScannerTests.TestRegisterParamEnumTypeIdNotTruncated32;
 const
-  TLightStatusPrimary : UInt32 = $2E89; // program-local enum (Hi=$2E; low byte drifts with type-registry position as DebugTarget.dpr grows)
   // Per-binary alias the linker mints for the cross-unit RTL enum
   // TThreadPriority's $21 REGVAR record. NOT the $2A registry primary
-  // ($3370) — the alias→primary bridge is the residual §6.15 work.
+  // ($3370) — the alias→primary bridge is the residual §6.15 work. This
+  // alias lives in a separate id space from the program-local $2Exx ids
+  // and has held stable across fixture growth, so it stays a literal
+  // (it IS the subject under test and cannot be self-derived from the
+  // registry, which would return the unrelated primary $3370).
   TThreadPriorityAlias: UInt32 = $0671;
 var
-  S          : TRsmScanner;
+  R          : TRsmReader;
   ProcIdx    : Integer;
   I          : Integer;
   Proc       : TRsmProc;
@@ -2165,14 +2168,15 @@ var
   PriFound   : Boolean;
   LightId    : UInt32;
   PriId      : UInt32;
+  LightExpect: UInt32;
 begin
-  S := TRsmScanner.Create;
+  R := TRsmReader.Create;
   try
-    S.LoadFromFile(ResolveExePath(False));
-    Assert.IsTrue(S.ProcByName.TryGetValue('touchregenumparam', ProcIdx),
+    R.LoadFromFile(ResolveExePath(False));
+    Assert.IsTrue(R.Scanner.ProcByName.TryGetValue('touchregenumparam', ProcIdx),
       'TouchRegEnumParam must be in ProcByName -- DebugTarget.dpr ' +
       '§6.15 fixture missing? Rebuild DebugTarget.exe.');
-    Proc := S.Procs[ProcIdx];
+    Proc := R.Procs[ProcIdx];
     LightFound := False; PriFound := False;
     LightId := 0; PriId := 0;
     for I := 0 to Proc.Locals.Count - 1 do
@@ -2192,11 +2196,18 @@ begin
       'AStatusLight must be present as a Local on TouchRegEnumParam');
     Assert.IsTrue(PriFound,
       'AStatusPriority must be present as a Local on TouchRegEnumParam');
-    // Fast path: $2E/$2F gate kept program-local enum unchanged.
-    Assert.AreEqual<UInt32>(TLightStatusPrimary, LightId,
-      Format('AStatusLight (TLightStatus) TypeIdx must be $%x (the ' +
-             'program-local enum primary). Got $%x -- did the $2E/$2F ' +
-             'fast path regress?', [TLightStatusPrimary, LightId]));
+    // Fast path ($2E/$2F gate): the program-local enum keeps its real
+    // type id. SELF-DERIVING -- the local's TypeIdx must equal
+    // TLightStatus's own $2A registry id (both the enum primary), looked
+    // up from the same binary rather than pinned as a drift-prone literal.
+    LightExpect := R.FindTypeIdByName('TLightStatus');
+    Assert.AreNotEqual<UInt32>(UInt32(0), LightExpect,
+      'TLightStatus must have a $2A registry id (FindTypeIdByName); got 0.');
+    Assert.AreEqual<UInt32>(LightExpect, LightId,
+      Format('AStatusLight (TLightStatus) TypeIdx must equal TLightStatus''s ' +
+             '$2A registry id $%x. Got $%x -- did the $2E/$2F fast path ' +
+             'regress, or do the REGVAR local and the registry disagree?',
+             [LightExpect, LightId]));
     // The bug fix: cross-unit RTL alias now reads as a full 2-byte
     // value instead of the 1-byte truncation $71 that previously
     // collided with random foreign types.
@@ -2212,7 +2223,7 @@ begin
              'alias and the fixture needs re-pinning.',
              [TThreadPriorityAlias, PriId]));
   finally
-    S.Free;
+    R.Free;
   end;
 end;
 
@@ -2391,37 +2402,31 @@ procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes32;
 // owning class:
 //   * plain proc            => single $00 sentinel
 //   * instance method <C.M> => 2-byte LE = C's $2A raw type id
-// Pins three intra-class+inter-class probes. Expected owner-id
-// values come straight from §4.1's Win32 byte-evidence table;
-// re-pin both together if the linker shifts class ids.
+//
+// SELF-DERIVING: the owner-ref is the owning class's $2A raw id, which
+// is exactly what the reader indexes in FTypeIdByName -- both are the
+// same 2-byte value `Lo | (Hi shl 8)` (RawIdKey / the $28 marker read).
+// So the expected value is looked up from the same binary via
+// FindTypeIdByName(<class>) rather than pinned as a literal that drifts
+// every time DebugTarget.dpr's type registry grows (it had drifted +8
+// then +$14 across earlier fixture additions). This ALSO tests a
+// stronger invariant for free: that the $28 PROC record and the $2A type
+// registry agree on the class id. The only constants left are the
+// drift-free structural facts: a plain proc's $00 and the
+// different-class leakage guard.
 const
-  // Sentinel returned by the helper when the marker isn't found
-  // within the search window (catches a regression that drops the
-  // `$2E` owner-id marker recognition entirely, vs. a regression that
-  // finds it but reads the owner-ref wrong).
-  NotFound       : UInt32 = $FFFFFFFF;
-  // Owner-ref = the class's $2A raw type id. These are program-local
-  // ids ($2E hi byte) that the linker shifts as DebugTarget.dpr grows
-  // (re-pin together when they drift; the §6.37 TRttiPropHost fixture
-  // shifted them +8: $2E21->$2E29, $2ED5->$2EDD, $2EE5->$2EED, in
-  // lockstep with TLightStatus $2E81->$2E89). The byte just BEFORE the
-  // `$2E` marker (the §6.22 "platform anchor", $11 historically) is
-  // per-proc parameter-signature data, NOT a constant -- it drifted to
-  // $19 here -- so the scan no longer keys on it.
-  TDerivedOwner  : UInt32 = $2E29;
-  TPropHostOwner : UInt32 = $2EDD;
-  TStaleSelfOwner: UInt32 = $2EED;
+  NotFound: UInt32 = $FFFFFFFF;
 var
-  S: TRsmScanner;
+  R: TRsmReader;
 
   // Scan EVERY `$28 <NL> <name>` record for AName and return the
   // owner-ref from the FIRST occurrence that actually carries the
   // `<anchor> $2E` marker. A proc can appear more than once in the
   // stream -- a forward / external reference ($80 / $00 sub-form has no
   // address payload and hence no marker; §4.1) can precede the real
-  // definition -- so taking the first byte match (the old FindProcStart)
-  // could land on a markerless ref and wrongly report NotFound. Skipping
-  // markerless occurrences finds the definition regardless of order.
+  // definition -- so taking the first byte match could land on a
+  // markerless ref and wrongly report NotFound. Skipping markerless
+  // occurrences finds the definition regardless of order.
   function OwnerRefByName(const AName: String): UInt32;
   var
     NL: Byte; I, K: NativeInt; OK: Boolean;
@@ -2430,16 +2435,16 @@ var
     Result := NotFound;
     NL := Length(AName);
     if NL = 0 then Exit;
-    for I := 0 to S.Sz - 2 - NL do
+    for I := 0 to R.Scanner.Sz - 2 - NL do
     begin
-      if (S.ByteAt(I) <> $28) or (S.ByteAt(I + 1) <> NL) then Continue;
+      if (R.Scanner.ByteAt(I) <> $28) or (R.Scanner.ByteAt(I + 1) <> NL) then Continue;
       OK := True;
       for K := 1 to NL do
-        if S.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
+        if R.Scanner.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
       if not OK then Continue;
       ScanFrom := I + 2 + NL;
       ScanTo := ScanFrom + 40;
-      if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+      if ScanTo + 4 >= R.Scanner.Sz then ScanTo := R.Scanner.Sz - 4;
       // The owner-ref sits right after the marker's `$2E` byte (the
       // owning class's $2A id HI byte): a single `$00` for a plain
       // proc, or `<lo> $2E` (= $2Exx LE) for an instance method. Key on
@@ -2448,81 +2453,86 @@ var
       // `$2E` after the name is the marker for every DebugTarget proc
       // (the address payload + sub-tag carry none).
       for P := ScanFrom to ScanTo do
-        if S.ByteAt(P) = $2E then
+        if R.Scanner.ByteAt(P) = $2E then
         begin
-          if S.ByteAt(P + 1) = $00 then Exit(0);
-          Exit(UInt32(S.ByteAt(P + 1)) or (UInt32(S.ByteAt(P + 2)) shl 8));
+          if R.Scanner.ByteAt(P + 1) = $00 then Exit(0);
+          Exit(UInt32(R.Scanner.ByteAt(P + 1)) or (UInt32(R.Scanner.ByteAt(P + 2)) shl 8));
         end;
       // markerless occurrence (forward / external ref) -- keep looking.
     end;
   end;
 
-var
-  OwnerRef: UInt32;
+  // Expected owner-ref for an instance method: the owning class's $2A
+  // registry id, looked up from the same binary. Asserts it is non-zero
+  // first, so a registry miss surfaces here rather than as a misleading
+  // "owner-ref must be 0" further down.
+  function ClassRegistryId(const AClassName: String): UInt32;
+  begin
+    Result := R.FindTypeIdByName(AClassName);
+    Assert.AreNotEqual<UInt32>(UInt32(0), Result,
+      AClassName + ' must have a $2A registry id (FindTypeIdByName); ' +
+      'got 0 -- fixture missing or the type-registry scan regressed.');
+  end;
+
 begin
-  S := TRsmScanner.Create;
+  R := TRsmReader.Create;
   try
-    S.LoadFromFile(ResolveExePath(False));
+    R.LoadFromFile(ResolveExePath(False));
 
     // 1. Plain proc: single $00 sentinel.
-    OwnerRef := OwnerRefByName('TargetProcedure');
-    Assert.AreEqual<UInt32>(0, OwnerRef,
+    Assert.AreEqual<UInt32>(0, OwnerRefByName('TargetProcedure'),
       Format('TargetProcedure (plain proc) owner-ref must be $00 ' +
-             'sentinel; got $%x. NotFound=$%x means no $28 occurrence ' +
-             'carried the $11 $2E marker.', [OwnerRef, NotFound]));
+             'sentinel. NotFound=$%x means no $28 occurrence carried the ' +
+             '$2E marker.', [NotFound]));
 
-    // 2. Instance method on TDerived: owner-ref = TDerived's $2A id.
-    OwnerRef := OwnerRefByName('TDerived.TouchSelf');
-    Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
-      Format('TDerived.TouchSelf owner-ref must equal $%x ' +
-             '(TDerived''s $2A raw id); got $%x. Drift means ' +
-             'either the linker shifted class ids or the marker ' +
-             'walk picked the wrong bytes after $11 $2E.',
-             [TDerivedOwner, OwnerRef]));
+    // 2. Instance method on TDerived: owner-ref MUST equal TDerived's own
+    // $2A registry id (the $28 PROC record and the $2A registry agree).
+    Assert.AreEqual<UInt32>(ClassRegistryId('TDerived'),
+      OwnerRefByName('TDerived.TouchSelf'),
+      'TDerived.TouchSelf $28 owner-ref must equal TDerived''s $2A ' +
+      'registry id. A mismatch means the marker walk read the wrong ' +
+      'bytes after $2E, or the PROC record and registry disagree.');
 
-    // 3. Multi-parameter constructor with the long-form middle
-    // section (`04 ?? ?? 02 31 03 11 2E ??`): owner-ref must equal
-    // TPropHost's $2A raw id. Note that TPropHost.GetCalcInt uses
-    // the short-form marker (`04 ?? ?? 9C 02 ?? 2E` — no `$11 $2E`
-    // middle anchor), which this pin intentionally doesn't cover;
-    // re-pinning the short form is deferred until a §6 gap depends
-    // on it.
-    OwnerRef := OwnerRefByName('TPropHost.Create');
-    Assert.AreEqual<UInt32>(TPropHostOwner, OwnerRef,
-      Format('TPropHost.Create owner-ref must equal $%x ' +
-             '(TPropHost''s $2A raw id); got $%x.',
-             [TPropHostOwner, OwnerRef]));
+    // 3. Multi-parameter constructor with the long-form middle section
+    // (`04 ?? ?? 02 31 03 11 2E ??`): owner-ref = TPropHost's $2A id.
+    // (TPropHost.GetCalcInt uses the short-form marker without the
+    // `$11 $2E` middle anchor, which this pin intentionally doesn't
+    // cover; re-pinning the short form is deferred until a §6 gap needs
+    // it.)
+    Assert.AreEqual<UInt32>(ClassRegistryId('TPropHost'),
+      OwnerRefByName('TPropHost.Create'),
+      'TPropHost.Create $28 owner-ref must equal TPropHost''s $2A ' +
+      'registry id.');
 
-    // 4. Different class, different owner-ref (leakage guard).
-    OwnerRef := OwnerRefByName('TStaleSelfHost.Probe');
-    Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
-      Format('TStaleSelfHost.Probe owner-ref must equal $%x; got $%x.',
-             [TStaleSelfOwner, OwnerRef]));
-    Assert.AreNotEqual<UInt32>(TDerivedOwner, OwnerRef,
+    // 4. Different class resolves to its own id, and NOT to TDerived's
+    // (leakage guard -- distinct classes must not share an owner-ref).
+    Assert.AreEqual<UInt32>(ClassRegistryId('TStaleSelfHost'),
+      OwnerRefByName('TStaleSelfHost.Probe'),
+      'TStaleSelfHost.Probe $28 owner-ref must equal TStaleSelfHost''s ' +
+      '$2A registry id.');
+    Assert.AreNotEqual<UInt32>(OwnerRefByName('TDerived.TouchSelf'),
+      OwnerRefByName('TStaleSelfHost.Probe'),
       'TStaleSelfHost.Probe and TDerived.TouchSelf must NOT share an ' +
       'owner-ref (different classes).');
   finally
-    S.Free;
+    R.Free;
   end;
 end;
 
 {$IFDEF CPUX64}
 procedure TRsmScannerTests.TestProcMarkerOwnerRefDecodes64;
-// §6.22 closure pin (Win64). Same shape as the Win32 sibling. The
-// per-proc "anchor" byte just before the `$2E` owner-id marker is NOT
-// constant (§6.22) -- it drifted $3D -> $45 here -- so the scan keys on
-// the `$2E` marker itself (anchor-agnostic), exactly like the Win32
-// sibling. Class ids are per-build and drift in lockstep with the
-// registry (+8 with the §6.37 TRttiPropHost fixture):
-//   * TargetProcedure → $00 sentinel (plain)
-//   * TDerived.TouchSelf → $2E6D owner-ref (was $2E65)
-//   * TStaleSelfHost.Probe → $2FE9 owner-ref (was $2FE1)
+// §6.22 closure pin (Win64). Same shape as the Win32 sibling, and
+// SELF-DERIVING the same way: the $28 PROC owner-ref must equal the
+// owning class's $2A registry id (FindTypeIdByName), so no per-build
+// literal id is pinned. The per-proc "anchor" byte before the `$2E`
+// marker is NOT constant (§6.22), so the scan keys on the `$2E` marker
+// itself (anchor-agnostic). Win64 class ids live in the $2Fxx/$2Exx
+// range and the marker walk reads the same 2-byte LE value the registry
+// stores.
 const
-  NotFound       : UInt32 = $FFFFFFFF;
-  TDerivedOwner  : UInt32 = $2E6D;
-  TStaleSelfOwner: UInt32 = $2FE9;
+  NotFound: UInt32 = $FFFFFFFF;
 var
-  S: TRsmScanner;
+  R: TRsmReader;
 
   // Anchor-agnostic owner-ref scan (see the Win32 sibling): for every
   // `$28 <NL> <name>` record matching AName, return the owner-ref from
@@ -2538,52 +2548,58 @@ var
     Result := NotFound;
     NL := Length(AName);
     if NL = 0 then Exit;
-    for I := 0 to S.Sz - 2 - NL do
+    for I := 0 to R.Scanner.Sz - 2 - NL do
     begin
-      if (S.ByteAt(I) <> $28) or (S.ByteAt(I + 1) <> NL) then Continue;
+      if (R.Scanner.ByteAt(I) <> $28) or (R.Scanner.ByteAt(I + 1) <> NL) then Continue;
       OK := True;
       for K := 1 to NL do
-        if S.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
+        if R.Scanner.ByteAt(I + 1 + K) <> Byte(AName[K]) then begin OK := False; Break; end;
       if not OK then Continue;
       ScanFrom := I + 2 + NL;
       ScanTo := ScanFrom + 40;
-      if ScanTo + 4 >= S.Sz then ScanTo := S.Sz - 4;
+      if ScanTo + 4 >= R.Scanner.Sz then ScanTo := R.Scanner.Sz - 4;
       for P := ScanFrom to ScanTo do
-        if S.ByteAt(P) = $2E then
+        if R.Scanner.ByteAt(P) = $2E then
         begin
-          if S.ByteAt(P + 1) = $00 then Exit(0);
-          Exit(UInt32(S.ByteAt(P + 1)) or (UInt32(S.ByteAt(P + 2)) shl 8));
+          if R.Scanner.ByteAt(P + 1) = $00 then Exit(0);
+          Exit(UInt32(R.Scanner.ByteAt(P + 1)) or (UInt32(R.Scanner.ByteAt(P + 2)) shl 8));
         end;
     end;
   end;
 
-var
-  OwnerRef: UInt32;
+  function ClassRegistryId(const AClassName: String): UInt32;
+  begin
+    Result := R.FindTypeIdByName(AClassName);
+    Assert.AreNotEqual<UInt32>(UInt32(0), Result,
+      AClassName + ' must have a $2A registry id (Win64); got 0 -- ' +
+      'fixture missing or the type-registry scan regressed.');
+  end;
+
 begin
-  S := TRsmScanner.Create;
+  R := TRsmReader.Create;
   try
-    S.LoadFromFile(ResolveExePath(True));
+    R.LoadFromFile(ResolveExePath(True));
 
-    OwnerRef := OwnerRefByName('TargetProcedure');
-    Assert.AreEqual<UInt32>(0, OwnerRef,
-      Format('TargetProcedure (plain, Win64) owner-ref must be $00; ' +
-             'got $%x. NotFound=$%x means no $28 occurrence carried the ' +
-             '$2E marker.', [OwnerRef, NotFound]));
+    Assert.AreEqual<UInt32>(0, OwnerRefByName('TargetProcedure'),
+      Format('TargetProcedure (plain, Win64) owner-ref must be $00. ' +
+             'NotFound=$%x means no $28 occurrence carried the $2E marker.',
+             [NotFound]));
 
-    OwnerRef := OwnerRefByName('TDerived.TouchSelf');
-    Assert.AreEqual<UInt32>(TDerivedOwner, OwnerRef,
-      Format('TDerived.TouchSelf (Win64) owner-ref must equal $%x; got $%x.',
-             [TDerivedOwner, OwnerRef]));
+    Assert.AreEqual<UInt32>(ClassRegistryId('TDerived'),
+      OwnerRefByName('TDerived.TouchSelf'),
+      'TDerived.TouchSelf $28 owner-ref must equal TDerived''s $2A ' +
+      'registry id (Win64).');
 
-    OwnerRef := OwnerRefByName('TStaleSelfHost.Probe');
-    Assert.AreEqual<UInt32>(TStaleSelfOwner, OwnerRef,
-      Format('TStaleSelfHost.Probe (Win64) owner-ref must equal $%x; got $%x.',
-             [TStaleSelfOwner, OwnerRef]));
-    Assert.AreNotEqual<UInt32>(TDerivedOwner, OwnerRef,
+    Assert.AreEqual<UInt32>(ClassRegistryId('TStaleSelfHost'),
+      OwnerRefByName('TStaleSelfHost.Probe'),
+      'TStaleSelfHost.Probe $28 owner-ref must equal TStaleSelfHost''s ' +
+      '$2A registry id (Win64).');
+    Assert.AreNotEqual<UInt32>(OwnerRefByName('TDerived.TouchSelf'),
+      OwnerRefByName('TStaleSelfHost.Probe'),
       'TStaleSelfHost.Probe and TDerived.TouchSelf must NOT share an ' +
       'owner-ref on Win64 either.');
   finally
-    S.Free;
+    R.Free;
   end;
 end;
 {$ENDIF}
