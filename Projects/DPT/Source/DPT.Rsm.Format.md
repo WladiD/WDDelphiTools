@@ -618,10 +618,10 @@ $20  <NL: u8>  <Name>  <typeinfo + BPRel-offset payload>
 Decoded by [`HandleLocalRecord`](DPT.Rsm.Scanner.pas). The
 payload starts at `P + 2 + NL`. Three shapes:
 
-**Shape A — structured-type id with BPRel offset:**
+**Shape A — 2-byte type id with BPRel offset:**
 
 ```
-... <typeId-lo at +3> <Hi at +4 in {$2E, $2F}> <ofs0 at +5> [<ofs1 at +6>]
+... <typeId-lo at +3> <Hi at +4 in {$2E, $2F, $1E}> <ofs0 at +5> [<ofs1 at +6>]
 ```
 
 If the LSB of `byte5` is 0, BPRel offset is `ShortInt(byte5) div 2`
@@ -629,6 +629,23 @@ If the LSB of `byte5` is 0, BPRel offset is `ShortInt(byte5) div 2`
 `(SmallInt(byte5 or (byte6 shl 8)) - 1) div 4` (wide form).
 
 Type id is `byte3 | (byte4 shl 8)`.
+
+The Hi byte at `+4` is the 2-byte-id marker (matching the §4.4 width
+rule: `+4 ∈ {$2E, $2F, $1E}` ⇒ 2 bytes). `$2E`/`$2F` are the
+same-compilation 2-byte type refs; **`$1E` is the per-(unit,type)
+CROSS-UNIT alias** — both for records imported from another unit
+(§4.2/§4.15) and for scope-local enums (§4.4 hi-byte note). `$1E` was
+admitted to this gate to fix a pointer-to-cross-unit-record local
+(`CxPtr: PComplexRec`, payload `66 00 00 B1 1E F8 63`): its alias Hi
+byte `$1E` was otherwise read by Shape B as the low byte of a wide
+offset (`$F81E` → BPRel **−504**, an out-of-frame slot below ESP)
+because the `SCOPE_END` (`$63`) terminator at `+6` made the malformed
+wide shape validate. Under Shape A the offset is read at `+5` (`$F8` →
+`ShortInt(−8) div 2` = **−4**, the pointer slot just below EBP). `$1E`
+can never be a 1-byte-type local's offset-low byte: a single offset is
+negative (byte `$80..$FE`) and a wide offset's low byte is odd, but
+`$1E` = 30 is even and positive. Pinned by
+[`Test.DPT.Rsm.Reader.TestComplexRecLayoutAndPointerLocalOffset32`](../Test/Test.DPT.Rsm.Reader.pas).
 
 **Shape B — primitive-type id (single byte) with BPRel offset:**
 
@@ -639,34 +656,33 @@ The decoder looks at what follows the candidate offset byte:
 * Otherwise if `byte6 ∈ {LOCAL_TAG, PROC_TAG, SCOPE_END}` → bytes 4..5
   form the wide offset, type id is `byte3`.
 
-**Shape C — 2-byte CROSS-UNIT type alias with BPRel offset at +5
-(§6.36 closure):**
-
-```
-$66 $00 $00  <aliasLo at +3>  <aliasHi at +4, NOT $2E/$2F>  <ofs at +5> [<+6>]  <terminator>
-```
-
-A local whose declared type is a **record (or other structured type)
-imported from another unit** carries a linker-minted 2-byte per-binary
-type alias (the §4.2 / §4.15 unreliable id). Its Hi byte is **not**
-`$2E`/`$2F`, so Shape A's `$2E/$2F` gate misses and Shape B reads the
-alias-Hi byte (`+4`) as the offset and fails — the real BPRel offset
-sits **one byte later, at `+5`** (single or wide sub-form), with a valid
-continuation tag immediately after it. This is the offset-side analogue
-of the §6.15 type-id structural lookahead: it is tried **only** when
-Shapes A/B left the synthesized fallback, and accepted only when the
-decoded offset is **non-positive** (locals live below EBP) AND
-`IsLocalOffsetTerminatorAt` confirms the post-offset byte opens a real
-record (`$20`/`$28`/`$63`/`$22`/`$21`/`$25`/`$03`/`$2A`, or `$9C $17`).
-Type id is `aliasLo | (aliasHi shl 8)`.
-
-Concrete Win32 evidence — `DebugTarget.RecordLocalNestedProbe`'s
-`AdrLoc: DebugTarget.RecTypes.TXAdresse` (a 153-byte cross-unit record):
-payload `66 00 00 A5 1E 9D FD 63` → alias `$1EA5` at `+3..+4`, wide
-offset `$FD9D` at `+5..+6` = `(SmallInt($FD9D) − 1) div 4` = **−153**
-(= −$99, the record at the frame bottom), `SCOPE_END` (`$63`) at `+7`.
-Pinned by
+The cross-unit record/enum alias's Hi byte is `$1E`, so it now decodes
+through Shape A above. `DebugTarget.RecordLocalNestedProbe`'s
+`AdrLoc: DebugTarget.RecTypes.TXAdresse` (a 153-byte cross-unit record)
+is the canonical example: payload `66 00 00 A5 1E 9D FD 63` → alias
+`$1EA5` at `+3..+4`, wide offset `$FD9D` at `+5..+6` =
+`(SmallInt($FD9D) − 1) div 4` = **−153** (= −$99, the record at the
+frame bottom), `SCOPE_END` (`$63`) at `+7`. Pinned by
 [`Test.DPT.Rsm.Reader.TestCrossUnitRecordLocalOffsetAndLayout32`](../Test/Test.DPT.Rsm.Reader.pas).
+
+**Shape C — 2-byte alias fallback with BPRel offset at +5 (§6.36
+closure):**
+
+```
+$66 $00 $00  <aliasLo at +3>  <aliasHi at +4, NOT $2E/$2F/$1E>  <ofs at +5> [<+6>]  <terminator>
+```
+
+A safety net for any future cross-unit alias whose Hi byte is **not**
+the documented `$2E`/`$2F`/`$1E` (so Shape A's gate misses and Shape B
+would read the alias-Hi byte at `+4` as the offset): the real BPRel
+offset sits **one byte later, at `+5`** (single or wide sub-form). It is
+tried **only** when Shapes A/B left the synthesized fallback, and
+accepted only when the decoded offset is **non-positive** (locals live
+below EBP) AND `IsLocalOffsetTerminatorAt` confirms the post-offset byte
+opens a real record (`$20`/`$28`/`$63`/`$22`/`$21`/`$25`/`$03`/`$2A`, or
+`$9C $17`). Type id is `aliasLo | (aliasHi shl 8)`. With `$1E` now in
+Shape A's gate, every cross-unit local observed so far decodes via
+Shape A; this fallback no longer fires for the controlled fixtures.
 
 When none of A/B/C recognises, `Loc.BpOffset` keeps its synthesized
 fallback `-10000 - (FScanLocalIdx * 4)`. The
@@ -1875,23 +1891,50 @@ confirmed (see §4.9 and
 > `DPT.Debugger.EvaluateVariable` close it, both unique-match-guarded
 > like §6.18/§6.19:
 >
-> 1. **First hop (record local).** When the first segment is a local
->    whose id resolves to no record AND the global-proximity fallback
->    can't apply (locals have no `$20` file offset),
->    `FindRecordsByMemberName(Segments[1])` returns the records that
->    declare the accessed field name; if exactly one is a record, it
->    is the local's type. Recovers `AdrLoc` → `TXAdresse` via the
->    field `Anschrift`.
+> 1. **First hop (record local — inline OR pointer).** When the first
+>    segment is a local whose id resolves to no record AND the
+>    global-proximity fallback can't apply (locals have no `$20` file
+>    offset), `FindRecordsByMemberName(Segments[1])` returns the records
+>    that declare the accessed field name; if exactly one is a record, it
+>    is the local's (pointed-to) type. Recovers `AdrLoc` → `TXAdresse`
+>    via the field `Anschrift`.
+>    A **typed-pointer** first segment (`CxPtr: PComplexRec := @CxLoc`)
+>    resolves the same record TYPE here, but its slot holds a *pointer to*
+>    the record, not the record inline — so the record-hop base must be
+>    `*Addr`, not `Addr`. The cross-unit pointer alias is the same
+>    unresolvable §4.2 per-proc id (`CxPtr`'s `$1EB1` ≠ `PComplexRec`'s
+>    registry id `$8E80`), so there is no type-based "this is a pointer"
+>    signal. The walk **probes at runtime**: gated to `FirstSegIsLocal`
+>    (a record-typed *global* is always inline at its VA, and some have a
+>    live pointer as their FIRST field — e.g. `GGlobalPrim.FAnsi`, an
+>    `AnsiString` — whose readable target would otherwise trip the probe),
+>    if the slot contents form an address from which the ENTIRE record
+>    reads back, the slot is a pointer and `FieldAddr` is set to `*Addr`.
+>    An inline record local's first-field bytes (`CxLoc.CxR1.C1Int =
+>    $C1C1C1C1`, or `AdrLoc.Name`'s shortstring length+chars) are
+>    virtually never a readable record-sized region, so the inline case
+>    keeps `Addr`. Pinned by
+>    `Test.DPT.MCP.Server.TestMcpEvaluateComplexRecordAndTypedPointer`
+>    (`CxPtr.CxR1.C1Int` etc. must match the `CxLoc.*` reads).
 > 2. **Nested hop (inline record member).** When a member resolved
 >    via the record-hop branch carries no type id (`TypeIdx = 0`,
 >    `PointerTargetTypeIdx = 0`) yet the walk continues, it must be a
 >    nested inline record. `FindRecordBySizeAndMemberName(Member.Size,
->    Segments[I+1])` matches on the member's `Size` (which equals the
->    nested record's total byte size — `Anschrift.Size = 112` =
->    `TXAnschrift`'s `61 + 51`) AND the next field name; a unique hit
->    primes the next record-hop. `FieldAddr` already points inline at
->    the nested record's base (the record-hop advanced it by
->    `Member.Offset`, no deref), so only the context needs priming.
+>    Segments[I+1])` matches on the member's `Size` AND the next field
+>    name; a unique hit primes the next record-hop. The size match is
+>    **alignment-padding-tolerant**: the member's slot size is the gap to
+>    the next field in the PARENT, which can exceed the nested record's
+>    own extent by up to 7 bytes of padding the parent inserts to align a
+>    following field (`TComplexRec.CxR2`'s slot is 12 though `TCxRec2` is
+>    8 bytes, because the Int64-bearing `CxR3` must start 8-aligned). The
+>    match accepts `nestedExtent <= slotSize` with `slotSize - nestedExtent
+>    < 8`; the unique member-name match + `MatchCnt = 1` guard still
+>    protect against a wrong-record pick. (`TXAdresse.Anschrift.Size = 112`
+>    = `TXAnschrift`'s `61 + 51` exactly — the pre-padding shortstring
+>    fixture that masked this until the aligned `TComplexRec` surfaced it.)
+>    `FieldAddr` already points inline at the nested record's base (the
+>    record-hop advanced it by `Member.Offset`, no deref), so only the
+>    context needs priming.
 >
 > Note the controlled DebugTarget fixture also surfaced the §6.36
 > offset-side decode (Shape C in §4.4): `AdrLoc`'s frame offset itself
@@ -3111,7 +3154,17 @@ leakage/non-vacuity: a cross-unit homonym still survives).
 > type-id-less record local, nested-hop `FindRecordBySizeAndMemberName`
 > for the inline nested record), folded into §4.4 + the §4.14 consumer
 > note and pinned by `TestMcpEvaluateCrossUnitRecordLocalDottedWalk` +
-> `TestCrossUnitRecordLocalOffsetAndLayout32`. **§6.36 manifestation A**
+> `TestCrossUnitRecordLocalOffsetAndLayout32`. The same manifestation was
+> later extended to a cross-unit **pointer-to-record** local
+> (`CxPtr: PComplexRec`) and a deeper aggregate with alignment padding
+> (`TComplexRec` embedding three records): three more decode fixes landed
+> together — (a) §4.4 Shape A now admits the `$1E` 2-byte-alias Hi byte
+> (a pointer local's offset was decoding to a bogus out-of-frame `-504`);
+> (b) the §4.14 nested-record bridge tolerates alignment-padding slack
+> (`slotSize - nestedExtent < 8`, not exact equality); (c) the first-hop
+> bridge derefs a typed-pointer first segment at runtime. Pinned by
+> `TestMcpEvaluateComplexRecordAndTypedPointer` +
+> `TestComplexRecLayoutAndPointerLocalOffset32`. **§6.36 manifestation A**
 > (an *interface*-typed local auto-detecting as an unrelated record) is now
 > **closed** — the layout-gated live recovery in `EvaluateVariable` /
 > `TryRecoverReferenceType` names the runtime implementing class instead of

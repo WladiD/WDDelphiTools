@@ -3,7 +3,7 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes, DebugTarget.IfaceProbe;
+uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes, DebugTarget.IfaceProbe, DebugTarget.ComplexRec;
 var
   GGlobalInt: Integer = Integer($87654321);
   GGlobalString: string = 'Hello Global';
@@ -1051,6 +1051,33 @@ begin
           GGlobalExtPubPropHost.ExtPubPlain, ' ',
           GGlobalExtPubPropHost.ExtPubText); Flush(Output);
 end;
+// Cross-unit complex-record fixture (records declared in
+// DebugTarget.ComplexRec). A LOCAL of TComplexRec exercises the
+// record-direct dotted walk; a LOCAL PComplexRec pointing at it exercises
+// the typed-pointer (deref-first) dotted walk. Both types are cross-unit
+// (the §4.2/§4.15 unreliable-alias regime). Placed AFTER the last BP marker
+// per the rsm-expert BP-line discipline. Sentinels are distinct per field so
+// a wrong offset / missing deref surfaces as a visibly wrong value.
+procedure ComplexRecLocalProbe;
+var
+  CxLoc : TComplexRec;
+  CxPtr : PComplexRec;
+begin
+  CxLoc := Default(TComplexRec);
+  CxLoc.CxR1.C1Int   := Integer($C1C1C1C1);
+  CxLoc.CxR2.C2Int   := Integer($C2C2C2C2);
+  CxLoc.CxR2.C2Word  := $1234;
+  CxLoc.CxR3.C3Int64 := Int64($C3C3C3C3C3C3C3C3);
+  CxLoc.CxR3.C3Byte  := $C4;
+  CxLoc.CxR3.C3Bool  := True;
+  CxLoc.CxTag        := Integer($CACACACA);
+  CxLoc.CxName       := 'ComplexName';
+  CxPtr := @CxLoc;
+  // Reference both CxLoc and CxPtr on the BP line so the debug build keeps
+  // them live (the pointer must hold @CxLoc, not a stale register).
+  Writeln('ComplexRec ', CxLoc.CxR1.C1Int, ' ', CxPtr^.CxTag, ' ',
+    CxLoc.CxName); Flush(Output); // complex-rec bp here
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1271,6 +1298,9 @@ begin
     InterfaceLocalProbe;
     // §6.36: reach the complex record-local probe (TAdresse-like shape).
     RecordLocalNestedProbe;
+    // Cross-unit complex-record + typed-pointer probe (TComplexRec /
+    // PComplexRec from DebugTarget.ComplexRec).
+    ComplexRecLocalProbe;
     // §6.35: const-string register params read at a post-clobber PC.
     GGlobalConstStrParamHost := TConstStrParamHost.Create;
     GGlobalConstStrParamHost.FMarker := Integer($5A5A5A5A);

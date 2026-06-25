@@ -103,6 +103,8 @@ type
     [Test]
     procedure TestMcpEvaluateAmbiguousMemberNameDisambiguation;
     [Test]
+    procedure TestMcpEvaluateComplexRecordAndTypedPointer;
+    [Test]
     procedure TestMcpEvaluateMultiLevelInheritedField;
     [Test]
     procedure TestMcpEvaluateRtlInheritedField;
@@ -2940,6 +2942,120 @@ begin
       'record TAmbig619Sibling''s poison sentinel $DEADBEEF -- ' +
       'that would mean the alias->target binding picked the wrong ' +
       'record. Got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   Cross-unit complex record evaluated TWO ways at the same
+///   breakpoint: directly through a record LOCAL (<c>CxLoc</c>) and
+///   through a typed pointer LOCAL (<c>CxPtr: PComplexRec := @CxLoc</c>).
+///   <c>TComplexRec</c> / <c>PComplexRec</c> live in the separate unit
+///   <c>DebugTarget.ComplexRec</c>, so both locals are cross-unit types
+///   (the §4.2/§4.15 unreliable-alias regime; same trigger as §6.36's
+///   <c>AdrLoc</c>). <c>TComplexRec</c> embeds three records of 1/2/3
+///   mixed-type fields plus its own <c>CxTag</c> + <c>CxName</c>.
+/// </summary>
+/// <remarks>
+///   Record-direct walk (<c>CxLoc.CxR2.C2Word</c> etc.) exercises the
+///   §6.36 first-hop name fallback + the nested-record bridge across two
+///   levels (TComplexRec -> TCxRecN -> primitive).
+///
+///   The typed-pointer walk (<c>CxPtr.CxR1.C1Int</c> etc.) is the new
+///   dimension: the FIRST dotted segment is itself a pointer-to-record,
+///   so the walker must DEREFERENCE the slot once before record-hopping
+///   into the pointed-to record. The §6.18/§6.19 deref handling only
+///   covers a pointer-to-record CLASS FIELD reached mid-chain -- a
+///   first-segment pointer LOCAL is a distinct path. Both halves must
+///   read the SAME sentinels, proving the pointer deref lands on CxLoc's
+///   base rather than reinterpreting the pointer slot as the record.
+///
+///   Win32-only target like the sibling §6.18/§6.19 pins (§6.17 Win64
+///   proc-boundary off-by-one prevents reliable Win64 live debugging).
+/// </remarks>
+procedure TMcpServerTests.TestMcpEvaluateComplexRecordAndTypedPointer;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 1079);
+  try
+    // ---- Record-direct: CxLoc is a TComplexRec stack local ----
+
+    // CxR1 (1 field): C1Int = $C1C1C1C1. Two-level record-hop
+    // (TComplexRec -> TCxRec1 -> C1Int).
+    Line := Fixture.Eval('CxLoc.CxR1.C1Int', 'int');
+    Assert.IsTrue(Line.Contains('0xC1C1C1C1'),
+      'CxLoc.CxR1.C1Int must read $C1C1C1C1, got: ' + Line);
+
+    // CxR2 (2 fields): C2Int = $C2C2C2C2 at offset 0 of TCxRec2.
+    Line := Fixture.Eval('CxLoc.CxR2.C2Int', 'int');
+    Assert.IsTrue(Line.Contains('0xC2C2C2C2'),
+      'CxLoc.CxR2.C2Int must read $C2C2C2C2, got: ' + Line);
+
+    // C2Word = $1234 = 4660 at offset 4 of TCxRec2 (proves the
+    // record-to-record offset, not an offset-0 coincidence).
+    Line := Fixture.Eval('CxLoc.CxR2.C2Word', 'int');
+    Assert.IsTrue(Line.Contains('4660'),
+      'CxLoc.CxR2.C2Word must read 4660 ($1234), got: ' + Line);
+
+    // CxR3 (3 fields): C3Int64 = $C3C3C3C3C3C3C3C3 at offset 0.
+    Line := Fixture.Eval('CxLoc.CxR3.C3Int64', 'int64');
+    Assert.IsTrue(Line.Contains('0xC3C3C3C3C3C3C3C3'),
+      'CxLoc.CxR3.C3Int64 must read $C3C3C3C3C3C3C3C3, got: ' + Line);
+
+    // C3Byte = $C4 = 196 at offset 8 (width-clamped read; an unclamped
+    // 4-byte read would pull C3Bool's byte into the result).
+    Line := Fixture.Eval('CxLoc.CxR3.C3Byte', 'int');
+    Assert.IsTrue(Line.Contains('196'),
+      'CxLoc.CxR3.C3Byte must read 196 ($C4), got: ' + Line);
+
+    // C3Bool = True at offset 9.
+    Line := Fixture.Eval('CxLoc.CxR3.C3Bool', 'bool');
+    Assert.IsTrue(Line.Contains('True'),
+      'CxLoc.CxR3.C3Bool must read True, got: ' + Line);
+
+    // TComplexRec's own trailing fields, past all three nested records.
+    Line := Fixture.Eval('CxLoc.CxTag', 'int');
+    Assert.IsTrue(Line.Contains('0xCACACACA'),
+      'CxLoc.CxTag must read $CACACACA, got: ' + Line);
+
+    Line := Fixture.Eval('CxLoc.CxName', 'shortstring');
+    Assert.IsTrue(Line.Contains('ComplexName'),
+      'CxLoc.CxName must read "ComplexName", got: ' + Line);
+
+    // ---- Typed pointer: CxPtr: PComplexRec := @CxLoc ----
+    // Same sentinels via the pointer must match the record-direct reads.
+    // The first segment is a pointer-to-record, so the walk must deref
+    // the slot once before record-hopping into TComplexRec.
+
+    Line := Fixture.Eval('CxPtr.CxR1.C1Int', 'int');
+    Assert.IsTrue(Line.Contains('0xC1C1C1C1'),
+      'CxPtr.CxR1.C1Int (typed-pointer deref) must read $C1C1C1C1, ' +
+      'got: ' + Line);
+
+    Line := Fixture.Eval('CxPtr.CxR2.C2Word', 'int');
+    Assert.IsTrue(Line.Contains('4660'),
+      'CxPtr.CxR2.C2Word (typed-pointer deref) must read 4660 ($1234), ' +
+      'got: ' + Line);
+
+    Line := Fixture.Eval('CxPtr.CxR3.C3Int64', 'int64');
+    Assert.IsTrue(Line.Contains('0xC3C3C3C3C3C3C3C3'),
+      'CxPtr.CxR3.C3Int64 (typed-pointer deref) must read ' +
+      '$C3C3C3C3C3C3C3C3, got: ' + Line);
+
+    Line := Fixture.Eval('CxPtr.CxTag', 'int');
+    Assert.IsTrue(Line.Contains('0xCACACACA'),
+      'CxPtr.CxTag (typed-pointer deref) must read $CACACACA, got: ' + Line);
+
+    Line := Fixture.Eval('CxPtr.CxName', 'shortstring');
+    Assert.IsTrue(Line.Contains('ComplexName'),
+      'CxPtr.CxName (typed-pointer deref) must read "ComplexName", ' +
+      'got: ' + Line);
   finally
     Fixture.Free;
   end;

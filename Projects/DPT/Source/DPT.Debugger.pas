@@ -3808,6 +3808,46 @@ begin
         begin
           PrevContextIdx := GStructIdx;
           ContextIsRecord := True;
+          // First-segment pointer-to-record deref. The priming above
+          // resolves the record TYPE, but for a typed-pointer first
+          // segment (e.g. <CxPtr: PComplexRec := @CxLoc>) the slot holds
+          // a POINTER to the record, not the record inline -- so the
+          // record-hop base must be *Addr, not Addr. A cross-unit pointer
+          // local carries an unreliable per-proc type id (§4.2) -- its id
+          // does NOT key into the type registry (CxPtr's $B1 is not
+          // PComplexRec's registry id $8E80) -- so there is no type-based
+          // "this is a pointer" signal; probe at runtime instead: if the
+          // slot contents (*Addr = ProbeInstancePtr) form an address from
+          // which the ENTIRE record reads back, the slot is a pointer --
+          // deref it. An inline record's first-field bytes (CxLoc.CxR1
+          // .C1Int = $C1C1C1C1, or AdrLoc.Name's shortstring length+chars)
+          // are virtually never a readable record-sized region, so the
+          // inline case keeps Addr as the base.
+          //
+          // Gated to FirstSegIsLocal: a record-typed GLOBAL is always
+          // inline (its VA IS the record base), and some such globals have
+          // a live pointer as their FIRST field (e.g. GGlobalPrim.FAnsi,
+          // an AnsiString) whose readable target would otherwise trip the
+          // probe. Locals are where pointer-to-record first segments occur
+          // and where the inline first-field bytes are reliably non-address
+          // sentinels. Register-passed first hops already hold the instance
+          // pointer, so skip them.
+          if FirstSegIsLocal and (not FirstHopHasInstancePtr) and
+             (ProbeInstancePtr <> 0) then
+          begin
+            var RecExtent: NativeUInt := 0;
+            for var Rm: Integer := 0 to
+                FLocalsReader.Classes[GStructIdx].Members.Count - 1 do
+            begin
+              var E: NativeUInt :=
+                NativeUInt(FLocalsReader.Classes[GStructIdx].Members[Rm].Offset) +
+                FLocalsReader.Classes[GStructIdx].Members[Rm].Size;
+              if E > RecExtent then RecExtent := E;
+            end;
+            if (RecExtent > 0) and (Length(ReadProcessMemory(
+                 Pointer(ProbeInstancePtr), RecExtent)) = Integer(RecExtent)) then
+              FieldAddr := Pointer(ProbeInstancePtr);
+          end;
         end;
       end;
       for I := 1 to High(Segments) do

@@ -1203,7 +1203,18 @@ begin
       if Ext > Total then Total := Ext;
       if SameText(Info.Members[M].Name, AFieldName) then HasField := True;
     end;
-    if HasField and (Total = ARecordSize) then
+    // ARecordSize is the member's SLOT size in the parent -- the gap to
+    // the next field -- which can exceed the nested record's own extent
+    // (Total) by up to 7 bytes of alignment padding the PARENT inserts to
+    // align a following field. E.g. TComplexRec.CxR2's slot is 12 because
+    // the next field CxR3 embeds an Int64 and must start 8-aligned, even
+    // though TCxRec2 is only 8 bytes. A pre-padding fixture (TXAdresse:
+    // shortstrings, no alignment slack) matched with Total = ARecordSize
+    // exactly, which masked this. Accept Total <= ARecordSize when the
+    // slack is pure alignment padding (< 8, the largest standard Delphi
+    // record alignment); the member-name match + the MatchCnt = 1
+    // unique-match guard still protect against a wrong-record pick.
+    if HasField and (Total <= ARecordSize) and (ARecordSize - Total < 8) then
     begin
       if MatchCnt = 0 then FoundIdx := I;
       Inc(MatchCnt);

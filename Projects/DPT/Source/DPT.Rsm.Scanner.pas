@@ -1050,7 +1050,22 @@ begin
   else if PayloadStart + 5 < FSz then
   begin
     var Byte4: Byte := ByteAt(PayloadStart + 4);
-    if (Byte4 = $2E) or (Byte4 = $2F) then
+    // 2-byte type id at +3..+4 (offset at +5). The Hi byte at +4 marks
+    // the width: $2E/$2F are the same-compilation 2-byte type refs, and
+    // $1E is the per-(unit,type) cross-unit alias (records imported from
+    // another unit -- §4.2/§4.15 -- AND scope-local enums; see §4.4's
+    // "hi byte at +4 is one of $2E,$2F,$1E -> id is 2 bytes" rule). $1E
+    // was previously NOT gated here, so a cross-unit pointer-to-record
+    // local like <CxPtr: PComplexRec> (payload 66 00 00 B1 1E F8 63) fell
+    // through to Shape B below, which read the alias Hi byte $1E as the
+    // low byte of a wide offset ($F81E -> -504, an out-of-frame slot)
+    // because the SCOPE_END terminator at +6 made the malformed wide
+    // shape validate. Treating $1E as a 2-byte-type marker decodes the
+    // offset at +5 ($F8 -> ShortInt(-8) div 2 = -4) like CxLoc/AdrLoc.
+    // ($1E can never be a 1-byte-type local's offset-low byte: a single
+    // offset is negative, so its byte is $80..$FE, and a wide offset's
+    // low byte is odd -- $1E = 30 is even and positive.)
+    if (Byte4 = $2E) or (Byte4 = $2F) or (Byte4 = $1E) then
     begin
       var Byte5: Byte := ByteAt(PayloadStart + 5);
       if (Byte5 and 1) = 1 then

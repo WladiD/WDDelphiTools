@@ -182,6 +182,28 @@ type
     [Test]
     procedure TestCrossUnitRecordLocalOffsetAndLayout32;
 
+    /// <summary>
+    ///   Reader-level pin for the cross-unit complex-record fixture
+    ///   (TComplexRec / PComplexRec in DebugTarget.ComplexRec), covering
+    ///   two decode fixes:
+    ///   <list type="number">
+    ///     <item>Nested-record layout: TComplexRec's CxR2 SLOT is 12
+    ///       bytes (the parent pads to 8-align the Int64-bearing CxR3)
+    ///       while TCxRec2's own extent is only 8 -- the alignment slack
+    ///       that the §4.14 nested-record bridge must tolerate
+    ///       (FindRecordBySizeAndMemberName: Total &lt;= slot, slack &lt; 8).
+    ///       Leakage guard: a slot size with &gt;= 8 slack must NOT match.</item>
+    ///     <item>§4.4 Shape-A offset decode: the cross-unit POINTER local
+    ///       <c>CxPtr: PComplexRec</c> carries a 2-byte alias whose Hi
+    ///       byte is $1E; its BPRel offset must decode to -4 (the pointer
+    ///       sits just below EBP), NOT the -504 that Shape B produced
+    ///       before $1E was admitted as a 2-byte-type marker. CxLoc (the
+    ///       inline record) stays at -80.</item>
+    ///   </list>
+    /// </summary>
+    [Test]
+    procedure TestComplexRecLayoutAndPointerLocalOffset32;
+
     // §6.36-A static interface route: a user interface (IDbgRecoverable,
     // declared in DebugTarget.IfaceProbe) is discovered as an skInterface
     // struct synthesized from its $2A registry entry (no VMT trailer / no
@@ -773,6 +795,82 @@ begin
       Assert.AreNotEqual<UInt32>(DwordUse, DwordCanon,
         'the alias''s own $2A DWORD token must differ from the use-site ' +
         'token -- confirming name-keyed token lookup is ambiguous for aliases');
+  finally
+    R.Free;
+  end;
+end;
+
+procedure TRsmReaderTests.TestComplexRecLayoutAndPointerLocalOffset32;
+
+  function MemberByName(const AInfo: TRsmClassInfo;
+    const AName: String): TRsmClassMember;
+  var
+    M: Integer;
+  begin
+    Result := Default(TRsmClassMember);
+    for M := 0 to AInfo.Members.Count - 1 do
+      if SameText(AInfo.Members[M].Name, AName) then
+        Exit(AInfo.Members[M]);
+  end;
+
+  function LocalByName(const AInfo: TRsmProc; const AName: String): TRsmLocal;
+  var
+    L: Integer;
+  begin
+    Result := Default(TRsmLocal);
+    for L := 0 to AInfo.Locals.Count - 1 do
+      if SameText(AInfo.Locals[L].Name, AName) then
+        Exit(AInfo.Locals[L]);
+  end;
+
+var
+  R       : TRsmReader;
+  Ci, Pi  : Integer;
+  Cx      : TRsmClassInfo;
+  Prc     : TRsmProc;
+begin
+  R := TRsmReader.Create;
+  try
+    R.LoadFromFile(ResolveExePath(False));
+
+    // (1) Aggregate layout. CxR2's SLOT is 12 (TCxRec2 is 8 bytes, the
+    // parent inserts 4 alignment-padding bytes so the Int64-bearing CxR3
+    // starts 8-aligned at offset 16). This is the slack the nested-record
+    // bridge must tolerate.
+    Ci := R.FindClassByName('TComplexRec');
+    Assert.IsTrue(Ci >= 0, 'TComplexRec record not discovered');
+    Cx := R.Classes[Ci];
+    Assert.AreEqual<Integer>(Ord(skRecord), Ord(Cx.Kind), 'TComplexRec must be a record');
+    Assert.AreEqual<UInt32>(0,  MemberByName(Cx, 'CxR1').Offset, 'CxR1 offset');
+    Assert.AreEqual<UInt32>(4,  MemberByName(Cx, 'CxR2').Offset, 'CxR2 offset');
+    Assert.AreEqual<UInt32>(12, MemberByName(Cx, 'CxR2').Size,
+      'CxR2 SLOT size must be 12 (TCxRec2 is 8 + 4 parent alignment padding)');
+    Assert.AreEqual<UInt32>(16, MemberByName(Cx, 'CxR3').Offset, 'CxR3 offset (8-aligned)');
+    Assert.AreEqual<UInt32>(32, MemberByName(Cx, 'CxTag').Offset, 'CxTag offset');
+
+    // (2) Nested-record bridge tolerates the alignment slack: the 12-byte
+    // slot resolves to TCxRec2 via its member name.
+    Assert.AreEqual<Integer>(R.FindClassByName('TCxRec2'),
+      R.FindRecordBySizeAndMemberName(12, 'C2Int'),
+      'CxR2 slot (12) must bridge to TCxRec2 despite the 4-byte alignment slack');
+    // Leakage guard: TCxRec2's extent is 8; a slot whose slack would be
+    // >= 8 (e.g. 16) must NOT match it -- the padding tolerance is bounded.
+    Assert.AreEqual<Integer>(-1,
+      R.FindRecordBySizeAndMemberName(16, 'C2Int'),
+      'A 16-byte slot must NOT match the 8-byte TCxRec2 (slack >= 8 is not padding)');
+
+    // (3) §4.4 Shape-A offset decode for the cross-unit POINTER local.
+    Pi := R.FindProcByName('ComplexRecLocalProbe');
+    Assert.IsTrue(Pi >= 0, 'ComplexRecLocalProbe proc not found');
+    Prc := R.Procs[Pi];
+    Assert.AreEqual<Int32>(-80, LocalByName(Prc, 'CxLoc').BpOffset,
+      'CxLoc (inline record) must decode to BPRel -80');
+    Assert.AreEqual<Int32>(-4, LocalByName(Prc, 'CxPtr').BpOffset,
+      'CxPtr (PComplexRec, $1E-Hi 2-byte alias) must decode to BPRel -4; ' +
+      'a value like -504 means Shape B read the alias Hi byte as the offset');
+    // Both carry a 2-byte $1E-Hi cross-unit alias id (not a registry id).
+    Assert.AreEqual<UInt32>($1E, LocalByName(Prc, 'CxPtr').TypeIdx shr 8,
+      'CxPtr type id must be a 2-byte $1E-Hi cross-unit alias');
   finally
     R.Free;
   end;
