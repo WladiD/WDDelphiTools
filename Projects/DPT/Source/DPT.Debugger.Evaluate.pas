@@ -656,6 +656,28 @@ begin
           var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
           if GTypeIdx <> 0 then
             GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
+          // §6.42: re-apply the §6.41 discard to the GLOBAL-resolved alias.
+          // A $20 stack-local also republishes (name -> per-proc id) into
+          // the global map (§4.4), and that id can collide with an
+          // unrelated registry record exactly like the FirstLocalTypeIdx
+          // path guarded above -- TFW's Computer local republishes $F822,
+          // which FindClassIdxByRsmTypeId maps to the unrelated record
+          // TKlkKons (declares neither OS nor Name). Without this guard the
+          // colliding record (>=0) pre-empts BOTH the
+          // FindBestRecordForGlobalAndField proximity/T<global> recovery
+          // (which resolves the correct TComputer) AND the T<localName>
+          // bridge below, so the walk primes the wrong record and
+          // Computer.OS.Name returns "Could not navigate". Mirror the §6.41
+          // guard: a record alias that does not declare the accessed field
+          // is the wrong type -- drop it so the recoveries run.
+          if (GStructIdx >= 0) and (High(Segments) >= 1) and
+             (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+          begin
+            var GAliasM: TRsmClassMember;
+            if not FLocalsReader.FindClassMember(
+                 FLocalsReader.Classes[GStructIdx].Name, Segments[1], GAliasM) then
+              GStructIdx := -1;
+          end;
           if GStructIdx < 0 then
             GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
               Segments[0], Segments[1]);
@@ -1045,6 +1067,49 @@ begin
           var NestedIdx: Integer :=
             FLocalsReader.FindRecordBySizeAndMemberName(
               Member.Size, Segments[I + 1]);
+          // §6.43: the size+next-field bridge above is AMBIGUOUS (returns
+          // -1) when several same-size records declare the next field --
+          // which happens for common leaf names like "Name" (321 records
+          // in TFW carry it). That made Computer.OS.Name / Computer.GPU.Name
+          // fail while Computer.OS.MajorVersion (a rare leaf name -> unique)
+          // worked. Disambiguate by the nested-record NAME convention: a
+          // member <M> on record T<Stem> whose type is the sibling record
+          // T<Stem><M> (TComputer.OS : TComputerOS, .CPU : TComputerCPU,
+          // .GPU : TComputerGPU). The sub-record carries no resolvable type
+          // id at all ($C94E keys neither the registry nor a struct offset
+          // -- the §4.2 design limit), so the convention is the only
+          // leaf-name-independent signal. Strictly guarded: outer name must
+          // start with 'T', the candidate must be a discovered skRecord of
+          // the SAME byte size that declares the next segment -- so a
+          // convention miss can never mis-prime.
+          if NestedIdx < 0 then
+          begin
+            var OuterNm: String := FLocalsReader.Classes[PrevContextIdx].Name;
+            if (Length(OuterNm) >= 2) and (UpCase(OuterNm[1]) = 'T') then
+            begin
+              var ConvNm : String := 'T' + Copy(OuterNm, 2, MaxInt) + Member.Name;
+              var ConvIdx: Integer := FLocalsReader.FindClassByName(ConvNm);
+              var ConvFld: TRsmClassMember;
+              if (ConvIdx >= 0) and
+                 (FLocalsReader.Classes[ConvIdx].Kind = skRecord) and
+                 FLocalsReader.FindClassMember(ConvNm, Segments[I + 1], ConvFld) then
+              begin
+                // Size leakage guard: the convention-named record's layout
+                // extent must fit the member's parent slot, with the same
+                // <8-byte alignment tolerance FindRecordBySizeAndMemberName
+                // uses (the parent may pad the slot to align the next field).
+                var Ext: UInt32 := 0;
+                for var Cm := 0 to FLocalsReader.Classes[ConvIdx].Members.Count - 1 do
+                begin
+                  var E: UInt32 := FLocalsReader.Classes[ConvIdx].Members[Cm].Offset +
+                                   FLocalsReader.Classes[ConvIdx].Members[Cm].Size;
+                  if E > Ext then Ext := E;
+                end;
+                if (Ext <= Member.Size) and (Member.Size - Ext < 8) then
+                  NestedIdx := ConvIdx;
+              end;
+            end;
+          end;
           if NestedIdx >= 0 then
           begin
             PrevContextIdx  := NestedIdx;

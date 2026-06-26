@@ -439,6 +439,23 @@ type
     /// </summary>
     [Test]
     procedure TestKonsMisLocalRecordBridgePreconditions;
+    /// <summary>
+    ///   §6.42 + §6.43 pin. The live realtest hit evaluate Computer.OS.Name
+    ///   -> "Could not navigate" on CComputerDict.DataLoad. Two stacked
+    ///   defects: (§6.42) the $20 stack-local Computer is republished into
+    ///   the global map (§4.4) with a per-proc id that COLLIDES with an
+    ///   unrelated record (TKlkKons), and the evaluator resolved that global
+    ///   id WITHOUT re-applying the §6.41 "declares the field?" discard, so
+    ///   the colliding record pre-empted the first-hop recovery; and (§6.43)
+    ///   the nested .OS member carries TypeIdx=0 with an unresolvable type
+    ///   id, so the §6.36 size+next-field re-prime is ambiguous for the
+    ///   common leaf "Name" (unique for the rare "MajorVersion"), fixed by
+    ///   the T&lt;outerStem&gt;&lt;member&gt; convention. Pins the
+    ///   reader-level preconditions both consumer guards rely on; the
+    ///   end-to-end walk is verified live.
+    /// </summary>
+    [Test]
+    procedure TestComputerLocalRecordBridgePreconditions;
   end;
 
   /// Tests against the Taifun Test.Lib DUnitX runner (`Test.Lib.exe`,
@@ -935,6 +952,91 @@ begin
   //    by many records, so its unique-match guard can never fire.
   Assert.IsTrue(Length(FReader.FindRecordsByMemberName('Name')) > 1,
     'Name must be ambiguous across records (defeats the §6.36 fallback)');
+end;
+
+procedure TRsmTfwTests.TestComputerLocalRecordBridgePreconditions;
+var
+  TCompIdx, TCompOSIdx, GCls: Integer;
+  GId                       : UInt32;
+  M                         : TRsmClassMember;
+begin
+  if ShouldSkip then Exit;
+
+  // 1. The records the Computer.OS.Name dotted walk must reach are all
+  //    discovered (asserted by NAME, not offset, to stay build-stable).
+  TCompIdx := FReader.FindClassByName('TComputer');
+  Assert.IsTrue(TCompIdx >= 0, 'TComputer must be discovered as a struct');
+  Assert.AreEqual(Ord(skRecord), Ord(FReader.Classes[TCompIdx].Kind),
+    'TComputer must be a record');
+  Assert.IsTrue(FReader.FindClassMember('TComputer', 'OS', M),
+    'TComputer must declare OS (the first record hop)');
+  Assert.IsTrue(FReader.FindClassMember('TComputer', 'Name', M),
+    'TComputer must declare Name (single-hop Computer.Name probe)');
+
+  TCompOSIdx := FReader.FindClassByName('TComputerOS');
+  Assert.IsTrue(TCompOSIdx >= 0, 'TComputerOS (the .OS sub-record) must be discovered');
+  Assert.IsTrue(FReader.FindClassMember('TComputerOS', 'Name', M),
+    'TComputerOS must declare Name (the leaf: Computer.OS.Name -> "Windows 11")');
+
+  // 2. The correct recovery resolves TComputer: the proximity/T<global>
+  //    helper that the §6.42 guard must reach returns exactly TComputer.
+  Assert.AreEqual(TCompIdx,
+    FReader.FindBestRecordForGlobalAndField('Computer', 'OS'),
+    'FindBestRecordForGlobalAndField(Computer,OS) must resolve TComputer -- ' +
+    'the recovery the §6.42 guard unblocks');
+
+  // 3. WHY THE §6.42 GUARD IS LOAD-BEARING: the Computer stack-local is
+  //    also republished into the global map (§4.4), and that per-proc id
+  //    COLLIDES with an unrelated registry record (TKlkKons on this
+  //    corpus) that declares neither OS nor Name. Before §6.42 the
+  //    evaluator resolved this global id via FindClassIdxByRsmTypeId
+  //    WITHOUT re-applying the §6.41 "declares the field?" discard, so the
+  //    colliding record (>=0) pre-empted the recovery in (2) and the
+  //    T<localName> bridge -> "Could not navigate". Pin the collision so a
+  //    future build that changes it flags that this precondition shifted.
+  GId  := FReader.FindGlobalTypeIdx('Computer');
+  Assert.AreNotEqual<UInt32>(0, GId,
+    'Computer must be republished into the global map (§4.4) -- the source ' +
+    'of the colliding id the §6.42 guard discards');
+  GCls := FReader.FindClassIdxByRsmTypeId(GId);
+  Assert.IsTrue(GCls >= 0,
+    '§6.42: the global-republished id must resolve to a (wrong) record on ' +
+    'this corpus -- the collision that necessitates the guard');
+  Assert.AreNotEqual(TCompIdx, GCls,
+    '§6.42: the global-republished id must NOT resolve to TComputer (it is a ' +
+    'per-proc ref, not the registry primary -- §4.2 limit)');
+  Assert.IsFalse(FReader.FindClassMember(FReader.Classes[GCls].Name, 'OS', M),
+    '§6.42: the colliding record must NOT declare OS, so the guard''s ' +
+    '"declares the field?" test drops it and lets the recovery in (2) run');
+
+  // 4. §6.43 (the SECOND defect, in the nested-record re-prime). After
+  //    §6.42 unblocks the first hop, Computer.OS.Name STILL failed while
+  //    Computer.OS.MajorVersion worked: the .OS member carries TypeIdx=0
+  //    (§4.14) and an unresolvable type id ($C94E keys neither the
+  //    registry nor a struct offset), so the walk falls to the §6.36
+  //    size+next-field bridge -- which is AMBIGUOUS for the common leaf
+  //    "Name" (returns -1) but UNIQUE for the rare "MajorVersion". §6.43
+  //    disambiguates by the T<outerStem><member> nested-record name
+  //    convention. Pin both halves.
+  Assert.IsTrue(FReader.FindClassMember('TComputer', 'OS', M),
+    'TComputer.OS member must resolve (its Size drives the §6.36 bridge)');
+  Assert.AreEqual<UInt32>(0, M.TypeIdx,
+    '§6.43: the nested-record member carries TypeIdx=0 (§4.14), so it cannot ' +
+    'be re-primed by id -- the reason the size/name + convention bridges run');
+  Assert.AreEqual(-1, FReader.FindRecordBySizeAndMemberName(M.Size, 'Name'),
+    '§6.43: the size+next-field bridge is AMBIGUOUS for "Name" (multiple ' +
+    'same-size records declare it) -- this is what made Computer.OS.Name fail');
+  Assert.IsTrue(FReader.FindRecordBySizeAndMemberName(M.Size, 'MajorVersion') >= 0,
+    '§6.43 control: the same bridge is UNIQUE for the rare leaf "MajorVersion" ' +
+    '-- why Computer.OS.MajorVersion worked while Computer.OS.Name did not');
+  // The §6.43 convention target resolves TComputerOS deterministically,
+  // independent of the leaf name.
+  Assert.AreEqual(FReader.FindClassByName('TComputerOS'),
+    FReader.FindClassByName('T' + 'Computer' + 'OS'),
+    'sanity: the T<outerStem><member> convention name IS TComputerOS');
+  Assert.IsTrue(FReader.FindClassMember('TComputerOS', 'Name', M),
+    '§6.43: the convention-resolved sub-record declares the leaf "Name" -- ' +
+    'the deterministic signal the size+name bridge lacked');
 end;
 
 procedure TRsmTfwTests.TestTfwGlobalRecordResolves;

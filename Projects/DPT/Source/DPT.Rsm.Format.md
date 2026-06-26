@@ -3877,6 +3877,88 @@ only the auto-formatter guess is off. That is the §6.24-family
 record-member-primitive-type binding, tracked separately; `type=shortstring`
 is the workaround.
 
+### 6.42 Pointer-to-record `var`-block LOCAL: GLOBAL-republished alias re-collides without the §6.41 discard — CLOSED (consumer-side)
+
+[DPT.Debugger.Evaluate.pas `Evaluate`](DPT.Debugger.Evaluate.pas)
+(dotted-walk first-hop priming). Surfaced by the realtest on
+`C:\MSE-26.05-Mongo\TFW\TFW.exe`: `CComputerDict.DataLoad` has the local
+`Computer: PComputer` (`PComputer = ^TComputer`), and **even the first
+hop** `evaluate Computer.Name` / `Computer.OS` returned `Could not
+navigate`, although the §6.41 `T<localName>` bridge should bind
+`Computer → TComputer` exactly as it binds `KonsMis → TKonsMis`.
+
+**Mechanism (confirmed via `TestComputerLocalRecordBridgePreconditions`).**
+The §6.41 closure applied its "does the resolved record declare the
+accessed field?" discard guard only to the **`FirstLocalTypeIdx`**
+resolution. But the dotted-walk recovery has a *second* registry
+resolution right after it: a `$20` stack-local is also republished into
+the global map (§4.4), so the recovery calls
+`FindGlobalTypeIdx(Segments[0]) → FindClassIdxByRsmTypeId(...)`. For
+`Computer` this returns a **non-zero** id (`$F822`) that
+`FindClassIdxByRsmTypeId` maps to the unrelated record `TKlkKons` (which
+declares neither `OS` nor `Name`) — a §6.18-style alias collision, but on
+the GLOBAL id rather than the local one. With no discard guard there, the
+colliding record (`GStructIdx ≥ 0`) **pre-empted both** the
+`FindBestRecordForGlobalAndField` proximity/`T<global>` recovery (which
+resolves the correct `TComputer`) AND the §6.41 `T<localName>` bridge
+(both gated on `GStructIdx < 0`), so the walk primed `TKlkKons` and every
+field hop failed. `KonsMis` escaped the bug only by luck: its
+republished id resolves to nothing (`-1`), so its recovery proceeded.
+
+**Closure.** Re-apply the §6.41 discard to the global-resolved alias: a
+record alias that does not declare `Segments[1]` is dropped
+(`GStructIdx := -1`) so the recoveries run. Verified live:
+`evaluate Computer.Name (shortstring)` → `NB0374`,
+`evaluate Computer.OS.MajorVersion (int)` → `10`,
+`evaluate Computer.CPU.Name (shortstring)` → the CPU model — all
+previously `Could not navigate`. Pinned (reader-level preconditions) by
+[`Test.DPT.Rsm.Taifun.TRsmTfwTests.TestComputerLocalRecordBridgePreconditions`](../Test/Test.DPT.Rsm.Taifun.pas).
+
+### 6.43 Nested-record member re-prime fails on ambiguous leaf names — CLOSED (consumer-side `T<outerStem><member>` convention)
+
+[DPT.Debugger.Evaluate.pas `Evaluate`](DPT.Debugger.Evaluate.pas)
+(dotted-walk §6.36 nested-record bridge). After §6.42 unblocked the first
+hop, `evaluate Computer.OS.Name` (`type=shortstring`) **still** returned
+`Could not navigate` while `evaluate Computer.OS.MajorVersion` succeeded —
+two leaves of the *same* `TComputerOS` sub-record, differing only in the
+leaf name.
+
+**Mechanism (confirmed via the same pin's §6.43 assertions).** A
+record-typed member of a record (`TComputer.OS : TComputerOS`) carries
+`TypeIdx = 0` (§4.14 record-field-id-is-zero), and its only other type id
+(`PrimitiveTypeId = $C94E`) keys **neither** the registry
+(`FindClassIdxByRsmTypeId = -1`) **nor** a struct file-offset
+(`FindStructByTypeIdx = -1`) — the §4.2 design-limit family. So the
+nested re-prime cannot resolve the sub-record by id and falls to the
+§6.36 `FindRecordBySizeAndMemberName(Member.Size, Segments[I+1])` bridge,
+which disambiguates same-size records **by the next segment's field
+name**. That is unique for a rare leaf (`MajorVersion` → `TComputerOS`)
+but **ambiguous for a common one** — 321 TFW records declare `Name`, so
+`FindRecordBySizeAndMemberName(314, 'Name') = -1`, the re-prime fails, and
+the leaf can't be reached. (`Computer.CPU.Name` worked only because CPU's
+size+`Name` happened to be unique; `Computer.GPU.Name` failed for the
+same reason as OS.)
+
+**Closure.** When the size+next-field bridge is ambiguous (`-1`),
+disambiguate by the nested-record NAME convention: a member `<M>` on
+record `T<Stem>` whose type is the sibling record `T<Stem><M>`
+(`TComputer.OS : TComputerOS`, `.CPU : TComputerCPU`, `.GPU :
+TComputerGPU`). Strictly guarded — the outer name must start with `T`,
+and the candidate must be a discovered `skRecord` whose layout extent
+fits the member's parent slot (the same `<8`-byte alignment tolerance
+`FindRecordBySizeAndMemberName` uses) AND declares the next segment — so a
+convention miss can never mis-prime. Verified live:
+`evaluate Computer.OS.Name` → **`Windows 11`**,
+`Computer.GPU.Name` → `Intel(R) UHD Graphics`,
+`Computer.OS.BuildNumber` → `26200`, plus `DB`/`Memory`/`CPU` leaves —
+all cross-checked against `read_memory`. **Residual:** bare
+`evaluate Computer.OS.Name` (no `type=`) still fails because the record
+member carries no `PrimitiveTypeId` for the auto-formatter — the same
+§6.24-family record-member-primitive-type-binding residual noted under
+§6.41; `type=shortstring` is the workaround. Pinned by the §6.43
+assertions in
+[`Test.DPT.Rsm.Taifun.TRsmTfwTests.TestComputerLocalRecordBridgePreconditions`](../Test/Test.DPT.Rsm.Taifun.pas).
+
 ---
 
 ## 7. Loader contract (caller perspective)
