@@ -3795,36 +3795,87 @@ warns against. Closure needs a stable Test.Lib build where line breakpoints fire
 (matching `-V -VR` `.rsm` + detailed `.map`, non-TestInsight); then confirm
 `get_locals`/`evaluate Lst` at `AsEnumerable` resolve correctly.
 
-### 6.41 Pointer-to-cross-unit-record `var`-block LOCAL: alias TypeIdx unbound to the record layout (`GAP`)
+### 6.41 Pointer-to-cross-unit-record `var`-block LOCAL: alias TypeIdx unbound to the record layout — CLOSED (consumer-side `T<localName>` bridge)
 
-[DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas) (dotted walk) +
-[DPT.Rsm.FormatALinker.pas `BindPointerAliasMembersByNameConvention`](DPT.Rsm.FormatALinker.pas)
-(the §6.19 field-side bridge that has no LOCAL-side analogue). Surfaced
+[DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas) (dotted-walk
+first-hop priming). Surfaced
 by the live realtest after §6.40 closed: in TFW's `CKonsMisDict.DataLoad`
 the local `KonsMis: PKonsMis` (`PKonsMis = ^TKonsMis`, `TKonsMis` a
 packed record in the sibling unit `Tfw.Kons.Mis.Typ`) now decodes to the
 **correct** base pointer — `get_locals` → `bp_offset -12`,
 `evaluate KonsMis (int)` → `0xF2498660` (the live record), ground-truth
 `Name` at `+0x49` = the ShortString `Volltextsuche` (verified by
-`read_memory`). **But every field hop fails**:
-`evaluate KonsMis.Name` and even `evaluate KonsMis.Typ` both return
-`Could not navigate`, and `evaluate KonsMis (object)` returns the
-type-less `Object @ F2498660` (no class/record name). The scanner records
-`KonsMis.TypeIdx = $02E5` — the per-proc 2-byte alias (§4.4 Shape C) —
-and that alias is **never bound to the discovered `TKonsMis` record
-struct**, so the dotted walk has no layout to resolve `Typ`/`Name`
-offsets against. This is the LOCAL-variable analogue of §6.19/§6.36,
-which bound pointer-to-record **class fields** (`TFormAd.FAd → TAd`) via
-the `F<X>`/`P<X>→T<X>` name-convention bridge; a `var`-block local has no
-such bridge, so its alias stays dangling. **Next step (use the §3
-standalone-reader disambiguator):** load `TFW.rsm` via `TRsmReader`,
-check whether `FindStructByTypeIdx($02E5)`/record discovery resolves
-`TKonsMis` at all — if the record is discovered but `$02E5` doesn't map
-to it, the fix is a locals-side pointer-alias→struct bind by the
-`P<X> → T<X>` convention (mirroring §6.19) wired into the dotted walk's
-first-hop priming; if `TKonsMis` isn't discovered, it is first a
-StructDiscoverer gap. Either way the §6.40 base-pointer fix is a
-prerequisite that now holds.
+`read_memory`). **But before the fix below, every field hop failed**:
+`evaluate KonsMis.Name` and even `evaluate KonsMis.Typ` both returned
+`Could not navigate`, and `evaluate KonsMis (object)` returned the
+type-less `Object @ F2498660` (no class/record name).
+
+**Mechanism (confirmed via the standalone-reader disambiguator,
+`TestKonsMisLocalRecordBindingGapPinned`):** the record itself is **not**
+the problem — `FindClassByName('TKonsMis')` resolves a **unique**
+`skRecord` with the full layout (`Typ` at `0x44` size 1, `Name` at `0x49`
+size 41, 29 members). The break is purely the local→record **binding**:
+
+* The scanner records `KonsMis.TypeIdx = $02E5` — the per-proc 2-byte
+  alias (§4.4 Shape C), **not** the registry primary (the §4.2 design
+  limit). `FindClassIdxByRsmTypeId($02E5)` resolves to the **unrelated**
+  record `TLogSharing` (a §6.18-style alias collision), and
+  `FindStructByTypeIdx($02E5)` / `IsRecordTypeIdx($02E5)` find nothing.
+  So the dotted-walk first-hop priming
+  ([DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas)) primes the
+  **wrong** record and the `Name`/`Typ` member lookup fails.
+* The §6.32 VMT-priority override (which rescues *class*-typed locals
+  whose alias collides) cannot help here: a **record** local has no VMT
+  to read a runtime type name from, so `SkipRecordPriming` stays False
+  and the bad alias resolution stands.
+* The §6.36 field-name fallback (`FindRecordsByMemberName(Segments[1])`,
+  accept iff exactly one record matches) is defeated by ambiguity:
+  **321** records carry `Name`, **190** carry `Typ`, **29** carry both —
+  never a unique match. And the `P<X>` type name is itself absent
+  (`FindClassByName('PKonsMis') = -1`).
+
+This is the **record-typed-`var`-block-local manifestation of the §4.2
+per-proc-ref design limit**: the per-proc alias is structurally
+unresolvable to the registry primary, so the local→record binding has to
+come from a different signal.
+
+**Closure — the consumer-side `T<localName>` record bridge.** The reader
+side is left as-is (the §4.2 alias remains a per-proc ref; this is a
+design limit, not a decodable gap). The dotted-walk first-hop priming
+([DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas)) now recovers the
+record by the `P<X>`/`T<X>` naming convention — a local named `X` of type
+`PX` (`= ^TX`) binds to the record `TX` — the same family as the §6.19
+field bridge and the §6.24 enum bridge. Two guarded steps:
+
+1. **Discard a mis-resolved alias.** After `FindClassIdxByRsmTypeId`, if
+   the result is an `skRecord` that does **not** declare the accessed
+   field `Segments[1]`, it is the §6.18 collision (`$02E5 → TLogSharing`,
+   which has no `Name`) — reset `GStructIdx := -1` so the recovery routes
+   below run. (Without this the bad alias short-circuited every fallback.)
+2. **`T<localName>` bridge**, tried before the §6.36 field-name fallback
+   because it is far less ambiguous (one `TKonsMis` vs. 321 records
+   carrying `Name`): bind to `FindClassByName('T' + Segments[0])` iff it
+   is a discovered `skRecord` that declares `Segments[1]`. The existing
+   live-pointer-deref probe (the slot must point at a region the whole
+   record reads back from) is the structural cross-check; class-typed
+   locals never reach here (the §6.32 VMT override set
+   `SkipRecordPriming`).
+
+Verified live against `C:\MSE-26.05-Mongo\TFW\TFW.exe` under the MCP
+debugger: `evaluate KonsMis.Name` (`type=shortstring`) → **`Volltextsuche`**
+and `evaluate KonsMis.Typ` → **`14`**, where both returned
+`Could not navigate` before. Pinned (reader-side preconditions the bridge
+relies on) by
+[`Test.DPT.Rsm.Taifun.TRsmTfwTests.TestKonsMisLocalRecordBindingGapPinned`](../Test/Test.DPT.Rsm.Taifun.pas);
+the dotted-walk path itself is exercised live (no DebugTarget repro — the
+small fixture's field names are unambiguous, so its §6.36 fallback already
+binds and never reaches the bridge). **Residual:** bare
+`evaluate KonsMis.Name` (no `type=`) auto-types the `S_40` ShortString
+member as `int` (`0x6C6F560D` = the `0D 56 6F 6C` length+chars) because the
+record member carries no `PrimitiveTypeId` — the navigation is correct,
+only the auto-formatter guess is off. That is the §6.24-family
+record-member-primitive-type binding, tracked separately; `type=shortstring`
+is the workaround.
 
 ---
 

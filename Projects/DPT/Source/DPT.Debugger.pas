@@ -3778,6 +3778,24 @@ begin
           // would mismatch because Classes[].TypeIdx is the
           // file-offset token, a different id space.
           GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(FirstLocalTypeIdx);
+        // §6.41: discard a MIS-resolved alias. A record var-local's
+        // per-proc 2-byte ref (§4.2 design limit) is NOT a registry
+        // primary, so FindClassIdxByRsmTypeId can collide with an
+        // unrelated registry record (KonsMis's $02E5 -> the unrelated
+        // record TLogSharing). If the resolved record does not declare
+        // the accessed field Segments[1], it is the wrong type -- drop
+        // it so the routes below (the T<localName> bridge, then the
+        // §6.36 field-name fallback) get a chance to recover the real
+        // record. Gated to skRecord: a class alias is handled by the
+        // class-hop/VMT path, not here.
+        if (GStructIdx >= 0) and FirstSegIsLocal and (High(Segments) >= 1) and
+           (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+        begin
+          var AliasM: TRsmClassMember;
+          if not FLocalsReader.FindClassMember(
+               FLocalsReader.Classes[GStructIdx].Name, Segments[1], AliasM) then
+            GStructIdx := -1;
+        end;
         if GStructIdx < 0 then
         begin
           var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
@@ -3786,21 +3804,43 @@ begin
           if GStructIdx < 0 then
             GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
               Segments[0], Segments[1]);
-          if (GStructIdx < 0) and FirstSegIsLocal then
+          if (GStructIdx < 0) and FirstSegIsLocal and (High(Segments) >= 1) then
           begin
-            // §6.36 first hop: a cross-unit record LOCAL carries
-            // TypeIdx = 0 (no per-proc type id at all -- e.g.
-            // <AdrLoc: DebugTarget.RecTypes.TXAdresse>), so neither
-            // the registry-id route nor the global-proximity fallback
-            // (locals have no $20 file offset) can find its record.
-            // Recover by the accessed field name: if exactly one
-            // skRecord declares Segments[1], that record IS the local's
-            // type. The unique-match guard (same as §6.18/§6.19) keeps
-            // a class-instance local whose VMT probe failed from being
-            // mis-primed as a record on an ambiguous field name.
-            var RecHits := FLocalsReader.FindRecordsByMemberName(Segments[1]);
-            if Length(RecHits) = 1 then
-              GStructIdx := RecHits[0];
+            // §6.41 first hop: a pointer-to-record var-local whose
+            // per-proc alias (§4.2) doesn't key the registry binds to
+            // its record by the P<X>/T<X> naming convention -- a local
+            // named X of type PX (= ^TX) resolves to the record TX. This
+            // is tried BEFORE the §6.36 field-name fallback because it is
+            // far less ambiguous: TFW's KonsMis -> the unique TKonsMis,
+            // versus 321 records that all declare a "Name" field. Gated
+            // to a discovered skRecord that actually declares the
+            // accessed field; the live-pointer-deref probe below is the
+            // structural cross-check that the slot really points at that
+            // record. Class-typed locals never reach here -- the §6.32
+            // VMT-priority override already set SkipRecordPriming.
+            var TName: String := 'T' + Segments[0];
+            var TIdx : Integer := FLocalsReader.FindClassByName(TName);
+            var ConvM: TRsmClassMember;
+            if (TIdx >= 0) and
+               (FLocalsReader.Classes[TIdx].Kind = skRecord) and
+               FLocalsReader.FindClassMember(TName, Segments[1], ConvM) then
+              GStructIdx := TIdx
+            else
+            begin
+              // §6.36 first hop: a cross-unit record LOCAL carries
+              // TypeIdx = 0 (no per-proc type id at all -- e.g.
+              // <AdrLoc: DebugTarget.RecTypes.TXAdresse>), so neither
+              // the registry-id route nor the global-proximity fallback
+              // (locals have no $20 file offset) can find its record.
+              // Recover by the accessed field name: if exactly one
+              // skRecord declares Segments[1], that record IS the local's
+              // type. The unique-match guard (same as §6.18/§6.19) keeps
+              // a class-instance local whose VMT probe failed from being
+              // mis-primed as a record on an ambiguous field name.
+              var RecHits := FLocalsReader.FindRecordsByMemberName(Segments[1]);
+              if Length(RecHits) = 1 then
+                GStructIdx := RecHits[0];
+            end;
           end;
         end;
         if (GStructIdx >= 0) and

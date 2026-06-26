@@ -420,6 +420,25 @@ type
     /// VCLTee.TeeSpline vs bmpfilt -- still survives).
     [Test]
     procedure TestTfwEnumDefNoSameUnitSynthDuplicate;
+
+    /// <summary>
+    ///   §6.41 CLOSURE PRECONDITIONS (large binary). §6.41 is closed by a
+    ///   consumer-side T&lt;localName&gt; record bridge in the dotted walk
+    ///   (DPT.Debugger.EvaluateVariable); the reader side is unchanged
+    ///   (the per-proc alias stays a §4.2 ref). This pins the reader-side
+    ///   facts the bridge relies on, via relationships (not raw offsets/ids,
+    ///   which drift per build): TKonsMis is a UNIQUE discovered record
+    ///   carrying Name + Typ (the bridge's target); the KonsMis local has a
+    ///   real in-frame offset (§6.40 holds, not the fallback); the local's
+    ///   per-proc alias does NOT resolve to TKonsMis (the §6.18 collision
+    ///   that makes the bridge necessary); and Name is ambiguous across
+    ///   many records (so the §6.36 field-name fallback alone can't bind).
+    ///   The end-to-end dotted walk (KonsMis.Name -&gt; 'Volltextsuche')
+    ///   is verified live, not here -- DebugTarget's field names are
+    ///   unambiguous so its §6.36 fallback binds without reaching the bridge.
+    /// </summary>
+    [Test]
+    procedure TestKonsMisLocalRecordBridgePreconditions;
   end;
 
   /// Tests against the Taifun Test.Lib DUnitX runner (`Test.Lib.exe`,
@@ -852,6 +871,70 @@ begin
              'inspect the phase against its post-fix baseline.',
         [BudgetNames[Bi], PhaseMs, BudgetMs[Bi]]));
   end;
+end;
+
+procedure TRsmTfwTests.TestKonsMisLocalRecordBridgePreconditions;
+var
+  KmCls, Pi, KmLocalIdx, AliasIdx: Integer;
+  KmTypeIdx                      : UInt32;
+  HasName, HasTyp                : Boolean;
+begin
+  if ShouldSkip then Exit;
+
+  // 1. TKonsMis is discovered as a UNIQUE record carrying Name + Typ.
+  //    (Members asserted by NAME, not offset, to stay build-stable.)
+  KmCls := FReader.FindClassByName('TKonsMis');
+  Assert.IsTrue(KmCls >= 0, 'TKonsMis must be discovered as a struct');
+  Assert.AreEqual(Ord(skRecord), Ord(FReader.Classes[KmCls].Kind),
+    'TKonsMis must be a record');
+  HasName := False;
+  HasTyp  := False;
+  for var M := 0 to FReader.Classes[KmCls].Members.Count - 1 do
+  begin
+    if SameText(FReader.Classes[KmCls].Members[M].Name, 'Name') then HasName := True;
+    if SameText(FReader.Classes[KmCls].Members[M].Name, 'Typ')  then HasTyp  := True;
+  end;
+  Assert.IsTrue(HasName and HasTyp,
+    'TKonsMis must carry the Name and Typ members the dotted walk targets');
+  var KmCount: Integer := 0;
+  for var Q := 0 to FReader.Classes.Count - 1 do
+    if SameText(FReader.Classes[Q].Name, 'TKonsMis') then Inc(KmCount);
+  Assert.AreEqual(Integer(1), KmCount,
+    'TKonsMis must be uniquely discovered (so a name-based bind, if ever ' +
+    'added, would be unambiguous)');
+
+  // 2. The KonsMis local exists with a real in-frame offset -- §6.40 holds
+  //    (a small negative slot, NOT the -10000 synthesized fallback nor the
+  //    pre-fix out-of-frame -1535).
+  Pi := FReader.FindProcByName('CKonsMisDict.DataLoad');
+  Assert.IsTrue(Pi >= 0, 'CKonsMisDict.DataLoad must be in the reader');
+  KmTypeIdx  := 0;
+  KmLocalIdx := -1;
+  for var Li := 0 to FReader.Procs[Pi].Locals.Count - 1 do
+    if SameText(FReader.Procs[Pi].Locals[Li].Name, 'KonsMis') then
+    begin
+      KmLocalIdx := Li;
+      KmTypeIdx  := FReader.Procs[Pi].Locals[Li].TypeIdx;
+    end;
+  Assert.IsTrue(KmLocalIdx >= 0, 'KonsMis local must be present');
+  Assert.IsTrue(FReader.Procs[Pi].Locals[KmLocalIdx].BpOffset > -1000,
+    '§6.40: KonsMis must decode to a real in-frame slot, not the fallback');
+
+  // 3. WHY THE BRIDGE IS NEEDED: the local''s per-proc alias does NOT
+  //    bind to TKonsMis at the reader level -- it resolves to an unrelated
+  //    struct (the §6.18 alias collision) or nowhere (a §4.2 design limit,
+  //    not fixed). The §6.41 closure works around this consumer-side via
+  //    the T<localName> bridge; this asserts the reader-level mis-binding
+  //    that makes the bridge necessary stays as analysed.
+  AliasIdx := FReader.FindClassIdxByRsmTypeId(KmTypeIdx);
+  Assert.AreNotEqual(KmCls, AliasIdx,
+    '§6.41: the per-proc alias must not resolve to TKonsMis at the reader ' +
+    'level (the §4.2 limit the consumer T<localName> bridge compensates for)');
+
+  // 4. The §6.36 field-name fallback cannot disambiguate: Name is shared
+  //    by many records, so its unique-match guard can never fire.
+  Assert.IsTrue(Length(FReader.FindRecordsByMemberName('Name')) > 1,
+    'Name must be ambiguous across records (defeats the §6.36 fallback)');
 end;
 
 procedure TRsmTfwTests.TestTfwGlobalRecordResolves;
