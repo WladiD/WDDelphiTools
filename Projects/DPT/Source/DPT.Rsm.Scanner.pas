@@ -1099,8 +1099,20 @@ begin
       else if PayloadStart + 6 < FSz then
       begin
         var Next6: Byte := ByteAt(PayloadStart + 6);
-        if (Next6 = TRsmTag.LOCAL_TAG) or (Next6 = TRsmTag.PROC_TAG) or
-           (Next6 = TRsmTag.SCOPE_END) then
+        // A genuine 1-byte-type WIDE offset has an ODD low byte (Byte4):
+        // the LSB is the wide-form continuation marker and the
+        // (W - 1) div 4 decode only reconstructs the offset when it is
+        // set. An EVEN Byte4 here is NOT a wide offset at all -- it is
+        // the Hi byte of a 2-byte cross-unit type alias whose marker is
+        // none of $2E/$2F/$1E (e.g. PKonsMis's alias $02E5: Byte4=$02),
+        // with the real single-byte offset sitting one byte later at +5.
+        // Without the odd-LSB gate the wide path swallowed such records
+        // and produced an out-of-frame garbage offset (§6.40: KonsMis ->
+        // -1535 instead of -12), starving the §6.36 Shape-C 2-byte-alias
+        // fallback below of its chance to read the offset at +5.
+        if ((Byte4 and 1) = 1) and
+           ((Next6 = TRsmTag.LOCAL_TAG) or (Next6 = TRsmTag.PROC_TAG) or
+            (Next6 = TRsmTag.SCOPE_END)) then
         begin
           var Hi : Byte := ByteAt(PayloadStart + 5);
           var W  : Word := Word(Byte4) or (Word(Hi) shl 8);

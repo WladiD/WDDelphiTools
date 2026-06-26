@@ -66,6 +66,24 @@ type
     /// decode within the $16 payload is the open part of §6.35.
     [Test]
     procedure TestRegisterResidentLocalUsesDistinctForm32;
+    /// §6.40 closure: a cross-unit pointer-to-record stack local whose
+    /// 2-byte type alias has a Hi byte OUTSIDE the {$2E,$2F,$1E} marker
+    /// set must decode its BPRel offset from the single byte at +5, not
+    /// mistake the even alias-Hi byte at +4 for a wide-offset low byte.
+    /// Ground truth: TFW's CKonsMisDict.DataLoad has `KonsMis: PKonsMis`
+    /// with the wire bytes `66 00 00 E5 02 E8 <20=next-local>` -- alias
+    /// $02E5 at +3..+4, single-byte offset $E8 at +5 => -12 (= [ebp-0x0C],
+    /// verified live against the running TFW under the MCP debugger).
+    /// Before the fix Shape B read the EVEN low byte $02 as the low byte
+    /// of a wide offset (`$E802` -> (W-1) div 4 = -1535), an out-of-frame
+    /// slot, which made `evaluate KonsMis.Name` dereference a nil pointer.
+    /// The odd-LSB wide gate now rejects the even low byte so the §6.36
+    /// Shape-C 2-byte-alias fallback reads the offset at +5. Synthetic
+    /// CSH7 buffer; leakage guards: a genuine wide local (odd low byte)
+    /// still decodes to its large offset, and a plain single-byte-offset
+    /// local is unaffected.
+    [Test]
+    procedure TestCrossUnitPtrLocalNonMarkerHiByteOffset;
     /// §4.14 class field-block own-field COUNT. A class's backward
     /// Format-B field block is introduced by `<count:u16> 02 00 00 00 00`
     /// immediately before the first (offset-4) field record; the u16 is
@@ -619,6 +637,124 @@ begin
     Assert.AreEqual('fooC', Def.Elements[2].Name);
     Assert.AreEqual('UnitEleven', Def.UnitName, 'TFooEleven unit');
     Assert.IsFalse(Def.Synthesized, 'TFooEleven must be $03-sourced, not synthesised');
+  finally
+    S.Free;
+  end;
+end;
+
+procedure TRsmScannerTests.TestCrossUnitPtrLocalNonMarkerHiByteOffset;
+// §6.40: see the interface docstring. Builds a minimal CSH7 stream with
+// one proc ($28, opens proc scope) carrying three stack locals, then
+// asserts the decoded BPRel offsets. Each local's body opens with the
+// classic stack-local anchor $66 $00 $00 and is terminated by the NEXT
+// record's tag (the following local's $20, or the closing $63).
+var
+  S   : TRsmScanner;
+  Buf : TBytes;
+  Len : Integer;
+
+  procedure AddByte(B: Byte);
+  begin
+    if Len >= Length(Buf) then SetLength(Buf, (Len + 16) * 2);
+    Buf[Len] := B;
+    Inc(Len);
+  end;
+
+  procedure AddBytes(const ABytes: array of Byte);
+  var
+    K: Integer;
+  begin
+    for K := 0 to High(ABytes) do AddByte(ABytes[K]);
+  end;
+
+  procedure AddName(const AStr: String);  // raw chars, no length prefix
+  var
+    K: Integer;
+  begin
+    for K := 1 to Length(AStr) do AddByte(Byte(Ord(AStr[K])));
+  end;
+
+  // $20 NL Name <body>. NL is the name length; body holds the
+  // typeinfo + BPRel-offset payload.
+  procedure AddLocal(const AName: String; const ABody: array of Byte);
+  begin
+    AddByte($20);
+    AddByte(Length(AName));
+    AddName(AName);
+    AddBytes(ABody);
+  end;
+
+  function FindLocal(const AProc: TRsmProc; const AName: String;
+    out ALoc: TRsmLocal): Boolean;
+  var
+    K: Integer;
+  begin
+    Result := False;
+    for K := 0 to AProc.Locals.Count - 1 do
+      if SameText(AProc.Locals[K].Name, AName) then
+      begin
+        ALoc := AProc.Locals[K];
+        Exit(True);
+      end;
+  end;
+
+var
+  Proc  : TRsmProc;
+  Loc   : TRsmLocal;
+  PIdx  : Integer;
+  K     : Integer;
+begin
+  Len := 0;
+  SetLength(Buf, 64);
+  AddBytes([$43, $53, $48, $37]);                 // CSH7 magic
+  // $28 proc record -> opens proc scope (FScanInProc := True). The
+  // dispatcher re-walks each local's body bytes as filler after the
+  // name advance; none of $66/$00/$E5/$02/$E8/$A1/$F7/$F8 is a tag.
+  AddByte($28); AddByte(8); AddName('DataLoad');
+  // KonsMis: PKonsMis -- the §6.40 shape. 2-byte alias $02E5 at +3..+4
+  // (Hi byte $02 is NOT a $2E/$2F/$1E marker), single-byte offset $E8 at
+  // +5 => ShortInt(-24) div 2 = -12. Terminator is WideLoc's $20 tag.
+  AddLocal('KonsMis',   [$66, $00, $00, $E5, $02, $E8]);
+  // Leakage guard 1: a genuine 1-byte-type WIDE offset (ODD low byte
+  // $A1) must still decode via Shape B's wide path: $F7A1 -> (W-1) div 4
+  // = -536. Terminator is UserGroup's $20 tag.
+  AddLocal('WideLoc',   [$66, $00, $00, $02, $A1, $F7]);
+  // Leakage guard 2: a plain single-byte-offset local ($F8 ->
+  // ShortInt(-8) div 2 = -4); the SCOPE_END that follows is its
+  // terminator at +5 (Shape B single-byte path).
+  AddLocal('UserGroup', [$66, $00, $00, $02, $F8]);
+  AddByte($63);                                   // SCOPE_END closes proc
+  AddBytes([$00, $00, $00, $00, $00, $00, $00, $00]); // tail headroom
+  SetLength(Buf, Len);
+
+  S := TRsmScanner.Create;
+  try
+    S.LoadFromBytes(Buf);
+
+    PIdx := -1;
+    for K := 0 to S.Procs.Count - 1 do
+      if SameText(S.Procs[K].Name, 'DataLoad') then
+      begin
+        PIdx := K;
+        Break;
+      end;
+    Assert.IsTrue(PIdx >= 0, 'DataLoad proc not scanned');
+    Proc := S.Procs[PIdx];
+
+    Assert.IsTrue(FindLocal(Proc, 'KonsMis', Loc), 'KonsMis local not scanned');
+    Assert.AreEqual<Int32>(-12, Loc.BpOffset,
+      'KonsMis BPRel offset: alias $02E5 (hi-byte $02) + single offset $E8 at ' +
+      '+5 => -12; pre-fix the even low byte $02 was misread as a wide offset = -1535');
+    Assert.AreEqual<UInt32>($02E5, Loc.TypeIdx,
+      'KonsMis 2-byte cross-unit alias id (lo $E5 | hi $02 shl 8)');
+
+    Assert.IsTrue(FindLocal(Proc, 'WideLoc', Loc), 'WideLoc local not scanned');
+    Assert.AreEqual<Int32>(-536, Loc.BpOffset,
+      'genuine wide offset (odd low byte $A1) must still decode -- leakage guard');
+
+    Assert.IsTrue(FindLocal(Proc, 'UserGroup', Loc), 'UserGroup local not scanned');
+    Assert.AreEqual<Int32>(-4, Loc.BpOffset,
+      'plain single-byte offset ($F8) unaffected -- leakage guard');
   finally
     S.Free;
   end;

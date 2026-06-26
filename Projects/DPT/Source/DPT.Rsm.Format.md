@@ -653,8 +653,29 @@ The decoder looks at what follows the candidate offset byte:
 
 * If `byte5 ∈ {LOCAL_TAG, PROC_TAG, SCOPE_END}` → byte 4 is the offset
   (single-byte form, `ShortInt(byte4) div 2`), type id is `byte3`.
-* Otherwise if `byte6 ∈ {LOCAL_TAG, PROC_TAG, SCOPE_END}` → bytes 4..5
-  form the wide offset, type id is `byte3`.
+* Otherwise if `byte6 ∈ {LOCAL_TAG, PROC_TAG, SCOPE_END}` **AND `byte4`
+  is odd** → bytes 4..5 form the wide offset, type id is `byte3`.
+
+**The wide path requires an ODD `byte4` (§6.40 closure).** A genuine
+wide offset's low byte carries the LSB-continuation marker, so `byte4`
+is always odd; `(SmallInt(byte4 | byte5 shl 8) − 1) div 4` only
+reconstructs the value when that bit is set. An **even** `byte4` here is
+not a wide offset at all — it is the Hi byte of a 2-byte cross-unit type
+alias whose marker is **none of** `$2E`/`$2F`/`$1E`, with the real
+single-byte offset sitting one byte later at `+5`. TFW's
+`CKonsMisDict.DataLoad` has `KonsMis: PKonsMis` (pointer to a cross-unit
+record) with payload `66 00 00 E5 02 E8 <20>`: alias `$02E5` at `+3..+4`
+(Hi byte `$02`), single-byte offset `$E8` at `+5` =
+`ShortInt(−24) div 2` = **−12** (`[ebp-0x0C]`, verified live under the
+MCP debugger). Before the odd-`byte4` gate, the wide path swallowed it —
+reading `byte4=$02`,`byte5=$E8` as `$E802` → `(SmallInt($E802)−1) div 4`
+= **−1535**, an out-of-frame slot that made `evaluate KonsMis.Name`
+dereference a nil pointer. With the gate, the even `byte4` is rejected
+and the record falls through to **Shape C** below, which reads the
+offset at `+5`. Pinned by
+[`Test.DPT.Rsm.Scanner.TestCrossUnitPtrLocalNonMarkerHiByteOffset`](../Test/Test.DPT.Rsm.Scanner.pas)
+(synthetic CSH7 buffer; leakage guards: a genuine wide local with an odd
+low byte still decodes, and a single-byte-offset local is unaffected).
 
 The cross-unit record/enum alias's Hi byte is `$1E`, so it now decodes
 through Shape A above. `DebugTarget.RecordLocalNestedProbe`'s
@@ -680,9 +701,25 @@ tried **only** when Shapes A/B left the synthesized fallback, and
 accepted only when the decoded offset is **non-positive** (locals live
 below EBP) AND `IsLocalOffsetTerminatorAt` confirms the post-offset byte
 opens a real record (`$20`/`$28`/`$63`/`$22`/`$21`/`$25`/`$03`/`$2A`, or
-`$9C $17`). Type id is `aliasLo | (aliasHi shl 8)`. With `$1E` now in
-Shape A's gate, every cross-unit local observed so far decodes via
-Shape A; this fallback no longer fires for the controlled fixtures.
+`$9C $17`). Type id is `aliasLo | (aliasHi shl 8)`. The `+5` offset
+itself comes in **both** sub-forms: a single even byte
+(`ShortInt(ofs) div 2`) or the wide odd-low-byte pair
+(`(SmallInt(W) − 1) div 4`).
+
+This fallback fires for two distinct §6.36/§6.40 shapes that Shape A's
+`$2E`/`$2F`/`$1E` gate doesn't cover:
+
+* **wide offset** — `DebugTarget`'s `AdrLoc: TXAdresse`,
+  `66 00 00 A5 1E 9D FD 63`: alias `$1EA5`, **wide** offset `$FD9D` at
+  `+5..+6` = −153 (§6.36). (Now also reachable via Shape A since `$1E`
+  joined its gate, but the fallback still backstops any non-`$1E` wide
+  alias.)
+* **single-byte offset** — TFW's `KonsMis: PKonsMis`,
+  `66 00 00 E5 02 E8 <20>`: alias `$02E5` (Hi byte `$02`, not a marker),
+  **single** offset `$E8` at `+5` = −12 (§6.40). This is the case the
+  odd-`byte4` Shape-B gate above hands down: without that gate Shape B
+  consumed the record with a garbage wide offset (−1535) and this
+  fallback never ran.
 
 When none of A/B/C recognises, `Loc.BpOffset` keeps its synthesized
 fallback `-10000 - (FScanLocalIdx * 4)`. The
@@ -990,7 +1027,7 @@ byte hits. Each element name is a `[1, 64]` length-prefixed identifier.
 The unit name follows immediately after the last element.
 
 **The dispatcher does NOT advance `P` past the body** (see comment at
-[Scanner.pas:1149-1151](DPT.Rsm.Scanner.pas#L1149-L1151)). The single-byte
+[Scanner.pas:1548-1550](DPT.Rsm.Scanner.pas#L1548-L1550)). The single-byte
 fallback advance re-walks the body but, since none of the inner bytes
 form a valid record start under the strict shape checks of other
 handlers, this is harmless.
@@ -3757,6 +3794,37 @@ resolving to an unrelated proc — exactly the raw-offset fragility the skill
 warns against. Closure needs a stable Test.Lib build where line breakpoints fire
 (matching `-V -VR` `.rsm` + detailed `.map`, non-TestInsight); then confirm
 `get_locals`/`evaluate Lst` at `AsEnumerable` resolve correctly.
+
+### 6.41 Pointer-to-cross-unit-record `var`-block LOCAL: alias TypeIdx unbound to the record layout (`GAP`)
+
+[DPT.Debugger.pas `EvaluateVariable`](DPT.Debugger.pas) (dotted walk) +
+[DPT.Rsm.FormatALinker.pas `BindPointerAliasMembersByNameConvention`](DPT.Rsm.FormatALinker.pas)
+(the §6.19 field-side bridge that has no LOCAL-side analogue). Surfaced
+by the live realtest after §6.40 closed: in TFW's `CKonsMisDict.DataLoad`
+the local `KonsMis: PKonsMis` (`PKonsMis = ^TKonsMis`, `TKonsMis` a
+packed record in the sibling unit `Tfw.Kons.Mis.Typ`) now decodes to the
+**correct** base pointer — `get_locals` → `bp_offset -12`,
+`evaluate KonsMis (int)` → `0xF2498660` (the live record), ground-truth
+`Name` at `+0x49` = the ShortString `Volltextsuche` (verified by
+`read_memory`). **But every field hop fails**:
+`evaluate KonsMis.Name` and even `evaluate KonsMis.Typ` both return
+`Could not navigate`, and `evaluate KonsMis (object)` returns the
+type-less `Object @ F2498660` (no class/record name). The scanner records
+`KonsMis.TypeIdx = $02E5` — the per-proc 2-byte alias (§4.4 Shape C) —
+and that alias is **never bound to the discovered `TKonsMis` record
+struct**, so the dotted walk has no layout to resolve `Typ`/`Name`
+offsets against. This is the LOCAL-variable analogue of §6.19/§6.36,
+which bound pointer-to-record **class fields** (`TFormAd.FAd → TAd`) via
+the `F<X>`/`P<X>→T<X>` name-convention bridge; a `var`-block local has no
+such bridge, so its alias stays dangling. **Next step (use the §3
+standalone-reader disambiguator):** load `TFW.rsm` via `TRsmReader`,
+check whether `FindStructByTypeIdx($02E5)`/record discovery resolves
+`TKonsMis` at all — if the record is discovered but `$02E5` doesn't map
+to it, the fix is a locals-side pointer-alias→struct bind by the
+`P<X> → T<X>` convention (mirroring §6.19) wired into the dotted walk's
+first-hop priming; if `TKonsMis` isn't discovered, it is first a
+StructDiscoverer gap. Either way the §6.40 base-pointer fix is a
+prerequisite that now holds.
 
 ---
 
