@@ -6,16 +6,6 @@
 
 unit DPT.Debugger.Evaluate;
 
-// The variable-evaluation engine, extracted from TDebugger so the
-// 1000-line EvaluateVariable + its dotted-walk / VMT / auto-detect /
-// hint helpers live in one cohesive class instead of bloating TDebugger.
-//
-// TVariableEvaluator drives off IEvalProcessAccess (DPT.Debugger.Types),
-// the narrow seam onto the live process + .rsm symbols that TDebugger
-// implements. To keep the moved bodies verbatim, the private accessors
-// below SHADOW the original TDebugger field/method names (FLocalsReader,
-// ReadProcessMemory, ...) and forward to FHost -- so the cluster code
-// reads exactly as it did inside TDebugger.
 
 interface
 
@@ -34,11 +24,6 @@ type
   TVariableEvaluator = class
   private
     FHost: IEvalProcessAccess;
-    // --- name-shadow accessors: forward to FHost so the moved cluster
-    //     bodies keep their original TDebugger member spellings. The
-    //     field-shadows are PROPERTIES (not functions) so value /
-    //     Assigned contexts -- e.g. Assigned(FLocalsReader) -- behave
-    //     like the original fields. --------------------------------------
     function GetReader: TRsmReader; inline;
     function GetTargetIs32Bit: Boolean; inline;
     function GetTargetPointerSize: Integer; inline;
@@ -49,15 +34,6 @@ type
     function GetPrimitiveTypeFormatters: IKeyValue<UInt16, String>; inline;
     function GetLastEnumTypeId: UInt32; inline;
     procedure SetLastEnumTypeId(AValue: UInt32); inline;
-    property FLocalsReader: TRsmReader read GetReader;
-    property FTargetIs32Bit: Boolean read GetTargetIs32Bit;
-    property FTargetPointerSize: Integer read GetTargetPointerSize;
-    property FLastThreadHit: THandle read GetLastThreadHit;
-    property FBaseAddress: UIntPtr read GetBaseAddress;
-    property FCallResultSlot: UIntPtr read GetCallResultSlot;
-    property FFormatters: IKeyValue<String, TEvaluateFormatter> read GetFormatters;
-    property FPrimitiveTypeFormatters: IKeyValue<UInt16, String> read GetPrimitiveTypeFormatters;
-    property FLastEnumTypeId: UInt32 read GetLastEnumTypeId write SetLastEnumTypeId;
     function ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes; inline;
     function ReadTargetPointer(AAddress: Pointer): UIntPtr; inline;
     function ReadClassNameFromVMT(AVMTPtr: UIntPtr; out AClassName: String): Boolean; inline;
@@ -95,6 +71,15 @@ type
       out AFormatted: String): Boolean;
     function AutoDetectFormatterName(const AName: String; AIsLocal: Boolean;
       AMatchedLocalTypeIdx: UInt32; const AMember: TRsmClassMember): String;
+    property LocalsReader: TRsmReader read GetReader;
+    property TargetIs32Bit: Boolean read GetTargetIs32Bit;
+    property TargetPointerSize: Integer read GetTargetPointerSize;
+    property LastThreadHit: THandle read GetLastThreadHit;
+    property BaseAddress: UIntPtr read GetBaseAddress;
+    property CallResultSlot: UIntPtr read GetCallResultSlot;
+    property Formatters: IKeyValue<String, TEvaluateFormatter> read GetFormatters;
+    property PrimitiveTypeFormatters: IKeyValue<UInt16, String> read GetPrimitiveTypeFormatters;
+    property LastEnumTypeId: UInt32 read GetLastEnumTypeId write SetLastEnumTypeId;
   public
     constructor Create(const AHost: IEvalProcessAccess);
     /// The whole evaluate operation (formerly TDebugger.EvaluateVariable):
@@ -113,73 +98,112 @@ begin
   FHost := AHost;
 end;
 
-// --- name-shadow accessor implementations -----------------------------
 function TVariableEvaluator.GetReader: TRsmReader;
-begin Result := FHost.LocalsReader; end;
+begin 
+  Result := FHost.LocalsReader; 
+end;
 
 function TVariableEvaluator.GetTargetIs32Bit: Boolean;
-begin Result := FHost.TargetIs32Bit; end;
+begin 
+  Result := FHost.TargetIs32Bit; 
+end;
 
 function TVariableEvaluator.GetTargetPointerSize: Integer;
-begin Result := FHost.TargetPointerSize; end;
+begin 
+  Result := FHost.TargetPointerSize; 
+end;
 
 function TVariableEvaluator.GetLastThreadHit: THandle;
-begin Result := FHost.LastThreadHit; end;
+begin 
+  Result := FHost.LastThreadHit; 
+end;
 
 function TVariableEvaluator.GetBaseAddress: UIntPtr;
-begin Result := FHost.BaseAddress; end;
+begin 
+  Result := FHost.BaseAddress; 
+end;
 
 function TVariableEvaluator.GetCallResultSlot: UIntPtr;
-begin Result := FHost.CallResultSlot; end;
+begin 
+  Result := FHost.CallResultSlot; 
+end;
 
 function TVariableEvaluator.GetFormatters: IKeyValue<String, TEvaluateFormatter>;
-begin Result := FHost.Formatters; end;
+begin 
+  Result := FHost.Formatters; 
+end;
 
 function TVariableEvaluator.GetPrimitiveTypeFormatters: IKeyValue<UInt16, String>;
-begin Result := FHost.PrimitiveTypeFormatters; end;
+begin 
+  Result := FHost.PrimitiveTypeFormatters; 
+end;
 
 function TVariableEvaluator.GetLastEnumTypeId: UInt32;
-begin Result := FHost.LastEnumTypeId; end;
+begin 
+  Result := FHost.LastEnumTypeId; 
+end;
 
 procedure TVariableEvaluator.SetLastEnumTypeId(AValue: UInt32);
-begin FHost.LastEnumTypeId := AValue; end;
+begin 
+  FHost.LastEnumTypeId := AValue; 
+end;
 
 function TVariableEvaluator.ReadProcessMemory(AAddress: Pointer; ASize: NativeUInt): TBytes;
-begin Result := FHost.ReadProcessMemory(AAddress, ASize); end;
+begin 
+  Result := FHost.ReadProcessMemory(AAddress, ASize); 
+end;
 
 function TVariableEvaluator.ReadTargetPointer(AAddress: Pointer): UIntPtr;
-begin Result := FHost.ReadTargetPointer(AAddress); end;
+begin 
+  Result := FHost.ReadTargetPointer(AAddress); 
+end;
 
 function TVariableEvaluator.ReadClassNameFromVMT(AVMTPtr: UIntPtr; out AClassName: String): Boolean;
-begin Result := FHost.ReadClassNameFromVMT(AVMTPtr, AClassName); end;
+begin 
+  Result := FHost.ReadClassNameFromVMT(AVMTPtr, AClassName); 
+end;
 
 function TVariableEvaluator.GetLocals(AThreadHandle: THandle): TArray<TLocalVar>;
-begin Result := FHost.GetLocals(AThreadHandle); end;
+begin 
+  Result := FHost.GetLocals(AThreadHandle); 
+end;
 
 function TVariableEvaluator.GetLocalAddress(AThreadHandle: THandle; const AName: String;
   out AAddress: Pointer): Boolean;
-begin Result := FHost.GetLocalAddress(AThreadHandle, AName, AAddress); end;
+begin 
+  Result := FHost.GetLocalAddress(AThreadHandle, AName, AAddress); 
+end;
 
 function TVariableEvaluator.GetAddressFromSymbol(const ASymbolName: string): Pointer;
-begin Result := FHost.GetAddressFromSymbol(ASymbolName); end;
+begin 
+  Result := FHost.GetAddressFromSymbol(ASymbolName); 
+end;
 
 function TVariableEvaluator.TryResolveRttiProperty(AObjPtr: UIntPtr; const APropName: String;
   out AIsField: Boolean; out AFieldOffset: UInt32; out AGetterAddr: UIntPtr;
   out AIsStringResult: Boolean; out APrimIdHint: UInt16): Boolean;
-begin Result := FHost.TryResolveRttiProperty(AObjPtr, APropName, AIsField, AFieldOffset,
-  AGetterAddr, AIsStringResult, APrimIdHint); end;
+begin 
+  Result := FHost.TryResolveRttiProperty(AObjPtr, APropName, AIsField, AFieldOffset,
+    AGetterAddr, AIsStringResult, APrimIdHint); 
+end;
 
 function TVariableEvaluator.TryRecoverReferenceType(ASlotPtr: UIntPtr; out ADesc: String): Boolean;
-begin Result := FHost.TryRecoverReferenceType(ASlotPtr, ADesc); end;
+begin 
+  Result := FHost.TryRecoverReferenceType(ASlotPtr, ADesc); 
+end;
 
 function TVariableEvaluator.CallTargetFunction(AGetterAddr, ASelf: UIntPtr;
   AStringResult: Boolean; out AOrdinal: UInt64): Boolean;
-begin Result := FHost.CallTargetFunction(AGetterAddr, ASelf, AStringResult, AOrdinal); end;
+begin 
+  Result := FHost.CallTargetFunction(AGetterAddr, ASelf, AStringResult, AOrdinal); 
+end;
 
 function TVariableEvaluator.TryGetRecordTerminalName(const AName: String; AIsLocal: Boolean;
   AMatchedLocalTypeIdx: UInt32; out ARecTypeName: String; out AClsIdx: Integer): Boolean;
-begin Result := FHost.TryGetRecordTerminalName(AName, AIsLocal, AMatchedLocalTypeIdx,
-  ARecTypeName, AClsIdx); end;
+begin 
+  Result := FHost.TryGetRecordTerminalName(AName, AIsLocal, AMatchedLocalTypeIdx,
+  ARecTypeName, AClsIdx); 
+end;
 
 // VMT walk: given a pointer that's expected to point at a class
 // instance, follow the VMT to read the runtime class name. Returns
@@ -223,7 +247,7 @@ begin
   // cross-unit class references can be patched by the linker.
   // We confirm the resolved VMT by checking its self-anchor at
   // VMT-vmtSelfPtr (-88 / -176).
-  if FTargetIs32Bit then
+  if TargetIs32Bit then
   begin
     Ofs        := 48;
     SelfPtrOfs := 88;
@@ -287,7 +311,7 @@ begin
   Result := False;
   AMember := Default(TRsmClassMember);
   if AObjPtr = 0 then Exit;
-  if not Assigned(FLocalsReader) then Exit;
+  if not Assigned(LocalsReader) then Exit;
   VMTPtr := ReadTargetPointer(Pointer(AObjPtr));
   if VMTPtr = 0 then Exit;
   Depth := 0;
@@ -295,7 +319,7 @@ begin
   begin
     if not TryReadParentVMT(VMTPtr, ParentVMT, ParentName) then
       Exit; // TObject reached or unresolvable
-    if FLocalsReader.FindClassMember(ParentName, AFieldName, AMember) then
+    if LocalsReader.FindClassMember(ParentName, AFieldName, AMember) then
       Exit(True);
     VMTPtr := ParentVMT;
     Inc(Depth);
@@ -324,8 +348,8 @@ begin
   Result := False;
   AProp := Default(TRsmClassProperty);
   AOwnerClass := '';
-  if not Assigned(FLocalsReader) then Exit;
-  if FLocalsReader.FindClassProperty(AStartClassName, APropName, AProp, AOwnerClass) then
+  if not Assigned(LocalsReader) then Exit;
+  if LocalsReader.FindClassProperty(AStartClassName, APropName, AProp, AOwnerClass) then
     Exit(True);
   if AObjPtr = 0 then Exit;
   VMTPtr := ReadTargetPointer(Pointer(AObjPtr));
@@ -335,7 +359,7 @@ begin
   begin
     if not TryReadParentVMT(VMTPtr, ParentVMT, ParentName) then
       Exit; // TObject reached or unresolvable
-    if FLocalsReader.FindClassProperty(ParentName, APropName, AProp, AOwnerClass) then
+    if LocalsReader.FindClassProperty(ParentName, APropName, AProp, AOwnerClass) then
       Exit(True);
     VMTPtr := ParentVMT;
     Inc(Depth);
@@ -355,10 +379,10 @@ var
   ClsIdx: Integer;
 begin
   Result := False;
-  if (ATypeIdx = 0) or (not Assigned(FLocalsReader)) then Exit;
-  ClsIdx := FLocalsReader.FindStructByTypeIdx(ATypeIdx);
+  if (ATypeIdx = 0) or (not Assigned(LocalsReader)) then Exit;
+  ClsIdx := LocalsReader.FindStructByTypeIdx(ATypeIdx);
   Result := (ClsIdx >= 0) and
-            (FLocalsReader.Classes[ClsIdx].Kind = skClass);
+            (LocalsReader.Classes[ClsIdx].Kind = skClass);
 end;
 
 function TVariableEvaluator.Evaluate(const AName: String; var AType: String;
@@ -415,10 +439,10 @@ begin
   AHint  := '';
   FieldKnownSize := 0;
   DottedTerminalIsRecordField := False;
-  FLastEnumTypeId := 0;
+  LastEnumTypeId := 0;
   Phase('begin');
 
-  if FLastThreadHit = 0 then Exit;
+  if LastThreadHit = 0 then Exit;
 
   Addr := nil;
   IsLocal := False;
@@ -439,7 +463,7 @@ begin
   // 2. If that fails AND the name contains a dot, treat it as a dotted
   //    field chain: first segment is a local or global object reference,
   //    subsequent segments are field names looked up via RSM class info.
-  Locals := GetLocals(FLastThreadHit);
+  Locals := GetLocals(LastThreadHit);
   Phase('after GetLocals');
   for I := 0 to High(Locals) do
   begin
@@ -482,7 +506,7 @@ begin
     Segments := AName.Split(['.']);
     var FirstHopHasInstancePtr: Boolean := False;
     var FirstHopInstancePtr   : UIntPtr := 0;
-    if (Length(Segments) >= 2) and Assigned(FLocalsReader) then
+    if (Length(Segments) >= 2) and Assigned(LocalsReader) then
     begin
       // Step 1: locate first segment.
       //
@@ -514,9 +538,9 @@ begin
           FirstLocalTypeIdx := Locals[I].TypeIdx;
           FirstSegIsLocal   := True;
           if (Locals[I].Kind = lkRegister) and
-             (Length(Locals[I].RawBytes) >= FTargetPointerSize) then
+             (Length(Locals[I].RawBytes) >= TargetPointerSize) then
           begin
-            Move(Locals[I].RawBytes[0], FirstHopInstancePtr, FTargetPointerSize);
+            Move(Locals[I].RawBytes[0], FirstHopInstancePtr, TargetPointerSize);
             FirstHopHasInstancePtr := True;
             // Hand the walker a non-nil Addr sentinel so the
             // downstream "if not Assigned(Addr) then Exit" guard
@@ -529,13 +553,13 @@ begin
           Break;
         end;
       if not Assigned(Addr) then
-        if not GetLocalAddress(FLastThreadHit, Segments[0], Addr) then
+        if not GetLocalAddress(LastThreadHit, Segments[0], Addr) then
           Addr := GetAddressFromSymbol(Segments[0]);
       if not Assigned(Addr) then Exit;
 
       // Step 2: walk the dotted segments. The state we carry between
       // iterations is FieldAddr (where the next field's bytes will
-      // be read) and PrevContextIdx (the index in FLocalsReader's
+      // be read) and PrevContextIdx (the index in LocalsReader's
       // class/record list of the type we just resolved a member on,
       // or -1 if we don't know).
       //
@@ -620,7 +644,7 @@ begin
       begin
         var VmtClsName: String;
         if ReadRuntimeClassName(ProbeInstancePtr, VmtClsName) and
-           (FLocalsReader.FindClassByName(VmtClsName) >= 0) then
+           (LocalsReader.FindClassByName(VmtClsName) >= 0) then
           SkipRecordPriming := True;
       end;
       var GStructIdx: Integer := -1;
@@ -632,7 +656,7 @@ begin
           // used by FindGlobalTypeIdx below. FindStructByTypeIdx
           // would mismatch because Classes[].TypeIdx is the
           // file-offset token, a different id space.
-          GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(FirstLocalTypeIdx);
+          GStructIdx := LocalsReader.FindClassIdxByRsmTypeId(FirstLocalTypeIdx);
         // §6.41: discard a MIS-resolved alias. A record var-local's
         // per-proc 2-byte ref (§4.2 design limit) is NOT a registry
         // primary, so FindClassIdxByRsmTypeId can collide with an
@@ -644,18 +668,18 @@ begin
         // record. Gated to skRecord: a class alias is handled by the
         // class-hop/VMT path, not here.
         if (GStructIdx >= 0) and FirstSegIsLocal and (High(Segments) >= 1) and
-           (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+           (LocalsReader.Classes[GStructIdx].Kind = skRecord) then
         begin
           var AliasM: TRsmClassMember;
-          if not FLocalsReader.FindClassMember(
-               FLocalsReader.Classes[GStructIdx].Name, Segments[1], AliasM) then
+          if not LocalsReader.FindClassMember(
+               LocalsReader.Classes[GStructIdx].Name, Segments[1], AliasM) then
             GStructIdx := -1;
         end;
         if GStructIdx < 0 then
         begin
-          var GTypeIdx: UInt32 := FLocalsReader.FindGlobalTypeIdx(Segments[0]);
+          var GTypeIdx: UInt32 := LocalsReader.FindGlobalTypeIdx(Segments[0]);
           if GTypeIdx <> 0 then
-            GStructIdx := FLocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
+            GStructIdx := LocalsReader.FindClassIdxByRsmTypeId(GTypeIdx);
           // §6.42: re-apply the §6.41 discard to the GLOBAL-resolved alias.
           // A $20 stack-local also republishes (name -> per-proc id) into
           // the global map (§4.4), and that id can collide with an
@@ -671,15 +695,15 @@ begin
           // guard: a record alias that does not declare the accessed field
           // is the wrong type -- drop it so the recoveries run.
           if (GStructIdx >= 0) and (High(Segments) >= 1) and
-             (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+             (LocalsReader.Classes[GStructIdx].Kind = skRecord) then
           begin
             var GAliasM: TRsmClassMember;
-            if not FLocalsReader.FindClassMember(
-                 FLocalsReader.Classes[GStructIdx].Name, Segments[1], GAliasM) then
+            if not LocalsReader.FindClassMember(
+                 LocalsReader.Classes[GStructIdx].Name, Segments[1], GAliasM) then
               GStructIdx := -1;
           end;
           if GStructIdx < 0 then
-            GStructIdx := FLocalsReader.FindBestRecordForGlobalAndField(
+            GStructIdx := LocalsReader.FindBestRecordForGlobalAndField(
               Segments[0], Segments[1]);
           if (GStructIdx < 0) and FirstSegIsLocal and (High(Segments) >= 1) then
           begin
@@ -696,11 +720,11 @@ begin
             // record. Class-typed locals never reach here -- the §6.32
             // VMT-priority override already set SkipRecordPriming.
             var TName: String := 'T' + Segments[0];
-            var TIdx : Integer := FLocalsReader.FindClassByName(TName);
+            var TIdx : Integer := LocalsReader.FindClassByName(TName);
             var ConvM: TRsmClassMember;
             if (TIdx >= 0) and
-               (FLocalsReader.Classes[TIdx].Kind = skRecord) and
-               FLocalsReader.FindClassMember(TName, Segments[1], ConvM) then
+               (LocalsReader.Classes[TIdx].Kind = skRecord) and
+               LocalsReader.FindClassMember(TName, Segments[1], ConvM) then
               GStructIdx := TIdx
             else
             begin
@@ -714,14 +738,14 @@ begin
               // type. The unique-match guard (same as §6.18/§6.19) keeps
               // a class-instance local whose VMT probe failed from being
               // mis-primed as a record on an ambiguous field name.
-              var RecHits := FLocalsReader.FindRecordsByMemberName(Segments[1]);
+              var RecHits := LocalsReader.FindRecordsByMemberName(Segments[1]);
               if Length(RecHits) = 1 then
                 GStructIdx := RecHits[0];
             end;
           end;
         end;
         if (GStructIdx >= 0) and
-           (FLocalsReader.Classes[GStructIdx].Kind = skRecord) then
+           (LocalsReader.Classes[GStructIdx].Kind = skRecord) then
         begin
           PrevContextIdx := GStructIdx;
           ContextIsRecord := True;
@@ -754,11 +778,11 @@ begin
           begin
             var RecExtent: NativeUInt := 0;
             for var Rm: Integer := 0 to
-                FLocalsReader.Classes[GStructIdx].Members.Count - 1 do
+                LocalsReader.Classes[GStructIdx].Members.Count - 1 do
             begin
               var E: NativeUInt :=
-                NativeUInt(FLocalsReader.Classes[GStructIdx].Members[Rm].Offset) +
-                FLocalsReader.Classes[GStructIdx].Members[Rm].Size;
+                NativeUInt(LocalsReader.Classes[GStructIdx].Members[Rm].Offset) +
+                LocalsReader.Classes[GStructIdx].Members[Rm].Size;
               if E > RecExtent then RecExtent := E;
             end;
             if (RecExtent > 0) and (Length(ReadProcessMemory(
@@ -778,10 +802,10 @@ begin
         if ContextIsRecord and (PrevContextIdx >= 0) then
         begin
           var Resolved: Boolean := False;
-          for var Mi: Integer := 0 to FLocalsReader.Classes[PrevContextIdx].Members.Count - 1 do
-            if SameText(FLocalsReader.Classes[PrevContextIdx].Members[Mi].Name, Segments[I]) then
+          for var Mi: Integer := 0 to LocalsReader.Classes[PrevContextIdx].Members.Count - 1 do
+            if SameText(LocalsReader.Classes[PrevContextIdx].Members[Mi].Name, Segments[I]) then
             begin
-              Member := FLocalsReader.Classes[PrevContextIdx].Members[Mi];
+              Member := LocalsReader.Classes[PrevContextIdx].Members[Mi];
               FieldAddr := Pointer(NativeUInt(FieldAddr) + Member.Offset);
               Resolved := True;
               Break;
@@ -810,7 +834,7 @@ begin
           end;
           if ReadRuntimeClassName(ObjPtr, ClsName) then
           begin
-            if not FLocalsReader.FindClassMember(ClsName, Segments[I], Member) then
+            if not LocalsReader.FindClassMember(ClsName, Segments[I], Member) then
             begin
               // The runtime class doesn't declare this field and the
               // RSM-derived ParentName chain didn't find it either --
@@ -855,7 +879,7 @@ begin
                     var ROrd: UInt64;
                     if CallTargetFunction(RGetterAddr, ObjPtr, RIsStr, ROrd) then
                     begin
-                      FieldAddr := Pointer(FCallResultSlot);
+                      FieldAddr := Pointer(CallResultSlot);
                       Member := Default(TRsmClassMember);
                       Member.PrimitiveTypeId := RPrimId;
                       PrevContextIdx  := -1;
@@ -903,17 +927,17 @@ begin
                   if (Prop.GetterName <> '') and (OwnerClass <> '') then
                   begin
                     var ProcIdx: Integer :=
-                      FLocalsReader.FindProcByName(OwnerClass + '.' + Prop.GetterName);
+                      LocalsReader.FindProcByName(OwnerClass + '.' + Prop.GetterName);
                     if ProcIdx >= 0 then
-                      GetterAddr := FBaseAddress + $1000 +
-                        FLocalsReader.Procs[ProcIdx].SegmentOffset;
+                      GetterAddr := BaseAddress + $1000 +
+                        LocalsReader.Procs[ProcIdx].SegmentOffset;
                   end;
                   var IsStrResult: Boolean := Prop.PrimitiveTypeId = $04; // UnicodeString
                   var GetterOrdinal: UInt64 := 0;
                   if (GetterAddr <> 0) and
                      CallTargetFunction(GetterAddr, ObjPtr, IsStrResult, GetterOrdinal) then
                   begin
-                    FieldAddr := Pointer(FCallResultSlot);
+                    FieldAddr := Pointer(CallResultSlot);
                     Member := Default(TRsmClassMember);
                     Member.PrimitiveTypeId := Prop.PrimitiveTypeId;
                     // Property value is terminal data, not a navigable
@@ -942,7 +966,7 @@ begin
                 // Field-backed: resolve the underlying field by name on
                 // the same runtime/RSM class chain, then fall through to
                 // the FieldAddr advance below as if it had been named.
-                if not FLocalsReader.FindClassMember(
+                if not LocalsReader.FindClassMember(
                          ClsName, Prop.UnderlyingField, Member) then
                   if not FindFieldViaVmtWalk(
                            ObjPtr, Prop.UnderlyingField, Member) then
@@ -982,17 +1006,17 @@ begin
             if ObjPtr = 0 then Exit;
             var FbFoundIdx  : Integer := -1;
             var FbMatchCount: Integer := 0;
-            for var FbCi: Integer := 0 to FLocalsReader.Classes.Count - 1 do
+            for var FbCi: Integer := 0 to LocalsReader.Classes.Count - 1 do
             begin
-              if FLocalsReader.Classes[FbCi].Kind <> skRecord then Continue;
-              for var FbMi: Integer := 0 to FLocalsReader.Classes[FbCi].Members.Count - 1 do
-                if SameText(FLocalsReader.Classes[FbCi].Members[FbMi].Name,
+              if LocalsReader.Classes[FbCi].Kind <> skRecord then Continue;
+              for var FbMi: Integer := 0 to LocalsReader.Classes[FbCi].Members.Count - 1 do
+                if SameText(LocalsReader.Classes[FbCi].Members[FbMi].Name,
                             Segments[I]) then
                 begin
                   if FbMatchCount = 0 then
                   begin
                     FbFoundIdx := FbCi;
-                    Member := FLocalsReader.Classes[FbCi].Members[FbMi];
+                    Member := LocalsReader.Classes[FbCi].Members[FbMi];
                   end;
                   Inc(FbMatchCount);
                   Break;
@@ -1034,20 +1058,20 @@ begin
         // first DWORD instead of the FAd pointer value).
         if (I < High(Segments)) and
            (Member.PointerTargetTypeIdx <> 0) and
-           (FLocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx) >= 0) then
+           (LocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx) >= 0) then
         begin
           var PtrVal: UIntPtr := ReadTargetPointer(FieldAddr);
           if PtrVal = 0 then Exit;
           FieldAddr := Pointer(PtrVal);
-          PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx);
+          PrevContextIdx := LocalsReader.FindStructByTypeIdx(Member.PointerTargetTypeIdx);
           ContextIsRecord := True;
         end
         else if (Member.TypeIdx <> 0) and
-                (FLocalsReader.FindStructByTypeIdx(Member.TypeIdx) >= 0) then
+                (LocalsReader.FindStructByTypeIdx(Member.TypeIdx) >= 0) then
         begin
-          PrevContextIdx := FLocalsReader.FindStructByTypeIdx(Member.TypeIdx);
+          PrevContextIdx := LocalsReader.FindStructByTypeIdx(Member.TypeIdx);
           ContextIsRecord :=
-            FLocalsReader.Classes[PrevContextIdx].Kind = skRecord;
+            LocalsReader.Classes[PrevContextIdx].Kind = skRecord;
         end
         else if ContextIsRecord and (I < High(Segments)) and
                 (Member.TypeIdx = 0) and (Member.PointerTargetTypeIdx = 0) and
@@ -1065,7 +1089,7 @@ begin
           // advanced it by Member.Offset, no deref), so only the
           // context needs priming for the next record-hop iteration.
           var NestedIdx: Integer :=
-            FLocalsReader.FindRecordBySizeAndMemberName(
+            LocalsReader.FindRecordBySizeAndMemberName(
               Member.Size, Segments[I + 1]);
           // §6.43: the size+next-field bridge above is AMBIGUOUS (returns
           // -1) when several same-size records declare the next field --
@@ -1084,25 +1108,25 @@ begin
           // convention miss can never mis-prime.
           if NestedIdx < 0 then
           begin
-            var OuterNm: String := FLocalsReader.Classes[PrevContextIdx].Name;
+            var OuterNm: String := LocalsReader.Classes[PrevContextIdx].Name;
             if (Length(OuterNm) >= 2) and (UpCase(OuterNm[1]) = 'T') then
             begin
               var ConvNm : String := 'T' + Copy(OuterNm, 2, MaxInt) + Member.Name;
-              var ConvIdx: Integer := FLocalsReader.FindClassByName(ConvNm);
+              var ConvIdx: Integer := LocalsReader.FindClassByName(ConvNm);
               var ConvFld: TRsmClassMember;
               if (ConvIdx >= 0) and
-                 (FLocalsReader.Classes[ConvIdx].Kind = skRecord) and
-                 FLocalsReader.FindClassMember(ConvNm, Segments[I + 1], ConvFld) then
+                 (LocalsReader.Classes[ConvIdx].Kind = skRecord) and
+                 LocalsReader.FindClassMember(ConvNm, Segments[I + 1], ConvFld) then
               begin
                 // Size leakage guard: the convention-named record's layout
                 // extent must fit the member's parent slot, with the same
                 // <8-byte alignment tolerance FindRecordBySizeAndMemberName
                 // uses (the parent may pad the slot to align the next field).
                 var Ext: UInt32 := 0;
-                for var Cm := 0 to FLocalsReader.Classes[ConvIdx].Members.Count - 1 do
+                for var Cm := 0 to LocalsReader.Classes[ConvIdx].Members.Count - 1 do
                 begin
-                  var E: UInt32 := FLocalsReader.Classes[ConvIdx].Members[Cm].Offset +
-                                   FLocalsReader.Classes[ConvIdx].Members[Cm].Size;
+                  var E: UInt32 := LocalsReader.Classes[ConvIdx].Members[Cm].Offset +
+                                   LocalsReader.Classes[ConvIdx].Members[Cm].Size;
                   if E > Ext then Ext := E;
                 end;
                 if (Ext <= Member.Size) and (Member.Size - Ext < 8) then
@@ -1167,7 +1191,7 @@ begin
   // declines them), which makes the > 8-byte formatters cleanly
   // fail rather than dereference a junk stack pointer.
   if IsLocal and (Addr = nil) then
-    GetLocalAddress(FLastThreadHit, AName, Addr);
+    GetLocalAddress(LastThreadHit, AName, Addr);
 
   // Auto-detection: empty AType means the caller wants the server
   // to pick a formatter based on the RSM-derived type information.
@@ -1178,7 +1202,7 @@ begin
   if AType = '' then
     AType := AutoDetectFormatterName(AName, IsLocal, MatchedLocalTypeIdx, Member);
 
-  if FFormatters.TryGetValue(LowerCase(AType), Formatter) then
+  if Formatters.TryGetValue(LowerCase(AType), Formatter) then
   begin
     Result := Formatter(RawBytes, Addr, FieldKnownSize, AValue);
     Exit;
@@ -1238,9 +1262,9 @@ begin
   // Only fire for non-local globals where the registry type id
   // carries the scope-local marker ($1E hi byte). Other paths
   // already cover regular enums and primitives.
-  if (AType = '') and (not IsLocal) and Assigned(FLocalsReader) then
+  if (AType = '') and (not IsLocal) and Assigned(LocalsReader) then
   begin
-    var GlobIdHere: UInt32 := FLocalsReader.FindGlobalTypeIdx(AName);
+    var GlobIdHere: UInt32 := LocalsReader.FindGlobalTypeIdx(AName);
     if ((GlobIdHere shr 8) and $FF) = $1E then
     begin
       var ScopeName: String := '';
@@ -1255,10 +1279,10 @@ begin
       // carries a unit hint. This is the principled bridge --
       // it doesn't rely on name-suffix heuristics on the current
       // variable name at all.
-      if FLocalsReader.TryResolveByScopeLocalTypeId(
+      if LocalsReader.TryResolveByScopeLocalTypeId(
         GlobIdHere, ScopeOrd, ScopeName) then
       begin
-        FLastEnumTypeId := 0;
+        LastEnumTypeId := 0;
         AValue := Format('%s (%d)', [ScopeName, ScopeOrd]);
         AType  := 'enum';
         Result := True;
@@ -1270,10 +1294,10 @@ begin
       // the variable name and lets TryResolveScopeLocalEnum apply
       // its EndsWith unit-suffix matcher.
       var TypeHint: String := DeriveTypeHintFromVariableName(AName);
-      if FLocalsReader.TryResolveScopeLocalEnum(
+      if LocalsReader.TryResolveScopeLocalEnum(
         AName, ScopeOrd, TypeHint, ScopeName) then
       begin
-        FLastEnumTypeId := 0;
+        LastEnumTypeId := 0;
         AValue := Format('%s (%d)', [ScopeName, ScopeOrd]);
         AType  := 'enum';
         Result := True;
@@ -1288,7 +1312,7 @@ begin
   // hint at sub-navigation. Without this, evaluate would just bail
   // with "Failed to evaluate" -- which hides the fact that the user
   // simply needs to add ".FieldName" to drill in.
-  if (AType = '') and Assigned(FLocalsReader) then
+  if (AType = '') and Assigned(LocalsReader) then
   begin
     var RecTypeName: String := '';
     var RecClsIdx  : Integer := -1;
@@ -1315,12 +1339,12 @@ begin
       var IsRefCollision: Boolean := False;
       var SlotPtr: UIntPtr := 0;
       if IsLocal and (RecClsIdx >= 0) and
-         (FLocalsReader.Classes[RecClsIdx].Members.Count > 0) and
-         (FLocalsReader.Classes[RecClsIdx].Members[0].Offset = 0) and
-         (FLocalsReader.Classes[RecClsIdx].Members[0].Size >= 1) and
-         (FLocalsReader.Classes[RecClsIdx].Members[0].Size <= 2) then
+         (LocalsReader.Classes[RecClsIdx].Members.Count > 0) and
+         (LocalsReader.Classes[RecClsIdx].Members[0].Offset = 0) and
+         (LocalsReader.Classes[RecClsIdx].Members[0].Size >= 1) and
+         (LocalsReader.Classes[RecClsIdx].Members[0].Size <= 2) then
       begin
-        if FTargetIs32Bit then
+        if TargetIs32Bit then
         begin
           if Length(RawBytes) >= 4 then
             SlotPtr := PCardinal(@RawBytes[0])^;
@@ -1395,7 +1419,7 @@ begin
      (Member.PointerTargetTypeIdx = 0) and
      (not TerminalMemberResolvesToClass(Member.TypeIdx)) then
   begin
-    if FFormatters.TryGetValue('int', Formatter) and
+    if Formatters.TryGetValue('int', Formatter) and
        Formatter(RawBytes, Addr, FieldKnownSize, AValue) then
     begin
       AType  := 'int';
@@ -1412,7 +1436,7 @@ begin
   else if AHint = '' then
   begin
     var UnusedFmt: TEvaluateFormatter;
-    if not FFormatters.TryGetValue(LowerCase(AType), UnusedFmt) then
+    if not Formatters.TryGetValue(LowerCase(AType), UnusedFmt) then
       AHint := Format(
         'Unsupported type "%s". Allowed: int, int64, string, ansistring, ' +
         'widestring, shortstring, single, double, extended, object.', [AType]);
@@ -1435,7 +1459,7 @@ var
   I       : Integer;
 begin
   Result := '';
-  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  if Length(ARawBytes) < TargetPointerSize then Exit;
 
   HexBytes := '';
   for I := 0 to Length(ARawBytes) - 1 do
@@ -1445,10 +1469,10 @@ begin
   AddrStr := '';
   if Assigned(AAddr) then
     AddrStr := Format(' at address %s (read_memory there for the full value)',
-      [IntToHex(NativeUInt(AAddr), FTargetPointerSize * 2)]);
+      [IntToHex(NativeUInt(AAddr), TargetPointerSize * 2)]);
 
   PtrVal := 0;
-  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  Move(ARawBytes[0], PtrVal, TargetPointerSize);
   if PtrVal = 0 then
     // Keep the literal substrings 'nil pointer' and 'type=object' -- the
     // auto-detect nil-global pin asserts on them.
@@ -1560,7 +1584,7 @@ var
 begin
   Result     := False;
   AFormatted := '';
-  if not Assigned(FLocalsReader) then Exit;
+  if not Assigned(LocalsReader) then Exit;
   if Length(ARawBytes) < 1 then Exit;
   // High bytes can legitimately carry data even for enum fields:
   // when reading 8 bytes from a 1-byte enum field, adjacent fields'
@@ -1577,9 +1601,9 @@ begin
   if (Length(Stripped) > 1) and (Stripped[1] = 'F') and
      CharInSet(Stripped[2], ['A'..'Z']) then
     Stripped := Copy(Stripped, 2, MaxInt);
-  Candidate := FLocalsReader.FindTypeIdByName('T' + Stripped);
+  Candidate := LocalsReader.FindTypeIdByName('T' + Stripped);
   if Candidate = 0 then Exit;
-  if not FLocalsReader.IsEnumTypeId(Candidate) then Exit;
+  if not LocalsReader.IsEnumTypeId(Candidate) then Exit;
   Ordinal := ARawBytes[0];
   // Build the conventional constant-name prefix: take every uppercase
   // letter of the X in T<X> and lowercase it. TWindowState -> "ws",
@@ -1590,7 +1614,7 @@ begin
   for I := 1 to Length(Stripped) do
     if CharInSet(Stripped[I], ['A'..'Z']) then
       Prefix := Prefix + LowerCase(Stripped[I]);
-  if FLocalsReader.TryGetEnumConstantName(Candidate, Ordinal, EnumName, Prefix) then
+  if LocalsReader.TryGetEnumConstantName(Candidate, Ordinal, EnumName, Prefix) then
   begin
     AFormatted := Format('%s (%d)', [EnumName, Ordinal]);
     Result := True;
@@ -1599,7 +1623,7 @@ end;
 
 function TVariableEvaluator.TryProbeClassPointer(const ARawBytes: TBytes;
   out AFormatted: String): Boolean;
-// Treats the first FTargetPointerSize bytes as a class-instance
+// Treats the first TargetPointerSize bytes as a class-instance
 // pointer, dereferences to a candidate VMT slot, and only succeeds
 // when ReadClassNameFromVMT yields a real class name (i.e. the
 // pointer truly points at a class instance whose VMT layout matches
@@ -1615,9 +1639,9 @@ var
 begin
   Result := False;
   AFormatted := '';
-  if Length(ARawBytes) < FTargetPointerSize then Exit;
+  if Length(ARawBytes) < TargetPointerSize then Exit;
   PtrVal := 0;
-  Move(ARawBytes[0], PtrVal, FTargetPointerSize);
+  Move(ARawBytes[0], PtrVal, TargetPointerSize);
   // Nil class pointers are ambiguous (could also be an uninitialized
   // primitive). Decline so the caller falls through to the record-
   // terminal hint / the explicit "Failed to evaluate" path -- the
@@ -1627,7 +1651,7 @@ begin
   if VMTPtr = 0 then Exit;
   if not ReadClassNameFromVMT(VMTPtr, ClassName) then Exit;
   AFormatted := ClassName + ' @ ' +
-                Format('%.*x', [FTargetPointerSize * 2, PtrVal]);
+                Format('%.*x', [TargetPointerSize * 2, PtrVal]);
   Result := True;
 end;
 
@@ -1659,12 +1683,12 @@ function TVariableEvaluator.AutoDetectFormatterName(const AName: String; AIsLoca
     ClsIdx: Integer;
   begin
     Result := '';
-    if (ATypeIdx = 0) or (not Assigned(FLocalsReader)) then Exit;
+    if (ATypeIdx = 0) or (not Assigned(LocalsReader)) then Exit;
     if AUseRegistry then
-      ClsIdx := FLocalsReader.FindClassIdxByRsmTypeId(ATypeIdx)
+      ClsIdx := LocalsReader.FindClassIdxByRsmTypeId(ATypeIdx)
     else
-      ClsIdx := FLocalsReader.FindStructByTypeIdx(ATypeIdx);
-    if (ClsIdx >= 0) and (FLocalsReader.Classes[ClsIdx].Kind = skClass) then
+      ClsIdx := LocalsReader.FindStructByTypeIdx(ATypeIdx);
+    if (ClsIdx >= 0) and (LocalsReader.Classes[ClsIdx].Kind = skClass) then
       Result := 'object';
   end;
 
@@ -1676,10 +1700,10 @@ function TVariableEvaluator.AutoDetectFormatterName(const AName: String; AIsLoca
   // directly) can resolve the ordinal to its identifier name.
   begin
     Result := '';
-    if (ATypeId = 0) or (not Assigned(FLocalsReader)) then Exit;
-    if FLocalsReader.IsEnumTypeId(ATypeId) then
+    if (ATypeId = 0) or (not Assigned(LocalsReader)) then Exit;
+    if LocalsReader.IsEnumTypeId(ATypeId) then
     begin
-      FLastEnumTypeId := ATypeId;
+      LastEnumTypeId := ATypeId;
       Result := 'enum';
     end;
   end;
@@ -1691,7 +1715,7 @@ begin
   // Path 1: terminal primitive field captured during the field-scan.
   if AMember.PrimitiveTypeId <> 0 then
   begin
-    if FPrimitiveTypeFormatters.TryGetValue(AMember.PrimitiveTypeId, Result) then
+    if PrimitiveTypeFormatters.TryGetValue(AMember.PrimitiveTypeId, Result) then
       Exit;
     Result := EnumLookup(AMember.PrimitiveTypeId);
     if Result <> '' then Exit;
@@ -1704,7 +1728,7 @@ begin
   // then the class registry.
   if AIsLocal and (AMatchedLocalTypeIdx <> 0) then
   begin
-    if FPrimitiveTypeFormatters.TryGetValue(UInt16(AMatchedLocalTypeIdx), Result) then
+    if PrimitiveTypeFormatters.TryGetValue(UInt16(AMatchedLocalTypeIdx), Result) then
       Exit;
     Result := EnumLookup(AMatchedLocalTypeIdx);
     if Result <> '' then Exit;
@@ -1713,12 +1737,12 @@ begin
   end;
   // Path 4: whole-name global. Same triple lookup against the
   // global's registry type id.
-  if (not AIsLocal) and Assigned(FLocalsReader) then
+  if (not AIsLocal) and Assigned(LocalsReader) then
   begin
-    GlobTypeIdx := FLocalsReader.FindGlobalTypeIdx(AName);
+    GlobTypeIdx := LocalsReader.FindGlobalTypeIdx(AName);
     if GlobTypeIdx <> 0 then
     begin
-      if FPrimitiveTypeFormatters.TryGetValue(UInt16(GlobTypeIdx), Result) then
+      if PrimitiveTypeFormatters.TryGetValue(UInt16(GlobTypeIdx), Result) then
         Exit;
       Result := EnumLookup(GlobTypeIdx);
       if Result <> '' then Exit;
