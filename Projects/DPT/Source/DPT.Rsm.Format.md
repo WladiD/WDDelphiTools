@@ -4072,8 +4072,125 @@ Pinned by [`Test.DPT.Td32.Reader`](../Test/Test.DPT.Td32.Reader.pas)
 **Status:** the §6.43/§6.44 name conventions remain the best-effort
 **fallback** for `.rsm`-only targets. For builds that emit TD32 (`-V` or
 `-VT`), `DPT.Td32.Reader` is the convention-free, project-independent
-source. Open follow-up (NOT a `.rsm` gap): wire `DPT.Td32.Reader` into the
+source. Follow-up DONE in §6.46: `DPT.Td32.Reader` is now wired into the
 live evaluate path as the preferred reader, `.rsm` as fallback.
+
+### 6.46 TD32 wired in as the PREFERRED dotted-walk reader, `.rsm` the fallback — CLOSED (consumer-side)
+
+[DPT.Debugger.Evaluate.pas `Evaluate` / `TryTd32DottedWalk`](DPT.Debugger.Evaluate.pas),
+[DPT.Debugger.pas](DPT.Debugger.pas) (reader load + seam),
+[DPT.Debugger.Types.pas](DPT.Debugger.Types.pas) (`IEvalProcessAccess`),
+[DPT.Td32.Reader.pas](DPT.Td32.Reader.pas) (LF_POINTER decode). Closes the
+§6.45 follow-up.
+
+**Design decision — selection, not a unified interface.** Two shapes were
+weighed (per the task brief): (1) a common `IDebugSymbolReader` implemented
+by both readers, or (2) selection — prefer TD32 when present, else RSM.
+**Option 2 was chosen** and implemented as a *separate, short, authoritative*
+TD32 dotted-walk (`TryTd32DottedWalk`) that runs FIRST; the existing RSM walk
+is left **byte-for-byte unchanged** and runs only when TD32 is absent or
+declines. Option 1 was rejected: the evaluator calls many RSM-only services
+(`FindGlobalTypeIdx`, `FindClassIdxByRsmTypeId`,
+`FindBestRecordForGlobalAndField`, the §6.36/§6.41/§6.43/§6.44 conventions,
+enum/property resolution) that are *meaningless* for TD32, and the two
+readers' member records differ (RSM `TRsmClassMember` carries
+`Size`/`PrimitiveTypeId`/`PointerTargetTypeIdx` and class offsets that
+already include the VMT slot; TD32 `TTd32ClassMember` carries only
+`Name`/`Offset`/`TypeIdx` with *logical* class offsets). A "common core"
+would not let the existing heuristic walk run on TD32 unchanged — so the
+abstraction does not fit, and the brief's "RSM keeps the heuristic" rules it
+out. The **key simplification** the brief flagged holds: with TD32's real
+type-indices the entire §6.36 size-bridge + §6.42/§6.43/§6.44 convention
+apparatus is UNNECESSARY — the TD32 branch is a direct
+`FindStructByTypeIdx(Member.TypeIdx)` walk.
+
+**Reader selection (host).** `TDebugger.LoadDebugInfoFromExe` additively calls
+`LoadTd32IfAvailable`: it loads `ChangeFileExt(exe, '.tds')` (dcc32 `-VT`,
+preferred) or, absent that, embedded TD32 in the EXE (`-V`); the reader is
+kept only when it parsed a non-empty member→type graph (`Classes.Count > 0`),
+else freed so `Td32Reader = nil` signals "RSM-only". A parse/IO failure is
+swallowed — TD32 is an accelerator, never a requirement. The `.rsm` and
+`.tds` coexist; **locals/frames stay RSM-driven** (`GetLocals` /
+`GetLocalAddress` / proc resolution are unchanged), so the §6.39 `.map`
+SegmentOffset-drift correction and the §6.30/§6.35/§6.40 frame logic are
+untouched. Only the member→type *navigation* is TD32's. `TTd32StructKind`'s
+constants were renamed `skClass/skRecord → tkClass/tkRecord` so a consumer
+unit can `uses` both readers without the bare enum identifiers colliding with
+RSM's `TRsmStructKind`.
+
+**The pointer-to-record first hop needed a new decode.** The live evaluator
+starts the walk from a LOCAL, and the canonical case is `Computer: PComputer`
+(`= ^TComputer`) — a pointer to a record. The reader's struct graph (proven
+in §6.45) starts from a struct *by name*; to bind the local's declared type
+(the `PComputer` pointer) to `TComputer` convention-free, `DPT.Td32.Reader`
+gained **LF_POINTER decoding** (`FPointerTargets` + `TryGetPointerTarget`).
+Because the Borland TD32 pointer record's attribute-field width is
+version-specific, the underlying type-index is recovered by scanning the
+record body for the first plausible large in-range type-index (the
+ptrtype/ptrmode/flags are all small) — a mis-pick fails safe because the
+caller validates the target via `FindStructByTypeIdx` and declines on a
+non-struct. The walk's first hop then derefs the slot and continues
+record-hop. `TryGetTd32FrameLocalTypeIdx` (host) resolves the local's TD32
+type via the `.tds`'s own GPROC32/BPREL stream (its SegmentOffset is the
+direct, drift-free RVA, so no `.map` correction is needed).
+
+**Hop semantics — pure inline-record scope.** Record members carry absolute
+offsets (no VMT slot), so each hop is just `base + Member.Offset`: an
+inline-record field's address IS the nested record's base; a pointer-to-record
+field (`FAd: PAd`) is `TryGetPointerTarget`-resolved and dereffed. The walk
+DECLINES (→ RSM) the moment any hop would touch a CLASS instance — a class
+root (`Self`, a register-passed object), or a class-typed field — because the
+mature RSM walk already owns the VMT-offset/spill-home/register/inheritance
+machinery (§6.30/§6.35/§6.40) this short path does not duplicate. (An early
+cut that DID walk class hops via TD32 regressed nine DebugTarget MCP tests —
+DebugTarget is built `-V`, so its embedded TD32 activated the walk — which is
+how the scope was pinned down.) The terminal field's address feeds the
+existing formatter pipeline;
+an empty `type=` is auto-detected from the TD32 terminal type
+(`Td32TerminalFormatterName`: struct → `object`/`record`; CodeView scalar
+primitive → `int`/`int64`/`single`/`double`/`extended`/`bool`). A
+string/array terminal (e.g. `TComputerOS.Name : S_40 = String[40]`, CodeView
+type `$55385`) is not a scalar primitive, so bare auto-detect falls through to
+`type=shortstring` exactly like the §6.43/§6.44 residual — the *navigation* is
+still fully convention-free.
+
+**Proven (reader-level, real `TFW.tds`, 357 MB, ~1 s load, 62 582 structs).**
+[`Test.DPT.Td32.Tfw`](../Test/Test.DPT.Td32.Tfw.pas): the pointer-to-record
+local `Computer: PComputer ($CB834)` decodes to `TComputer` convention-free;
+`TComputer.OS → TComputerOS`, `TUser.RecHeader → TRecHeader`,
+`TComputerOS.MajorVersion` carries CodeView scalar id `$75` (`T_UINT4` →
+`int`); the same build's `.rsm` returns `TComputer.OS` `TypeIdx = 0` (head to
+head). This reader-level proof on the real build is the authoritative
+evidence the walk resolves the exact LIVE edge convention-free.
+
+**Wired + no regression.** The full unit + reader suites pass on both
+platforms (Win32 210/210, Win64 245/245, 0 failures): the TD32 walk is spliced
+into the live evaluate path ahead of the RSM walk with no regression, because
+the pure-record scope leaves every class / `Self` / register / spill-home /
+enum chain to RSM (an early cut that walked those via TD32 regressed nine
+DebugTarget MCP tests — DebugTarget is built `-V`, so its embedded TD32
+activated the walk; the scope gate is what fixed them).
+
+**Live end-to-end — CONFIRMED.** Against the real **Win32** `TFW.exe` (the
+357 MB `.tds` beside it) under the rebuilt `DPT.exe`, BP
+`Base.Computer.Dict:320`/`:322` in `CComputerDict.DataLoad` (local
+`Computer: PComputer`, hit during the `Dict` init phase — no FitNesse workload
+needed once the Mongo backend is up):
+* `evaluate Computer.OS.Name` (`type=shortstring`) → **`Windows 11`**
+* `evaluate Computer.OS.MajorVersion` **bare** → auto-typed `int` → **`10`**
+  (the `$75`/`T_UINT4` terminal map)
+* `evaluate Computer.RecHeader.Version` → **`26050000` (`0x018D7DD0`)** — the
+  cross-unit SHARED `TComputer.RecHeader → TRecHeader` (§6.44's edge).
+
+All three are pure-record cross-unit chains the `.rsm` types as
+`TComputer.OS TypeIdx = 0`; here they resolve through the `.tds` graph (with a
+`.tds` present the TD32 walk runs first and succeeds, so the RSM `T<X>`
+conventions are never reached). Byte cross-checked via `read_memory` at the
+live `TComputer` base `0xE8437420`: `RecHeader.Version` = `D0 7D 8D 01`
+(offset 0); `OS.Name` = `0A 'Windows 11'`; `OS.MajorVersion` = `0A 00 00 00`
+(offset 41 in `TComputerOS`) — every evaluator value byte-matches memory. The
+record offsets are absolute (TFW is Win32, so pointer reads are 4-byte; the
+pure-record scope never needs the VMT-slot adjust).
 
 ---
 

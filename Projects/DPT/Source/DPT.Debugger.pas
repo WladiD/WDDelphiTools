@@ -22,6 +22,7 @@ uses
   DPT.Rsm.BufferIO,
   DPT.Rsm.Model,
   DPT.Rsm.Reader,
+  DPT.Td32.Reader,
   DPT.Debugger.Types,
   DPT.Debugger.Evaluate;
 
@@ -186,6 +187,15 @@ type
     FLastThreadHit           : THandle;
     FLastThreadId            : Cardinal;
     FLocalsReader            : TRsmReader;
+    /// Optional TD32/CodeView symbol reader, loaded from a sidecar
+    /// <c>&lt;exe&gt;.tds</c> (dcc32 -VT) or embedded TD32 (-V) when present.
+    /// It carries the AUTHORITATIVE member->type graph (real type-indices)
+    /// that the reduced <c>.rsm</c> cannot for cross-unit nested records
+    /// (Format.md §6.45), so the dotted-walk PREFERS it and falls back to
+    /// <c>FLocalsReader</c> (RSM) when nil. Nil when no TD32 info is
+    /// available; locals/frames stay RSM-driven either way (both sidecars
+    /// coexist). Owned here.
+    FTd32Reader              : TTd32Reader;
     /// The variable-evaluation engine (the former EvaluateVariable
     /// cluster). Driven through IEvalProcessAccess, which TDebugger
     /// implements; TDebugger.EvaluateVariable delegates to it.
@@ -275,6 +285,13 @@ type
     procedure StartOutputReaders;
     procedure StopOutputReaders;
     procedure PatchRsmProcAddressesFromMap;
+    /// Loads the optional TD32 reader into <c>FTd32Reader</c> from a
+    /// sidecar <c>&lt;exe&gt;.tds</c> (preferred) or embedded TD32 in the
+    /// EXE. Kept only when it parsed a non-empty member->type graph;
+    /// otherwise freed so <c>Td32Reader = nil</c> means "RSM-only".
+    /// Never raises -- TD32 is an accelerator, not a requirement.
+    procedure LoadTd32IfAvailable(const AExePath: string;
+      AOnPhase: TProc<String>);
     function  ReadTargetPointer(AAddress: Pointer): UIntPtr;
     /// Returns True (with the record's type name) when <c>AName</c>
     /// is a record-typed local or global. Used by EvaluateVariable's
@@ -322,6 +339,7 @@ type
     function GetLastEnumTypeId: UInt32;
     procedure SetLastEnumTypeId(AValue: UInt32);
     function GetLocalsReader: TRsmReader;
+    function GetTd32Reader: TTd32Reader;
     function GetFormatters: IKeyValue<String, TEvaluateFormatter>;
     function GetPrimitiveTypeFormatters: IKeyValue<UInt16, String>;
     /// Read the class name pointed at by <c>AVMTPtr - vmtClassName</c>.
@@ -448,6 +466,19 @@ type
     /// </summary>
     function  GetLocalAddress(AThreadHandle: THandle; const AName: String;
       out AAddress: Pointer): Boolean;
+    /// <summary>
+    ///   Resolves the TD32 (CodeView) type-index that the <c>.tds</c>
+    ///   records for the named local of the procedure containing the
+    ///   current PC, via the TD32 reader's own proc/BPREL stream. This is
+    ///   the authoritative declared type of the local (e.g. the
+    ///   <c>PComputer</c> pointer type for <c>Computer: PComputer</c>),
+    ///   used by the dotted-walk's TD32 first hop. Returns <c>False</c>
+    ///   when no TD32 reader is loaded, the PC is outside any TD32-covered
+    ///   procedure, or no local of that name exists. Frame/local ADDRESS
+    ///   resolution stays with the RSM-driven <see cref="GetLocalAddress"/>.
+    /// </summary>
+    function  TryGetTd32FrameLocalTypeIdx(AThreadHandle: THandle;
+      const AName: String; out ATypeIdx: UInt32): Boolean;
     function  EvaluateVariable(const AName: String; var AType: String; out AValue, AHint: String;
       AOnPhase: TProc<String> = nil): Boolean;
     function  GetStackFrameInfo(AThreadHandle: THandle): TStackFrameInfo;
@@ -500,6 +531,7 @@ type
     property  LastThreadHit: THandle read FLastThreadHit;
     property  LastThreadId: Cardinal read FLastThreadId;
     property  LocalsReader: TRsmReader read FLocalsReader;
+    property  Td32Reader: TTd32Reader read FTd32Reader;
     property  OnBreakpoint: TOnBreakpointEvent read FOnBreakpoint write FOnBreakpoint;
     property  OnException: TOnExceptionEvent read FOnException write FOnException;
     property  OnProcessExit: TOnProcessExitEvent read FOnProcessExit write FOnProcessExit;
@@ -831,6 +863,7 @@ begin
   FOutputLock.Free;
   FEvaluator.Free;
   FLocalsReader.Free;
+  FTd32Reader.Free;
   FMapScanner.Free;
   if FProcessHandle <> 0 then
     CloseHandle(FProcessHandle);
@@ -1643,6 +1676,7 @@ procedure TDebugger.LoadDebugInfoFromExe(const AExePath: string;
   AOnPhase: TProc<String>);
 begin
   FreeAndNil(FLocalsReader);
+  FreeAndNil(FTd32Reader);
   if not FileExists(AExePath) then
     Exit;
   FLocalsReader := TRsmReader.Create;
@@ -1654,6 +1688,10 @@ begin
     raise;
   end;
   PatchRsmProcAddressesFromMap;
+  // Additively load the authoritative TD32 member->type graph when a
+  // .tds / embedded TD32 is present; never let its absence or a parse
+  // failure break the (RSM-backed) session.
+  LoadTd32IfAvailable(AExePath, AOnPhase);
 end;
 
 procedure TDebugger.PatchRsmProcAddressesFromMap;
@@ -1690,6 +1728,69 @@ begin
   end;
   if Patched then
     FLocalsReader.RecomputeProcSizes;
+end;
+
+procedure TDebugger.LoadTd32IfAvailable(const AExePath: string;
+  AOnPhase: TProc<String>);
+var
+  Reader : TTd32Reader;
+  TdsPath: string;
+begin
+  Reader := TTd32Reader.Create;
+  try
+    TdsPath := ChangeFileExt(AExePath, '.tds');
+    if FileExists(TdsPath) then
+      Reader.LoadFromTdsFile(TdsPath)   // dcc32 -VT detached sidecar (preferred)
+    else
+      Reader.LoadFromFile(AExePath);    // embedded TD32 (-V); empty if absent
+  except
+    // TD32 is an optional accelerator: a parse/IO failure must never break
+    // the RSM-backed session. Swallow and stay RSM-only.
+    FreeAndNil(Reader);
+    Exit;
+  end;
+  // Keep the reader only when it actually carries the member->type graph;
+  // an empty parse (no .tds, no embedded TD32) leaves Td32Reader nil, which
+  // the evaluator reads as "RSM-only" and uses the .rsm heuristic fallback.
+  if Reader.Classes.Count > 0 then
+  begin
+    FTd32Reader := Reader;
+    if Assigned(AOnPhase) then
+      AOnPhase(Format('td32: loaded %d types (member->type authoritative)',
+        [Reader.Classes.Count]));
+  end
+  else
+    Reader.Free;
+end;
+
+function TDebugger.TryGetTd32FrameLocalTypeIdx(AThreadHandle: THandle;
+  const AName: String; out ATypeIdx: UInt32): Boolean;
+const
+  CodeSectionRVA = $1000;
+var
+  Regs      : TRegisters;
+  SegmentOff: NativeUInt;
+  ProcIdx   : Integer;
+  I         : Integer;
+begin
+  Result := False;
+  ATypeIdx := 0;
+  if not Assigned(FTd32Reader) then Exit;
+  Regs := GetRegisters(AThreadHandle);
+  if Regs.Eip = 0 then Exit;
+  if Regs.Eip < FBaseAddress + CodeSectionRVA then Exit;
+  SegmentOff := NativeUInt(Regs.Eip - FBaseAddress - CodeSectionRVA);
+  // TD32's GPROC32 SegmentOffset is the direct, drift-free code-segment RVA
+  // (unlike the .rsm address decode that needs the §6.39 .map correction),
+  // so FindProcContaining is authoritative without a .map cross-check.
+  ProcIdx := FTd32Reader.FindProcContaining(SegmentOff);
+  if ProcIdx < 0 then Exit;
+  for I := 0 to FTd32Reader.Procs[ProcIdx].Locals.Count - 1 do
+    if SameText(FTd32Reader.Procs[ProcIdx].Locals[I].Name, AName) then
+    begin
+      ATypeIdx := FTd32Reader.Procs[ProcIdx].Locals[I].TypeIdx;
+      Exit(True);
+    end;
 end;
 
 function TDebugger.MapCorrectedProcIdx(ASegmentOffset: NativeUInt;
@@ -3321,6 +3422,11 @@ end;
 function TDebugger.GetLocalsReader: TRsmReader;
 begin
   Result := FLocalsReader;
+end;
+
+function TDebugger.GetTd32Reader: TTd32Reader;
+begin
+  Result := FTd32Reader;
 end;
 
 function TDebugger.GetFormatters: IKeyValue<String, TEvaluateFormatter>;

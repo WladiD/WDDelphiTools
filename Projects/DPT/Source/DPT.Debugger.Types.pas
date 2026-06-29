@@ -25,7 +25,8 @@ uses
   mormot.core.collections,
 
   DPT.Rsm.Model,
-  DPT.Rsm.Reader;
+  DPT.Rsm.Reader,
+  DPT.Td32.Reader;
 
 type
 
@@ -77,6 +78,7 @@ type
     function GetLastEnumTypeId: UInt32;
     procedure SetLastEnumTypeId(AValue: UInt32);
     function GetLocalsReader: TRsmReader;
+    function GetTd32Reader: TTd32Reader;
     function GetFormatters: IKeyValue<String, TEvaluateFormatter>;
     function GetPrimitiveTypeFormatters: IKeyValue<UInt16, String>;
     /// Target is a 32-bit (Win32) process.
@@ -92,8 +94,15 @@ type
     /// Per-call side channel: the RSM enum type id the auto-detect layer
     /// identified, read by the 'enum' formatter to resolve the constant name.
     property LastEnumTypeId: UInt32 read GetLastEnumTypeId write SetLastEnumTypeId;
-    /// The .rsm symbol reader.
+    /// The .rsm symbol reader (always present once debug info is loaded;
+    /// drives locals/frames and is the dotted-walk's heuristic FALLBACK).
     property LocalsReader: TRsmReader read GetLocalsReader;
+    /// The optional TD32/CodeView reader (nil when no <c>.tds</c>/embedded
+    /// TD32 is present). When non-nil it carries the AUTHORITATIVE
+    /// member->type graph the reduced <c>.rsm</c> cannot (Format.md §6.45),
+    /// so the dotted-walk PREFERS it and only falls back to
+    /// <see cref="LocalsReader"/> when this is nil or declines.
+    property Td32Reader: TTd32Reader read GetTd32Reader;
     /// Lowercased-type-name -> output formatter.
     property Formatters: IKeyValue<String, TEvaluateFormatter> read GetFormatters;
     /// Compiler primitive type id -> formatter name.
@@ -110,6 +119,13 @@ type
     /// Resolve a named local's live address on AThreadHandle.
     function GetLocalAddress(AThreadHandle: THandle; const AName: String;
       out AAddress: Pointer): Boolean;
+    /// Resolve the TD32 (CodeView) type-index the <c>.tds</c> records for a
+    /// named local of the procedure at the current PC (e.g. the
+    /// <c>PComputer</c> pointer type for <c>Computer: PComputer</c>). Drives
+    /// the TD32 dotted-walk's first hop. False when no TD32 reader is loaded
+    /// or the local/proc isn't found.
+    function TryGetTd32FrameLocalTypeIdx(AThreadHandle: THandle;
+      const AName: String; out ATypeIdx: UInt32): Boolean;
     /// Resolve a global symbol name to its live address.
     function GetAddressFromSymbol(const ASymbolName: string): Pointer;
     /// Resolve a published/extended-RTTI property on the live instance

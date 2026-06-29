@@ -60,8 +60,12 @@ type
   ///   or a Delphi record (LF_STRUCTURE, no VMT, fields start at offset 0).
   ///   The kind decides whether navigation through this type dereferences
   ///   the holding slot (class) or treats it as inline data (record).
+  ///   The constants use a <c>tk</c> prefix (not the <c>sk</c> of RSM's
+  ///   <c>TRsmStructKind</c>) so a consumer unit can <c>uses</c> BOTH
+  ///   readers without the bare enum identifiers colliding (the dotted-walk
+  ///   evaluator does exactly that — RSM fallback + TD32 preferred).
   /// </summary>
-  TTd32StructKind = (skClass, skRecord);
+  TTd32StructKind = (tkClass, tkRecord);
 
   /// <summary>
   ///   A class or record declared in the debugged binary: its short name
@@ -88,6 +92,17 @@ type
   private
     FProcs  : IList<TTd32Proc>;
     FClasses: IList<TTd32ClassInfo>;
+    /// <summary>
+    ///   Pointer-type-index -> underlying (pointed-at) type-index, parsed
+    ///   from LF_POINTER type records. Lets the dotted-walk resolve a
+    ///   pointer-to-record LOCAL (e.g. <c>Computer: PComputer = ^TComputer</c>)
+    ///   to the record it points at: the local's BPREL type-index is the
+    ///   LF_POINTER's index, and this map yields TComputer's struct index
+    ///   so navigation derefs the slot and continues record-hop. Built
+    ///   convention-free from the authoritative TD32 type graph (no
+    ///   <c>P&lt;X&gt;=^T&lt;X&gt;</c> name guess).
+    /// </summary>
+    FPointerTargets: IKeyValue<UInt32, UInt32>;
     /// <summary>
     ///   Shared loader: locates the FB09 / FB0A header on a 4-byte boundary
     ///   starting at <c>AScanStart</c>, slices to EOF, validates, and parses.
@@ -143,6 +158,17 @@ type
     ///   layout (records have no runtime type tag).
     /// </summary>
     function  FindStructByTypeIdx(ATypeIdx: UInt32): Integer;
+    /// <summary>
+    ///   Returns True (with the pointed-at type-index in
+    ///   <paramref name="ATargetTypeIdx"/>) when <paramref name="ATypeIdx"/>
+    ///   is a known pointer type (an LF_POINTER record). The caller decides
+    ///   whether the target is navigable by passing it to
+    ///   <see cref="FindStructByTypeIdx"/>; a target that is not a struct
+    ///   (e.g. a pointer-to-primitive) simply makes the caller decline, so
+    ///   a mis-decode degrades to "not resolvable here" rather than a wrong
+    ///   navigation.
+    /// </summary>
+    function  TryGetPointerTarget(ATypeIdx: UInt32; out ATargetTypeIdx: UInt32): Boolean;
     /// <summary>
     ///   Looks up a member field on the class by name (case-insensitive).
     ///   Returns False if either the class or the field is unknown.
@@ -204,6 +230,7 @@ begin
   inherited Create;
   FProcs := Collections.NewPlainList<TTd32Proc>;
   FClasses := Collections.NewPlainList<TTd32ClassInfo>;
+  FPointerTargets := Collections.NewPlainKeyValue<UInt32, UInt32>;
 end;
 
 procedure TTd32Reader.LoadFromFile(const AExePath: String);
@@ -266,6 +293,8 @@ var
   TD32Bytes : TBytes;
 begin
   FProcs.Clear;
+  FClasses.Clear;
+  FPointerTargets.Clear;
   if Length(ABytes) < 8 then
     Exit;
 
@@ -614,6 +643,7 @@ procedure TTd32Reader.WalkGlobalTypes(APtr: Pointer; ASize: Integer;
 
 const
   TYPE_INDEX_BASE = $1000;
+  LF_POINTER      = $0002;
   LF_STRUCTURE    = $0005;
   LF_CLASS        = $0004;
   LF_FIELDLIST    = $0204;
@@ -657,6 +687,32 @@ begin
     if RecOff + 2 + RecLen > UInt32(ASize) then
       Continue;
     RecTyp := PWord(BB + RecOff + 2)^;
+    if RecTyp = LF_POINTER then
+    begin
+      // LF_POINTER: capture the underlying (pointed-at) type-index so a
+      // pointer-to-record local resolves to its record. The Borland TD32
+      // pointer record is [reclen:WORD][leaf:WORD][attr][utype:DWORD], but
+      // the attr field's width is version-specific, so instead of a
+      // hard-coded offset we scan the record body (2-byte stride) for the
+      // first DWORD that is a plausible user type-index ($1000.. within the
+      // table). The pointer's ptrtype/ptrmode/flags are all small values
+      // far below $1000, so the first large in-range DWORD is the underlying
+      // type. A mis-pick is harmless: TryGetPointerTarget's caller validates
+      // the result via FindStructByTypeIdx and declines on a non-struct.
+      RecEnd := RecOff + 2 + RecLen;
+      var PScan: UInt32 := RecOff + 4;
+      while PScan + 4 <= RecEnd do
+      begin
+        var UType: UInt32 := PUInt32(BB + PScan)^;
+        if (UType >= TYPE_INDEX_BASE) and (UType < TYPE_INDEX_BASE + NumTypes) then
+        begin
+          FPointerTargets[UInt32(I) + TYPE_INDEX_BASE] := UType;
+          Break;
+        end;
+        Inc(PScan, 2);
+      end;
+      Continue;
+    end;
     if (RecTyp <> LF_CLASS) and (RecTyp <> LF_STRUCTURE) then
       Continue;
     if RecLen < 24 then
@@ -736,9 +792,9 @@ begin
       Info.Name := DemangleClassName(NameAt(ClassNameIdx));
       Info.TypeIdx := UInt32(I) + TYPE_INDEX_BASE;
       if RecTyp = LF_CLASS then
-        Info.Kind := skClass
+        Info.Kind := tkClass
       else
-        Info.Kind := skRecord;
+        Info.Kind := tkRecord;
       Info.Members := Members;
       FClasses.Add(Info);
     end;
@@ -755,12 +811,19 @@ begin
   Result := -1;
 end;
 
+function TTd32Reader.TryGetPointerTarget(ATypeIdx: UInt32;
+  out ATargetTypeIdx: UInt32): Boolean;
+begin
+  ATargetTypeIdx := 0;
+  Result := FPointerTargets.TryGetValue(ATypeIdx, ATargetTypeIdx);
+end;
+
 function TTd32Reader.IsRecordTypeIdx(ATypeIdx: UInt32): Boolean;
 var
   Idx: Integer;
 begin
   Idx := FindStructByTypeIdx(ATypeIdx);
-  Result := (Idx >= 0) and (FClasses[Idx].Kind = skRecord);
+  Result := (Idx >= 0) and (FClasses[Idx].Kind = tkRecord);
 end;
 
 function TTd32Reader.FindStructMemberByTypeIdx(ATypeIdx: UInt32; const AFieldName: String; out AMember: TTd32ClassMember): Boolean;

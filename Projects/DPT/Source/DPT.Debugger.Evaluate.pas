@@ -17,6 +17,7 @@ uses
 
   DPT.Rsm.Model,
   DPT.Rsm.Reader,
+  DPT.Td32.Reader,
   DPT.Debugger.Types;
 
 type
@@ -25,6 +26,7 @@ type
   private
     FHost: IEvalProcessAccess;
     function GetReader: TRsmReader; inline;
+    function GetTd32Reader: TTd32Reader; inline;
     function GetTargetIs32Bit: Boolean; inline;
     function GetTargetPointerSize: Integer; inline;
     function GetLastThreadHit: THandle; inline;
@@ -71,7 +73,27 @@ type
       out AFormatted: String): Boolean;
     function AutoDetectFormatterName(const AName: String; AIsLocal: Boolean;
       AMatchedLocalTypeIdx: UInt32; const AMember: TRsmClassMember): String;
+    // --- TD32-preferred dotted walk (§6.45 follow-up) -----------------
+    /// Authoritative, convention-free dotted-walk over the TD32 reader's
+    /// real member->type graph. Resolves the terminal field's live address
+    /// (plus its TD32 type-index and inferred byte width) by following the
+    /// genuine type-indices the .rsm cannot carry for cross-unit records.
+    /// Returns False -- so the caller falls back to the RSM heuristic walk
+    /// -- whenever the TD32 reader is absent or cannot resolve a hop
+    /// authoritatively. Never raises.
+    function TryTd32DottedWalk(const ASegments: TArray<String>;
+      const ALocals: TArray<TLocalVar>; out AFieldAddr: Pointer;
+      out ATermTypeIdx: UInt32; out ATermSize: Integer): Boolean;
+    /// Auto-detect formatter name for a TD32 terminal type-index: a struct
+    /// resolves to 'object' (class) / 'record', a scalar CodeView primitive
+    /// to its formatter ('int'/'int64'/'single'/'double'/'extended'/'bool'),
+    /// else '' (caller falls through to the explicit-type / hint paths).
+    function Td32TerminalFormatterName(ATypeIdx: UInt32): String;
+    /// True when a TD32 terminal type-index resolves to a class (so a nil
+    /// value is a legitimate nil object reference, not inline record data).
+    function Td32TerminalIsClass(ATypeIdx: UInt32): Boolean;
     property LocalsReader: TRsmReader read GetReader;
+    property Td32Reader: TTd32Reader read GetTd32Reader;
     property TargetIs32Bit: Boolean read GetTargetIs32Bit;
     property TargetPointerSize: Integer read GetTargetPointerSize;
     property LastThreadHit: THandle read GetLastThreadHit;
@@ -99,8 +121,13 @@ begin
 end;
 
 function TVariableEvaluator.GetReader: TRsmReader;
-begin 
-  Result := FHost.LocalsReader; 
+begin
+  Result := FHost.LocalsReader;
+end;
+
+function TVariableEvaluator.GetTd32Reader: TTd32Reader;
+begin
+  Result := FHost.Td32Reader;
 end;
 
 function TVariableEvaluator.GetTargetIs32Bit: Boolean;
@@ -385,6 +412,220 @@ begin
             (LocalsReader.Classes[ClsIdx].Kind = skClass);
 end;
 
+// === TD32-preferred dotted walk (§6.45 follow-up) ====================
+//
+// When a .tds / embedded TD32 is present (Td32Reader <> nil), this walk
+// resolves a dotted chain through the AUTHORITATIVE TD32 member->type graph
+// -- a real 16-bit type-index on every member -- instead of the .rsm's
+// heuristic name conventions (§6.36/§6.41/§6.43/§6.44). It is therefore
+// project-independent: it never guesses a record from a T<X> name.
+//
+// SCOPE -- PURE INLINE-RECORD chains only. TD32 owns navigation that is
+// nothing but record offsets: a record or pointer-to-record ROOT
+// (e.g. Computer: PComputer = ^TComputer), then record-typed hops (inline
+// sub-records, or pointer-to-record fields like FAd: PAd). That is exactly
+// the cross-unit nested-record edge the .rsm cannot carry (§6.45) and where
+// there is no VMT, spill home or inheritance to reason about. The instant a
+// hop would touch a CLASS instance (a class root such as Self / a
+// register-passed object param, or a class-typed field), the walk DECLINES
+// (Exit False) so the mature RSM walk handles it -- that path already owns
+// the §6.30/§6.35/§6.40 register/spill-home/VMT machinery this short,
+// authoritative path deliberately does not duplicate. Frame/local ADDRESS
+// resolution likewise stays RSM-driven (GetLocalAddress); only the
+// member->type navigation is TD32's. Also declines for an unknown member, a
+// global first segment (no .tds BPREL record), or a nil pointer mid-chain.
+function TVariableEvaluator.TryTd32DottedWalk(const ASegments: TArray<String>;
+  const ALocals: TArray<TLocalVar>; out AFieldAddr: Pointer;
+  out ATermTypeIdx: UInt32; out ATermSize: Integer): Boolean;
+
+  // Byte width of member AMi within struct AStructIdx, inferred from the
+  // gap to the next member's offset (0 when last -> caller uses the
+  // requested type's width). Mirrors TRsmClassMember.Size semantics so the
+  // int/int64 formatter can clamp a sub-DWORD terminal.
+  function MemberSize(AStructIdx, AMi: Integer): Integer;
+  var
+    Members: IList<TTd32ClassMember>;
+  begin
+    Result := 0;
+    Members := Td32Reader.Classes[AStructIdx].Members;
+    if AMi + 1 < Members.Count then
+      Result := Integer(Members[AMi + 1].Offset) - Integer(Members[AMi].Offset);
+    if Result < 0 then Result := 0;
+  end;
+
+  // True iff ATypeIdx is a known TD32 struct AND that struct is a RECORD
+  // (not a class). This is the pure-record policy gate: a class struct
+  // (AIdx >= 0 but Kind = tkClass) returns False so the walk declines.
+  function IsRecordStruct(ATypeIdx: UInt32; out AIdx: Integer): Boolean;
+  begin
+    AIdx := Td32Reader.FindStructByTypeIdx(ATypeIdx);
+    Result := (AIdx >= 0) and (Td32Reader.Classes[AIdx].Kind = tkRecord);
+  end;
+
+var
+  Td32      : TTd32Reader;
+  Seg0      : String;
+  Li, Si, Mi: Integer;
+  HasRegInst: Boolean;
+  RegInst   : UIntPtr;
+  SlotAddr  : Pointer;
+  Seg0Type  : UInt32;
+  CurIdx    : Integer;
+  CurAddr   : UIntPtr;
+  Tgt       : UInt32;
+  PtrVal    : UIntPtr;
+  M         : TTd32ClassMember;
+  FoundMi   : Integer;
+  FieldAddr : UIntPtr;
+  NextIdx   : Integer;
+begin
+  Result := False;
+  AFieldAddr := nil;
+  ATermTypeIdx := 0;
+  ATermSize := 0;
+  Td32 := Td32Reader;
+  if (Td32 = nil) or (Length(ASegments) < 2) then Exit;
+  Seg0 := ASegments[0];
+
+  // --- First segment: establish a RECORD base (CurAddr, CurIdx). ---
+  HasRegInst := False;
+  RegInst    := 0;
+  SlotAddr   := nil;
+  for Li := 0 to High(ALocals) do
+    if SameText(ALocals[Li].Name, Seg0) then
+    begin
+      if (ALocals[Li].Kind = lkRegister) and
+         (Length(ALocals[Li].RawBytes) >= TargetPointerSize) then
+      begin
+        Move(ALocals[Li].RawBytes[0], RegInst, TargetPointerSize);
+        HasRegInst := True;
+      end;
+      Break;
+    end;
+
+  // The first segment's authoritative declared type comes from the .tds
+  // BPREL record. A global has no such record here -> decline -> RSM.
+  if not FHost.TryGetTd32FrameLocalTypeIdx(LastThreadHit, Seg0, Seg0Type) then
+    Exit;
+  if Seg0Type = 0 then Exit;
+  if not HasRegInst then
+    if not GetLocalAddress(LastThreadHit, Seg0, SlotAddr) then
+      Exit;
+
+  if IsRecordStruct(Seg0Type, CurIdx) then
+  begin
+    // inline record local: the slot address IS the record base.
+    if HasRegInst then Exit;  // register-resident inline record: not addressable
+    CurAddr := UIntPtr(SlotAddr);
+  end
+  else if Td32.TryGetPointerTarget(Seg0Type, Tgt) and IsRecordStruct(Tgt, CurIdx) then
+  begin
+    // pointer-to-record local (e.g. Computer: PComputer): deref the slot
+    // (or the register value) to the pointed-at record's base.
+    if HasRegInst then PtrVal := RegInst
+    else PtrVal := ReadTargetPointer(SlotAddr);
+    if PtrVal = 0 then Exit;   // nil pointer first segment
+    CurAddr := PtrVal;
+  end
+  else
+    // class root, pointer-to-class root, or unknown type -> RSM owns it.
+    Exit;
+  if CurAddr = 0 then Exit;
+
+  // --- Walk the remaining segments (records only). ---
+  for Si := 1 to High(ASegments) do
+  begin
+    // resolve the member by name in the current record
+    FoundMi := -1;
+    for Mi := 0 to Td32.Classes[CurIdx].Members.Count - 1 do
+      if SameText(Td32.Classes[CurIdx].Members[Mi].Name, ASegments[Si]) then
+      begin
+        FoundMi := Mi;
+        Break;
+      end;
+    if FoundMi < 0 then Exit;
+    M := Td32.Classes[CurIdx].Members[FoundMi];
+    // record members carry absolute offsets (no VMT slot to skip).
+    FieldAddr := CurAddr + M.Offset;
+
+    if Si = High(ASegments) then
+    begin
+      // terminal: hand back the field address + type for formatting
+      AFieldAddr   := Pointer(FieldAddr);
+      ATermTypeIdx := M.TypeIdx;
+      ATermSize    := MemberSize(CurIdx, FoundMi);
+      Exit(True);
+    end;
+
+    // non-terminal: advance into the member's type, RECORDS ONLY.
+    if IsRecordStruct(M.TypeIdx, NextIdx) then
+    begin
+      // inline record field: its address IS the nested record's base.
+      CurAddr := FieldAddr;
+      CurIdx  := NextIdx;
+    end
+    else if Td32.TryGetPointerTarget(M.TypeIdx, Tgt) and IsRecordStruct(Tgt, NextIdx) then
+    begin
+      // pointer-to-record field (e.g. FAd: PAd): deref to the target record.
+      PtrVal := ReadTargetPointer(Pointer(FieldAddr));
+      if PtrVal = 0 then Exit;
+      CurAddr := PtrVal;
+      CurIdx  := NextIdx;
+    end
+    else
+      // a class-typed (or unknown) intermediate field -> RSM owns it.
+      Exit;
+  end;
+end;
+
+function TVariableEvaluator.Td32TerminalFormatterName(ATypeIdx: UInt32): String;
+// Maps a TD32 terminal type-index to an auto-detect formatter name.
+// Structured types resolve to 'object' (class) / 'record'; scalar CodeView
+// primitives map to their formatter. Both the signed and unsigned variant
+// of each width map to the same formatter (Delphi's Integer/Cardinal,
+// Int64/UInt64 share one), and both the CV "basic" ($12/$13/$22/$23) and
+// "extended-int" ($74..$77) encodings are covered so the result holds
+// regardless of which the toolchain emits. String/char/array terminals
+// (e.g. a ShortString[40]) fall through to '' on purpose -- the caller
+// resolves those via an explicit type= like the §6.43/§6.44 residual.
+var
+  Idx: Integer;
+begin
+  Result := '';
+  if (ATypeIdx = 0) or (Td32Reader = nil) then Exit;
+  Idx := Td32Reader.FindStructByTypeIdx(ATypeIdx);
+  if Idx >= 0 then
+  begin
+    if Td32Reader.Classes[Idx].Kind = tkClass then
+      Result := 'object'
+    else
+      Result := 'record';
+    Exit;
+  end;
+  // CodeView primitive type-indices (< $1000).
+  case ATypeIdx of
+    $0010, $0011, $0012, $0068, $0072, $0074,   // signed 8/16/32-bit ints
+    $0020, $0021, $0022, $0069, $0073, $0075:   // unsigned 8/16/32-bit ints
+      Result := 'int';
+    $0013, $0023, $0076, $0077:                 // 64-bit ints (signed/unsigned)
+      Result := 'int64';
+    $0040: Result := 'single';
+    $0041: Result := 'double';
+    $0042: Result := 'extended';
+    $0030: Result := 'bool';
+  end;
+end;
+
+function TVariableEvaluator.Td32TerminalIsClass(ATypeIdx: UInt32): Boolean;
+var
+  Idx: Integer;
+begin
+  Result := False;
+  if (ATypeIdx = 0) or (Td32Reader = nil) then Exit;
+  Idx := Td32Reader.FindStructByTypeIdx(ATypeIdx);
+  Result := (Idx >= 0) and (Td32Reader.Classes[Idx].Kind = tkClass);
+end;
+
 function TVariableEvaluator.Evaluate(const AName: String; var AType: String;
   out AValue, AHint: String;
   AOnPhase: TProc<String>): Boolean;
@@ -504,9 +745,50 @@ begin
     // address. The final segment's address is then read with the
     // user-specified type. Requires RSM class layout (LoadDebugInfoFromExe).
     Segments := AName.Split(['.']);
+    // §6.45 follow-up: try the AUTHORITATIVE TD32 walk FIRST when a .tds /
+    // embedded TD32 is loaded. It resolves cross-unit nested-record
+    // member->type edges convention-free (the .rsm structurally cannot --
+    // §6.45), so it is PREFERRED; the RSM heuristic walk below runs only
+    // when TD32 is absent or declines. RSM remains the locals/frame source
+    // either way (both sidecars coexist).
+    var Td32Resolved: Boolean := False;
+    if (Length(Segments) >= 2) and Assigned(Td32Reader) then
+    begin
+      var TdFieldAddr: Pointer;
+      var TdTermType : UInt32;
+      var TdTermSize : Integer;
+      if TryTd32DottedWalk(Segments, Locals, TdFieldAddr, TdTermType, TdTermSize) then
+      begin
+        // Accept the TD32 result only when its terminal can be FORMATTED
+        // here: an explicit type= was given, or the terminal auto-detects
+        // to a TD32 formatter (scalar primitive / struct). A BARE evaluate
+        // whose terminal TD32 cannot type (an enum / string / set -- TD32
+        // does not decode those) defers to the RSM walk, whose auto-detect
+        // can still name an enum. The navigation TD32 just performed was
+        // authoritative either way; this gate only governs which path
+        // FORMATS the already-located value, so no convention-free win is
+        // lost (the address is identical; RSM only adds the type name).
+        var TdTermFmt: String := '';
+        if AType = '' then
+          TdTermFmt := Td32TerminalFormatterName(TdTermType);
+        if (AType <> '') or (TdTermFmt <> '') then
+        begin
+          Td32Resolved   := True;
+          Addr           := TdFieldAddr;
+          RawBytes       := ReadProcessMemory(TdFieldAddr, 8);
+          FieldKnownSize := TdTermSize;
+          // A TD32 terminal reached inside a record is inline data, never a
+          // nil-able class slot -- feeds the §6.20 nil-refusal discrimination.
+          DottedTerminalIsRecordField := not Td32TerminalIsClass(TdTermType);
+          if AType = '' then
+            AType := TdTermFmt;
+          Phase('td32 dotted-walk resolved');
+        end;
+      end;
+    end;
     var FirstHopHasInstancePtr: Boolean := False;
     var FirstHopInstancePtr   : UIntPtr := 0;
-    if (Length(Segments) >= 2) and Assigned(LocalsReader) then
+    if (not Td32Resolved) and (Length(Segments) >= 2) and Assigned(LocalsReader) then
     begin
       // Step 1: locate first segment.
       //
