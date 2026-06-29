@@ -4002,6 +4002,79 @@ after). The §6.43 residual applies unchanged: bare `evaluate` (no
 `type=`) of a record member still hits the §6.24-family auto-formatter
 gap; `type=int` is the workaround.
 
+### 6.45 The `.rsm` cannot carry the cross-unit nested-record member→type edge — it lives in TD32/`.tds`, read by `DPT.Td32.Reader` (`DESIGN LIMIT` + external resolution)
+
+The §6.36/§6.41/§6.43/§6.44 closures are all NAME conventions
+(`T<localName>`, `T<outerStem><member>`, `T<member>`) plus the §6.36
+size+next-field bridge. They take `.rsm`-only nested-record resolution to
+its **ceiling**, but they are heuristics that fail on any project whose
+types are not named by the `T<X>` convention. A multi-round byte-level
+investigation established **why** no convention-free `.rsm` decode exists
+and **where** the authoritative edge actually lives.
+
+**The `.rsm` (`$2C`) genuinely does not encode the cross-unit member→type
+edge.** The discriminator is the sub-record's `$2A` body flag (§4.8):
+* **Same-compilation records (`$20`/`$00`):** the `$2C` field-id at
+  `After+3..+4` **equals** the sub-record's `$2A` registry primary, so the
+  existing `LinkFieldsFromFormatA` → `FindClassIdxForRawId` path resolves
+  `Member.TypeIdx` directly (DebugTarget `TWithHeader.WhdrHeader` → `$2E85`
+  = `TWhdrHeader`, verified live).
+* **Cross-unit / precompiled-DCU records (`$A8`/`$88`):** the `$2C`
+  field-id is a **parent-relative POSITIONAL value**, not the registry
+  primary, so `Member.TypeIdx` stays 0. TFW byte-proof: `TComputer.OS`
+  field-id `$C94E` ≠ `TComputerOS` primary `$AE30`; the SAME target type
+  `TRecHeader` yields a *different* field-id per parent
+  (`TComputer.RecHeader=$2A`, `TUser.RecHeader=$3C`) — a position, not an
+  identity. `FindStructByTypeIdx(0)` then mis-lands on whatever record
+  carries `TypeIdx=0`.
+
+**Leads refuted (do NOT re-walk — all byte-checked on TFW.rsm):**
+* global low-byte + nearest-`$2A`-offset decode: **0/18** (the `+3` low
+  byte is a positional field index; the post-`$9C01` 2-byte value is a
+  per-unit record counter `base+4·index`; neither is a type id);
+* the parent record's own `$2A` body does **not** enumerate its members;
+* the `$66` import-ref 4-byte LinkToken (§4.17) is name-keyed and
+  **absent** from the member's `$2C` body;
+* unit-scoping narrows but does not resolve: same-unit
+  declaration-adjacency + slot-size is only 4/6 (intra-unit size
+  collisions); cross-unit `$66` membership confirms reachability but
+  cannot pick *which* member binds to a type;
+* there is **no per-unit numeric id** (the `$70` 4-byte token is the
+  build-wide link timestamp `$5CD96D42`, identical across units) and **no
+  `$35` import-by-id table** — the uses-block is purely the §4.17
+  `$64`/`$66`/`$67` name-keyed import list.
+
+Consistent with the §4.2 per-proc-ref limit and §6.34: the `.rsm` is a
+**reduced** sidecar. The Delphi IDE resolves these member types from its
+**local DCU/type database** (it compiled the project) and uses the `.rsm`
+only for the address↔symbol mapping of the remote process — context a
+`.rsm`+`.exe`-only tool like DPT does not have.
+
+**Where the edge lives + the resolution.** The authoritative member→type
+graph is the **TD32/CodeView** debug info (`LF_STRUCTURE`/`LF_CLASS`/
+`LF_FIELDLIST`/`LF_MEMBER`, each member carrying a real 16-bit
+type-index). dcc32 emits it embedded in the EXE (`-V`) **or** as a
+detachable `<project>.tds` sidecar (`-VT` — a Delphi output, despite
+docwiki labelling `-VT` "C++ only"); `-VR` (the `.rsm`) is independent and
+coexists. [`DPT.Td32.Reader.TTd32Reader`](DPT.Td32.Reader.pas) (recovered
+from history; the TD32 peer of `TRsmReader`, same
+`FindClassByName`/`FindClassMember`/`FindStructByTypeIdx` API) parses both
+the embedded stream (`LoadFromFile`, FB09 scan from offset 256) and a
+standalone `.tds` (`LoadFromTdsFile`, scan from 0) and resolves the
+cross-unit edge the `.rsm` cannot. Proven on DebugTarget AND on the real
+**357 MB `TFW.tds`** (`-VT` build): `TComputer.OS → TComputerOS`,
+`TUser.RecHeader → TRecHeader`, load ~0.6 s on Win64 (no OOM); the `.tds`
+(357 MB) is smaller than the `.rsm` (811 MB) and ~38× faster to load.
+Pinned by [`Test.DPT.Td32.Reader`](../Test/Test.DPT.Td32.Reader.pas)
+(embedded + standalone `.tds`, RSM head-to-head) and
+[`Test.DPT.Td32.Tfw`](../Test/Test.DPT.Td32.Tfw.pas) (the TFW-scale gate).
+
+**Status:** the §6.43/§6.44 name conventions remain the best-effort
+**fallback** for `.rsm`-only targets. For builds that emit TD32 (`-V` or
+`-VT`), `DPT.Td32.Reader` is the convention-free, project-independent
+source. Open follow-up (NOT a `.rsm` gap): wire `DPT.Td32.Reader` into the
+live evaluate path as the preferred reader, `.rsm` as fallback.
+
 ---
 
 ## 7. Loader contract (caller perspective)
