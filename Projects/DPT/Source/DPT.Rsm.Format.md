@@ -3959,6 +3959,49 @@ member carries no `PrimitiveTypeId` for the auto-formatter — the same
 assertions in
 [`Test.DPT.Rsm.Taifun.TRsmTfwTests.TestComputerLocalRecordBridgePreconditions`](../Test/Test.DPT.Rsm.Taifun.pas).
 
+### 6.44 Nested SHARED-record member unreachable by `T<outerStem><member>` — CLOSED (consumer-side `T<member>` convention)
+
+[DPT.Debugger.Evaluate.pas `Evaluate`](DPT.Debugger.Evaluate.pas)
+(dotted-walk §6.36 nested-record bridge). The §6.43 convention closes the
+case where a nested sub-record is *namespaced under its owner*
+(`TComputer.OS : TComputerOS`). But a record just as often embeds a
+**shared** record whose name is **not** built from the owner — the
+canonical case is a record header: `TUser.RecHeader : TRecHeader`,
+`TUser.RecChanges : TRecChanges` (the same `TRecHeader` is reused by
+`TComputer`, `TKonsMis`, hundreds of records). Surfaced by the realtest:
+`evaluate User.RecHeader.Version` (`User: PUser`, BP
+`Base.User.Dict:488`) returned `Could not navigate`, even though every
+direct `User.<field>` resolved (§6.42 first hop) and the ground-truth
+`Version` (`0x018D7DD0`) sat at the record base.
+
+**Mechanism.** Same root as §6.43 — `RecHeader` carries `TypeIdx = 0`
+(§4.14) and an unresolvable type id, so the nested re-prime falls to the
+§6.36 size+next-field bridge, which is ambiguous for the common leaf
+`Version`. The §6.43 `T<outerStem><member>` candidate misses too:
+`'T' + 'User' + 'RecHeader' = 'TUserRecHeader'` does **not** exist
+(the type is the shared `TRecHeader`, not a `TUser`-namespaced sibling).
+
+**Closure.** Add a SECOND name-convention candidate to the same bridge:
+`T<member>` — a member `<M>` whose type is the record `T<M>`
+(`RecHeader → TRecHeader`, `RecChanges → TRecChanges`), the same `T<X>`
+family as §6.19/§6.41 applied to a nested member. Both candidates are
+tried in order of specificity (`T<outerStem><member>` first, so a
+namespaced sub-record still wins when both resolve), each under the
+identical guard: a discovered `skRecord` whose layout extent fits the
+member's parent slot (`<8`-byte alignment tolerance) AND declares the
+next segment — so a convention miss can never mis-prime. Verified live:
+`evaluate User.RecHeader.Version (int)` → **`26050000 (0x018D7DD0)`**,
+byte-matching `read_memory` at the record base. Reproduced and pinned in
+the controlled fixture (a SHARED-header record reached by `T<member>`,
+with a same-extent decoy that also declares `Version` to force the
+size+name bridge ambiguous, in its OWN compiland so the §6.37
+getter-name proximity window stays stable) by
+[`Test.DPT.MCP.Server.TMcpServerTests.TestMcpEvaluateSharedHeaderRecordViaTMemberConvention`](../Test/Test.DPT.MCP.Server.pas)
+(RED before this change with the exact `Could not navigate` string, GREEN
+after). The §6.43 residual applies unchanged: bare `evaluate` (no
+`type=`) of a record member still hits the §6.24-family auto-formatter
+gap; `type=int` is the workaround.
+
 ---
 
 ## 7. Loader contract (caller perspective)

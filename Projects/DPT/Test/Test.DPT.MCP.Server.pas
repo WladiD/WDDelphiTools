@@ -105,6 +105,8 @@ type
     [Test]
     procedure TestMcpEvaluateComplexRecordAndTypedPointer;
     [Test]
+    procedure TestMcpEvaluateSharedHeaderRecordViaTMemberConvention;
+    [Test]
     procedure TestMcpEvaluateMultiLevelInheritedField;
     [Test]
     procedure TestMcpEvaluateRtlInheritedField;
@@ -3056,6 +3058,52 @@ begin
     Assert.IsTrue(Line.Contains('ComplexName'),
       'CxPtr.CxName (typed-pointer deref) must read "ComplexName", ' +
       'got: ' + Line);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.44: nested SHARED-header record resolved by the T&lt;member&gt; name
+///   convention. <c>HdrPtr: PXHdrOwner</c> points at a <c>TXHdrOwner</c>
+///   whose <c>Hdr</c> member is a <c>THdr</c> (member "Hdr" -&gt; type
+///   "THdr", the T&lt;member&gt; form -- NOT the §6.43
+///   T&lt;outerStem&gt;&lt;member&gt; form, since <c>TXHdrOwnerHdr</c> does
+///   not exist). A same-extent decoy (<c>TXHdrDecoy</c>) that also declares
+///   <c>Version</c> makes the §6.36 size+next-field bridge ambiguous, so the
+///   nested hop into <c>THdr</c> needs the T&lt;member&gt; convention. Mirrors
+///   the live <c>User.RecHeader.Version</c> failure (RecHeader : the shared
+///   TRecHeader). RED before §6.44 ("Could not navigate"); GREEN after.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateSharedHeaderRecordViaTMemberConvention;
+var
+  Fixture: TMcpEvalFixture;
+  ExePath: String;
+  Line   : String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.SharedHdr.pas', 62);
+  try
+    // Typed-pointer first hop (HdrPtr -> TXHdrOwner) then the NESTED record
+    // hop into THdr via the T<member> convention. $5A5A1234 sentinel.
+    Line := Fixture.Eval('HdrPtr.Hdr.Version', 'int');
+    Assert.IsTrue(Line.Contains('0x5A5A1234'),
+      'HdrPtr.Hdr.Version (T<member> nested-record convention) must read ' +
+      '$5A5A1234, got: ' + Line);
+
+    // Direct record local -- isolates the nested bridge from the pointer hop.
+    Line := Fixture.Eval('HdrLoc.Hdr.Version', 'int');
+    Assert.IsTrue(Line.Contains('0x5A5A1234'),
+      'HdrLoc.Hdr.Version must read $5A5A1234, got: ' + Line);
+
+    // Leakage guard: THdr's SECOND field Tag (offset 4) reads its own
+    // sentinel -- proves the convention bound THdr with the correct layout
+    // and did NOT mis-resolve to the same-extent TXHdrDecoy (whose 2nd field
+    // is Spare). A wrong record would surface a wrong / zero value here.
+    Line := Fixture.Eval('HdrLoc.Hdr.Tag', 'int');
+    Assert.IsTrue(Line.Contains('0x00C0FFEE'),
+      'HdrLoc.Hdr.Tag must read $00C0FFEE (THdr offset 4), got: ' + Line);
   finally
     Fixture.Free;
   end;

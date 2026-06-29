@@ -20,7 +20,9 @@ uses
   Test.DPT.Rsm.Model,
   Test.DPT.Rsm.Scanner,
   Test.DPT.Rsm.Reader,
-  Test.DPT.Rsm.Taifun;
+  Test.DPT.Rsm.Taifun,
+  Test.DPT.Td32.Reader,
+  Test.DPT.Td32.Tfw;
 
 var
   runner: ITestRunner;

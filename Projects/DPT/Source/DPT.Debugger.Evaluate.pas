@@ -1091,46 +1091,61 @@ begin
           var NestedIdx: Integer :=
             LocalsReader.FindRecordBySizeAndMemberName(
               Member.Size, Segments[I + 1]);
-          // §6.43: the size+next-field bridge above is AMBIGUOUS (returns
-          // -1) when several same-size records declare the next field --
-          // which happens for common leaf names like "Name" (321 records
-          // in TFW carry it). That made Computer.OS.Name / Computer.GPU.Name
-          // fail while Computer.OS.MajorVersion (a rare leaf name -> unique)
-          // worked. Disambiguate by the nested-record NAME convention: a
-          // member <M> on record T<Stem> whose type is the sibling record
-          // T<Stem><M> (TComputer.OS : TComputerOS, .CPU : TComputerCPU,
-          // .GPU : TComputerGPU). The sub-record carries no resolvable type
-          // id at all ($C94E keys neither the registry nor a struct offset
-          // -- the §4.2 design limit), so the convention is the only
-          // leaf-name-independent signal. Strictly guarded: outer name must
-          // start with 'T', the candidate must be a discovered skRecord of
-          // the SAME byte size that declares the next segment -- so a
-          // convention miss can never mis-prime.
+          // §6.43 + §6.44: the size+next-field bridge above is AMBIGUOUS
+          // (returns -1) when several same-size records declare the next
+          // field -- common leaf names like "Name" (321 records in TFW carry
+          // it) or "Version". That made Computer.OS.Name / Computer.GPU.Name
+          // and User.RecHeader.Version fail while Computer.OS.MajorVersion (a
+          // rare leaf -> unique) worked. The nested member carries no
+          // resolvable type id at all (its $XXXX keys neither the registry
+          // nor a struct offset -- the §4.2 design limit), so the only
+          // leaf-name-independent signal is the Delphi NAME convention. Two
+          // shapes, tried in order of specificity:
+          //   §6.43  T<outerStem><member> -- a sub-record namespaced under
+          //          its owner (TComputer.OS : TComputerOS, .CPU/.GPU/.DB).
+          //   §6.44  T<member>            -- a SHARED record whose name IS
+          //          the member name (TUser.RecHeader : TRecHeader,
+          //          .RecChanges : TRecChanges); the same T<X> family as
+          //          §6.19/§6.41, applied to a nested record member.
+          // Each candidate is accepted only if it is a discovered skRecord
+          // whose layout extent fits the member's parent slot (the same
+          // <8-byte alignment tolerance FindRecordBySizeAndMemberName uses;
+          // the parent may pad the slot to align the next field) AND declares
+          // the next segment -- so a convention miss can never mis-prime, and
+          // the more-specific §6.43 form wins when both happen to resolve.
           if NestedIdx < 0 then
           begin
             var OuterNm: String := LocalsReader.Classes[PrevContextIdx].Name;
+            var Cands: array[0..1] of String;
+            var NCand: Integer := 0;
             if (Length(OuterNm) >= 2) and (UpCase(OuterNm[1]) = 'T') then
             begin
-              var ConvNm : String := 'T' + Copy(OuterNm, 2, MaxInt) + Member.Name;
-              var ConvIdx: Integer := LocalsReader.FindClassByName(ConvNm);
+              Cands[NCand] := 'T' + Copy(OuterNm, 2, MaxInt) + Member.Name;  // §6.43
+              Inc(NCand);
+            end;
+            Cands[NCand] := 'T' + Member.Name;                               // §6.44
+            Inc(NCand);
+            for var Ci := 0 to NCand - 1 do
+            begin
+              var ConvIdx: Integer := LocalsReader.FindClassByName(Cands[Ci]);
               var ConvFld: TRsmClassMember;
-              if (ConvIdx >= 0) and
-                 (LocalsReader.Classes[ConvIdx].Kind = skRecord) and
-                 LocalsReader.FindClassMember(ConvNm, Segments[I + 1], ConvFld) then
+              if (ConvIdx < 0) or
+                 (LocalsReader.Classes[ConvIdx].Kind <> skRecord) or
+                 not LocalsReader.FindClassMember(Cands[Ci], Segments[I + 1], ConvFld) then
+                Continue;
+              // Size leakage guard: the convention-named record's layout
+              // extent must fit the member's parent slot.
+              var Ext: UInt32 := 0;
+              for var Cm := 0 to LocalsReader.Classes[ConvIdx].Members.Count - 1 do
               begin
-                // Size leakage guard: the convention-named record's layout
-                // extent must fit the member's parent slot, with the same
-                // <8-byte alignment tolerance FindRecordBySizeAndMemberName
-                // uses (the parent may pad the slot to align the next field).
-                var Ext: UInt32 := 0;
-                for var Cm := 0 to LocalsReader.Classes[ConvIdx].Members.Count - 1 do
-                begin
-                  var E: UInt32 := LocalsReader.Classes[ConvIdx].Members[Cm].Offset +
-                                   LocalsReader.Classes[ConvIdx].Members[Cm].Size;
-                  if E > Ext then Ext := E;
-                end;
-                if (Ext <= Member.Size) and (Member.Size - Ext < 8) then
-                  NestedIdx := ConvIdx;
+                var E: UInt32 := LocalsReader.Classes[ConvIdx].Members[Cm].Offset +
+                                 LocalsReader.Classes[ConvIdx].Members[Cm].Size;
+                if E > Ext then Ext := E;
+              end;
+              if (Ext <= Member.Size) and (Member.Size - Ext < 8) then
+              begin
+                NestedIdx := ConvIdx;
+                Break;
               end;
             end;
           end;

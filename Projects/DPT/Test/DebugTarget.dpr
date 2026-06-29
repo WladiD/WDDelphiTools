@@ -3,7 +3,7 @@ program DebugTarget;
 {$O-}
 {$D+}
 {$STACKFRAMES ON}
-uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes, DebugTarget.IfaceProbe, DebugTarget.ComplexRec;
+uses System.SysUtils, System.Classes, Winapi.Windows, DebugTarget.EnumAlpha, DebugTarget.EnumBeta, DebugTarget.EnumGamma, DebugTarget.RecTypes, DebugTarget.IfaceProbe, DebugTarget.ComplexRec, DebugTarget.SharedHdr;
 var
   GGlobalInt: Integer = Integer($87654321);
   GGlobalString: string = 'Hello Global';
@@ -1301,6 +1301,8 @@ begin
     // Cross-unit complex-record + typed-pointer probe (TComplexRec /
     // PComplexRec from DebugTarget.ComplexRec).
     ComplexRecLocalProbe;
+    // §6.44: nested SHARED-header record via the T<member> name convention.
+    SharedHeaderRecordProbe;
     // §6.35: const-string register params read at a post-clobber PC.
     GGlobalConstStrParamHost := TConstStrParamHost.Create;
     GGlobalConstStrParamHost.FMarker := Integer($5A5A5A5A);
