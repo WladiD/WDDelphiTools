@@ -19,11 +19,18 @@ uses
 
   mormot.core.collections,
 
-  DPT.Debugger;
+  DPT.Build.Task,
+  DPT.Debugger,
+  DPT.Logger,
+  DPT.Types;
 
 type
 
-  TDebugState = (dsNoSession, dsPaused, dsRunning, dsExited);
+  // dsBuilding/dsBuildFailed model the async build phase that now precedes a
+  // session: start_debug_session kicks off the project build on a background
+  // task and returns immediately as "building"; wait_until_paused / get_state
+  // drive the transition to "paused" (build OK -> launched) or "build_failed".
+  TDebugState = (dsNoSession, dsPaused, dsRunning, dsExited, dsBuilding, dsBuildFailed);
 
   TMcpServer = class
   private
@@ -59,6 +66,22 @@ type
     // Applied to FDebugger live and re-applied on session start.
     FBreakOnNativeFirstChance: Boolean;
     FState             : TDebugState;
+    // --- async build phase (see TDebugState comment) -------------------
+    // Injectable so tests can stub the compile away; the production builder
+    // is created lazily from FDelphiVersion/FIsX64 on first real build.
+    FBuilder           : IDptProjectBuilder;
+    FDelphiVersion     : TDelphiVersion;
+    FIsX64             : Boolean;
+    FBuildTask         : ITask;
+    FBuildResult       : TDptBuildResult;
+    FBuildLog          : String;   // full captured build output (set by the task)
+    FBuildError        : String;   // exception text if BuildProject raised
+    FBuildArgs         : String;   // runtime arguments for the launched process
+    FBuildProjectFile  : String;
+    FBuildConfig       : String;
+    FBuildPlatform     : String;
+    FBuildStartTick     : UInt64;
+    FStartMessage      : String;   // rich "session started" text, surfaced on transition
     procedure ConnectDebuggerEvents;
     procedure DisconnectDebuggerEvents;
     function  GetBreakpointCount: Integer;
@@ -76,6 +99,21 @@ type
     procedure RunRsmLoad(const AExePath: String);
     procedure JoinRsmLoadTask;
     procedure LogDiag(const AMessage: String);
+    // --- async build helpers -------------------------------------------
+    function  ForcedDebugBuildArgs: String;
+    procedure StartBuildTask;
+    procedure JoinBuildTask;
+    /// <summary>
+    ///   Advance the build phase if one is in flight: waits up to
+    ///   <paramref name="ATimeoutMs"/> for the background build, then on
+    ///   completion either launches the freshly built exe (-> dsPaused) or
+    ///   records the failure (-> dsBuildFailed). A no-op outside dsBuilding.
+    /// </summary>
+    procedure PollBuild(ATimeoutMs: Cardinal);
+    /// <summary>Launch the built executable and bring the session to its
+    ///   entry-point pause; composes and stores FStartMessage.</summary>
+    procedure LaunchBuiltExe;
+    function  BuildLogTail(AMaxLines: Integer = 40): String;
   private // Tool handlers
     function HandleContinue(AParams: TJSONObject): TJSONObject;
     function HandleGetLocals(AParams: TJSONObject): TJSONObject;
@@ -116,7 +154,13 @@ type
     destructor  Destroy; override;
     procedure Run;
     procedure RunOnce;
+    /// <summary>Bind the Delphi installation used for the production build of
+    ///   the .dproj passed to start_debug_session.</summary>
+    procedure SetBuildContext(ADelphiVersion: TDelphiVersion; AIsX64: Boolean);
     property State: TDebugState read FState;
+    /// <summary>Injectable build seam. Defaults to the production builder
+    ///   (set lazily from SetBuildContext); tests assign a stub.</summary>
+    property ProjectBuilder: IDptProjectBuilder read FBuilder write FBuilder;
   end;
 
 implementation
@@ -128,15 +172,20 @@ uses
   System.SysUtils,
 
   mormot.core.base,
-  mormot.core.json;
+  mormot.core.json,
+
+  DPT.DProjAnalyzer,
+  DPT.Utils;
 
 const
 
   DEBUG_STATE_NAMES: Array[TDebugState] of String = (
-    'no_session', // dsNoSession
-    'paused',     // dsPaused
-    'running',    // dsRunning
-    'exited'      // dsExited
+    'no_session',   // dsNoSession
+    'paused',       // dsPaused
+    'running',      // dsRunning
+    'exited',       // dsExited
+    'building',     // dsBuilding
+    'build_failed'  // dsBuildFailed
   );
 
 { TMcpServer }
@@ -159,6 +208,8 @@ begin
   // stop on them by default (unhandled/second-chance native faults still
   // do); opt in with set_break_on_native_first_chance.
   FBreakOnNativeFirstChance := False;
+  FDelphiVersion := dvUnknown;
+  FIsX64 := False;
 
   if Assigned(FDebugger) then
   begin
@@ -169,8 +220,15 @@ begin
     FState := dsNoSession;
 end;
 
+procedure TMcpServer.SetBuildContext(ADelphiVersion: TDelphiVersion; AIsX64: Boolean);
+begin
+  FDelphiVersion := ADelphiVersion;
+  FIsX64 := AIsX64;
+end;
+
 destructor TMcpServer.Destroy;
 begin
+  JoinBuildTask;
   JoinRsmLoadTask;
   DisconnectDebuggerEvents;
   if FOwnsDebugger then
@@ -458,12 +516,12 @@ begin
         ResultObj.AddPair('instructions',
           'DPT-Debugger - a hardware-breakpoint debugger for Delphi Win32/Win64 executables built with a .map file.' + sLineBreak +
           sLineBreak +
-          'State model: no_session -> paused <-> running -> exited. Most inspection tools require "paused".' + sLineBreak +
+          'State model: no_session -> building -> paused <-> running -> exited (building -> build_failed on a failed compile). Most inspection tools require "paused".' + sLineBreak +
           sLineBreak +
           'Typical workflow:' + sLineBreak +
-          '  1. set_breakpoint(unit, line) - max 4 hardware breakpoints; can be queued before a session.' + sLineBreak +
-          '  2. start_debug_session(executable_path) - process launches paused; pending breakpoints apply.' + sLineBreak +
-          '  3. continue / step_into / step_over - non-blocking; always follow with wait_until_paused.' + sLineBreak +
+          '  1. set_breakpoint(unit, line) - max 4 hardware breakpoints; can be queued before/during a session build.' + sLineBreak +
+          '  2. start_debug_session(project_file) - builds the .dproj (forced .map/.rsm/.tds switches) in the background; returns immediately as "building".' + sLineBreak +
+          '  3. wait_until_paused - poll until "paused" (build OK + launched at entry point) or "build_failed"; then continue / step_into / step_over (each also followed by wait_until_paused).' + sLineBreak +
           '  4. Inspect at a pause: get_stack_trace, get_registers, get_locals (named locals from the .rsm sidecar, preferred), get_stack_slots (heuristic fallback), read_memory, read_global_variable.' + sLineBreak +
           '     Output (Writeln/stderr/OutputDebugString) of the target is auto-attached to wait_until_paused/get_state as "recent_output" (only what was emitted since the last continue/step). Use get_output when you need older context than that delta.' + sLineBreak +
           '  5. stop_debug_session (detach) or terminate_debug_session (kill).' + sLineBreak +
@@ -834,28 +892,30 @@ begin
 
   var ToolStart := TJSONObject.Create;
   ToolStart.AddPair('name', 'start_debug_session');
-  ToolStart.AddPair('description', 'Starts a new debug session for the specified Delphi executable. The process is launched and paused at the entry point (state becomes "paused"). Any breakpoints set before this call are applied automatically. After this, use continue or step_* to advance execution. Only callable when state is "no_session".');
+  ToolStart.AddPair('description', 'Builds a Delphi project (.dproj) with forced debug switches and starts a debug session against the resolved output executable. The build is incremental (only rebuilds when sources changed) and runs in the BACKGROUND: this call returns immediately with state "building". Poll wait_until_paused until the session reaches "paused" (build succeeded and the process is launched and paused at the entry point) or "build_failed". Forced msbuild switches guarantee the debug dependencies even if the .dproj omits them: /p:DCC_MapFile=3 (.map for source-level breakpoints), /p:DCC_RemoteDebug=true (.rsm for get_locals / evaluate) and /p:DCC_DebugInfoInTds=true (TD32/CodeView debug info in a separate .tds for cross-unit member->type resolution). The Config and Platform actually used are reported in the "paused" message (taken from the parameters or derived from the .dproj). Breakpoints can be queued before or during the build with set_breakpoint. Only callable when state is "no_session", "exited" or "build_failed".');
   var SchemaStart := TJSONObject.Create;
   SchemaStart.AddPair('type', 'object');
   var PropStart := TJSONObject.Create;
-  PropStart.AddPair('executable_path', TJSONObject.Create.AddPair('type', 'string'));
-  PropStart.AddPair('arguments', TJSONObject.Create.AddPair('type', 'string'));
+  PropStart.AddPair('project_file', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Path to the Delphi project file (.dproj) to build and debug.'));
+  PropStart.AddPair('platform', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Target platform ("Win32" or "Win64"). Optional; defaults to Win32 when omitted.'));
+  PropStart.AddPair('config', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Build configuration (e.g. "Debug", "Release"). Optional; defaults to the .dproj''s default config when omitted.'));
+  PropStart.AddPair('arguments', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Optional command-line arguments passed to the launched process.'));
   SchemaStart.AddPair('properties', PropStart);
   var ReqStart := TJSONArray.Create;
-  ReqStart.Add('executable_path');
+  ReqStart.Add('project_file');
   SchemaStart.AddPair('required', ReqStart);
   ToolStart.AddPair('inputSchema', SchemaStart);
   ToolsArr.Add(ToolStart);
 
   var ToolGetState := TJSONObject.Create;
   ToolGetState.AddPair('name', 'get_state');
-  ToolGetState.AddPair('description', 'Returns the current debugger state instantly as a JSON object with "state" ("no_session", "paused", "running", "exited") and, when paused, "unit"/"line"/"procedure" for the current source location plus "paused_reason" ("breakpoint" or "exception"). When paused_reason is "exception" it also includes "exception_code" (hex), "first_chance" (bool) and, for Delphi exceptions, "exception_class" - so you can tell an ignorable Delphi exception (use ignore_exception) from an unavoidable native one like code C0000005 (use set_break_on_native_first_chance / ignore_exception_code). Use wait_until_paused instead if you intend to poll after an execution movement command. Can be called at any time.');
+  ToolGetState.AddPair('description', 'Returns the current debugger state instantly as a JSON object with "state" ("no_session", "paused", "running", "exited", "building", "build_failed") and, when paused, "unit"/"line"/"procedure" for the current source location plus "paused_reason" ("breakpoint" or "exception"). When paused_reason is "exception" it also includes "exception_code" (hex), "first_chance" (bool) and, for Delphi exceptions, "exception_class" - so you can tell an ignorable Delphi exception (use ignore_exception) from an unavoidable native one like code C0000005 (use set_break_on_native_first_chance / ignore_exception_code). When "building" it includes "build_elapsed_ms"; when "build_failed" it includes "build_log" (tail of the compiler output). Use wait_until_paused instead if you intend to poll after an execution movement command or while a build is in progress. Can be called at any time.');
   ToolGetState.AddPair('inputSchema', TJSONObject.Create.AddPair('type', 'object').AddPair('properties', TJSONObject.Create));
   ToolsArr.Add(ToolGetState);
 
   var ToolWaitPaused := TJSONObject.Create;
   ToolWaitPaused.AddPair('name', 'wait_until_paused');
-  ToolWaitPaused.AddPair('description', 'Waits for the debug session to reach a "paused" or "exited" state, then returns the same state object as get_state. Call this immediately after continue, step_into, or step_over. Eliminates the need for aggressive get_state polling. If the timeout expires before pausing, it returns the current state (e.g., "running").');
+  ToolWaitPaused.AddPair('description', 'Waits for the debug session to reach a "paused" or "exited" state, then returns the same state object as get_state. Call this immediately after continue, step_into, or step_over, AND after start_debug_session to wait out the background build: while "building" it waits up to the timeout and, when the build finishes, launches the process (-> "paused") or reports "build_failed" (with "build_log"). Eliminates the need for aggressive get_state polling. If the timeout expires before the session pauses (still "running" or still "building"), it returns the current state, so just call it again.');
   var SchemaWaitPaused := TJSONObject.Create;
   SchemaWaitPaused.AddPair('type', 'object');
   var PropWaitPaused := TJSONObject.Create;
@@ -894,7 +954,7 @@ begin
   if GetBreakpointCount >= 4 then
     Exit(MakeErrorResult('Error: Maximum of 4 hardware breakpoints reached.'));
 
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     FPendingBreakpoints.Add(TBreakpoint.Create(LUnit, LLine, nil));
     Result := MakeTextResult(Format('Breakpoint pending at %s:%d (will be applied when debug session starts)', [LUnit, LLine]));
@@ -944,7 +1004,7 @@ begin
   if ExtractFileExt(LUnit) = '' then
     LUnit := LUnit + '.pas';
 
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     for var I: Integer := FPendingBreakpoints.Count - 1 downto 0 do
     begin
@@ -1009,7 +1069,7 @@ var
   I     : Integer;
 begin
   LClass := AParams.GetValue('class_name').Value;
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     FPendingIgnoredExceptions.Add(LClass);
     for I := FPendingUnignoredExceptions.Count - 1 downto 0 do
@@ -1031,7 +1091,7 @@ var
   I     : Integer;
 begin
   LClass := AParams.GetValue('class_name').Value;
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     FPendingUnignoredExceptions.Add(LClass);
     for I := FPendingIgnoredExceptions.Count - 1 downto 0 do
@@ -1079,7 +1139,7 @@ begin
     Classes := TJSONArray.Create;
     Codes   := TJSONArray.Create;
 
-    if FState = dsNoSession then
+    if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
     begin
       Defaults := Collections.NewList<String>;
       Defaults.Add('EAbort');
@@ -1138,7 +1198,7 @@ begin
     Exit;
   end;
 
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     for var I := 0 to FPendingIgnoredExceptionCodes.Count - 1 do
       if FPendingIgnoredExceptionCodes[I] = LCode then
@@ -1168,7 +1228,7 @@ begin
     Exit;
   end;
 
-  if FState = dsNoSession then
+  if not Assigned(FDebugger) then // no live session yet (no_session / building / build_failed)
   begin
     for I := FPendingIgnoredExceptionCodes.Count - 1 downto 0 do
       if FPendingIgnoredExceptionCodes[I] = LCode then
@@ -1358,36 +1418,160 @@ begin
   FDebugInfoLoaded := True;
 end;
 
-function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
-var
-  Args       : String;
-  ExePath    : String;
-  HasMap     : Boolean;
-  I          : Integer;
-  MapFile    : String;
-  Msg        : String;
-  Unresolved : String;
+// Forced compiler switches passed verbatim to msbuild so the debug
+// dependencies are produced regardless of what the .dproj configures:
+//   DCC_MapFile=3          -> detailed .map (source-level breakpoints, frames)
+//   DCC_RemoteDebug=true   -> .rsm sidecar (get_locals / evaluate; dcc -VR)
+//   DCC_DebugInfoInTds=true -> TD32 (CodeView) debug info written to a detached
+//                             .tds sidecar (dcc -VT), read for the cross-unit
+//                             nested-record member->type graph. This is the IDE
+//                             option "Place debug information in separate TDS
+//                             file"; it yields -VT (not the embedded -V), so
+//                             the EXE stays lean and the .tds carries TD32.
+function TMcpServer.ForcedDebugBuildArgs: String;
 begin
-  if not RequireState([dsNoSession, dsExited], Result) then
+  Result := '/p:DCC_MapFile=3 /p:DCC_RemoteDebug=true /p:DCC_DebugInfoInTds=true';
+end;
+
+procedure TMcpServer.StartBuildTask;
+var
+  Builder    : IDptProjectBuilder;
+  ProjectFile: String;
+  Config     : String;
+  Platform   : String;
+  ExtraArgs  : String;
+begin
+  if FBuilder = nil then
+    FBuilder := CreateProjectBuilder(FDelphiVersion, FIsX64);
+
+  // Snapshot everything the closure needs into locals so the background
+  // task is decoupled from mutable fields a follow-up start might change.
+  Builder := FBuilder;
+  ProjectFile := FBuildProjectFile;
+  Config := FBuildConfig;
+  Platform := FBuildPlatform;
+  ExtraArgs := ForcedDebugBuildArgs;
+
+  FBuildLog := '';
+  FBuildError := '';
+  FBuildResult := Default(TDptBuildResult);
+
+  FBuildTask := TTask.Run(
+    procedure
+    var
+      CapObj : TCaptureLogger;
+      Capture: ILogger;
+    begin
+      CapObj := TCaptureLogger.Create;
+      Capture := CapObj; // interface owns the lifetime for this scope
+      try
+        FBuildResult := Builder.BuildProject(ProjectFile, Config, Platform,
+          ExtraArgs, True { OnlyIfChanged }, Capture);
+      except
+        on E: Exception do
+          FBuildError := E.ClassName + ': ' + E.Message;
+      end;
+      // Read the captured text while the interface ref is still alive.
+      FBuildLog := CapObj.Text;
+    end);
+end;
+
+procedure TMcpServer.JoinBuildTask;
+begin
+  if Assigned(FBuildTask) then
+  begin
+    try
+      FBuildTask.Wait;
+    except
+      on E: Exception do
+        LogDiag('build task raised: ' + E.Message);
+    end;
+    FBuildTask := nil;
+  end;
+end;
+
+function TMcpServer.BuildLogTail(AMaxLines: Integer): String;
+var
+  Lines: TArray<String>;
+  First: Integer;
+  I    : Integer;
+begin
+  Result := '';
+  if FBuildLog = '' then Exit;
+  Lines := FBuildLog.Replace(#13#10, #10).Split([#10]);
+  First := Length(Lines) - AMaxLines;
+  if First < 0 then First := 0;
+  for I := First to High(Lines) do
+    if Lines[I].Trim <> '' then
+      Result := Result + Lines[I] + sLineBreak;
+  Result := Result.Trim;
+end;
+
+procedure TMcpServer.PollBuild(ATimeoutMs: Cardinal);
+var
+  Done: Boolean;
+begin
+  if FState <> dsBuilding then
     Exit;
 
-  ExePath := AParams.GetValue('executable_path').Value;
-  if not FileExists(ExePath) then
-    Exit(MakeErrorResult('Error: Executable not found: ' + ExePath));
+  if not Assigned(FBuildTask) then
+  begin
+    FState := dsBuildFailed;
+    FBuildError := 'Internal error: build state with no build task in flight.';
+    Exit;
+  end;
 
-  var ArgsVal := AParams.GetValue('arguments');
-  if ArgsVal <> nil then
-    Args := ArgsVal.Value
-  else
-    Args := '';
+  try
+    Done := FBuildTask.Wait(ATimeoutMs);
+  except
+    on E: Exception do
+    begin
+      FBuildTask := nil;
+      FBuildError := E.ClassName + ': ' + E.Message;
+      FState := dsBuildFailed;
+      Exit;
+    end;
+  end;
+
+  if not Done then
+    Exit; // still compiling -- caller should poll again
+
+  FBuildTask := nil;
+
+  if (FBuildError <> '') or (not FBuildResult.Success) then
+  begin
+    FState := dsBuildFailed;
+    Exit;
+  end;
+
+  // Build succeeded -- bring up the actual debug session.
+  LaunchBuiltExe;
+end;
+
+procedure TMcpServer.LaunchBuiltExe;
+var
+  Args      : String;
+  ExePath   : String;
+  HasMap    : Boolean;
+  HasRsm    : Boolean;
+  HasTds    : Boolean;
+  I         : Integer;
+  MapFile   : String;
+  Msg       : String;
+  Unresolved: String;
+begin
+  ExePath := FBuildResult.OutputExe;
+  Args := FBuildArgs;
+
+  if not FileExists(ExePath) then
+  begin
+    FBuildError := 'Build reported success but the output executable was not found: ' + ExePath;
+    FState := dsBuildFailed;
+    Exit;
+  end;
 
   if FOwnsDebugger then
     FreeAndNil(FDebugger);
-
-  // If a previous session's loader task is still in flight (rapid
-  // start->start sequence), join it before tearing down its
-  // FDebugger reference. Otherwise the task would race the
-  // FreeAndNil below and the new TDebugger.Create.
   JoinRsmLoadTask;
 
   FDebugger := TDebugger.Create;
@@ -1399,24 +1583,16 @@ begin
 
   MapFile := ChangeFileExt(ExePath, '.map');
   HasMap := FileExists(MapFile);
+  HasRsm := FileExists(ChangeFileExt(ExePath, '.rsm'));
+  HasTds := FileExists(ChangeFileExt(ExePath, '.tds'));
   if HasMap then
     FDebugger.LoadMapFile(MapFile);
 
-  // RSM debug info (required by get_locals / evaluate) is loaded in
-  // a background ITask so start_debug_session returns immediately
-  // (the load can take ~10 s on TFW-sized .rsm sidecars). The user
-  // typically spends those seconds setting breakpoints / waiting
-  // for the target program to reach the first stop, so by the time
-  // they call get_locals / evaluate the load is usually already
-  // done. EnsureDebugInfoLoaded joins the task when needed.
-  // Skip launching the task when there's no .rsm next to the EXE --
-  // the inline fallback in EnsureDebugInfoLoaded covers that path
-  // and stays a no-op.
-  if FileExists(ChangeFileExt(ExePath, '.rsm')) then
+  // RSM debug info (required by get_locals / evaluate) loads in a
+  // background ITask so this returns promptly; EnsureDebugInfoLoaded joins
+  // it when get_locals / evaluate arrive. Skip when there is no .rsm.
+  if HasRsm then
   begin
-    // Local copy of the path so the closure isn't tied to the
-    // mutable FCurrentExePath field (a follow-up start would
-    // otherwise leak the new path into the still-running task).
     var ExePathLocal: String := ExePath;
     FRsmLoadTask := TTask.Run(
       procedure
@@ -1464,30 +1640,110 @@ begin
     end;
   end;
 
-  // Compose warnings cumulatively. The map-file warning is independent
-  // of breakpoints: it always fires when the file is missing, so users
-  // hear about it regardless of whether they tried to set breakpoints
-  // already. When BOTH problems apply we present them as cause + effect
-  // rather than two separate "verify names" hints.
-  Msg := 'Debug session started for ' + ExePath;
+  // Header: which config/platform was used and the resolved exe, plus
+  // whether a rebuild happened or the output was already up to date.
+  if FBuildResult.Skipped then
+    Msg := Format('Config=%s Platform=%s -> %s (build: up to date).',
+      [FBuildConfig, FBuildPlatform, ExePath])
+  else
+    Msg := Format('Config=%s Platform=%s -> %s (build: rebuilt).',
+      [FBuildConfig, FBuildPlatform, ExePath]);
+  Msg := Msg + ' Debug session started; process is paused at the entry point.';
+
+  // Debug-dependency warnings. The forced switches should produce all three
+  // sidecars; warn precisely if one is still missing.
   if not HasMap then
     Msg := Msg +
-      '. WARNING: No .map file found next to the executable. ' +
+      ' WARNING: No .map file found next to the executable. ' +
       'Source-level debugging (setting breakpoints by line, named stack frames) will NOT work without it. ' +
-      'Rebuild the project with DPT using /p:DCC_MapFile=3 ' +
-      '(e.g., DPT.exe LATEST Build Project.dproj Win32 Debug "/p:DCC_MapFile=3"), ' +
-      'or terminate this session, rebuild, and restart.';
+      'The build should have produced it via /p:DCC_MapFile=3 -- check the build log.';
+  if not HasRsm then
+    Msg := Msg +
+      ' WARNING: No .rsm sidecar found; get_locals / evaluate will be degraded.';
+  if not HasTds then
+    Msg := Msg +
+      ' NOTE: No .tds (TD32) sidecar found; cross-unit nested-record member->type resolution falls back to .rsm.';
   if Unresolved <> '' then
   begin
     if HasMap then
       Msg := Msg +
-        '. WARNING: Could not resolve address for breakpoint(s): ' + Unresolved +
+        ' WARNING: Could not resolve address for breakpoint(s): ' + Unresolved +
         '. These breakpoints will not trigger. Verify unit names and line numbers.'
     else
       Msg := Msg +
         ' As a consequence, the following breakpoint(s) will not trigger: ' + Unresolved + '.';
   end;
-  Result := MakeTextResult(Msg);
+
+  FStartMessage := Msg;
+end;
+
+function TMcpServer.HandleStartDebugSession(AParams: TJSONObject): TJSONObject;
+var
+  ProjectFile: String;
+  Config     : String;
+  Platform   : String;
+  Args       : String;
+  Analyzer   : TDProjAnalyzer;
+begin
+  // dsBuildFailed is accepted too, so a corrected project can be retried
+  // without an explicit stop/terminate first.
+  if not RequireState([dsNoSession, dsExited, dsBuildFailed], Result) then
+    Exit;
+
+  var ProjVal := AParams.GetValue('project_file');
+  if ProjVal = nil then
+    Exit(MakeErrorResult('Error: "project_file" is required (path to the .dproj).'));
+  ProjectFile := ExpandFileName(ProjVal.Value);
+  if not FileExists(ProjectFile) then
+    Exit(MakeErrorResult('Error: Project file not found: ' + ProjectFile));
+
+  // Run the same preprocessor the CLI DProj/Build actions run (may rewrite
+  // ProjectFile to the generated .dproj).
+  CheckAndExecutePreProcessor(ProjectFile);
+
+  var PlatformVal := AParams.GetValue('platform');
+  if PlatformVal <> nil then Platform := PlatformVal.Value else Platform := '';
+  var ConfigVal := AParams.GetValue('config');
+  if ConfigVal <> nil then Config := ConfigVal.Value else Config := '';
+  var ArgsVal := AParams.GetValue('arguments');
+  if ArgsVal <> nil then Args := ArgsVal.Value else Args := '';
+
+  // Resolve config/platform exactly like the DProjPrintCurConfig /
+  // DProjPrintOutputFile actions: explicit wins, else the .dproj default
+  // config and the Win32 platform default.
+  Analyzer := TDProjAnalyzer.Create(ProjectFile);
+  try
+    if Config = '' then
+      Config := Analyzer.GetDefaultConfig;
+  finally
+    Analyzer.Free;
+  end;
+  if Platform = '' then
+    Platform := 'Win32';
+
+  // Tear down any previous session/loader before reusing the slot.
+  JoinBuildTask;
+  JoinRsmLoadTask;
+  if FOwnsDebugger then
+    FreeAndNil(FDebugger);
+
+  FBuildProjectFile := ProjectFile;
+  FBuildConfig := Config;
+  FBuildPlatform := Platform;
+  FBuildArgs := Args;
+  FStartMessage := '';
+  FBuildStartTick := GetTickCount64;
+
+  FState := dsBuilding;
+  StartBuildTask;
+
+  Result := MakeTextResult(Format(
+    'Build started for %s (Config=%s, Platform=%s). The build runs in the ' +
+    'background with forced debug switches (.map, .rsm, .tds). State is ' +
+    '"building"; poll wait_until_paused until the session reaches "paused" ' +
+    '(build OK + launched) or "build_failed". Breakpoints can be queued ' +
+    'meanwhile with set_breakpoint.',
+    [ProjectFile, Config, Platform]));
 end;
 
 function TMcpServer.HandleContinue(AParams: TJSONObject): TJSONObject;
@@ -1533,9 +1789,36 @@ var
   StateObj : TJSONObject;
   RecentOut: TArray<TCapturedOutputLine>;
 begin
+  // Advance a finished background build without blocking, so callers that
+  // poll get_state (instead of wait_until_paused) still see the transition
+  // from "building" to "paused"/"build_failed".
+  PollBuild(0);
+
   StateObj := TJSONObject.Create;
   try
     StateObj.AddPair('state', DEBUG_STATE_NAMES[FState]);
+
+    if FState = dsBuilding then
+      StateObj.AddPair('build_elapsed_ms', TJSONNumber.Create(Int64(GetTickCount64 - FBuildStartTick)));
+
+    if FState = dsBuildFailed then
+    begin
+      if FBuildError <> '' then
+        StateObj.AddPair('build_error', FBuildError);
+      StateObj.AddPair('exit_code', TJSONNumber.Create(FBuildResult.ExitCode));
+      var Tail := BuildLogTail;
+      if Tail <> '' then
+        StateObj.AddPair('build_log', Tail);
+    end;
+
+    // One-shot "session started" banner (config/platform, resolved exe,
+    // debug-dependency warnings) emitted the first time the build->launch
+    // transition is observed.
+    if (FState = dsPaused) and (FStartMessage <> '') then
+    begin
+      StateObj.AddPair('message', FStartMessage);
+      FStartMessage := '';
+    end;
 
     if (FState = dsPaused) and Assigned(FDebugger) then
     begin
@@ -1594,11 +1877,20 @@ begin
 
   StartTick := GetTickCount64;
 
-  while not (FState in [dsPaused, dsExited]) do
+  // Unified wait: a background build ("building") is driven forward in short
+  // slices by PollBuild (which also launches the process on success), while a
+  // running session is simply polled for the next pause. Either way the call
+  // is bounded by TimeoutMs (plus the one-off launch wait once a build ends).
+  while True do
   begin
+    if FState in [dsPaused, dsExited, dsBuildFailed] then
+      Break;
     if (GetTickCount64 - StartTick) >= TimeoutMs then
       Break;
-    Sleep(50);
+    if FState = dsBuilding then
+      PollBuild(200)
+    else
+      Sleep(50);
   end;
 
   Result := HandleGetState(nil);

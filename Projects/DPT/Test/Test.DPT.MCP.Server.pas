@@ -15,7 +15,9 @@ uses
 
   DUnitX.TestFramework,
 
+  DPT.Build.Task,
   DPT.Debugger,
+  DPT.Logger,
   DPT.MCP.Server,
   Test.DPT.McpFixture;
 
@@ -190,7 +192,47 @@ type
 
 implementation
 
+type
+  // Stub builder injected via TMcpServer.ProjectBuilder so the start-session
+  // tests neither require the Delphi toolchain nor invoke msbuild: it skips
+  // the compile and reports a fixed, already-built executable. The real
+  // launch/map/rsm path the tests exercise is unaffected.
+  TStubProjectBuilder = class(TInterfacedObject, IDptProjectBuilder)
+  private
+    FExe: String;
+  public
+    constructor Create(const AExe: String);
+    function BuildProject(const AProjectFile, AConfig, APlatform, AExtraArgs: String;
+      AOnlyIfChanged: Boolean; const ALogger: ILogger): TDptBuildResult;
+  end;
+
+constructor TStubProjectBuilder.Create(const AExe: String);
+begin
+  inherited Create;
+  FExe := AExe;
+end;
+
+function TStubProjectBuilder.BuildProject(const AProjectFile, AConfig, APlatform,
+  AExtraArgs: String; AOnlyIfChanged: Boolean; const ALogger: ILogger): TDptBuildResult;
+begin
+  if Assigned(ALogger) then
+    ALogger.Log('[stub] skipping build; using prebuilt ' + FExe);
+  Result := Default(TDptBuildResult);
+  Result.Skipped := True;
+  Result.ExitCode := 0;
+  Result.OutputExe := FExe;
+end;
+
 { TMcpServerTests }
+
+// The committed DebugTarget.dproj resolves its output to the same prebuilt
+// DebugTarget.exe the tests already use; start_debug_session now takes this.
+function DebugTargetDProj: String;
+begin
+  Result := ExpandFileName('Projects\DPT\Test\DebugTarget.dproj');
+  if not FileExists(Result) then
+    Result := ExpandFileName('DebugTarget.dproj');
+end;
 
 function TMcpServerTests.ResolveTargetPath(const AExeName: string; AUse64Bit: Boolean): string;
 begin
@@ -832,11 +874,13 @@ begin
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "list_breakpoints", "arguments": {}}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    Format('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
+    Format('{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "%s"}}}', [StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll])]) + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}');
 
   OutputWriter := TStringTextWriter.Create;
   Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  Server.ProjectBuilder := TStubProjectBuilder.Create(ExePath);
   try
     Server.RunOnce; // init
     Assert.AreEqual(1, OutputWriter.GetCount);
@@ -852,18 +896,24 @@ begin
     // Ignore exception
     Server.RunOnce;
 
-    // Start debug session - transfers pending BPs
+    // Start debug session - kicks off the (stubbed) background build
     Server.RunOnce;
-    Assert.IsTrue(OutputWriter.GetLine(4).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(4));
+    Assert.IsTrue(OutputWriter.GetLine(4).Contains('Build started'), 'Build should start: ' + OutputWriter.GetLine(4));
+
+    // wait_until_paused drives the build -> launch -> paused transition and
+    // transfers the pending breakpoints to the live session.
+    Server.RunOnce;
+    Assert.IsTrue(OutputWriter.GetLine(5).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(5));
+    Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after the build');
 
     // Continue (async) - should hit the pending breakpoint
     Server.RunOnce;
-    Assert.IsTrue(OutputWriter.GetLine(5).Contains('Execution resumed'), 'Continue should return immediately');
+    Assert.IsTrue(OutputWriter.GetLine(6).Contains('Execution resumed'), 'Continue should return immediately');
 
     // Wait for breakpoint notification
-    WaitForOutput(OutputWriter, 8);
-    Assert.IsTrue(OutputWriter.GetLine(6).Contains('notifications/stopped'), 'Expected breakpoint notification');
-    Assert.IsTrue(OutputWriter.GetLine(6).Contains('breakpoint'), 'Expected breakpoint reason');
+    WaitForOutput(OutputWriter, 9);
+    Assert.IsTrue(OutputWriter.GetLine(7).Contains('notifications/stopped'), 'Expected breakpoint notification');
+    Assert.IsTrue(OutputWriter.GetLine(7).Contains('breakpoint'), 'Expected breakpoint reason');
 
   finally
     Server.Free;
@@ -1052,21 +1102,26 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "NonExistent.pas", "line": 1}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' + StringReplace(ExePath, '\', '\\', [rfReplaceAll]) + '"}}}');
+    '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "' + StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}');
 
   OutputWriter := TStringTextWriter.Create;
   Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  Server.ProjectBuilder := TStubProjectBuilder.Create(ExePath);
   try
     Server.RunOnce; // init
     Server.RunOnce; // set_breakpoint (pending)
     Assert.IsTrue(OutputWriter.GetLine(1).Contains('pending'), 'Should be pending: ' + OutputWriter.GetLine(1));
 
-    Server.RunOnce; // start_debug_session
-    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(2));
-    Assert.IsTrue(OutputWriter.GetLine(2).Contains('WARNING'),
-      'Should warn about unresolvable BP: ' + OutputWriter.GetLine(2));
-    Assert.IsTrue(OutputWriter.GetLine(2).Contains('NonExistent.pas'),
-      'Warning should mention the unit name: ' + OutputWriter.GetLine(2));
+    Server.RunOnce; // start_debug_session (background build)
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Build started'), 'Build should start: ' + OutputWriter.GetLine(2));
+
+    Server.RunOnce; // wait_until_paused -> launch; warning surfaces here
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('Debug session started'), 'Session should start: ' + OutputWriter.GetLine(3));
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('WARNING'),
+      'Should warn about unresolvable BP: ' + OutputWriter.GetLine(3));
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('NonExistent.pas'),
+      'Warning should mention the unit name: ' + OutputWriter.GetLine(3));
   finally
     Server.Free;
     InputReader.Free;
@@ -1197,27 +1252,34 @@ begin
   try
     InputReader := TStringTextReader.Create(
       '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' + StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "' + StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
 
     OutputWriter := TStringTextWriter.Create;
-    // Do NOT pass a debugger instance here; handle_start_debug_session creates its own.
+    // Do NOT pass a debugger instance here; the stub builder hands back the
+    // map-less temp copy and HandleStartDebugSession creates its own debugger.
     Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    Server.ProjectBuilder := TStubProjectBuilder.Create(TempPath);
     try
       Server.RunOnce; // init
-      
-      Server.RunOnce; // start_debug_session
-      Assert.IsTrue(OutputWriter.GetLine(1).Contains('WARNING: No .map file found'),
-        'Warning about missing map file should be present: ' + OutputWriter.GetLine(1));
-      Assert.IsTrue(OutputWriter.GetLine(1).Contains('/p:DCC_MapFile=3'),
-        'Instruction on how to create the map file should be present: ' + OutputWriter.GetLine(1));
-        
+
+      Server.RunOnce; // start_debug_session (background build)
+      Assert.IsTrue(OutputWriter.GetLine(1).Contains('Build started'),
+        'Build should start: ' + OutputWriter.GetLine(1));
+
+      Server.RunOnce; // wait_until_paused -> launch; missing-map warning surfaces here
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('No .map file found'),
+        'Warning about missing map file should be present: ' + OutputWriter.GetLine(2));
+      Assert.IsTrue(OutputWriter.GetLine(2).Contains('/p:DCC_MapFile=3'),
+        'Instruction on how to create the map file should be present: ' + OutputWriter.GetLine(2));
+
       // Ensure the session was actually started despite the missing map
       Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after starting');
-      
+
       Server.RunOnce; // terminate_debug_session
-      Assert.IsTrue(OutputWriter.GetLine(2).Contains('killed'),
-        'Process should be terminated properly: ' + OutputWriter.GetLine(2));
+      Assert.IsTrue(OutputWriter.GetLine(3).Contains('killed'),
+        'Process should be terminated properly: ' + OutputWriter.GetLine(3));
     finally
       Server.Free;
       InputReader.Free;
@@ -4169,18 +4231,21 @@ begin
     InputReader := TStringTextReader.Create(
       '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
       '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
-        StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "' +
+        StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
 
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    Server.ProjectBuilder := TStubProjectBuilder.Create(TempPath);
     try
       Server.RunOnce; // init
       Server.RunOnce; // set_breakpoint (queued as pending, no resolution yet)
-      Server.RunOnce; // start_debug_session
+      Server.RunOnce; // start_debug_session (background build)
+      Server.RunOnce; // wait_until_paused -> launch; combined warning surfaces here
 
-      StartLine := OutputWriter.GetLine(2);
+      StartLine := OutputWriter.GetLine(3);
       Assert.IsTrue(StartLine.Contains('No .map file found'),
         'Missing-map warning must appear even when breakpoints are pending: ' + StartLine);
       Assert.IsTrue(StartLine.Contains('DebugTarget.dpr:15'),
@@ -4222,19 +4287,22 @@ begin
   try
     InputReader := TStringTextReader.Create(
       '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "' +
-        StringReplace(TempPath, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
-      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
+      '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "' +
+        StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll]) + '"}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "set_breakpoint", "arguments": {"unit": "DebugTarget.dpr", "line": 15}}}' + sLineBreak +
+      '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "terminate_debug_session", "arguments": {}}}');
 
     OutputWriter := TStringTextWriter.Create;
     Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+    Server.ProjectBuilder := TStubProjectBuilder.Create(TempPath);
     try
       Server.RunOnce; // init
-      Server.RunOnce; // start_debug_session (no map)
+      Server.RunOnce; // start_debug_session (background build)
+      Server.RunOnce; // wait_until_paused -> launch against the map-less copy
       Server.RunOnce; // set_breakpoint (must error with map-missing hint)
 
-      ErrorLine := OutputWriter.GetLine(2);
+      ErrorLine := OutputWriter.GetLine(3);
       Assert.IsTrue(ErrorLine.Contains('Could not resolve address'),
         'Generic resolution-failure message expected: ' + ErrorLine);
       Assert.IsTrue(ErrorLine.Contains('No .map file'),
@@ -4702,27 +4770,32 @@ begin
   InputReader := TStringTextReader.Create(
     '{"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {"protocolVersion": "2024-11-05"}}' + sLineBreak +
     '{"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "ignore_exception", "arguments": {"class_name": "Exception"}}}' + sLineBreak +
-    Format('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"executable_path": "%s"}}}', [StringReplace(ExePath, '\', '\\', [rfReplaceAll])]) + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 5000}}}' + sLineBreak +
-    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
+    Format('{"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "start_debug_session", "arguments": {"project_file": "%s"}}}', [StringReplace(DebugTargetDProj, '\', '\\', [rfReplaceAll])]) + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 8000}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 5, "method": "tools/call", "params": {"name": "continue", "arguments": {}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 6, "method": "tools/call", "params": {"name": "wait_until_paused", "arguments": {"timeout_ms": 5000}}}' + sLineBreak +
+    '{"jsonrpc": "2.0", "id": 7, "method": "tools/call", "params": {"name": "stop_debug_session", "arguments": {}}}');
 
   OutputWriter := TStringTextWriter.Create;
   Server := TMcpServer.Create(nil, InputReader, OutputWriter);
+  Server.ProjectBuilder := TStubProjectBuilder.Create(ExePath);
   try
     Server.RunOnce; // init
-    
+
     Server.RunOnce; // ignore_exception
 
-    Server.RunOnce; // start_debug_session (this will lock the map file)
-    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Debug session started'), 'Session should start');
-    Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after starting');
+    Server.RunOnce; // start_debug_session (background build)
+    Assert.IsTrue(OutputWriter.GetLine(2).Contains('Build started'), 'Build should start');
+
+    Server.RunOnce; // wait_until_paused -> launch (this will lock the map file)
+    Assert.IsTrue(OutputWriter.GetLine(3).Contains('Debug session started'), 'Session should start');
+    Assert.AreEqual(Ord(dsPaused), Ord(Server.State), 'State should be paused after the build');
 
     Server.RunOnce; // continue (let the program run and exit)
-    
+
     Server.RunOnce; // wait_until_paused (will wait until the debugger catches the exit event)
     Assert.AreEqual(Ord(dsExited), Ord(Server.State), 'State should be exited');
-    
+
     // Now call stop_debug_session (this should free the debugger and thus the map file)
     Server.RunOnce; // stop_debug_session
     Assert.AreEqual(Ord(dsNoSession), Ord(Server.State), 'State should be no_session after stopping');

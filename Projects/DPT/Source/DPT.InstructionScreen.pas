@@ -290,7 +290,7 @@ begin
       TActionInfo.Create('McpDebugger', '', [
         'Starts a standalone Model Context Protocol (MCP) server for debugging Delphi applications.',
         'The server runs continuously in the background and provides the following tools for AI agents:',
-        '  - start_debug_session:     Starts a new debug session for the specified executable',
+        '  - start_debug_session:     Builds a .dproj (forced debug switches) and starts a debug session for its output',
         '  - stop_debug_session:      Detaches from the debugged process and ends the session',
         '  - terminate_debug_session: Kills the debugged process and ends the session',
         '  - set_breakpoint:          Sets a hardware breakpoint in a Delphi unit',

@@ -37,6 +37,9 @@ var
 begin
   Server := TMcpServer.Create(nil); // Debugger will be created later by a tool
   try
+    // The debugger builds the .dproj passed to start_debug_session through the
+    // same path as the CLI Build action; it needs the selected Delphi install.
+    Server.SetBuildContext(DelphiVersion, IsX64);
     Server.Run;
   finally
     Server.Free;
