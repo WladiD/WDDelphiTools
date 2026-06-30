@@ -77,6 +77,7 @@ type
     FBuildLog          : String;   // full captured build output (set by the task)
     FBuildError        : String;   // exception text if BuildProject raised
     FBuildArgs         : String;   // runtime arguments for the launched process
+    FBuildOnlyIfChanged: Boolean;  // incremental build, unless sidecars demand a full one
     FBuildProjectFile  : String;
     FBuildConfig       : String;
     FBuildPlatform     : String;
@@ -101,6 +102,7 @@ type
     procedure LogDiag(const AMessage: String);
     // --- async build helpers -------------------------------------------
     function  ForcedDebugBuildArgs: String;
+    function  SidecarsRequireFullBuild(const AExePath: String): Boolean;
     procedure StartBuildTask;
     procedure JoinBuildTask;
     /// <summary>
@@ -892,7 +894,7 @@ begin
 
   var ToolStart := TJSONObject.Create;
   ToolStart.AddPair('name', 'start_debug_session');
-  ToolStart.AddPair('description', 'Builds a Delphi project (.dproj) with forced debug switches and starts a debug session against the resolved output executable. The build is incremental (only rebuilds when sources changed) and runs in the BACKGROUND: this call returns immediately with state "building". Poll wait_until_paused until the session reaches "paused" (build succeeded and the process is launched and paused at the entry point) or "build_failed". Forced msbuild switches guarantee the debug dependencies even if the .dproj omits them: /p:DCC_MapFile=3 (.map for source-level breakpoints), /p:DCC_RemoteDebug=true (.rsm for get_locals / evaluate) and /p:DCC_DebugInfoInTds=true (TD32/CodeView debug info in a separate .tds for cross-unit member->type resolution). The Config and Platform actually used are reported in the "paused" message (taken from the parameters or derived from the .dproj). Breakpoints can be queued before or during the build with set_breakpoint. Only callable when state is "no_session", "exited" or "build_failed".');
+  ToolStart.AddPair('description', 'Builds a Delphi project (.dproj) with forced debug switches and starts a debug session against the resolved output executable. The build is incremental (only rebuilds when sources changed) but forces a full rebuild when the .map/.rsm/.tds sidecars are missing or out of sync next to the exe, and runs in the BACKGROUND: this call returns immediately with state "building". Poll wait_until_paused until the session reaches "paused" (build succeeded and the process is launched and paused at the entry point) or "build_failed". Forced msbuild switches guarantee the debug dependencies even if the .dproj omits them: /p:DCC_MapFile=3 (.map for source-level breakpoints), /p:DCC_RemoteDebug=true (.rsm for get_locals / evaluate) and /p:DCC_DebugInfoInTds=true (TD32/CodeView debug info in a separate .tds for cross-unit member->type resolution). The Config and Platform actually used are reported in the "paused" message (taken from the parameters or derived from the .dproj). Breakpoints can be queued before or during the build with set_breakpoint. Only callable when state is "no_session", "exited" or "build_failed".');
   var SchemaStart := TJSONObject.Create;
   SchemaStart.AddPair('type', 'object');
   var PropStart := TJSONObject.Create;
@@ -1433,6 +1435,47 @@ begin
   Result := '/p:DCC_MapFile=3 /p:DCC_RemoteDebug=true /p:DCC_DebugInfoInTds=true';
 end;
 
+// Decide whether an incremental (--OnlyIfChanged) build is unsafe and a full
+// rebuild must be forced. It is unsafe when the debug sidecars the session
+// depends on (.map, .rsm, .tds) are MISSING next to the resolved exe, or when
+// their timestamps drift too far apart -- i.e. they are not all products of
+// the same build. In either case an incremental build could skip (exe
+// unchanged) yet leave the session without usable debug info.
+function TMcpServer.SidecarsRequireFullBuild(const AExePath: String): Boolean;
+const
+  // The four files are written within seconds of each other in a single
+  // compile; a spread beyond this means they came from different builds.
+  CoherenceToleranceSec = 600; // 10 minutes -- generous for large .tds writes
+var
+  MaxT, MinT: TDateTime;
+  Sidecars  : TArray<String>;
+  T         : TDateTime;
+  F         : String;
+begin
+  // No exe yet -> an incremental build rebuilds anyway, so it is safe to keep
+  // --OnlyIfChanged (IsBuildNeeded reports a build is needed).
+  if not FileExists(AExePath) then
+    Exit(False);
+
+  Sidecars := [ChangeFileExt(AExePath, '.map'),
+               ChangeFileExt(AExePath, '.rsm'),
+               ChangeFileExt(AExePath, '.tds')];
+  for F in Sidecars do
+    if not FileExists(F) then
+      Exit(True); // a required sidecar is missing -> force a full build
+
+  // All present: require their timestamps (with the exe) to be coherent.
+  MinT := TFile.GetLastWriteTime(AExePath);
+  MaxT := MinT;
+  for F in Sidecars do
+  begin
+    T := TFile.GetLastWriteTime(F);
+    if T < MinT then MinT := T;
+    if T > MaxT then MaxT := T;
+  end;
+  Result := (MaxT - MinT) * SecsPerDay > CoherenceToleranceSec;
+end;
+
 procedure TMcpServer.StartBuildTask;
 var
   Builder    : IDptProjectBuilder;
@@ -1451,6 +1494,7 @@ begin
   Config := FBuildConfig;
   Platform := FBuildPlatform;
   ExtraArgs := ForcedDebugBuildArgs;
+  var OnlyIfChanged: Boolean := FBuildOnlyIfChanged;
 
   FBuildLog := '';
   FBuildError := '';
@@ -1466,7 +1510,7 @@ begin
       Capture := CapObj; // interface owns the lifetime for this scope
       try
         FBuildResult := Builder.BuildProject(ProjectFile, Config, Platform,
-          ExtraArgs, True { OnlyIfChanged }, Capture);
+          ExtraArgs, OnlyIfChanged, Capture);
       except
         on E: Exception do
           FBuildError := E.ClassName + ': ' + E.Message;
@@ -1710,16 +1754,19 @@ begin
 
   // Resolve config/platform exactly like the DProjPrintCurConfig /
   // DProjPrintOutputFile actions: explicit wins, else the .dproj default
-  // config and the Win32 platform default.
+  // config and the Win32 platform default. Resolve the output exe too, so we
+  // can decide whether an incremental build is safe.
+  if Platform = '' then
+    Platform := 'Win32';
+  var ExpectedExe: String;
   Analyzer := TDProjAnalyzer.Create(ProjectFile);
   try
     if Config = '' then
       Config := Analyzer.GetDefaultConfig;
+    ExpectedExe := Analyzer.GetProjectOutputFile(Config, Platform);
   finally
     Analyzer.Free;
   end;
-  if Platform = '' then
-    Platform := 'Win32';
 
   // Tear down any previous session/loader before reusing the slot.
   JoinBuildTask;
@@ -1731,6 +1778,11 @@ begin
   FBuildConfig := Config;
   FBuildPlatform := Platform;
   FBuildArgs := Args;
+  // An incremental (--OnlyIfChanged) build only looks at source vs. exe
+  // timestamps, so it would happily skip when the exe is current even though a
+  // required sidecar is missing or stale -- and the session would then launch
+  // without .map / .rsm / .tds. Force a full build in that case.
+  FBuildOnlyIfChanged := not SidecarsRequireFullBuild(ExpectedExe);
   FStartMessage := '';
   FBuildStartTick := GetTickCount64;
 
