@@ -57,6 +57,8 @@ type
     [Test]
     procedure TestMcpEvaluateLocalShortString;
     [Test]
+    procedure TestMcpEvaluateGuidLocalWithGuidType;
+    [Test]
     procedure TestMcpEvaluateRejectsInvalidNameAndType;
     [Test]
     procedure TestMcpEvaluateOneLevelFieldNavigation;
@@ -1761,6 +1763,36 @@ begin
       'LocalShort must evaluate to its full inline value "Hello Local Short" (>7 chars, exercises the 256-byte read path), got: ' + RespLine);
     Assert.IsTrue(RespLine.Contains('LocalShort'),
       'Response should include the variable name: ' + RespLine);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.47 follow-up: the `guid` formatter. GuidLocalProbe has a TGUID
+///   stack local initialised to {4F9A2C10-1111-2222-3333-444455556666}.
+///   A whole-name `evaluate GuidLocal type=guid` reads the full 16 bytes
+///   at the resolved frame address (the uniform 8-byte RawBytes slot is
+///   too short) and formats the canonical brace form. This is the
+///   companion to the §6.47 fix: bare `evaluate GuidLocal` declines with
+///   a hint (the .rsm can't type a TGUID local), but an explicit
+///   type=guid recovers the value.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateGuidLocalWithGuidType;
+var
+  Fixture : TMcpEvalFixture;
+  ExePath : String;
+  RespLine: String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 1095);
+  try
+    RespLine := Fixture.Eval('GuidLocal', 'guid');
+    Assert.IsTrue(
+      RespLine.ToUpper.Contains('{4F9A2C10-1111-2222-3333-444455556666}'),
+      'GuidLocal type=guid must format the canonical brace GUID ' +
+      '{4F9A2C10-1111-2222-3333-444455556666}, got: ' + RespLine);
   finally
     Fixture.Free;
   end;

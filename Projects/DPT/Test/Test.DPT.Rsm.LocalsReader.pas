@@ -51,6 +51,7 @@ type
     procedure DoTestInlineVarLocalsDecoded(AUse64Bit: Boolean);
     procedure DoTestInlineVarWideOffsetMonotonic(AUse64Bit: Boolean);
     procedure DoTestNonTPrefixClassDiscovered(AUse64Bit: Boolean);
+    procedure DoTestGuidLocalNotEnum(AUse64Bit: Boolean);
   public
     [Test]
     procedure TestRsmFilePresent;
@@ -189,7 +190,20 @@ type
     /// target must NOT be mis-resolved to a method).
     [Test]
     procedure TestPropertyGetterNameRecovered32;
+    /// §6.47 PIN. A <c>TGUID</c> stack local (an RTL packed record) must
+    /// NOT have its <c>$20</c>-encoded local TypeIdx classified as an enum
+    /// by <see cref="TRsmReader.IsEnumTypeId"/>. The live <c>evaluate G</c>
+    /// auto-typed the whole-name local as <c>enum: &lt;unknown&gt; (16)</c>
+    /// — Path-3 of <c>AutoDetectFormatterName</c> called
+    /// <c>EnumLookup(MatchedLocalTypeIdx)</c> and <c>IsEnumTypeId</c>
+    /// returned True for the TGUID local id. Pins that <c>GuidLocal</c>'s
+    /// TypeIdx is not an enum id (leakage guard: the sibling Integer
+    /// <c>GuidLow</c> is not affected).
+    [Test]
+    procedure TestGuidLocalNotEnum32;
     {$IFDEF CPUX64}
+    [Test]
+    procedure TestGuidLocalNotEnum64;
     [Test]
     procedure TestClassFieldTypeIdxLinking64;
     {$ENDIF}
@@ -1119,6 +1133,56 @@ begin
     Reader.Free;
   end;
 end;
+
+procedure TRsmReaderLegacyTests.DoTestGuidLocalNotEnum(AUse64Bit: Boolean);
+var
+  Reader     : TRsmReader;
+  ProcIdx, I : Integer;
+  Proc       : TRsmProc;
+  GuidTypeIdx: UInt32;
+  Found      : Boolean;
+  Diag       : String;
+begin
+  Reader := TRsmReader.Create;
+  try
+    Reader.LoadFromFile(ResolveExePath(AUse64Bit));
+    ProcIdx := Reader.FindProcByName('GuidLocalProbe');
+    Assert.IsTrue(ProcIdx >= 0, 'GuidLocalProbe not found in parsed procs');
+    Proc := Reader.Procs[ProcIdx];
+
+    GuidTypeIdx := 0;
+    Found       := False;
+    Diag        := '';
+    for I := 0 to Proc.Locals.Count - 1 do
+    begin
+      // Diagnostic context surfaced in the failure message: each local's
+      // decoded TypeIdx and whether IsEnumTypeId mis-classifies it.
+      Diag := Diag + Format('[%s typeIdx=$%x isEnum=%s] ',
+        [Proc.Locals[I].Name, Proc.Locals[I].TypeIdx,
+         BoolToStr(Reader.IsEnumTypeId(Proc.Locals[I].TypeIdx), True)]);
+      if SameText(Proc.Locals[I].Name, 'GuidLocal') then
+      begin
+        GuidTypeIdx := Proc.Locals[I].TypeIdx;
+        Found       := True;
+      end;
+    end;
+
+    Assert.IsTrue(Found, 'GuidLocal local missing from GuidLocalProbe. ' +
+      'Locals: ' + Diag);
+    // The defect: the TGUID local's type id is classified as an enum, so
+    // AutoDetectFormatterName Path-3 picks the 'enum' formatter.
+    Assert.IsFalse(Reader.IsEnumTypeId(GuidTypeIdx),
+      Format('TGUID local TypeIdx $%x must NOT be an enum id. Locals: %s',
+        [GuidTypeIdx, Diag]));
+  finally
+    Reader.Free;
+  end;
+end;
+
+procedure TRsmReaderLegacyTests.TestGuidLocalNotEnum32;                  begin DoTestGuidLocalNotEnum(False);                 end;
+{$IFDEF CPUX64}
+procedure TRsmReaderLegacyTests.TestGuidLocalNotEnum64;                  begin DoTestGuidLocalNotEnum(True);                  end;
+{$ENDIF}
 
 procedure TRsmReaderLegacyTests.TestInlineVarLocalsDecoded32;            begin DoTestInlineVarLocalsDecoded(False);           end;
 procedure TRsmReaderLegacyTests.TestInlineVarWideOffsetMonotonic32;      begin DoTestInlineVarWideOffsetMonotonic(False);     end;

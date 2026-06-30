@@ -1078,6 +1078,22 @@ begin
   Writeln('ComplexRec ', CxLoc.CxR1.C1Int, ' ', CxPtr^.CxTag, ' ',
     CxLoc.CxName); Flush(Output); // complex-rec bp here
 end;
+// §6.47 fixture: a TGUID stack local. TGUID is an RTL packed record
+// (16 bytes: D1:LongWord; D2,D3:Word; D4:array[0..7] of Byte). Its $20
+// local record encodes a type id that must NOT be classified as an enum
+// by IsEnumTypeId -- the live `evaluate` mis-typed the whole-name local
+// as "enum: <unknown> (16)" (reading just the first byte 0x10 as an
+// ordinal). The pin reads GuidLocal's TypeIdx and asserts IsEnumTypeId
+// is False so AutoDetectFormatterName's Path-3 enum branch does not fire.
+procedure GuidLocalProbe;
+var
+  GuidLocal: TGUID;
+  GuidLow: Integer;
+begin
+  GuidLocal := StringToGUID('{4F9A2C10-1111-2222-3333-444455556666}');
+  GuidLow := Integer(GuidLocal.D1) and $FF;
+  Writeln('GuidLocal ', GuidLow, ' ', GUIDToString(GuidLocal)); Flush(Output); // guid-local bp here
+end;
 begin
   GGlobalInt := $11223344;
   GGlobalObject := TStringList.Create;
@@ -1307,6 +1323,9 @@ begin
     GGlobalConstStrParamHost := TConstStrParamHost.Create;
     GGlobalConstStrParamHost.FMarker := Integer($5A5A5A5A);
     GGlobalConstStrParamHost.Probe('Hallo', 'Welt');
+    // §6.47: reach GuidLocalProbe so the TGUID-local-not-an-enum pin has
+    // a live BP context (and the .rsm carries the TGUID local record).
+    GuidLocalProbe;
     LocalsProcedure;
     InlineVarLocalsProcedure;
     InlineVarManyIntsProcedure;

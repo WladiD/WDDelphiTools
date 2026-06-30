@@ -4192,6 +4192,57 @@ live `TComputer` base `0xE8437420`: `RecHeader.Version` = `D0 7D 8D 01`
 record offsets are absolute (TFW is Win32, so pointer reads are 4-byte; the
 pure-record scope never needs the VMT-slot adjust).
 
+### 6.47 Whole-name record/reference LOCAL mis-typed as an enum via a truncated-id collision — CLOSED (consumer-side)
+
+[DPT.Debugger.Evaluate.pas `Evaluate` / `AutoDetectFormatterName`](DPT.Debugger.Evaluate.pas).
+A bare `evaluate G`, where `G` is a `TGUID` stack local (an RTL packed
+record), returned `enum: <unknown> (16)` against the user's `Test.Tfw.exe`.
+Root cause is a §6.36-family collision consumed by the auto-detect path, NOT
+a new encoding gap:
+
+* A whole-name local is typed from `Locals[I].TypeIdx` (the RSM compact
+  stack-local form, which per §6.36 stores only the **LOW byte** of the
+  2-byte type id). For `G` that truncated id is `$0E`.
+* `AutoDetectFormatterName` Path 3 runs `EnumLookup(MatchedLocalTypeIdx)`
+  **before** the record-terminal fallback. `IsEnumTypeId($0E)` is **True** —
+  `$0E` numerically collides with a small enum-secondary id `$000E` — so the
+  whole-name local is classified `'enum'`, `LastEnumTypeId := $0E`, and
+  `FormatEnum` reads ordinal `16` (the GUID's first byte `0x10`), finds no
+  constant, and emits the confidently-wrong `<unknown> (16)`.
+* The truncated id resolves to **no** record/class (`FindClassIdxByRsmTypeId($0E) < 0`
+  and `FindStructByTypeIdx($0E) < 0`), so a reader-side "prefer the record
+  over the enum" fix is impossible — the `.rsm` simply cannot recover that
+  `G` is a `TGUID` from `$0E` alone (only TD32 carries the full id, and the
+  whole-name-local path is RSM-only; TD32 is consulted only on the dotted
+  walk, §6.46).
+
+**Fix (consumer-side, value-corroboration).** After `AutoDetectFormatterName`
+returns `'enum'` for a whole-name **local** whose matched id is the compact
+truncated form (`< $100`) and resolves to no registry class/record, the
+classification is trusted only when the live value actually resolves to one of
+that enum's constants (the same width-probe `FormatEnum` uses). For a genuine
+enum local the ordinal resolves and `'enum'` stands; for the `$0E`/`$000E`
+collision it doesn't, so `AType` is cleared and the record-terminal / hint
+fallbacks run instead of the bogus enum. The guard is surgical: it never fires
+for 2-byte enum local ids (`>= $100`) and never for ids that DO resolve to a
+record, so legitimate enum locals are unaffected. Pinned by the
+characterization test `TestGuidLocalTruncatedIdCollidesWithEnum`
+(`Test.DPT.Rsm.Taifun.pas`, gated on `Test.Tfw.exe`) which asserts the three
+facts above, and by the reader-level invariant `TestGuidLocalNotEnum32/64`
+(`Test.DPT.Rsm.LocalsReader.pas`, DebugTarget's `GuidLocalProbe`) which guards
+the common path where a TGUID local's id is NOT an enum id.
+
+**Companion: a `guid` formatter.** With the bogus enum gone, a bare
+`evaluate G` correctly declines (the `.rsm` cannot type a TGUID local), so an
+explicit `type=guid` is the way to read the value. `FormatGuid`
+([DPT.Debugger.pas](DPT.Debugger.pas)) reads the full 16 bytes at the resolved
+address (the uniform 8-byte RawBytes slot is too short for a TGUID) and emits
+the canonical `{4F9A2C10-1111-2222-3333-444455556666}` brace form. Pinned live
+by `TestMcpEvaluateGuidLocalWithGuidType` (`Test.DPT.MCP.Server.pas`, BP at
+`GuidLocalProbe`). Auto-detecting a bare `evaluate G` as a GUID would require
+consulting TD32 (the authoritative reader, §6.46) in the whole-name-local path,
+which today is RSM-only — left as a future enhancement.
+
 ---
 
 ## 7. Loader contract (caller perspective)

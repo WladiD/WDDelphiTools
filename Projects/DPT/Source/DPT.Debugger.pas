@@ -361,6 +361,7 @@ type
     function  FormatCurrency   (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatObject     (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     function  FormatEnum       (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
+    function  FormatGuid       (const ARawBytes: TBytes; AAddr: Pointer; AFieldKnownSize: Integer; out AValue: String): Boolean;
     /// <summary>
     ///   Resolve a parameter's register slot to the same 8-byte raw-bytes
     ///   shape ReadProcessMemory produces for stack-slot locals, so that
@@ -646,6 +647,7 @@ begin
   FFormatters['currency']    := FormatCurrency;
   FFormatters['object']      := FormatObject;
   FFormatters['enum']        := FormatEnum;
+  FFormatters['guid']        := FormatGuid;
 
   // Auto-detection: maps the Delphi compiler's built-in 2-byte
   // primitive type ids (captured by LinkFieldsFromFormatA into
@@ -3971,6 +3973,30 @@ begin
   Ordinal := 0;
   Move(ARawBytes[0], Ordinal, W);
   AValue := Format('<unknown> (%d)', [Ordinal]);
+  Result := True;
+end;
+
+/// <summary>
+///   TGUID: 16 bytes laid out as D1:LongWord, D2:Word, D3:Word,
+///   D4:array[0..7] of Byte. The uniform RawBytes slot is only 8 bytes
+///   wide, so the full 16 are read from the live address; output is the
+///   canonical brace form, e.g. <c>{4F9A2C10-1111-2222-3333-444455556666}</c>.
+/// </summary>
+function TDebugger.FormatGuid(const ARawBytes: TBytes; AAddr: Pointer;
+  AFieldKnownSize: Integer; out AValue: String): Boolean;
+var
+  Buf : TBytes;
+  Guid: TGUID;
+begin
+  Result := False;
+  AValue := '';
+  if Assigned(AAddr) then
+    Buf := ReadProcessMemory(AAddr, SizeOf(TGUID))
+  else
+    Buf := ARawBytes;
+  if Length(Buf) < SizeOf(TGUID) then Exit;
+  Move(Buf[0], Guid, SizeOf(TGUID));
+  AValue := GUIDToString(Guid);
   Result := True;
 end;
 

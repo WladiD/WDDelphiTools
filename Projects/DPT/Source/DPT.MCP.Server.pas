@@ -819,7 +819,9 @@ begin
     'Allowed types: "int" (4-byte signed), "int64" (8-byte signed), "string" ' +
     '(UnicodeString, the default Delphi string type), "ansistring", "widestring" ' +
     '(BSTR), "shortstring" (length-prefixed inline buffer; works for both locals ' +
-    'and globals), "object" (returns "ClassName @ HexAddr" or "nil"). FIELD ' +
+    'and globals), "object" (returns "ClassName @ HexAddr" or "nil"), "guid" ' +
+    '(16-byte TGUID, reads the full 16 bytes at the resolved address and ' +
+    'formats the canonical {XXXXXXXX-XXXX-...} brace form). FIELD ' +
     'NAVIGATION: dotted names like "MyObj.FField" or "MyObj.FInner.FNested" are ' +
     'followed by dereferencing each intermediate object pointer, looking up the ' +
     'field offset via RSM class info, and reading the final field with the ' +
@@ -841,7 +843,7 @@ begin
   SchemaEvaluate.AddPair('type', 'object');
   var PropEvaluate := TJSONObject.Create;
   PropEvaluate.AddPair('name', TJSONObject.Create.AddPair('type', 'string'));
-  PropEvaluate.AddPair('type', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Optional. Output type: "int", "int64", "string", "ansistring", "widestring", "shortstring", "single", "double", "extended", or "object". Omit (or pass empty) to let the server auto-detect from the field''s RSM type id.'));
+  PropEvaluate.AddPair('type', TJSONObject.Create.AddPair('type', 'string').AddPair('description', 'Optional. Output type: "int", "int64", "string", "ansistring", "widestring", "shortstring", "single", "double", "extended", "object", or "guid". Omit (or pass empty) to let the server auto-detect from the field''s RSM type id.'));
   SchemaEvaluate.AddPair('properties', PropEvaluate);
   var ReqEvaluate := TJSONArray.Create;
   ReqEvaluate.Add('name');

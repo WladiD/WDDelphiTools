@@ -1499,6 +1499,42 @@ begin
   if AType = '' then
     AType := AutoDetectFormatterName(AName, IsLocal, MatchedLocalTypeIdx, Member);
 
+  // §6.47: a whole-name LOCAL classified as 'enum' purely via the RSM
+  // low-byte local type id is SUSPECT. The §6.36 compact stack-local form
+  // stores only the LOW byte of the 2-byte type id, so a record- or
+  // reference-typed local's truncated id can numerically collide with a
+  // small enum-secondary id -- e.g. in Test.Tfw.exe a TGUID local's id
+  // $0E collides with enum secondary $000E, so IsEnumTypeId returns True
+  // even though the id resolves to NO record/class
+  // (FindClassIdxByRsmTypeId < 0). Trust the enum classification only when
+  // the live value actually resolves to one of that enum's constants (the
+  // same width-probe FormatEnum uses); otherwise it is a collision
+  // artefact, so drop it and let the record-terminal / hint fallbacks
+  // below run instead of emitting a confidently-wrong "enum: <unknown>".
+  if SameText(AType, 'enum') and IsLocal and (MatchedLocalTypeIdx <> 0) and
+     (MatchedLocalTypeIdx < $100) and Assigned(LocalsReader) and
+     (LocalsReader.FindClassIdxByRsmTypeId(MatchedLocalTypeIdx) < 0) then
+  begin
+    var EnumConfirmed: Boolean := False;
+    for var W in [1, 2, 4] do
+    begin
+      if Length(RawBytes) < W then Continue;
+      var Ord_: Integer := 0;
+      Move(RawBytes[0], Ord_, W);
+      var ConfName: String := '';
+      if LocalsReader.TryGetEnumConstantName(LastEnumTypeId, Ord_, ConfName) then
+      begin
+        EnumConfirmed := True;
+        Break;
+      end;
+    end;
+    if not EnumConfirmed then
+    begin
+      AType := '';
+      LastEnumTypeId := 0;
+    end;
+  end;
+
   if Formatters.TryGetValue(LowerCase(AType), Formatter) then
   begin
     Result := Formatter(RawBytes, Addr, FieldKnownSize, AValue);
@@ -1782,7 +1818,7 @@ begin
     Result := Format(
       '%s could not be auto-typed (no RSM type metadata for this field). ' +
       'Resolved bytes (LE): %s%s. Retry with an explicit type= ' +
-      '(shortstring, int, int64, double, object, string).',
+      '(shortstring, int, int64, double, object, string, guid).',
       [AName, HexBytes, AddrStr]);
 end;
 
