@@ -4225,12 +4225,14 @@ enum local the ordinal resolves and `'enum'` stands; for the `$0E`/`$000E`
 collision it doesn't, so `AType` is cleared and the record-terminal / hint
 fallbacks run instead of the bogus enum. The guard is surgical: it never fires
 for 2-byte enum local ids (`>= $100`) and never for ids that DO resolve to a
-record, so legitimate enum locals are unaffected. Pinned by the
-characterization test `TestGuidLocalTruncatedIdCollidesWithEnum`
-(`Test.DPT.Rsm.Taifun.pas`, gated on `Test.Tfw.exe`) which asserts the three
-facts above, and by the reader-level invariant `TestGuidLocalNotEnum32/64`
-(`Test.DPT.Rsm.LocalsReader.pas`, DebugTarget's `GuidLocalProbe`) which guards
-the common path where a TGUID local's id is NOT an enum id.
+record, so legitimate enum locals are unaffected. Pinned by the reader-level
+invariant `TestGuidLocalNotEnum32/64` (`Test.DPT.Rsm.LocalsReader.pas`,
+DebugTarget's `GuidLocalProbe`) which guards the common path where a TGUID
+local's id is NOT an enum id. The collision itself is binary-specific — the
+`$0E`/`$000E` clash observed in `Test.Tfw.exe` — so it has no portable fixture
+(the three facts above: truncated id `< $100`, `IsEnumTypeId` True, and no
+record/class resolution were confirmed live against that binary and via the
+`get_locals`/`evaluate` chain).
 
 **Companion: a `guid` formatter.** With the bogus enum gone, a bare
 `evaluate G` correctly declines (the `.rsm` cannot type a TGUID local), so an
@@ -4239,9 +4241,23 @@ explicit `type=guid` is the way to read the value. `FormatGuid`
 address (the uniform 8-byte RawBytes slot is too short for a TGUID) and emits
 the canonical `{4F9A2C10-1111-2222-3333-444455556666}` brace form. Pinned live
 by `TestMcpEvaluateGuidLocalWithGuidType` (`Test.DPT.MCP.Server.pas`, BP at
-`GuidLocalProbe`). Auto-detecting a bare `evaluate G` as a GUID would require
-consulting TD32 (the authoritative reader, §6.46) in the whole-name-local path,
-which today is RSM-only — left as a future enhancement.
+`GuidLocalProbe`).
+
+**Auto-detect via TD32.** A bare `evaluate G` (no `type=`) now auto-types
+correctly too. The whole-name-local path is RSM-only no longer: when a `.tds` /
+embedded TD32 is loaded it is consulted FIRST for the local's real type (the
+authoritative reader, §6.46), since the RSM compact stack-local id is the
+§6.36-truncated low byte that cannot recover the TGUID type. `FHost.TryGetTd32FrameLocalTypeIdx`
+resolves the local's TD32 type-index and `Td32TerminalFormatterName` maps it to
+a formatter; `TGUID` (a record) is special-cased to `'guid'` so the value is
+formatted rather than surfaced as the generic `record` hint. The TD32 result is
+adopted only when it yields a formatter this evaluator can apply — TD32 doesn't
+decode enums / strings / sets (it returns `''` for those) and `'record'` is not
+a registered formatter, so every other shape falls through to the unchanged RSM
+auto-detect. Pinned by `TestMcpEvaluateGuidLocalAutoDetectedViaTd32`
+(`Test.DPT.MCP.Server.pas`, gated on the DebugTarget `.tds`). When no TD32 is
+present the value-corroboration guard above still removes the bogus enum and the
+hint fallback fires.
 
 ---
 

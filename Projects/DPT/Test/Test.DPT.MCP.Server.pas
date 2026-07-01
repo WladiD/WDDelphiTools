@@ -59,6 +59,8 @@ type
     [Test]
     procedure TestMcpEvaluateGuidLocalWithGuidType;
     [Test]
+    procedure TestMcpEvaluateGuidLocalAutoDetectedViaTd32;
+    [Test]
     procedure TestMcpEvaluateRejectsInvalidNameAndType;
     [Test]
     procedure TestMcpEvaluateOneLevelFieldNavigation;
@@ -1793,6 +1795,40 @@ begin
       RespLine.ToUpper.Contains('{4F9A2C10-1111-2222-3333-444455556666}'),
       'GuidLocal type=guid must format the canonical brace GUID ' +
       '{4F9A2C10-1111-2222-3333-444455556666}, got: ' + RespLine);
+  finally
+    Fixture.Free;
+  end;
+end;
+
+/// <summary>
+///   §6.47 auto-detect via TD32. A bare `evaluate GuidLocal` (no type=)
+///   must auto-type to 'guid' through the §6.46 TD32 reader: the RSM
+///   compact stack-local id can't recover the TGUID type (§6.36
+///   truncation), but the .tds carries the full type, so the whole-name
+///   local path consults TD32 and selects the 'guid' formatter. Requires
+///   the DebugTarget .tds sidecar (dcc32 -VT); skipped when absent.
+/// </summary>
+procedure TMcpServerTests.TestMcpEvaluateGuidLocalAutoDetectedViaTd32;
+var
+  Fixture : TMcpEvalFixture;
+  ExePath : String;
+  RespLine: String;
+begin
+  ExePath := ResolveTargetPath('DebugTarget.exe', False);
+  if not TFile.Exists(ChangeFileExt(ExePath, '.tds')) then
+    Assert.Pass('DebugTarget.tds (TD32) absent -- auto-detect needs it; skipped');
+
+  Fixture := TMcpEvalFixture.CreateAtBreakpoint(
+    ExePath, ChangeFileExt(ExePath, '.map'), 'DebugTarget.dpr', 1095);
+  try
+    // No explicit type -- the server must auto-detect 'guid' via TD32.
+    RespLine := Fixture.Eval('GuidLocal', '');
+    Assert.IsTrue(
+      RespLine.ToUpper.Contains('{4F9A2C10-1111-2222-3333-444455556666}'),
+      'Bare evaluate GuidLocal must auto-type to the canonical GUID via ' +
+      'TD32, got: ' + RespLine);
+    Assert.IsTrue(RespLine.Contains('guid'),
+      'Auto-detected type label should be guid: ' + RespLine);
   finally
     Fixture.Free;
   end;

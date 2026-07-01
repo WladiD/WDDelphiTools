@@ -598,6 +598,11 @@ begin
   begin
     if Td32Reader.Classes[Idx].Kind = tkClass then
       Result := 'object'
+    // TGUID is a record but has a dedicated 16-byte formatter; name it so a
+    // whole-name `evaluate G` (G: TGUID) auto-types to 'guid' rather than the
+    // generic 'record' hint (§6.47 follow-up).
+    else if SameText(Td32Reader.Classes[Idx].Name, 'TGUID') then
+      Result := 'guid'
     else
       Result := 'record';
     Exit;
@@ -1497,7 +1502,32 @@ begin
   // formatter name is written back into AType (var parameter) so
   // the MCP server can surface it in the response label.
   if AType = '' then
-    AType := AutoDetectFormatterName(AName, IsLocal, MatchedLocalTypeIdx, Member);
+  begin
+    // §6.47 / §6.46: for a whole-name LOCAL, TD32 (when a .tds / embedded
+    // TD32 is loaded) is the AUTHORITATIVE type source -- the RSM compact
+    // stack-local id is the §6.36 truncated LOW byte and can collide (e.g.
+    // TGUID's $0E with an enum-secondary id), which is exactly what defeats
+    // the RSM auto-detect. Prefer a TD32-derived formatter, but only when it
+    // yields one this evaluator can actually apply: TD32 does not decode
+    // enums / strings / sets (Td32TerminalFormatterName returns '' for them)
+    // and 'record' is not a registered formatter, so those cases fall through
+    // to the RSM auto-detect below unchanged. The canonical win is
+    // `evaluate G` (G: TGUID) now auto-typing to 'guid'.
+    if IsLocal and Assigned(Td32Reader) then
+    begin
+      var TdLocalType: UInt32 := 0;
+      if FHost.TryGetTd32FrameLocalTypeIdx(LastThreadHit, AName, TdLocalType) and
+         (TdLocalType <> 0) then
+      begin
+        var TdFmt: String := Td32TerminalFormatterName(TdLocalType);
+        var TdFormatter: TEvaluateFormatter;
+        if (TdFmt <> '') and Formatters.TryGetValue(LowerCase(TdFmt), TdFormatter) then
+          AType := TdFmt;
+      end;
+    end;
+    if AType = '' then
+      AType := AutoDetectFormatterName(AName, IsLocal, MatchedLocalTypeIdx, Member);
+  end;
 
   // §6.47: a whole-name LOCAL classified as 'enum' purely via the RSM
   // low-byte local type id is SUSPECT. The §6.36 compact stack-local form
