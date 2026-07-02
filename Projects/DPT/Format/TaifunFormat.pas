@@ -420,33 +420,66 @@ begin
     LLower[J + 1] := LTempLower;
   end;
 
-  // Fix absolute dependencies: if a var references another local var via
-  // absolute, it must come directly after that var.
-  for I := 0 to LCount - 1 do
+  // Fix absolute dependencies: a var declared "absolute X" must come directly
+  // after X, regardless of the alphabetical order. The target may sort either
+  // before or after the absolute var (e.g. "BelegOrderKey absolute Key" sorts
+  // before its target), so scan the whole list and move in either direction.
+  // Repeat until stable to settle chains; the guard bounds it against cycles.
+  var LChanged: Boolean := True;
+  var LGuard: Integer := 0;
+  while LChanged and (LGuard <= LCount * LCount) do
   begin
-    if LAbsTargets[LIndices[I]] <> '' then
+    LChanged := False;
+    Inc(LGuard);
+    for I := 0 to LCount - 1 do
     begin
-      // Find the referenced variable in the sorted order
-      for J := 0 to I - 1 do
+      if LAbsTargets[LIndices[I]] <> '' then
       begin
-        if LLower[J] = LAbsTargets[LIndices[I]] then
+        // Locate the target's current position anywhere in the sorted order
+        var LTargetPos: Integer := -1;
+        for J := 0 to LCount - 1 do
         begin
-          // Move I to position J+1 if not already there
-          if I <> J + 1 then
+          if (J <> I) and (LLower[J] = LAbsTargets[LIndices[I]]) then
           begin
-            LTempIndex := LIndices[I];
-            LTempLower := LLower[I];
+            LTargetPos := J;
+            Break;
+          end;
+        end;
+
+        if (LTargetPos >= 0) and (I <> LTargetPos + 1) then
+        begin
+          LTempIndex := LIndices[I];
+          LTempLower := LLower[I];
+          if I < LTargetPos then
+          begin
+            // Target sits after the absolute var: shift the gap down by one so
+            // the target lands at I's old slot, then drop the absolute var at
+            // LTargetPos (now directly behind the target).
             var K: Integer := I;
-            while K > J + 1 do
+            while K < LTargetPos do
+            begin
+              LIndices[K] := LIndices[K + 1];
+              LLower[K] := LLower[K + 1];
+              Inc(K);
+            end;
+            LIndices[LTargetPos] := LTempIndex;
+            LLower[LTargetPos] := LTempLower;
+          end
+          else
+          begin
+            // Target sits before the absolute var: shift the block up and drop
+            // the absolute var directly behind the target.
+            var K: Integer := I;
+            while K > LTargetPos + 1 do
             begin
               LIndices[K] := LIndices[K - 1];
               LLower[K] := LLower[K - 1];
               Dec(K);
             end;
-            LIndices[J + 1] := LTempIndex;
-            LLower[J + 1] := LTempLower;
+            LIndices[LTargetPos + 1] := LTempIndex;
+            LLower[LTargetPos + 1] := LTempLower;
           end;
-          Break;
+          LChanged := True;
         end;
       end;
     end;

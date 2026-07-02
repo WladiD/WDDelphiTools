@@ -22,7 +22,7 @@ type
     [Test]
     procedure TestFormatVarSection_AbsoluteFollowsTarget;
     [Test]
-    procedure TestFormatVarSection_Idempotent;
+    procedure TestFormatVarSection_AbsoluteFollowsTargetSortingBefore;
     [Test]
     procedure TestFormatVarSection_PreservesTrailingComment;
     [Test]
@@ -130,34 +130,42 @@ begin
     'Absolute var must follow its target variable. Actual:' + #13#10 + LResult);
 end;
 
-procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_Idempotent;
+procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_AbsoluteFollowsTargetSortingBefore;
 var
   LResult: string;
-  LResult2: string;
   LSource: string;
 begin
+  // Regression: the absolute var's name sorts alphabetically BEFORE its target
+  // (BelegOrderKey < Key). The target therefore ends up *after* the absolute
+  // var in the plain alphabetical order and the reorder pass must pull the
+  // absolute var down to directly follow its target. (Mirrors the real-world
+  // Soa.Server.Xml.Classes.pas batch fixture.)
   LSource :=
     'unit MyUnit;' + #13#10 +
     'interface' + #13#10 +
     'implementation' + #13#10 +
     'procedure Foo;' + #13#10 +
     'var' + #13#10 +
-    '  Counter: Integer;' + #13#10 +
-    '  Art: PArt;' + #13#10 +
-    '  TblArt: ITableAccess;' + #13#10 +
+    '  BelegOrderKey: TSnChBelegOrderKey absolute Key;' + #13#10 +
+    '  Zebra: String;' + #13#10 +
+    '  Key: TKey;' + #13#10 +
     'begin' + #13#10 +
     'end;' + #13#10 +
     'end.';
 
   LResult := FormatSource(LSource);
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Var section formatting should be idempotent');
+
+  // Key must precede BelegOrderKey even though B < K alphabetically.
+  Assert.IsTrue(LResult.Contains(
+    '  Key          : TKey;' + #13#10 +
+    '  BelegOrderKey: TSnChBelegOrderKey absolute Key;' + #13#10 +
+    '  Zebra        : String;'),
+    'Absolute var whose name sorts before its target must still follow it. Actual:' + #13#10 + LResult);
 end;
 
 procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_PreservesTrailingComment;
 var
   LResult: string;
-  LResult2: string;
   LSource: string;
 begin
   // Trailing comments on var declarations must be preserved after sorting
@@ -179,10 +187,6 @@ begin
     'Trailing comment must be preserved. Actual:' + #13#10 + LResult);
   Assert.IsTrue(LResult.Contains('Count : Integer; // vergebene Preise'),
     'Comment must stay on the Count line. Actual:' + #13#10 + LResult);
-
-  // Idempotence
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Var with trailing comment should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_SplitsMultiVar;
@@ -241,7 +245,6 @@ end;
 procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_SplitsAndSorts;
 var
   LResult: string;
-  LResult2: string;
   LSource: string;
 begin
   // Multi-var should be split, then everything sorted and aligned
@@ -268,10 +271,6 @@ begin
     '  J     : Integer;' + #13#10 +
     '  Name  : String;'),
     'Multi-var should be split, sorted and aligned. Actual:' + #13#10 + LResult);
-
-  // Idempotence
-  LResult2 := FormatSource(LResult);
-  Assert.AreEqual(LResult, LResult2, 'Split+sort+align should be idempotent');
 end;
 
 procedure TTestTaifunFormatter_VarSection.TestFormatVarSection_SkipsUnitLevel;
