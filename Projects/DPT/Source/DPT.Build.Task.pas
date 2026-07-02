@@ -54,6 +54,7 @@ type
     function  GetActionDisplayName: String; virtual;
     function  IsExeLocked(const ExePath: String): Boolean;
     function  RunShellCommand(const CommandLine: String): Integer;
+    function  RunProcessInheritingConsole(const CommandLine, WorkingDir: String): Integer;
     function  IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
   public
     Config        : String;
@@ -282,6 +283,47 @@ begin
     if WritePipe <> 0 then
       CloseHandle(WritePipe);
     CloseHandle(ReadPipe);
+  end;
+end;
+
+function TDptBuildTask.RunProcessInheritingConsole(const CommandLine, WorkingDir: String): Integer;
+var
+  Cmd    : String;
+  PI     : TProcessInformation;
+  SI     : TStartupInfo;
+  DirPtr : PChar;
+begin
+  // Run a child that talks straight to our own console/stdout, then wait for it.
+  //
+  // Unlike RunShellCommand we deliberately do NOT redirect the child's stdout
+  // through a pipe: a redirected console app writes its console output in the
+  // ANSI code page (e.g. an umlaut becomes a lone 0xFC byte), which we would
+  // then have to decode as UTF-8 -- and non-UTF-8 bytes make TEncoding.UTF8
+  // raise EEncodingError, killing the run. Letting the child inherit the
+  // console lets it emit real Unicode via WriteConsoleW and keeps the output
+  // faithful. This path is only used by the CLI Build/Compile-and-run actions;
+  // the MCP build path never runs the produced executable.
+  FillChar(SI, SizeOf(SI), 0);
+  SI.cb := SizeOf(SI);
+
+  Cmd := CommandLine;
+  UniqueString(Cmd);
+
+  // An empty working directory means "inherit ours" (nil), matching the
+  // previous RunShellCommand behaviour for this run path.
+  if WorkingDir <> '' then
+    DirPtr := PChar(WorkingDir)
+  else
+    DirPtr := nil;
+
+  if not CreateProcess(nil, PChar(Cmd), nil, nil, True, 0, nil, DirPtr, SI, PI) then
+    RaiseLastOSError;
+  try
+    WaitForSingleObject(PI.hProcess, INFINITE);
+    GetExitCodeProcess(PI.hProcess, DWORD(Result));
+  finally
+    CloseHandle(PI.hProcess);
+    CloseHandle(PI.hThread);
   end;
 end;
 
@@ -643,7 +685,7 @@ begin
     Writeln('Running ' + ExePath + ' ' + RunArgs + '...');
     Writeln('--------------------------------------------------');
 
-    ExitCode := RunShellCommand('"' + ExePath + '" ' + RunArgs);
+    ExitCode := RunProcessInheritingConsole('"' + ExePath + '" ' + RunArgs, '');
 
     if ExitCode <> 0 then
       Writeln('Application exited with code ' + IntToStr(ExitCode));
