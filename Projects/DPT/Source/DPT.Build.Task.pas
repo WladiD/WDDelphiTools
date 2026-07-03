@@ -52,6 +52,17 @@ type
   protected
     function  GetMSBuildTarget: String; virtual;
     function  GetActionDisplayName: String; virtual;
+    /// <summary>
+    ///   True when <paramref name="AConfig"/> is a build configuration actually
+    ///   defined in the current <c>ProjectFile</c>'s <c>.dproj</c> (read via
+    ///   <see cref="TDProjAnalyzer.GetConfigs"/>, case-insensitive). This is the
+    ///   sole gate for accepting a positional argument as the build config, so
+    ///   arbitrarily named configs (e.g. "ProjectBuilder") are honoured instead
+    ///   of a hard-coded Debug/Release list. Falls back to the well-known Delphi
+    ///   configs only when the project's configs cannot be determined (e.g. a
+    ///   missing or malformed .dproj).
+    /// </summary>
+    function  IsKnownConfig(const AConfig: String): Boolean;
     function  IsExeLocked(const ExePath: String): Boolean;
     function  RunShellCommand(const CommandLine: String): Integer;
     function  RunProcessInheritingConsole(const CommandLine, WorkingDir: String): Integer;
@@ -135,6 +146,40 @@ begin
   Result := 'Build';
 end;
 
+function TDptBuildTask.IsKnownConfig(const AConfig: String): Boolean;
+var
+  Analyzer: TDProjAnalyzer;
+  Config  : String;
+  Configs : TArray<String>;
+begin
+  Configs := nil;
+
+  // Read the configurations the project actually defines. The .dproj may be
+  // absent/unreadable when Parse runs under tests, so guard defensively.
+  if (ProjectFile <> '') and FileExists(ProjectFile) then
+    try
+      Analyzer := TDProjAnalyzer.Create(ProjectFile);
+      try
+        Configs := Analyzer.GetConfigs;
+      finally
+        Analyzer.Free;
+      end;
+    except
+      Configs := nil;
+    end;
+
+  // Fallback for a missing/malformed .dproj: the well-known Delphi configs, so
+  // parsing still works when the project's configs cannot be determined.
+  if Length(Configs) = 0 then
+    Configs := ['Debug', 'Release'];
+
+  for Config in Configs do
+    if SameText(Config, AConfig) then
+      Exit(True);
+
+  Result := False;
+end;
+
 procedure TDptBuildTask.Parse(CmdLine: TCmdLineConsumer);
 var
   Arg: String;
@@ -166,7 +211,7 @@ begin
       TargetPlatform := Arg;
       CmdLine.ConsumeParameter;
     end
-    else if (Config = 'Debug') and ((SameText(Arg, 'Debug')) or (SameText(Arg, 'Release')) or (SameText(Arg, 'FitNesse'))) then
+    else if (Config = 'Debug') and IsKnownConfig(Arg) then
     begin
       Config := Arg;
       CmdLine.ConsumeParameter;
@@ -501,7 +546,7 @@ begin
       TargetPlatform := Arg;
       CmdLine.ConsumeParameter;
     end
-    else if (Config = 'Debug') and ((SameText(Arg, 'Debug')) or (SameText(Arg, 'Release')) or (SameText(Arg, 'FitNesse'))) then
+    else if (Config = 'Debug') and IsKnownConfig(Arg) then
     begin
       Config := Arg;
       CmdLine.ConsumeParameter;

@@ -17,12 +17,18 @@ type
   // Stub class to access protected method
   TStubDptBuildAndRunTask = class(TDptBuildAndRunTask);
 
+  // Metaclass so the custom-config assertion can be run against every concrete
+  // build task without duplicating the setup for each.
+  TDptBuildTaskClass = class of TDptBuildTask;
+
   [TestFixture]
   TDptBuildAndRunTaskTests = class
   private
     FProjectFile: String;
     FTask       : TStubDptBuildAndRunTask;
     FTempDir    : String;
+    function DprojWithConfigs(const AConfigs: array of String): String;
+    procedure CheckCustomConfigAccepted(ATaskClass: TDptBuildTaskClass; AWithPlatform: Boolean);
   public
     [Setup]
     procedure Setup;
@@ -32,6 +38,24 @@ type
     procedure Parse_NoWait;
     [Test]
     procedure Parse_Complex;
+    // A custom (.dproj-defined) config must be honoured by all four concrete
+    // build tasks, both when a platform is given and when it is omitted.
+    [Test]
+    procedure Parse_BuildTask_CustomConfig;
+    [Test]
+    procedure Parse_BuildTask_CustomConfig_NoPlatform;
+    [Test]
+    procedure Parse_CompileTask_CustomConfig;
+    [Test]
+    procedure Parse_CompileTask_CustomConfig_NoPlatform;
+    [Test]
+    procedure Parse_BuildAndRunTask_CustomConfig;
+    [Test]
+    procedure Parse_BuildAndRunTask_CustomConfig_NoPlatform;
+    [Test]
+    procedure Parse_CompileAndRunTask_CustomConfig;
+    [Test]
+    procedure Parse_CompileAndRunTask_CustomConfig_NoPlatform;
     [Test]
     procedure IsBuildNeeded_SearchPath;
     [Test]
@@ -44,6 +68,31 @@ uses
   DPT.Types;
 
 { TDptBuildAndRunTaskTests }
+
+function TDptBuildAndRunTaskTests.DprojWithConfigs(const AConfigs: array of String): String;
+var
+  Config: String;
+  SB    : TStringBuilder;
+begin
+  // Minimal .dproj that only carries the <BuildConfiguration> item group, which
+  // is what TDProjAnalyzer.GetConfigs reads to discover the available configs.
+  SB := TStringBuilder.Create;
+  try
+    SB.AppendLine('<Project>');
+    SB.AppendLine('  <ItemGroup>');
+    for Config in AConfigs do
+    begin
+      SB.AppendLine('    <BuildConfiguration Include="' + Config + '">');
+      SB.AppendLine('      <Key>' + Config + '</Key>');
+      SB.AppendLine('    </BuildConfiguration>');
+    end;
+    SB.AppendLine('  </ItemGroup>');
+    SB.AppendLine('</Project>');
+    Result := SB.ToString;
+  finally
+    SB.Free;
+  end;
+end;
 
 procedure TDptBuildAndRunTaskTests.Setup;
 var
@@ -95,6 +144,76 @@ begin
   finally
     CmdLine.Free;
   end;
+end;
+
+procedure TDptBuildAndRunTaskTests.CheckCustomConfigAccepted(ATaskClass: TDptBuildTaskClass; AWithPlatform: Boolean);
+var
+  CmdLine: TCmdLineConsumer;
+  Params : TArray<String>;
+  Task   : TDptBuildTask;
+begin
+  // A .dproj can define arbitrarily named build configurations. Every build task
+  // must accept any of them as the Config argument -- not only
+  // Debug/Release/FitNesse -- and must not misroute a valid config into the
+  // MSBuild extra args, whether or not a platform is given.
+  TFile.WriteAllText(FProjectFile, DprojWithConfigs(['Base', 'Debug', 'Release', 'ProjectBuilder']));
+
+  if AWithPlatform then
+    Params := [FProjectFile, 'Win32', 'ProjectBuilder']
+  else
+    Params := [FProjectFile, 'ProjectBuilder'];
+
+  Task := ATaskClass.Create;
+  CmdLine := TCmdLineConsumer.Create(Params);
+  try
+    Task.Parse(CmdLine);
+    Assert.AreEqual('Win32', Task.TargetPlatform, 'Platform (default Win32 when omitted)');
+    Assert.AreEqual('ProjectBuilder', Task.Config, 'Config should be taken from the dproj configurations');
+    Assert.AreEqual('', Task.ExtraArgs, 'A valid config must not leak into MSBuild extra args');
+  finally
+    CmdLine.Free;
+    Task.Free;
+  end;
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_BuildTask_CustomConfig;
+begin
+  CheckCustomConfigAccepted(TDptBuildTask, True);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_BuildTask_CustomConfig_NoPlatform;
+begin
+  CheckCustomConfigAccepted(TDptBuildTask, False);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_CompileTask_CustomConfig;
+begin
+  CheckCustomConfigAccepted(TDptCompileTask, True);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_CompileTask_CustomConfig_NoPlatform;
+begin
+  CheckCustomConfigAccepted(TDptCompileTask, False);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_BuildAndRunTask_CustomConfig;
+begin
+  CheckCustomConfigAccepted(TDptBuildAndRunTask, True);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_BuildAndRunTask_CustomConfig_NoPlatform;
+begin
+  CheckCustomConfigAccepted(TDptBuildAndRunTask, False);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_CompileAndRunTask_CustomConfig;
+begin
+  CheckCustomConfigAccepted(TDptCompileAndRunTask, True);
+end;
+
+procedure TDptBuildAndRunTaskTests.Parse_CompileAndRunTask_CustomConfig_NoPlatform;
+begin
+  CheckCustomConfigAccepted(TDptCompileAndRunTask, False);
 end;
 
 procedure TDptBuildAndRunTaskTests.IsBuildNeeded_SearchPath;
