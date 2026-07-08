@@ -22,6 +22,7 @@ uses
   Test.DPT.Dcu.Reader,
   Test.DPT.Exe.Analyzer,
   Test.DPT.DProjAnalyzer,
+  Test.DPT.EnvOptions,
   Test.DPT.Formatter,
   Test.DPT.Formatter.Dws,
   Test.DPT.Formatter.Taifun.Base,

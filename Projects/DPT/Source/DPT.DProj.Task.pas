@@ -58,8 +58,6 @@ uses
 
   System.SysUtils,
 
-  JclIDEUtils,
-
   DPT.Utils;
 
 { TDptDProjTaskBase }
@@ -81,18 +79,24 @@ end;
 { TDptDProjConfigPlatformTaskBase }
 
 procedure TDptDProjConfigPlatformTaskBase.Parse(CmdLine: TCmdLineConsumer);
+var
+  Arg: String;
 begin
   inherited Parse(CmdLine);
 
-  if CmdLine.HasParameter then
+  // Recognise Platform and Config by content, in any order - exactly like the
+  // Build action: a Win32/Win64 token is the platform, anything else is the
+  // configuration. Both stay empty when omitted so Execute applies the
+  // per-task defaults.
+  while CmdLine.HasParameter do
   begin
-    Config := CmdLine.CheckParameter('Config');
-    CmdLine.ConsumeParameter;
-  end;
-
-  if CmdLine.HasParameter then
-  begin
-    Platform := CmdLine.CheckParameter('Platform');
+    Arg := CmdLine.CheckParameter('Platform/Config');
+    if (Platform = '') and (SameText(Arg, 'Win32') or SameText(Arg, 'Win64')) then
+      Platform := Arg
+    else if Config = '' then
+      Config := Arg
+    else
+      Break;
     CmdLine.ConsumeParameter;
   end;
 end;
@@ -127,32 +131,13 @@ end;
 { TDptDProjPrintSearchPathsTask }
 
 procedure TDptDProjPrintSearchPathsTask.Execute;
-var
-  BDSPath : String;
-  Full    : String;
-  IdePath : String;
-  ProjPath: String;
 begin
   if Config = '' then
     Config := FAnalyzer.GetDefaultConfig;
   if Platform = '' then
     Platform := 'Win32';
 
-  ProjPath := FAnalyzer.GetProjectSearchPath(Config, Platform);
-  BDSPath := ExcludeTrailingPathDelimiter(Installation.RootDir);
-  ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
-  
-  if SameText(Platform, 'Win64') then
-    IdePath := Installation.LibrarySearchPath[bpWin64]
-  else
-    IdePath := Installation.LibrarySearchPath[bpWin32];
-
-  if (ProjPath <> '') and (IdePath <> '') then
-    Full := IdePath + ';' + ProjPath
-  else
-    Full := IdePath + ProjPath;
-
-  for var PathEntry: String in Full.Split([';'], TStringSplitOptions.ExcludeEmpty) do
+  for var PathEntry: String in EnvOptions.EffectiveUnitSearchPath(FAnalyzer, Config, Platform) do
     Writeln(PathEntry);
 end;
 

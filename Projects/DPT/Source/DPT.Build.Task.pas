@@ -124,8 +124,6 @@ uses
   System.SysUtils,
   System.Types,
 
-  JclIDEUtils,
-
   System.Collections.Factory,
   System.Collections.Interfaces,
 
@@ -565,18 +563,14 @@ end;
 
 function TDptBuildTask.IsBuildNeeded(const AExePath: String; out ANewerFile: String): Boolean;
 var
-  Analyzer    : TDProjAnalyzer;
-  BDSPath     : String;
-  ExeTime     : TDateTime;
-  FullPaths   : String;
-  IdePath     : String;
-  Inst        : TJclBorRADToolInstallation;
-  PathEntry   : String;
-  ProjectDir  : String;
-  ProjectFiles: TArray<String>;
-  ProjPath    : String;
-  ResolvedPath: String;
-  SourceFile  : String;
+  Analyzer     : TDProjAnalyzer;
+  ExeTime      : TDateTime;
+  PathEntry    : String;
+  ProjectDir   : String;
+  ProjectFiles : TArray<String>;
+  ResolvedPath : String;
+  SearchEntries: TArray<String>;
+  SourceFile   : String;
 begin
   ANewerFile := '';
   if not FileExists(AExePath) then
@@ -606,7 +600,18 @@ begin
       end;
     end;
 
-    ProjPath := Analyzer.GetProjectSearchPath(Config, TargetPlatform);
+    // Effective unit search path (project DCC_UnitSearchPath + IDE library
+    // path), assembled and macro-resolved the way MSBuild actually sees it.
+    try
+      SearchEntries := EnvOptions.EffectiveUnitSearchPath(Analyzer, Config, TargetPlatform);
+    except
+      // EnvOptions needs a configured Delphi installation; it may raise when
+      // Delphi is not detected (e.g. in unit tests). Fall back to the
+      // project's own search path - any unresolved IDE macro simply won't
+      // match an existing directory below and is skipped.
+      SearchEntries := Analyzer.GetProjectSearchPath(Config, TargetPlatform)
+        .Split([';'], TStringSplitOptions.ExcludeEmpty);
+    end;
   finally
     Analyzer.Free;
   end;
@@ -627,39 +632,10 @@ begin
     Exit(True);
   end;
 
-  Inst := nil;
-  try
-    Inst := Installation;
-  except
-    // Installation method may raise an exception if Delphi is not properly configured/detected,
-    // which can happen during unit tests. We ignore it here and proceed without IDE paths.
-  end;
-
-  if Assigned(Inst) then
+  // 4. Check every directory on the effective unit search path
+  for PathEntry in SearchEntries do
   begin
-    BDSPath := ExcludeTrailingPathDelimiter(Inst.RootDir);
-    ProjPath := StringReplace(ProjPath, '$(BDS)', BDSPath, [rfReplaceAll, rfIgnoreCase]);
-
-    if SameText(TargetPlatform, 'Win64') then
-      IdePath := Inst.LibrarySearchPath[bpWin64]
-    else
-      IdePath := Inst.LibrarySearchPath[bpWin32];
-  end
-  else
-  begin
-    BDSPath := '';
-    IdePath := '';
-  end;
-
-  if (ProjPath <> '') and (IdePath <> '') then
-    FullPaths := IdePath + ';' + ProjPath
-  else
-    FullPaths := IdePath + ProjPath;
-
-  for PathEntry in FullPaths.Split([';'], TStringSplitOptions.ExcludeEmpty) do
-  begin
-    ResolvedPath := TPath.Combine(ProjectDir, PathEntry);
-    ResolvedPath := TPath.GetFullPath(ResolvedPath);
+    ResolvedPath := TPath.GetFullPath(TPath.Combine(ProjectDir, PathEntry));
 
     if not TDirectory.Exists(ResolvedPath) then
       Continue;

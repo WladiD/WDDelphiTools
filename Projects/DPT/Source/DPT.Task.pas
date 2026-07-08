@@ -12,6 +12,7 @@ uses
 
   JclIDEUtils,
 
+  DPT.EnvOptions,
   DPT.Logger,
   DPT.Types;
 
@@ -19,11 +20,13 @@ type
 
   TDptTaskBase = class
   private
+    FEnvOptions    : TEnvOptions;
     FInstallation  : TJclBorRADToolInstallation;
     FInstallations : TJclBorRADToolInstallations;
     FLogger        : ILogger;
     FWorkflowEngine: TObject;
   protected
+    function  EnvOptions: TEnvOptions;
     function  Installation: TJclBorRADToolInstallation;
     procedure Writeln(const Text: String = ''); virtual;
   public
@@ -58,8 +61,16 @@ end;
 
 destructor TDptTaskBase.Destroy;
 begin
+  FEnvOptions.Free;
   FInstallations.Free;
   inherited Destroy;
+end;
+
+function TDptTaskBase.EnvOptions: TEnvOptions;
+begin
+  if not Assigned(FEnvOptions) then
+    FEnvOptions := TEnvOptions.Create(Installation);
+  Result := FEnvOptions;
 end;
 
 procedure TDptTaskBase.Parse(CmdLine: TCmdLineConsumer);

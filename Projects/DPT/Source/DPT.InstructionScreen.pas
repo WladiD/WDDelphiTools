@@ -192,15 +192,17 @@ begin
         'Displays the default/active build configuration of the specified .dproj file.',
         'Example: DPT D13 DProjPrintCurConfig MyProject.dproj'
       ]),
-      TActionInfo.Create('DProjPrintOutputFile', '<ProjectFile> [Config] [Platform]', [
+      TActionInfo.Create('DProjPrintOutputFile', '<ProjectFile> [Platform] [Config]', [
         'Displays the output executable file path for the project based on current configuration and platform.',
-        'Example: DPT D13 DProjPrintOutputFile MyProject.dproj Release Win64'
+        'Platform and Config are recognised by content and may be given in any order (as with Build).',
+        'Example: DPT D13 DProjPrintOutputFile MyProject.dproj Win64 Release'
       ]),
-      TActionInfo.Create('DProjPrintSearchPaths', '<ProjectFile> [Config] [Platform]', [
+      TActionInfo.Create('DProjPrintSearchPaths', '<ProjectFile> [Platform] [Config]', [
         'Displays the effective unit search path for the project.',
         'Combines the project''s specific search path (resolving variables) with the IDE''s global library path.',
-        'Defaults: Config=<ActiveConfig>, Platform=Win32.',
-        'Example: DPT D13 DProjPrintSearchPaths MyProject.dproj Release Win64'
+        'Platform and Config are recognised by content and may be given in any order (as with Build).',
+        'Defaults: Platform=Win32, Config=<ActiveConfig>.',
+        'Example: DPT D13 DProjPrintSearchPaths MyProject.dproj Win64 Release'
       ]),
       TActionInfo.Create('ExeAnalyze', '<ExeFile> [--Format=Text|Json] [--UnitsOnly] [--Index=<file>] [--SortBy=VA|Name|Size]', [
         'Analyzes a Delphi-built EXE: parses its PE header (platform,',

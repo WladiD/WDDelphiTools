@@ -56,7 +56,8 @@ uses
 
   JclIDEUtils,
 
-  DPT.Dcu.Analyzer;
+  DPT.Dcu.Analyzer,
+  DPT.EnvOptions;
 
 const
   AllSections: TDcuAnalyzeSections = [dasHeader, dasUses, dasSymbols, dasSections];
@@ -122,6 +123,7 @@ end;
 function TDptDcuAnalyzeTask.AutoSearchPathsFor(
   const AResult: TDcuAnalysisResult): TArray<string>;
 var
+  EnvOpts      : TEnvOptions;
   IdeVer       : Integer;
   Installation : TJclBorRADToolInstallation;
   Installations: TJclBorRADToolInstallations;
@@ -148,7 +150,17 @@ begin
     if not Installations.DelphiVersionInstalled[IdeVer] then
       Exit;
     Installation := Installations.DelphiInstallationFromVersion[IdeVer];
-    RawPath := Installation.LibrarySearchPath[JclPlatform];
+    // Take the IDE library path from EnvOptions.proj (what MSBuild imports),
+    // so DCU resolution sees the same directories a build would.
+    EnvOpts := TEnvOptions.Create(Installation);
+    try
+      if JclPlatform = bpWin64 then
+        RawPath := EnvOpts.LibrarySearchPath('Win64')
+      else
+        RawPath := EnvOpts.LibrarySearchPath('Win32');
+    finally
+      EnvOpts.Free;
+    end;
     if RawPath = '' then
       Exit;
     Parts := SplitString(RawPath, ';');
