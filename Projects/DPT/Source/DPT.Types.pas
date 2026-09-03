@@ -19,7 +19,7 @@ type
 
   TDelphiVersion = (dvUnknown, dvD2007, dvD10_1, dvD10_3, dvD11, dvD12, dvD13);
 
-  TAIMode = (amNone, amCursor, amGemini);
+  TAIMode = (amNone, amCursor, amGemini, amClaude);
 
   TCmdLineConsumer = class
   private
@@ -56,6 +56,12 @@ const
     { dvD11     } 28,
     { dvD12     } 29,
     { dvD13     } 37);
+
+  AIModeStringArray: Array [TAIMode] of String = (
+    { amNone   } '',
+    { amCursor } 'Cursor',
+    { amGemini } 'Gemini CLI',
+    { amClaude } 'Claude Code');
 
 implementation
 

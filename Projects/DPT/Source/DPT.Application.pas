@@ -254,10 +254,9 @@ begin
       if SameText(ParamStr(i), 'McpDebugger') then IsMcpDebugger := True;
 
     var LHostPID: DWORD;
-    case DetectAIMode(LHostPID) of
-      amCursor: if not IsMcpDebugger then Writeln(Format('AI-Mode from Cursor detected (Host-PID: %d)', [LHostPID]));
-      amGemini: if not IsMcpDebugger then Writeln(Format('AI-Mode from Gemini CLI detected (Host-PID: %d)', [LHostPID]));
-    end;
+    var LAiMode := DetectAIMode(LHostPID);
+    if not IsMcpDebugger and (LAiMode <> amNone) then
+      Writeln(Format('AI-Mode from %s detected (Host-PID: %d)', [AIModeStringArray[LAiMode], LHostPID]));
 
     var LPort: Integer;
     var LIsSlimStart: Boolean;

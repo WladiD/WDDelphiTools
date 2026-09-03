@@ -20,6 +20,7 @@ uses
   Test.DPT.Dcu.Index,
   Test.DPT.Dcu.MultiVersion,
   Test.DPT.Dcu.Reader,
+  Test.DPT.Detection,
   Test.DPT.Exe.Analyzer,
   Test.DPT.DProjAnalyzer,
   Test.DPT.EnvOptions,

@@ -1,6 +1,6 @@
 # DPT AI-Workflows (.DptAiWorkflow)
 
-DPT supports an "AI-Mode" specifically designed for collaboration with AI agents (like the Gemini CLI). A file named `.DptAiWorkflow` in the project directory defines rules that control the workflow, display instructions, or handle errors via guards.
+DPT supports an "AI-Mode" specifically designed for collaboration with AI agents (like the Gemini CLI or Claude Code). A file named `.DptAiWorkflow` in the project directory defines rules that control the workflow, display instructions, or handle errors via guards.
 
 ## How it works
 On startup, DPT recursively searches upwards for a file named `.DptAiWorkflow`. If DPT is executed within an AI session (detected via the host PID), the internal `TDptWorkflowEngine` evaluates this file in two phases:

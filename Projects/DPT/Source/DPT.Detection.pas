@@ -24,13 +24,15 @@ type
   TProcessTreeScanner = class
   private
     FSnapshot: THandle;
-    function GetProcessEntry(AID: DWORD; out AEntry: TProcessEntry32): Boolean;
+  protected
+    function GetProcessEntry(AID: DWORD; out AEntry: TProcessEntry32): Boolean; virtual;
   public
     constructor Create;
     destructor Destroy; override;
     function GetProcessName(AID: DWORD): string;
     function GetParentProcessID(AID: DWORD): DWORD;
-    function DetectAIMode(out AHostPID: DWORD): TAIMode;
+    function DetectAIMode(out AHostPID: DWORD): TAIMode; overload;
+    function DetectAIMode(AStartPID: DWORD; out AHostPID: DWORD): TAIMode; overload;
   end;
 
 function DetectAIMode(out AHostPID: DWORD): TAIMode; overload;
@@ -55,9 +57,12 @@ begin
   try
     Result := Scanner.DetectAIMode(AHostPID);
     
-    // Fallback if environment says Gemini but traversal failed to find node.exe
+    // Fallback if the environment names the agent but the traversal failed to
+    // find its host process (e.g. DPT started through a launcher script)
     if (Result = amNone) and (GetEnvironmentVariable('GEMINI_CLI') = '1') then
-      Result := amGemini;
+      Result := amGemini
+    else if (Result = amNone) and (GetEnvironmentVariable('CLAUDECODE') = '1') then
+      Result := amClaude;
   finally
     Scanner.Free;
   end;
@@ -123,6 +128,10 @@ begin
   inherited Destroy;
 end;
 
+/// <summary>
+///   Looks up one process of the snapshot. Virtual so that tests can
+///   substitute a synthetic process table for the live Toolhelp snapshot.
+/// </summary>
 function TProcessTreeScanner.GetProcessEntry(AID: DWORD; out AEntry: TProcessEntry32): Boolean;
 begin
   Result := False;
@@ -161,23 +170,60 @@ begin
 end;
 
 function TProcessTreeScanner.DetectAIMode(out AHostPID: DWORD): TAIMode;
+begin
+  Result := DetectAIMode(GetCurrentProcessId, AHostPID);
+end;
+
+/// <summary>
+///   Walks the parent chain starting at <paramref name="AStartPID"/> and reports
+///   the first known AI host (Cursor.exe, node.exe, claude.exe) it meets.
+///   Claude Code ships as a native executable, so unlike the Gemini CLI it is
+///   not covered by the node.exe check.
+/// </summary>
+/// <remarks>
+///   The parent PIDs in a Toolhelp snapshot are not guaranteed to form a tree:
+///   a process keeps reporting the PID of a parent that has long exited, and
+///   Windows may hand that PID to a new process - possibly one of the orphan's
+///   own descendants (observed: wininit.exe -> services.exe -> wininit.exe,
+///   GitHub issue #17). Without a guard the walk spins forever, so every PID
+///   already seen ends the walk, and a depth cap acts as a second safety net.
+/// </remarks>
+function TProcessTreeScanner.DetectAIMode(AStartPID: DWORD; out AHostPID: DWORD): TAIMode;
+const
+  // A genuine chain is a dozen processes deep at most.
+  MaxDepth = 64;
 var
   CurrentPID: DWORD;
+  Depth: Integer;
   ProcessName: string;
+  Visited: array[0..MaxDepth - 1] of DWORD;
+
+  function AlreadyVisited(APID: DWORD): Boolean;
+  begin
+    for var Loop := 0 to Depth - 1 do
+      if Visited[Loop] = APID then
+        Exit(True);
+    Result := False;
+  end;
+
 begin
   Result := amNone;
   AHostPID := 0;
-  CurrentPID := GetCurrentProcessId;
-  
+  CurrentPID := AStartPID;
+  Depth := 0;
+
   // Traverse up the process tree
-  while (CurrentPID <> 0) and (CurrentPID <> 4) do // 4 is System process
+  while (CurrentPID <> 0) and (CurrentPID <> 4) and (Depth < MaxDepth) do // 4 is System process
   begin
+    Visited[Depth] := CurrentPID;
+    Inc(Depth);
+
     CurrentPID := GetParentProcessID(CurrentPID);
-    if CurrentPID = 0 then
+    if (CurrentPID = 0) or AlreadyVisited(CurrentPID) then
       Break;
 
     ProcessName := GetProcessName(CurrentPID);
-    
+
     if SameText(ProcessName, 'Cursor.exe') then
     begin
       Result := amCursor;
@@ -187,6 +233,12 @@ begin
     else if SameText(ProcessName, 'node.exe') then
     begin
       Result := amGemini;
+      AHostPID := CurrentPID;
+      Break;
+    end
+    else if SameText(ProcessName, 'claude.exe') then
+    begin
+      Result := amClaude;
       AHostPID := CurrentPID;
       Break;
     end;
