@@ -445,9 +445,16 @@ function TParseTreeParser.ParseTypeDeclaration: TTypeDeclarationSyntax;
     // Parse tokens until semicolon at nesting level 0
     while (Current <> nil) and (Current.Kind <> tkEOF) do
     begin
-      if (Current.Kind = tkOpenParen) or (Current.Kind = tkLessThan) then
+      // '[' / ']' counts as nesting too: an indexed property may separate its
+      // index parameters with ';' (property P[X: Integer; Y: Word]: T ...),
+      // and that semicolon must not terminate the member.  A '[' that *starts*
+      // a member is an attribute and is handled by ParseClassBody, so every
+      // bracket seen here belongs to the declaration itself.
+      if (Current.Kind = tkOpenParen) or (Current.Kind = tkLessThan) or
+         (Current.Kind = tkOpenBracket) then
         Inc(LNestLevel)
       else if (Current.Kind = tkCloseParen) or (Current.Kind = tkGreaterThan) or
+              (Current.Kind = tkCloseBracket) or
               ((Current.Kind = tkGreaterOrEquals) and (LNestLevel > 0)) then
         Dec(LNestLevel)
       // Track nested declaration blocks (e.g. record/case inside member types).

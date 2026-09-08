@@ -95,6 +95,8 @@ type
     procedure TestFormatClass_NoSeparatorBetweenConstAndVar;
     [Test]
     procedure TestFormatClass_ClassLevelAttributeStillSorts;
+    [Test]
+    procedure TestFormatClass_IndexedPropertyWithMultipleIndexParams;
   end;
 
 implementation
@@ -1354,6 +1356,43 @@ begin
     '[Test] must stay directly before Alpha after sorting. Actual:' + #13#10 + LResult);
   Assert.IsTrue(LResult.Contains('    [Test]' + #13#10 + '    procedure Zebra;'),
     '[Test] must stay directly before Zebra after sorting. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_IndexedPropertyWithMultipleIndexParams;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // An indexed property with more than one index parameter contains a ';'
+  // inside its '[...]' list.  That semicolon must not be mistaken for the end
+  // of the member — otherwise sorting tears the declaration apart and emits
+  // orphan lines like '    Y: Word]: UInt64 read GetA;'.
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  CDemo = class' + #13#10 +
+    '   strict private' + #13#10 +
+    '    class function GetA(X: Integer; Y: Word): UInt64; static;' + #13#10 +
+    '    function GetB(X: Integer; Y: Word): UInt64;' + #13#10 +
+    '   public' + #13#10 +
+    '    class property ClassProp[X: Integer; Y: Word]: UInt64 read GetA;' + #13#10 +
+    '    property InstProp[X: Integer; Y: Word]: UInt64 read GetB;' + #13#10 +
+    '    property SingleParam[X: Integer]: UInt64 read GetB;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('    class property ClassProp[X: Integer; Y: Word]: UInt64 read GetA;'),
+    'Multi-param class property must stay on one line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('    property InstProp[X: Integer; Y: Word]: UInt64 read GetB;'),
+    'Multi-param property must stay on one line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('    property SingleParam[X: Integer]: UInt64 read GetB;'),
+    'Single-param property must be preserved. Actual:' + #13#10 + LResult);
+  Assert.IsFalse(LResult.Contains(#13#10 + '    Y: Word]'),
+    'Index parameter list must not be split onto its own line. Actual:' + #13#10 + LResult);
 end;
 
 end.

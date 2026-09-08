@@ -52,6 +52,8 @@ type
     procedure TestTypeDeclarationSubclasses;
     [Test]
     procedure TestEscapedReservedWordMemberRoundtrip;
+    [Test]
+    procedure TestIndexedPropertyWithMultipleIndexParams;
   end;
 
 implementation
@@ -923,6 +925,89 @@ begin
       'Class must keep all 3 members (the &End method must not break parsing)');
 
     // Source must round-trip byte-for-byte, including the '&' prefix.
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestIndexedPropertyWithMultipleIndexParams;
+const
+  // An indexed property may declare several index parameters separated by ';'
+  // inside its '[...]' list.  That semicolon must not terminate the member.
+  // Before the fix the class-member scanner tracked only '(' / '<' nesting, so
+  // 'property P[X: Integer; Y: Word]: UInt64 read GetA;' was split into two
+  // bogus members and any member reordering shredded the declaration.
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      IDemo = interface
+        function GetC(X: Integer; Y: Word): UInt64;
+        property IntfProp[X: Integer; Y: Word]: UInt64 read GetC;
+      end;
+
+      CDemo = class
+      strict private
+        class function GetA(X: Integer; Y: Word): UInt64; static;
+        function GetB(X: Integer; Y: Word): UInt64;
+      public
+        class property ClassProp[X: Integer; Y: Word]: UInt64 read GetA;
+        property InstProp[X: Integer; Y: Word]: UInt64 read GetB;
+        property SingleParam[X: Integer]: UInt64 read GetB;
+      end;
+    implementation
+    end.
+  ''';
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(2, LTypeSec.Declarations.Count, 'Should parse two type declarations');
+
+    // === IDemo: one method + one indexed property ===
+    LTypeDecl := LTypeSec.Declarations[0];
+    Assert.AreEqual('IDemo', LTypeDecl.Identifier.Text);
+    Assert.AreEqual(1, LTypeDecl.VisibilitySections.Count, 'IDemo should have 1 implicit section');
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual(2, LVisSec.Members.Count,
+      'IDemo: the ";" inside the property index list must not split the member');
+
+    // === CDemo: 2 methods + 3 properties across two sections ===
+    LTypeDecl := LTypeSec.Declarations[1];
+    Assert.AreEqual('CDemo', LTypeDecl.Identifier.Text);
+    Assert.AreEqual(2, LTypeDecl.VisibilitySections.Count, 'CDemo should have 2 sections');
+
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.IsTrue(LVisSec.IsStrict, 'First section should be strict private');
+    Assert.AreEqual(2, LVisSec.Members.Count, 'strict private should have 2 members');
+
+    LVisSec := LTypeDecl.VisibilitySections[1];
+    Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(3, LVisSec.Members.Count,
+      'public should have exactly 3 property members, not one per index parameter');
+    Assert.AreEqual('class', GetFirstMemberToken(LVisSec, 0).Text,
+      'Member 0 should start at the "class" of "class property"');
+    Assert.AreEqual('property', GetFirstMemberToken(LVisSec, 1).Text,
+      'Member 1 should start at "property"');
+    Assert.AreEqual('property', GetFirstMemberToken(LVisSec, 2).Text,
+      'Member 2 should start at "property"');
+
+    // Source must round-trip byte-for-byte.
     LWriter := TSyntaxTreeWriter.Create;
     try
       LRoundtrip := LWriter.GenerateSource(LTree);
