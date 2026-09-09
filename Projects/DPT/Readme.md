@@ -13,15 +13,15 @@ Run `DPT.exe Help <Action>` for detailed information on any specific command. Be
 DPT provides special support for AI agents through rule-based workflows and the Model Context Protocol (MCP).
 
 *   **`McpDebugger`**: Starts a standalone MCP server for debugging Delphi applications. It runs continuously in the background and provides tools for AI agents (like Gemini, Claude) to:
-    *   Manage debug sessions (`start_debug_session`, `stop_debug_session`, `terminate_debug_session`). The `.rsm` debug sidecar (Delphi linker option `-VR`) is parsed in a background task as soon as the session starts, so `start_debug_session` returns immediately even on ~1 GB sidecars.
+    *   Manage debug sessions (`start_debug_session`, `stop_debug_session`, `terminate_debug_session`). `start_debug_session` takes the project's `.dproj` (plus optional `platform`, `config` and `arguments`), builds it in the background with forced debug switches (`.map` for source-level breakpoints, `.rsm` for `get_locals`/`evaluate`, `.tds` TD32 info for cross-unit member types) and launches the output executable paused at the entry point. The build is incremental, but forces a full rebuild when the sidecars are missing or out of sync. The call returns immediately in state `building`; `wait_until_paused` drives the transition to `paused` or `build_failed` (with the compiler log). The `.rsm` sidecar is parsed in a background task, so even ~1 GB sidecars do not block the session start.
     *   Set/remove hardware breakpoints (`set_breakpoint`, `remove_breakpoint`, `list_breakpoints`).
     *   Filter exceptions per class (`ignore_exception`, `unignore_exception`, `list_ignored_exceptions`).
     *   List and switch threads (`list_threads`, `switch_thread`).
     *   Control asynchronous execution (`continue`, `step_into`, `step_over`, `wait_until_paused`).
     *   Inspect program state (`get_state`, `get_stack_trace`, `get_registers`, `get_stack_slots`, `get_stack_memory`, `get_locals`, `get_proc_asm`, `read_memory`).
     *   Read captured target I/O (`get_output`) — every line the target writes to `stdout`, `stderr`, or `OutputDebugString` is tagged with its source and the corresponding session cursor, so the agent gets a clean delta since the last `continue` / `step`.
-    *   Evaluate named variables and fields with `evaluate`. Supports typed reads for `int`, `int64`, `string`, `ansistring`, `widestring`, `shortstring`, and `object` (returns `ClassName @ HexAddr` via the VMT), plus dotted field navigation for both class chains (`AOwner.FInner.FNested`) and record chains (`MyObj.FRec.FX`) with automatic transition between deref and inline hops.
-*   **`AiSession`**: Manages an AI session for the current process hierarchy. Uses an internal workflow engine to provide instructions and track state (e.g., Lint results). See [AiWorkflow.md](AiWorkflow.md) for details.
+    *   Evaluate named variables and fields with `evaluate`. Supports typed reads for `int`, `int64`, `string`, `ansistring`, `widestring`, `shortstring`, `single`, `double`, `extended`, `guid`, and `object` (returns `ClassName @ HexAddr` via the VMT), plus dotted field navigation for both class chains (`AOwner.FInner.FNested`) and record chains (`MyObj.FRec.FX`) with automatic transition between deref and inline hops. Member types are resolved from the TD32 `.tds` sidecar when present (convention-free, also across units) and fall back to the `.rsm` symbol reader otherwise. Properties are resolved through their real backing (field, getter via call injection, or live RTTI).
+*   **`AiSession`**: Manages an AI session for the current process hierarchy (Gemini CLI, Claude Code and Cursor are detected via the host process or environment). Uses an internal workflow engine to provide instructions and track state (e.g., Lint results). See [AiWorkflow.md](AiWorkflow.md) for details.
 
 ### 🏗️ Build-Management & CI/CD
 
@@ -47,8 +47,10 @@ Automate `.dproj` extraction and enforce code style rules.
 *   **`.dproj` Analysis**: Read active configurations, output paths, and search paths.
     *   `DPT.exe D12 DProjPrintConfigs MyProject.dproj`
     *   `DPT.exe D12 DProjPrintCurConfig MyProject.dproj`
-    *   `DPT.exe D12 DProjPrintOutputFile MyProject.dproj Release Win64`
-    *   `DPT.exe D12 DProjPrintSearchPaths MyProject.dproj Release Win64`
+    *   `DPT.exe D12 DProjPrintOutputFile MyProject.dproj Win64 Release`
+    *   `DPT.exe D12 DProjPrintSearchPaths MyProject.dproj Win64 Release`
+
+    Platform and configuration are recognised by content and may be given in any order. Any configuration defined in the `.dproj` is accepted (not just `Debug`/`Release`), and the effective search path is assembled from the IDE's `EnvOptions.proj` exactly as MSBuild does.
 *   **`Lint`**: Analyzes Delphi units for style violations using an internal Slim/FitNesse engine.
     ```cmd
     DPT.exe LATEST Lint --verbose Lint\TaifunUnitStyle.pas Unit1.pas Unit2.pas
