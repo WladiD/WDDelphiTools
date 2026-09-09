@@ -14,6 +14,7 @@ uses
   {$ENDIF }
   DUnitX.TestFramework,
 
+  Test.DPT.Application,
   Test.DPT.BuildAndRunTask,
   Test.DPT.Dcu.Analyzer,
   Test.DPT.Dcu.Diff,

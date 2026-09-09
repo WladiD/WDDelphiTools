@@ -29,6 +29,25 @@ type
 
   TDptApplication = class
   public
+    /// <summary>
+    ///   Decides whether the command line asks for the embedded Slim server
+    ///   instead of a CLI action, and yields the port to listen on.
+    /// </summary>
+    /// <remarks>
+    ///   Two forms are recognised:
+    ///   <list type="bullet">
+    ///     <item><c>--SlimPort=&lt;port&gt;</c> anywhere on the command line
+    ///       (explicit, highest priority).</item>
+    ///     <item>A plain integer as the <b>sole</b> parameter (the FitNesse
+    ///       convention: COMMAND_PATTERN + port).</item>
+    ///   </list>
+    ///   A trailing integer next to other parameters is NOT a port: it belongs
+    ///   to the action, e.g. <c>OpenUnit X.pas GoToLine 42</c> or the run
+    ///   arguments after <c>--</c> in <c>BuildAndRun X.dproj ... -- 9066</c>.
+    ///   Pure function over <paramref name="AParams"/> (ParamStr(1..n)) so it
+    ///   is testable without a process command line.
+    /// </remarks>
+    class function IsSlimServerStart(const AParams: TArray<String>; out APort: Integer): Boolean; static;
     class procedure Run;
   end;
 
@@ -45,7 +64,6 @@ uses
   System.NetEncoding,
   System.SysUtils,
 
-  Slim.CmdUtils,
   Slim.Fixture,
   Slim.Server,
 
@@ -241,6 +259,26 @@ end;
 
 { TDptApplication }
 
+class function TDptApplication.IsSlimServerStart(const AParams: TArray<String>; out APort: Integer): Boolean;
+const
+  SlimPortSwitch = '--SlimPort=';
+begin
+  APort := 0;
+
+  // 1. Explicit --SlimPort=<port>, anywhere (highest priority)
+  for var Param in AParams do
+    if Param.StartsWith(SlimPortSwitch, True) and
+       TryStrToInt(Param.Substring(Length(SlimPortSwitch)), APort) then
+      Exit(True);
+
+  // 2. FitNesse convention: the port is the one and only parameter. With any
+  //    other parameter present the command line names a CLI action, and a
+  //    trailing number is that action's argument (GoToLine 42, "-- 9066").
+  Result := (Length(AParams) = 1) and TryStrToInt(AParams[0], APort);
+  if not Result then
+    APort := 0;
+end;
+
 class procedure TDptApplication.Run;
 begin
   SetConsoleOutputCP(CP_UTF8);
@@ -258,9 +296,14 @@ begin
     if not IsMcpDebugger and (LAiMode <> amNone) then
       Writeln(Format('AI-Mode from %s detected (Host-PID: %d)', [AIModeStringArray[LAiMode], LHostPID]));
 
+    var LParams: TArray<String>;
+    SetLength(LParams, ParamCount);
+    for var i := 1 to ParamCount do
+      LParams[i - 1] := ParamStr(i);
+
     var LPort: Integer;
     var LIsSlimStart: Boolean;
-    LIsSlimStart := Slim.CmdUtils.HasSlimPortParam(LPort);
+    LIsSlimStart := IsSlimServerStart(LParams, LPort);
 
     {$IFDEF FITNESSE}
     if (not LIsSlimStart) and (ParamCount <= 1) then
