@@ -20,7 +20,7 @@ type
     FProjectFile: String;
     function  EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
     procedure LoadContent;
-    procedure ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
+    function  ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String): Boolean;
     function  ResolveVariables(const AValue: String; const ADefinitions: IDictionary_String_String): String;
   public
     class function ResolvePath(const APath, ABaseDir: String): String;
@@ -37,12 +37,263 @@ implementation
 
 uses
 
+  System.Character,
   System.Classes,
   System.SysUtils,
   System.RegularExpressions,
   System.IOUtils,
 
   System.Collections.Factory;
+
+type
+
+  EMsBuildCondition = class(Exception);
+
+  TMsBuildConditionParser = class
+  private
+    FBaseDir    : String;
+    FDefinitions: IDictionary_String_String;
+    FPos        : Integer;
+    FText       : String;
+    function  AtEnd: Boolean;
+    function  ExpandVariables(const AValue: String): String;
+    function  IsIdentChar(AChar: Char): Boolean;
+    function  ParseAnd: Boolean;
+    function  ParseComparison: Boolean;
+    function  ParseNot: Boolean;
+    function  ParseOr: Boolean;
+    function  ParsePrimary: Boolean;
+    function  ParseTerm: String;
+    function  Peek(AOffset: Integer = 0): Char;
+    procedure SkipWhitespace;
+    function  TryConsumeKeyword(const AKeyword: String): Boolean;
+    function  TryConsumeSymbol(const ASymbol: String): Boolean;
+  public
+    constructor Create(const ADefinitions: IDictionary_String_String; const ABaseDir: String);
+    function Evaluate(const ACondition: String): Boolean;
+  end;
+
+{ TMsBuildConditionParser }
+
+constructor TMsBuildConditionParser.Create(const ADefinitions: IDictionary_String_String; const ABaseDir: String);
+begin
+  FDefinitions := ADefinitions;
+  FBaseDir := ABaseDir;
+end;
+
+/// <summary>
+/// Evaluates a full MSBuild condition. Grammar (lowest precedence first):
+///   Or         := And ( 'or' And )*
+///   And        := Not ( 'and' Not )*
+///   Not        := '!' Not | Primary
+///   Primary    := '(' Or ')' | 'Exists' '(' Term ')' | Comparison
+///   Comparison := Term ( ( '==' | '!=' ) Term )?
+///   Term       := '...' | bare word
+/// Malformed input evaluates to False instead of raising.
+/// </summary>
+function TMsBuildConditionParser.Evaluate(const ACondition: String): Boolean;
+begin
+  FText := ACondition;
+  FPos := 1;
+  try
+    Result := ParseOr;
+    SkipWhitespace;
+    if not AtEnd then
+      Result := False;
+  except
+    on EMsBuildCondition do
+      Result := False;
+  end;
+end;
+
+function TMsBuildConditionParser.AtEnd: Boolean;
+begin
+  Result := FPos > Length(FText);
+end;
+
+function TMsBuildConditionParser.Peek(AOffset: Integer): Char;
+begin
+  if FPos + AOffset <= Length(FText) then
+    Result := FText[FPos + AOffset]
+  else
+    Result := #0;
+end;
+
+function TMsBuildConditionParser.IsIdentChar(AChar: Char): Boolean;
+begin
+  Result := AChar.IsLetterOrDigit or (AChar = '_');
+end;
+
+procedure TMsBuildConditionParser.SkipWhitespace;
+begin
+  while not AtEnd and FText[FPos].IsWhiteSpace do
+    Inc(FPos);
+end;
+
+function TMsBuildConditionParser.TryConsumeSymbol(const ASymbol: String): Boolean;
+begin
+  SkipWhitespace;
+  Result := SameText(Copy(FText, FPos, Length(ASymbol)), ASymbol);
+  if Result then
+    Inc(FPos, Length(ASymbol));
+end;
+
+/// <summary>
+/// Consumes a case-insensitive keyword (and/or/Exists) only when it is a
+/// whole word, so a bare term such as "order" is not mistaken for "or".
+/// </summary>
+function TMsBuildConditionParser.TryConsumeKeyword(const AKeyword: String): Boolean;
+begin
+  SkipWhitespace;
+  Result := SameText(Copy(FText, FPos, Length(AKeyword)), AKeyword) and
+    not IsIdentChar(Peek(Length(AKeyword)));
+  if Result then
+    Inc(FPos, Length(AKeyword));
+end;
+
+function TMsBuildConditionParser.ExpandVariables(const AValue: String): String;
+var
+  VarMatch: TMatch;
+  VarValue: String;
+begin
+  Result := AValue;
+  for VarMatch in TRegEx.Matches(AValue, '\$\((\w+)\)') do
+  begin
+    if not FDefinitions.TryGetValue(LowerCase(VarMatch.Groups[1].Value), VarValue) then
+      VarValue := '';
+    Result := StringReplace(Result, VarMatch.Value, VarValue, [rfReplaceAll, rfIgnoreCase]);
+  end;
+end;
+
+function TMsBuildConditionParser.ParseOr: Boolean;
+var
+  Operand: Boolean;
+begin
+  Result := ParseAnd;
+  while TryConsumeKeyword('or') do
+  begin
+    Operand := ParseAnd; // Always consume the operand - no short-circuit
+    Result := Result or Operand;
+  end;
+end;
+
+function TMsBuildConditionParser.ParseAnd: Boolean;
+var
+  Operand: Boolean;
+begin
+  Result := ParseNot;
+  while TryConsumeKeyword('and') do
+  begin
+    Operand := ParseNot;
+    Result := Result and Operand;
+  end;
+end;
+
+function TMsBuildConditionParser.ParseNot: Boolean;
+begin
+  SkipWhitespace;
+  if (Peek = '!') and (Peek(1) <> '=') then
+  begin
+    Inc(FPos);
+    Result := not ParseNot;
+  end
+  else
+    Result := ParsePrimary;
+end;
+
+function TMsBuildConditionParser.ParsePrimary: Boolean;
+var
+  Path: String;
+begin
+  SkipWhitespace;
+  if Peek = '(' then
+  begin
+    Inc(FPos);
+    Result := ParseOr;
+    if not TryConsumeSymbol(')') then
+      raise EMsBuildCondition.Create('Missing )');
+    Exit;
+  end;
+
+  if TryConsumeKeyword('Exists') then
+  begin
+    if not TryConsumeSymbol('(') then
+      raise EMsBuildCondition.Create('Missing ( after Exists');
+    Path := ParseTerm;
+    if not TryConsumeSymbol(')') then
+      raise EMsBuildCondition.Create('Missing ) after Exists');
+    if not TPath.IsPathRooted(Path) then
+      Path := TPath.Combine(FBaseDir, Path);
+    Exit(FileExists(Path) or DirectoryExists(Path));
+  end;
+
+  Result := ParseComparison;
+end;
+
+function TMsBuildConditionParser.ParseComparison: Boolean;
+var
+  Left : String;
+  Right: String;
+begin
+  Left := ParseTerm;
+  if TryConsumeSymbol('==') then
+  begin
+    Right := ParseTerm;
+    Result := SameText(Left, Right);
+  end
+  else if TryConsumeSymbol('!=') then
+  begin
+    Right := ParseTerm;
+    Result := not SameText(Left, Right);
+  end
+  else
+    Result := SameText(Left, 'true');
+end;
+
+/// <summary>
+/// Reads either a single-quoted string or a bare word; $(Var) references are
+/// expanded from the collected definitions, unknown variables become ''.
+/// </summary>
+function TMsBuildConditionParser.ParseTerm: String;
+var
+  Start: Integer;
+begin
+  SkipWhitespace;
+  if Peek = '''' then
+  begin
+    Inc(FPos);
+    Start := FPos;
+    while not AtEnd and (FText[FPos] <> '''') do
+      Inc(FPos);
+    if AtEnd then
+      raise EMsBuildCondition.Create('Unterminated string');
+    Result := Copy(FText, Start, FPos - Start);
+    Inc(FPos); // closing quote
+  end
+  else
+  begin
+    Start := FPos;
+    while not AtEnd do
+    begin
+      if (Peek = '$') and (Peek(1) = '(') then
+      begin
+        while not AtEnd and (FText[FPos] <> ')') do
+          Inc(FPos);
+        if AtEnd then
+          raise EMsBuildCondition.Create('Unterminated $(');
+        Inc(FPos);
+      end
+      else if FText[FPos].IsWhiteSpace or CharInSet(FText[FPos], ['(', ')', '=', '!', '''']) then
+        Break
+      else
+        Inc(FPos);
+    end;
+    if FPos = Start then
+      raise EMsBuildCondition.CreateFmt('Unexpected "%s" at %d', [Peek, FPos]);
+    Result := Copy(FText, Start, FPos - Start);
+  end;
+  Result := ExpandVariables(Result);
+end;
 
 { TDProjAnalyzer }
 
@@ -60,92 +311,43 @@ begin
   FContent := TFile.ReadAllText(FProjectFile);
 end;
 
+/// <summary>
+/// Evaluates an MSBuild PropertyGroup/property condition against the
+/// properties collected so far. Supports everything the Delphi IDE writes
+/// into a .dproj: 'A'=='B', 'A'!='B', and/or, parentheses, unary !, bare
+/// true/false and Exists('path'). A malformed condition evaluates to False.
+/// </summary>
 function TDProjAnalyzer.EvaluateCondition(const ACondition: String; const ADefinitions: IDictionary_String_String): Boolean;
 var
-  EqPos     : Integer;
-  Left      : String;
-  NeqPos    : Integer;
-  Part      : String;
-  Parts     : TArray<String>;
-  Resolved  : String;
-  ResultBool: Boolean;
-  Right     : String;
-  VarMatch  : TMatch;
-  VarMatches: TMatchCollection;
-  VarName   : String;
-  VarValue  : String;
+  Parser: TMsBuildConditionParser;
 begin
   if Trim(ACondition) = '' then
     Exit(True);
 
-  Resolved := ACondition;
-
-  // 1. Resolve variables $(Var) by finding them and looking up in Definitions
-  VarMatches := TRegEx.Matches(Resolved, '\$\((\w+)\)');
-  for VarMatch in VarMatches do
-  begin
-    VarName := VarMatch.Groups[1].Value; // e.g. 'Config'
-    if ADefinitions.TryGetValue(LowerCase(VarName), VarValue) then
-      Resolved := StringReplace(Resolved, VarMatch.Value, VarValue, [rfReplaceAll, rfIgnoreCase])
-    else
-      Resolved := StringReplace(Resolved, VarMatch.Value, '', [rfReplaceAll, rfIgnoreCase]);
-  end;
-
-  // 2. Split by ' or ' (simple OR support)
-  Parts := Resolved.Split([' or ', ' OR '], TStringSplitOptions.ExcludeEmpty);
-  if Length(Parts) = 0 then
-     Parts := [Resolved];
-
-  Result := False;
-  for Part in Parts do
-  begin
-    // Evaluate single expression
-    // Handle 'A'=='B'
-    EqPos := Pos('==', Part);
-    NeqPos := Pos('!=', Part);
-
-    ResultBool := False;
-    if EqPos > 0 then
-    begin
-      Left := Trim(Copy(Part, 1, EqPos - 1));
-      Right := Trim(Copy(Part, EqPos + 2, Length(Part)));
-      // Remove quotes
-      Left := StringReplace(Left, '''', '', [rfReplaceAll]);
-      Right := StringReplace(Right, '''', '', [rfReplaceAll]);
-      if SameText(Left, Right) then ResultBool := True;
-    end
-    else if NeqPos > 0 then
-    begin
-      Left := Trim(Copy(Part, 1, NeqPos - 1));
-      Right := Trim(Copy(Part, NeqPos + 2, Length(Part)));
-      // Remove quotes
-      Left := StringReplace(Left, '''', '', [rfReplaceAll]);
-      Right := StringReplace(Right, '''', '', [rfReplaceAll]);
-      if not SameText(Left, Right) then ResultBool := True;
-    end
-    else
-    begin
-      // Fallback: If part is just "true" or "false" (after var replacement)
-      if SameText(Trim(Part), 'true') then ResultBool := True;
-    end;
-
-    if ResultBool then
-    begin
-      Result := True;
-      Break; // Short-circuit OR
-    end;
+  Parser := TMsBuildConditionParser.Create(ADefinitions, ExtractFilePath(FProjectFile));
+  try
+    Result := Parser.Evaluate(ACondition);
+  finally
+    Parser.Free;
   end;
 end;
 
-procedure TDProjAnalyzer.ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String);
+/// <summary>
+/// Applies all properties of one PropertyGroup body whose element-level
+/// condition holds. Returns True when at least one definition was added or
+/// changed, so callers can iterate the file to a fixpoint.
+/// </summary>
+function TDProjAnalyzer.ParseProperties(const ABody: String; const ADefinitions: IDictionary_String_String): Boolean;
 var
   CondAttrMatch: TMatch;
   Condition    : String;
+  Existing     : String;
   Key          : String;
   PropMatch    : TMatch;
   PropMatches  : TMatchCollection;
   Value        : String;
 begin
+  Result := False;
   // Match <Key>Value</Key> as well as <Key Attr1="..." Attr2="...">Value</Key>.
   // Group 1: tag name, Group 2: attributes (optional), Group 3: value.
   PropMatches := TRegEx.Matches(ABody, '<(\w+)((?:\s+\w+="[^"]*")*)\s*>([^<]+)</\1>');
@@ -160,7 +362,14 @@ begin
       Condition := CondAttrMatch.Groups[1].Value;
 
     if (Condition = '') or EvaluateCondition(Condition, ADefinitions) then
-      ADefinitions[LowerCase(Key)] := Value;
+    begin
+      Key := LowerCase(Key);
+      if not (ADefinitions.TryGetValue(Key, Existing) and (Existing = Value)) then
+      begin
+        ADefinitions[Key] := Value;
+        Result := True;
+      end;
+    end;
   end;
 end;
 
@@ -189,13 +398,17 @@ begin
 end;
 
 function TDProjAnalyzer.GetProjectOutputFile(const AConfig, APlatform: String): String;
+const
+  MaxInheritancePasses = 10;
 var
   BaseName    : String;
   Body        : String;
+  Changed     : Boolean;
   Definitions : IDictionary_String_String;
   ExeOutput   : String;
   GroupMatch  : TMatch;
   GroupMatches: TMatchCollection;
+  Pass        : Integer;
   PossiblePath: String;
   RawCondition: String;
   RootPath    : String;
@@ -209,22 +422,32 @@ begin
   Definitions['platform'] := APlatform;
   Definitions['base'] := ''; // Initialize Base as empty/undefined initially
 
-  // Find all PropertyGroups sequentially
   GroupMatches := TRegEx.Matches(FContent, '<PropertyGroup(.*?)>([\s\S]*?)</PropertyGroup>', [roIgnoreCase]);
 
-  for GroupMatch in GroupMatches do
-  begin
-    // Extract Condition from attributes
-    RawCondition := '';
-    ValMatch := TRegEx.Match(GroupMatch.Groups[1].Value, 'Condition="([^"]+)"', [roIgnoreCase]);
-    if ValMatch.Success then
-      RawCondition := ValMatch.Groups[1].Value;
+  // The IDE models configuration inheritance (Base -> Base_Win64 -> Cfg_2 ->
+  // Cfg_2_Win64) through marker properties that later groups switch on, e.g.
+  // Cfg_2 sets Base=true although the Base_Win64 group - conditioned on
+  // '$(Base)'=='true' - appears earlier in the file. A single sequential pass
+  // therefore misses the platform-specific groups. Repeat the pass until no
+  // definition changes any more; the file order within one pass keeps the
+  // intended override priority (Base < Base_<Platform> < Cfg < Cfg_<Platform>).
+  Pass := 0;
+  repeat
+    Changed := False;
+    Inc(Pass);
+    for GroupMatch in GroupMatches do
+    begin
+      RawCondition := '';
+      ValMatch := TRegEx.Match(GroupMatch.Groups[1].Value, 'Condition="([^"]+)"', [roIgnoreCase]);
+      if ValMatch.Success then
+        RawCondition := ValMatch.Groups[1].Value;
 
-    Body := GroupMatch.Groups[2].Value;
+      Body := GroupMatch.Groups[2].Value;
 
-    if EvaluateCondition(RawCondition, Definitions) then
-      ParseProperties(Body, Definitions);
-  end;
+      if EvaluateCondition(RawCondition, Definitions) and ParseProperties(Body, Definitions) then
+        Changed := True;
+    end;
+  until not Changed or (Pass >= MaxInheritancePasses);
 
   if not Definitions.TryGetValue('dcc_exeoutput', ExeOutput) then
     ExeOutput := '';

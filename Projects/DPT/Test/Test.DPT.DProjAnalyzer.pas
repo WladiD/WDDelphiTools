@@ -64,6 +64,8 @@ type
     procedure GetProjectOutputFile_ExeOutputElementCondition;
     [Test]
     procedure GetProjectOutputFile_EnvironmentVariableFallback;
+    [Test]
+    procedure GetProjectOutputFile_IdePlatformBaseGroups;
   end;
 
 implementation
@@ -472,6 +474,65 @@ begin
     end;
   finally
     SetEnvironmentVariable(PChar(EnvVarName), nil);
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectOutputFile_IdePlatformBaseGroups;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // Mirrors the structure the Delphi IDE writes (e.g. TFW.dproj): the
+  // platform-specific Base_Win32/Base_Win64 groups are activated through a
+  // parenthesised AND combined with an OR, and Base_Win64 overrides the
+  // DCC_ExeOutput inherited from the Base group.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_ExeOutput>C:\MSE\TFW</DCC_ExeOutput>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Base_Win32)'!=''">
+        <AppDPIAwarenessMode>none</AppDPIAwarenessMode>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_ExeOutput>C:\MSE64\TFW</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual('C:\MSE\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Debug', 'Win32'));
+    Assert.AreEqual('C:\MSE64\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Debug', 'Win64'));
+    Assert.AreEqual('C:\MSE\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Release', 'Win32'));
+    Assert.AreEqual('C:\MSE64\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Release', 'Win64'));
+  finally
+    Analyzer.Free;
   end;
 end;
 
