@@ -66,6 +66,8 @@ type
     procedure GetProjectOutputFile_EnvironmentVariableFallback;
     [Test]
     procedure GetProjectOutputFile_IdePlatformBaseGroups;
+    [Test]
+    procedure GetProjectSearchPath_IdeConfigPlatformGroups;
   end;
 
 implementation
@@ -484,10 +486,13 @@ begin
   // Mirrors the structure the Delphi IDE writes (e.g. TFW.dproj): the
   // platform-specific Base_Win32/Base_Win64 groups are activated through a
   // parenthesised AND combined with an OR, and Base_Win64 overrides the
-  // DCC_ExeOutput inherited from the Base group.
+  // DCC_ExeOutput inherited from the Base group. MSBuild evaluates this in
+  // a single pass (verified with msbuild /v:diag), which works because the
+  // IDE seeds <Base>True</Base> in the very first group.
   CreateDProj('''
     <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
       <PropertyGroup>
+        <Base>True</Base>
         <Config Condition="'$(Config)'==''">Debug</Config>
         <Platform Condition="'$(Platform)'==''">Win32</Platform>
       </PropertyGroup>
@@ -531,6 +536,78 @@ begin
     Assert.AreEqual('C:\MSE64\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Debug', 'Win64'));
     Assert.AreEqual('C:\MSE\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Release', 'Win32'));
     Assert.AreEqual('C:\MSE64\TFW\TestProject.exe', Analyzer.GetProjectOutputFile('Release', 'Win64'));
+  finally
+    Analyzer.Free;
+  end;
+end;
+
+procedure TTestDProjAnalyzer.GetProjectSearchPath_IdeConfigPlatformGroups;
+var
+  Analyzer: TDProjAnalyzer;
+begin
+  // Same IDE inheritance structure as above, but for DCC_UnitSearchPath. The
+  // value groups are conditioned on marker properties only ('$(Cfg_1)'!='',
+  // '$(Cfg_2_Win32)'!=''), so a reader that merely pattern-matches
+  // '$(Config)'=='X' / '$(Platform)'=='X' in the condition cannot tell them
+  // apart and wrongly includes every group for every config and platform.
+  CreateDProj('''
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup>
+        <Base>True</Base>
+        <Config Condition="'$(Config)'==''">Debug</Config>
+        <Platform Condition="'$(Platform)'==''">Win32</Platform>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Base' or '$(Base)'!=''">
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Base)'=='true') or '$(Base_Win32)'!=''">
+        <Base_Win32>true</Base_Win32>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="('$(Platform)'=='Win64' and '$(Base)'=='true') or '$(Base_Win64)'!=''">
+        <Base_Win64>true</Base_Win64>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Release' or '$(Cfg_1)'!=''">
+        <Cfg_1>true</Cfg_1>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Config)'=='Debug' or '$(Cfg_2)'!=''">
+        <Cfg_2>true</Cfg_2>
+        <CfgParent>Base</CfgParent>
+        <Base>true</Base>
+      </PropertyGroup>
+      <PropertyGroup Condition="('$(Platform)'=='Win32' and '$(Cfg_2)'=='true') or '$(Cfg_2_Win32)'!=''">
+        <Cfg_2_Win32>true</Cfg_2_Win32>
+        <CfgParent>Cfg_2</CfgParent>
+        <Cfg_2>true</Cfg_2>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Base)'!=''">
+        <DCC_UnitSearchPath>..\pas;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Base_Win64)'!=''">
+        <DCC_UnitSearchPath>..\dcu64;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Cfg_1)'!=''">
+        <DCC_UnitSearchPath>..\release;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Cfg_2)'!=''">
+        <DCC_UnitSearchPath>..\debug;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+      </PropertyGroup>
+      <PropertyGroup Condition="'$(Cfg_2_Win32)'!=''">
+        <DCC_UnitSearchPath>..\debug32;$(DCC_UnitSearchPath)</DCC_UnitSearchPath>
+      </PropertyGroup>
+    </Project>
+    ''');
+  Analyzer := TDProjAnalyzer.Create(FTestFile);
+  try
+    Assert.AreEqual('..\debug32;..\debug;..\pas', Analyzer.GetProjectSearchPath('Debug', 'Win32'));
+    Assert.AreEqual('..\debug;..\dcu64;..\pas', Analyzer.GetProjectSearchPath('Debug', 'Win64'));
+    Assert.AreEqual('..\release;..\pas', Analyzer.GetProjectSearchPath('Release', 'Win32'));
+    Assert.AreEqual('..\release;..\dcu64;..\pas', Analyzer.GetProjectSearchPath('Release', 'Win64'));
   finally
     Analyzer.Free;
   end;
