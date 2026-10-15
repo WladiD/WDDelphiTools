@@ -99,6 +99,10 @@ type
     procedure dwsClassIsFormClass(Info: TProgramInfo);
     procedure dwsClassSectionCanBeFormatted(Info: TProgramInfo);
     procedure dwsNaturalCompareStr(Info: TProgramInfo);
+
+    // Environment helpers
+    procedure dwsGetEnvironmentVariable(Info: TProgramInfo);
+    procedure dwsGetUserDisplayName(Info: TProgramInfo);
   protected
     procedure OnVisitClassDeclaration(AClass: TClassDeclarationSyntax); override;
     procedure OnVisitConstSection(ASection: TConstSectionSyntax); override;
@@ -132,6 +136,8 @@ uses
   dwsRTTIExposer,
 
   ParseTree.Tokens,
+
+  DPT.Utils,
 
   WDDT.StringTools;
 
@@ -478,6 +484,17 @@ begin
   Func.ResultType := 'Integer';
   Func.OnEval := dwsNaturalCompareStr;
 
+  // Environment helpers: DWScript itself has no access to the host process
+  // environment, so scripts that need the user identity (e.g. the author of
+  // a freshly generated unit header) get it through these two functions.
+  Func := FUnit.Functions.Add('GetEnvironmentVariable');
+  Func.Parameters.Add('AName', 'String');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetEnvironmentVariable;
+
+  Func := FUnit.Functions.Add('GetUserDisplayName');
+  Func.ResultType := 'String';
+  Func.OnEval := dwsGetUserDisplayName;
 end;
 
 procedure TDptDwsFormatter.dwsClearTrivia(Info: TProgramInfo);
@@ -1541,6 +1558,16 @@ end;
 procedure TDptDwsFormatter.dwsNaturalCompareStr(Info: TProgramInfo);
 begin
   Info.ResultAsInteger := CompareStringNatural(Info.ParamAsString[0], Info.ParamAsString[1]);
+end;
+
+procedure TDptDwsFormatter.dwsGetEnvironmentVariable(Info: TProgramInfo);
+begin
+  Info.ResultAsString := System.SysUtils.GetEnvironmentVariable(Info.ParamAsString[0]);
+end;
+
+procedure TDptDwsFormatter.dwsGetUserDisplayName(Info: TProgramInfo);
+begin
+  Info.ResultAsString := DPT.Utils.GetUserDisplayName;
 end;
 
 procedure TDptDwsFormatter.dwsGetInterfaceKeyword(Info: TProgramInfo);

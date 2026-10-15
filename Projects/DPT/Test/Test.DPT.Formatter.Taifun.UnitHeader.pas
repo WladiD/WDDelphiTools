@@ -14,6 +14,8 @@ type
 
   [TestFixture]
   TTestTaifunFormatter_UnitHeader = class(TTestTaifunFormatterBase)
+  strict private
+    function CountOccurrences(const ASubText, AText: string): Integer;
   public
     [Test]
     procedure TestFormatUnitHeader_CreatesNew;
@@ -51,11 +53,30 @@ type
     procedure TestFormatUnitHeader_OldUnitNameWithDifferentCaseNotPreserved;
     [Test]
     procedure TestFormatUnitHeader_EnglishAuthorLabel;
+    [Test]
+    procedure TestFormatUnitHeader_RecognisesHeaderAfterBlankLine;
+    [Test]
+    procedure TestFormatUnitHeader_RecognisesHeaderAfterIncludeDirective;
+    [Test]
+    procedure TestFormatUnitHeader_RecognisesHeaderWithExtrasAfterBlankLine;
   end;
 
 implementation
 
 { TTestTaifunFormatter_UnitHeader }
+
+function TTestTaifunFormatter_UnitHeader.CountOccurrences(const ASubText, AText: string): Integer;
+var
+  LPos: Integer;
+begin
+  Result := 0;
+  LPos := Pos(ASubText, AText);
+  while LPos > 0 do
+  begin
+    Inc(Result);
+    LPos := Pos(ASubText, AText, LPos + Length(ASubText));
+  end;
+end;
 
 procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_CreatesNew;
 var
@@ -537,6 +558,155 @@ begin
     'Original English "Author:" line must not be duplicated in output. Actual:' + #13#10 + LResult);
   Assert.IsFalse(LResult.Contains('// Autor: Name'),
     'Default "Name" placeholder must not appear when an author was parsed. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_RecognisesHeaderAfterBlankLine;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // Reproducer for Tos.Shared.Export: the file starts with a blank line and the
+  // banner follows on line 2. The extractor used to stop at that blank line,
+  // treat the whole banner as directives and prepend a second banner with the
+  // "Name" placeholder.
+  LSource :=
+    #13#10 +
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Banner behind a leading blank line must be recognised and rebuilt at the top. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.IsFalse(LResult.Contains('// Autor: Name'),
+    'No placeholder banner must be prepended to an existing banner. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('// Autor:', LResult),
+    'Exactly one banner expected. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_RecognisesHeaderAfterIncludeDirective;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // The banner sits behind the include directive. It must still be recognised
+  // and moved to the top; the directive stays, exactly once, below the banner.
+  LSource :=
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Banner behind an include directive must be recognised and rebuilt at the top. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.IsFalse(LResult.Contains('// Autor: Name'),
+    'No placeholder banner must be prepended to an existing banner. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('// Autor:', LResult),
+    'Exactly one banner expected. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('{$I Tfw.Define.pas}', LResult),
+    'Include directive must be kept exactly once. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_RecognisesHeaderWithExtrasAfterBlankLine;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // Like _RecognisesHeaderAfterBlankLine, but the banner also carries extra
+  // comment lines behind the author. Description, author and extras must all
+  // survive the move to the top.
+  LSource :=
+    #13#10 +
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    '// Additional note line.' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // Additional note line.
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Banner with extra lines behind a leading blank line must be rebuilt completely. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('// Autor:', LResult),
+    'Exactly one banner expected. Actual:'#13#10 + Copy(LResult, 1, 600));
 end;
 
 end.

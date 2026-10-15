@@ -5,15 +5,46 @@ interface
 uses TaifunFormat.Utils;
 
 type
+  TTaifunHeaderLines = array of string;
+
   TTaifunHeaderHelper = class
+  private
+    function FindHeaderBlock(const ALines: TTaifunHeaderLines; var AStart: Integer; var AEnd: Integer): Boolean;
   public
     function ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
   end;
 
 implementation
 
+function TTaifunHeaderHelper.FindHeaderBlock(const ALines: TTaifunHeaderLines; var AStart: Integer; var AEnd: Integer): Boolean;
+var LIdx, LRuleStart: Integer; LHasAuthor: Boolean; LTrimmed: string;
+begin
+  Result := False; AStart := -1; AEnd := -1; LRuleStart := -1; LHasAuthor := False;
+  for LIdx := 0 to High(ALines) do
+  begin
+    LTrimmed := Trim(ALines[LIdx]);
+    if Pos('// ===', LTrimmed) = 1 then
+    begin
+      if (LRuleStart >= 0) and LHasAuthor then
+      begin
+        AStart := LRuleStart;
+        AEnd := LIdx;
+        Exit(True);
+      end;
+      LRuleStart := LIdx;
+      LHasAuthor := False;
+    end
+    else if (LRuleStart >= 0) and (Pos('//', LTrimmed) = 1) then
+    begin
+      if (Pos('Autor:', LTrimmed) > 0) or (Pos('Author:', LTrimmed) > 0) then LHasAuthor := True;
+    end
+    else
+      LRuleStart := -1;
+  end;
+end;
+
 function TTaifunHeaderHelper.ExtractHeaderInfo(const ATrivia: string; const AUnitName: string; var ADescription: string; var AAuthor: string; var ADirectives: string; var AExtraComments: string): Boolean;
-var S, LLine, LTrimmed: string; P, P2, P3, LAuthorLen: Integer; LFoundDesc, LFoundAuthor, LInBanner: Boolean;
+var S, LLine, LTrimmed: string; P, P2, P3, LAuthorLen, LIdx, LBlockStart, LBlockEnd, LFirstContent: Integer; LFoundDesc, LFoundAuthor, LInBanner, LHasBlock: Boolean; LLines: TTaifunHeaderLines;
 begin
   Result := Length(ATrivia) > 0; LFoundDesc := False; LFoundAuthor := False; ADescription := ''; AAuthor := 'Name'; ADirectives := ''; AExtraComments := ''; LInBanner := True;
   if Result then
@@ -35,12 +66,25 @@ begin
         LLine := Copy(S, LCur, Length(S) - LCur + 1);
         LCur := Length(S) + 1;
       end;
+      LLines.Add(LLine);
+    end;
 
-      if LInBanner then
+    LHasBlock := FindHeaderBlock(LLines, LBlockStart, LBlockEnd);
+    LFirstContent := 0;
+    while (LFirstContent <= High(LLines)) and (Trim(LLines[LFirstContent]) = '') do Inc(LFirstContent);
+
+    for LIdx := 0 to High(LLines) do
+    begin
+      LLine := LLines[LIdx];
+      LTrimmed := LLine;
+      while (Length(LTrimmed) > 0) and (LTrimmed[1] = ' ') do Delete(LTrimmed, 1, 1);
+
+      if LHasBlock then
+        LInBanner := (LIdx >= LBlockStart) and (LIdx <= LBlockEnd)
+      else
       begin
-        LTrimmed := LLine;
-        while (Length(LTrimmed) > 0) and (LTrimmed[1] = ' ') do Delete(LTrimmed, 1, 1);
-        if (Length(LTrimmed) = 0) or (Pos('//', LTrimmed) <> 1) then LInBanner := False;
+        if LIdx < LFirstContent then Continue;
+        if LInBanner and ((Length(LTrimmed) = 0) or (Pos('//', LTrimmed) <> 1)) then LInBanner := False;
       end;
 
       if not LInBanner then
