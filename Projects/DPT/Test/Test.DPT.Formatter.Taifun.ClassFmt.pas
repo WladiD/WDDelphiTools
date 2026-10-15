@@ -97,6 +97,8 @@ type
     procedure TestFormatClass_ClassLevelAttributeStillSorts;
     [Test]
     procedure TestFormatClass_IndexedPropertyWithMultipleIndexParams;
+    [Test]
+    procedure TestFormatClass_HelperHeaderStaysOnTypeLine;
   end;
 
 implementation
@@ -1393,6 +1395,53 @@ begin
     'Single-param property must be preserved. Actual:' + #13#10 + LResult);
   Assert.IsFalse(LResult.Contains(#13#10 + '    Y: Word]'),
     'Index parameter list must not be split onto its own line. Actual:' + #13#10 + LResult);
+end;
+
+procedure TTestTaifunFormatter_Class.TestFormatClass_HelperHeaderStaysOnTypeLine;
+var
+  LResult: string;
+  LSource: string;
+begin
+  // Reproducer (from Tfw.Crb.pas): the 'helper [(Ancestor)] for Target' clause
+  // belongs to the type header.  It was parsed as the first class member, so
+  // the formatter indented it like a member and moved it onto its own line:
+  //   CSOAPObjectHelper = class
+  //     helper for CSOAPObject
+  LSource :=
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'type' + #13#10 +
+    '  CSOAPObjectHelper = class helper for CSOAPObject' + #13#10 +
+    '   public' + #13#10 +
+    '    function HasSoapComponentDerived(AClass: CSoapObjectClass): Boolean;' + #13#10 +
+    '    function GetSoapComponentCountDerived(AClass: CSoapObjectClass): Integer;' + #13#10 +
+    '  end;' + #13#10 +
+    '  CDerivedHelper = class helper (CSOAPObjectHelper) for CSOAPObject' + #13#10 +
+    '   public' + #13#10 +
+    '    procedure Zeta;' + #13#10 +
+    '  end;' + #13#10 +
+    '  TKindHelper = record helper for TKind' + #13#10 +
+    '   public' + #13#10 +
+    '    function ToString: String;' + #13#10 +
+    '  end;' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('  CSOAPObjectHelper = class helper for CSOAPObject' + #13#10 + '   public' + #13#10),
+    'Class helper header must stay on the type line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('  CDerivedHelper = class helper (CSOAPObjectHelper) for CSOAPObject' + #13#10 + '   public' + #13#10),
+    'Class helper header with ancestor must stay on the type line. Actual:' + #13#10 + LResult);
+  Assert.IsTrue(LResult.Contains('  TKindHelper = record helper for TKind' + #13#10 + '   public' + #13#10),
+    'Record helper header must stay on the type line. Actual:' + #13#10 + LResult);
+
+  // The helper members are regular members and get sorted like any other.
+  Assert.IsTrue(LResult.Contains(
+    '   public' + #13#10 +
+    '    function GetSoapComponentCountDerived(AClass: CSoapObjectClass): Integer;' + #13#10 +
+    '    function HasSoapComponentDerived(AClass: CSoapObjectClass): Boolean;' + #13#10),
+    'Helper members must be sorted within their section. Actual:' + #13#10 + LResult);
 end;
 
 end.
