@@ -742,6 +742,44 @@ begin
         ((Result.TypeTypeToken.Kind = tkIdentifier) and SameText(Result.TypeTypeToken.Text, 'packed'))) and
        not ((Result.TypeTypeToken.Kind = tkClassKeyword) and (Current <> nil) and (Current.Kind = tkOfKeyword)) then
     begin
+      // Class/record helper: 'helper [(Ancestor)] for Target' belongs to the
+      // type header, not to the first member. A field named 'helper' is never
+      // followed by 'for' or '(', so that check keeps it a member.
+      if (Result.TypeTypeToken.Kind in [tkClassKeyword, tkRecordKeyword]) and
+         (Current <> nil) and (Current.Kind = tkIdentifier) and SameText(Current.Text, 'helper') and
+         (Peek(1) <> nil) and (Peek(1).Kind in [tkForKeyword, tkOpenParen]) then
+      begin
+        Result.TypeExtraTokens.Add(NextToken); // helper
+        if Current.Kind = tkOpenParen then
+        begin
+          while (Current <> nil) and (Current.Kind <> tkCloseParen) and (Current.Kind <> tkEOF) do
+            Result.TypeExtraTokens.Add(NextToken);
+          if (Current <> nil) and (Current.Kind = tkCloseParen) then
+            Result.TypeExtraTokens.Add(NextToken); // )
+        end;
+        if (Current <> nil) and (Current.Kind = tkForKeyword) then
+        begin
+          Result.TypeExtraTokens.Add(NextToken); // for
+          // Target type: a (dotted) name with optional generic arguments
+          if (Current <> nil) and (Current.Kind = tkIdentifier) then
+            Result.TypeExtraTokens.Add(NextToken);
+          while (Current <> nil) and (Current.Kind = tkDot) and (Peek(1) <> nil) and (Peek(1).Kind = tkIdentifier) do
+          begin
+            Result.TypeExtraTokens.Add(NextToken); // .
+            Result.TypeExtraTokens.Add(NextToken); // identifier
+          end;
+          if (Current <> nil) and (Current.Kind = tkLessThan) then
+          begin
+            LNestLevel := 0;
+            repeat
+              if Current.Kind = tkLessThan then Inc(LNestLevel)
+              else if Current.Kind = tkGreaterThan then Dec(LNestLevel);
+              Result.TypeExtraTokens.Add(NextToken);
+            until (Current = nil) or (Current.Kind = tkEOF) or (LNestLevel = 0);
+          end;
+        end;
+      end;
+
       // Consume modifiers like 'abstract' or 'sealed' before the base list
       while (Current <> nil) do
       begin

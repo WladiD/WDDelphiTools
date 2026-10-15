@@ -54,6 +54,8 @@ type
     procedure TestEscapedReservedWordMemberRoundtrip;
     [Test]
     procedure TestIndexedPropertyWithMultipleIndexParams;
+    [Test]
+    procedure TestHelperHeaderBelongsToTypeDeclaration;
   end;
 
 implementation
@@ -1006,6 +1008,116 @@ begin
       'Member 1 should start at "property"');
     Assert.AreEqual('property', GetFirstMemberToken(LVisSec, 2).Text,
       'Member 2 should start at "property"');
+
+    // Source must round-trip byte-for-byte.
+    LWriter := TSyntaxTreeWriter.Create;
+    try
+      LRoundtrip := LWriter.GenerateSource(LTree);
+      Assert.AreEqual(LSourceCode, LRoundtrip);
+    finally
+      LWriter.Free;
+    end;
+  finally
+    LTree.Free;
+  end;
+end;
+
+procedure TParseTreeClassDeclTest.TestHelperHeaderBelongsToTypeDeclaration;
+const
+  // 'helper [(Ancestor)] for Target' is part of the type header.  Before the
+  // fix the parser stopped after 'class'/'record', so the clause became the
+  // first class member and the formatter indented it onto its own line.
+  // A field that is merely named 'helper' must stay a member.
+  LSourceCode = '''
+    unit Unit1;
+    interface
+    type
+      TFooHelper = class helper for TFoo
+      public
+        function GetB: Integer;
+        procedure DoA;
+      end;
+
+      TDerivedHelper = class helper (TFooHelper) for System.TObject
+        procedure DoC;
+      end;
+
+      TKindHelper = record helper for TKind
+        function ToString: string;
+      end;
+
+      TPlain = class
+        helper: Integer;
+      end;
+    implementation
+    end.
+  ''';
+
+  function JoinTexts(ADecl: TTypeDeclarationSyntax): string;
+  var
+    LToken: TSyntaxToken;
+  begin
+    Result := '';
+    for LToken in ADecl.TypeExtraTokens do
+    begin
+      if Result <> '' then
+        Result := Result + ' ';
+      Result := Result + LToken.Text;
+    end;
+  end;
+
+var
+  LTree: TCompilationUnitSyntax;
+  LTypeSec: TTypeSectionSyntax;
+  LTypeDecl: TTypeDeclarationSyntax;
+  LVisSec: TVisibilitySectionSyntax;
+  LWriter: TSyntaxTreeWriter;
+  LRoundtrip: string;
+begin
+  LTree := FParser.Parse(LSourceCode);
+  try
+    Assert.IsNotNull(LTree.InterfaceSection, 'Interface missing');
+    LTypeSec := TTypeSectionSyntax(LTree.InterfaceSection.Declarations[0]);
+    Assert.AreEqual(4, LTypeSec.Declarations.Count, 'Should parse four type declarations');
+
+    // === TFooHelper: class helper with an explicit public section ===
+    LTypeDecl := LTypeSec.Declarations[0];
+    Assert.AreEqual('TFooHelper', LTypeDecl.Identifier.Text);
+    Assert.IsTrue(LTypeDecl is TClassDeclarationSyntax, 'TFooHelper should be a class declaration');
+    Assert.AreEqual('helper for TFoo', JoinTexts(LTypeDecl));
+    Assert.AreEqual(1, LTypeDecl.VisibilitySections.Count,
+      'TFooHelper: the helper clause must not open an implicit section');
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual('public', LVisSec.VisibilityKeyword.Text);
+    Assert.AreEqual(2, LVisSec.Members.Count, 'public should have 2 members');
+
+    // === TDerivedHelper: ancestor list and dotted target ===
+    LTypeDecl := LTypeSec.Declarations[1];
+    Assert.AreEqual('TDerivedHelper', LTypeDecl.Identifier.Text);
+    Assert.AreEqual('helper ( TFooHelper ) for System . TObject', JoinTexts(LTypeDecl));
+    Assert.AreEqual(0, LTypeDecl.BaseListTokens.Count,
+      'The helper ancestor list stays in the header clause, not in BaseListTokens');
+    Assert.AreEqual(1, LTypeDecl.VisibilitySections.Count);
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual(1, LVisSec.Members.Count, 'Implicit section should have 1 member');
+    Assert.AreEqual('procedure', GetFirstMemberToken(LVisSec, 0).Text);
+
+    // === TKindHelper: record helper ===
+    LTypeDecl := LTypeSec.Declarations[2];
+    Assert.AreEqual('TKindHelper', LTypeDecl.Identifier.Text);
+    Assert.IsTrue(LTypeDecl is TRecordDeclarationSyntax, 'TKindHelper should be a record declaration');
+    Assert.AreEqual('helper for TKind', JoinTexts(LTypeDecl));
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual(1, LVisSec.Members.Count);
+    Assert.AreEqual('function', GetFirstMemberToken(LVisSec, 0).Text);
+
+    // === TPlain: a field named 'helper' is a member, not a helper clause ===
+    LTypeDecl := LTypeSec.Declarations[3];
+    Assert.AreEqual('TPlain', LTypeDecl.Identifier.Text);
+    Assert.AreEqual(0, LTypeDecl.TypeExtraTokens.Count);
+    LVisSec := LTypeDecl.VisibilitySections[0];
+    Assert.AreEqual(1, LVisSec.Members.Count);
+    Assert.AreEqual('helper', GetFirstMemberToken(LVisSec, 0).Text);
 
     // Source must round-trip byte-for-byte.
     LWriter := TSyntaxTreeWriter.Create;
