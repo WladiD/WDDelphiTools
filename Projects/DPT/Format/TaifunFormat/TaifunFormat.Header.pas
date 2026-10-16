@@ -16,30 +16,33 @@ type
 
 implementation
 
+// The banner is the first contiguous run of comment lines that contains both a
+// rule and an author line. The whole run counts, so inner rules, sections behind
+// the author and comments attached above the banner stay part of it.
 function TTaifunHeaderHelper.FindHeaderBlock(const ALines: TTaifunHeaderLines; var AStart: Integer; var AEnd: Integer): Boolean;
-var LIdx, LRuleStart: Integer; LHasAuthor: Boolean; LTrimmed: string;
+var LIdx, LRunStart: Integer; LHasAuthor, LHasRule: Boolean; LTrimmed: string;
 begin
-  Result := False; AStart := -1; AEnd := -1; LRuleStart := -1; LHasAuthor := False;
-  for LIdx := 0 to High(ALines) do
+  Result := False; AStart := -1; AEnd := -1; LRunStart := -1; LHasAuthor := False; LHasRule := False;
+  // One index past the end closes a run that reaches the last line
+  for LIdx := 0 to High(ALines) + 1 do
   begin
-    LTrimmed := Trim(ALines[LIdx]);
-    if Pos('// ===', LTrimmed) = 1 then
+    if LIdx <= High(ALines) then LTrimmed := Trim(ALines[LIdx]) else LTrimmed := '';
+    if Pos('//', LTrimmed) = 1 then
     begin
-      if (LRuleStart >= 0) and LHasAuthor then
-      begin
-        AStart := LRuleStart;
-        AEnd := LIdx;
-        Exit(True);
-      end;
-      LRuleStart := LIdx;
-      LHasAuthor := False;
-    end
-    else if (LRuleStart >= 0) and (Pos('//', LTrimmed) = 1) then
-    begin
+      if LRunStart < 0 then begin LRunStart := LIdx; LHasAuthor := False; LHasRule := False; end;
+      if Pos('// ===', LTrimmed) = 1 then LHasRule := True;
       if (Pos('Autor:', LTrimmed) > 0) or (Pos('Author:', LTrimmed) > 0) then LHasAuthor := True;
     end
     else
-      LRuleStart := -1;
+    begin
+      if (LRunStart >= 0) and LHasAuthor and LHasRule then
+      begin
+        AStart := LRunStart;
+        AEnd := LIdx - 1;
+        Exit(True);
+      end;
+      LRunStart := -1;
+    end;
   end;
 end;
 
@@ -76,8 +79,8 @@ begin
     for LIdx := 0 to High(LLines) do
     begin
       LLine := LLines[LIdx];
-      LTrimmed := LLine;
-      while (Length(LTrimmed) > 0) and (LTrimmed[1] = ' ') do Delete(LTrimmed, 1, 1);
+      // Trim like FindHeaderBlock, so a tab-indented banner line is still a comment
+      LTrimmed := Trim(LLine);
 
       if LHasBlock then
         LInBanner := (LIdx >= LBlockStart) and (LIdx <= LBlockEnd)

@@ -59,6 +59,14 @@ type
     procedure TestFormatUnitHeader_RecognisesHeaderAfterIncludeDirective;
     [Test]
     procedure TestFormatUnitHeader_RecognisesHeaderWithExtrasAfterBlankLine;
+    [Test]
+    procedure TestFormatUnitHeader_KeepsTabIndentedBannerLine;
+    [Test]
+    procedure TestFormatUnitHeader_BannerWithRuleBeforeAuthorStaysWhole;
+    [Test]
+    procedure TestFormatUnitHeader_KeepsRuleDelimitedSectionAfterAuthor;
+    [Test]
+    procedure TestFormatUnitHeader_CommentAttachedAboveBannerStaysInBanner;
   end;
 
 implementation
@@ -707,6 +715,199 @@ begin
     'Banner with extra lines behind a leading blank line must be rebuilt completely. Actual:'#13#10 + Copy(LResult, 1, 600));
   Assert.AreEqual(1, CountOccurrences('// Autor:', LResult),
     'Exactly one banner expected. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_KeepsTabIndentedBannerLine;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // A banner line indented with a tab instead of spaces. The block detection
+  // trims tabs and counts the line as part of the banner, but the extraction
+  // only strips spaces, so the line matched no branch and was dropped.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    #9 + '// Tab-indented note.' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    #9 + '// Tab-indented note.' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    '{$I Tfw.Define.pas}' + #13#10 +
+    #13#10 +
+    'unit MyUnit;';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.Contains('// Tab-indented note.'),
+    'Tab-indented banner line must not be dropped. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Tab-indented line must stay an extra comment of the banner. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_BannerWithRuleBeforeAuthorStaysWhole;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // A banner with an inner rule between description and author. The block
+  // detection restarted at every rule without an author, so only the author
+  // part was taken as the banner: the description was lost and the upper
+  // part remained as a "directive" fragment below the rebuilt banner.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Banner with an inner rule must be rebuilt as a whole. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('Some description', LResult),
+    'No fragment of the old banner may remain. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_KeepsRuleDelimitedSectionAfterAuthor;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // A banner with a further rule-delimited section behind the author (e.g. a
+  // history). The block ended at the first rule behind the author, so the
+  // section was moved out of the banner into the directives, and because the
+  // directives were then non-empty the default include was no longer added.
+  LSource :=
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    '// Historie:' + #13#10 +
+    '// 2020: Erste Version' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // Historie:
+    // 2020: Erste Version
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Section behind the author must stay inside the banner. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('// Historie:', LResult),
+    'The section must appear exactly once. Actual:'#13#10 + Copy(LResult, 1, 600));
+end;
+
+procedure TTestTaifunFormatter_UnitHeader.TestFormatUnitHeader_CommentAttachedAboveBannerStaysInBanner;
+var
+  LResult: string;
+  LSource: string;
+  LExpectedHeader: string;
+begin
+  // A comment line directly above the banner, without a blank line between.
+  // Only the rule-to-rule block was taken as the banner, the comment went to
+  // the directives, and because they were then non-empty the default include
+  // was no longer added.
+  LSource :=
+    '// Copyright (c) Foo GmbH' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    '//' + #13#10 +
+    '// MyUnit - Some description' + #13#10 +
+    '//' + #13#10 +
+    '// Autor: Jane Doe' + #13#10 +
+    '//' + #13#10 +
+    '// ======================================================================' + #13#10 +
+    #13#10 +
+    'unit MyUnit;' + #13#10 +
+    'interface' + #13#10 +
+    'implementation' + #13#10 +
+    'end.';
+
+  LExpectedHeader := '''
+    // ======================================================================
+    //
+    // MyUnit - Some description
+    //
+    // Autor: Jane Doe
+    //
+    // Copyright (c) Foo GmbH
+    //
+    // ======================================================================
+
+    {$I Tfw.Define.pas}
+
+    unit MyUnit;
+    ''';
+
+  LResult := FormatSource(LSource);
+
+  Assert.IsTrue(LResult.StartsWith(LExpectedHeader),
+    'Comment attached to the banner must stay in it and the default include must be added. Actual:'#13#10 + Copy(LResult, 1, 600));
+  Assert.AreEqual(1, CountOccurrences('// Copyright (c) Foo GmbH', LResult),
+    'The attached comment must appear exactly once. Actual:'#13#10 + Copy(LResult, 1, 600));
 end;
 
 end.
