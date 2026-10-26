@@ -3,10 +3,15 @@
 DPT supports an "AI-Mode" specifically designed for collaboration with AI agents (like the Gemini CLI or Claude Code). A file named `.DptAiWorkflow` in the project directory defines rules that control the workflow, display instructions, or handle errors via guards.
 
 ## How it works
-On startup, DPT recursively searches upwards for a file named `.DptAiWorkflow`. If DPT is executed within an AI session (detected via the host PID), the internal `TDptWorkflowEngine` evaluates this file in two phases:
+On startup, DPT recursively searches upwards for a file named `.DptAiWorkflow`, falling back to the directory of `DPT.exe`. The search starts at the **base directory**: for the project actions (`Build`, `Compile`, `BuildAndRun`, `CompileAndRun`) that is the directory of the given project file, for every other action the current directory. If DPT is executed within an AI session (detected via the host PID), the internal `TDptWorkflowEngine` evaluates this file in two phases:
 
 1.  **BeforeDptGuard:** Evaluated *before* the main task is executed. Used for validation, ensuring requirements, and preventing invalid states.
 2.  **AfterDptGuard:** Evaluated *after* the task (or after a `BeforeDptGuard` violation). Used for reporting, custom error messages, or post-task cleanup instructions.
+
+### Which checkout is processed
+The base directory also decides which git checkout the `…InGitModifiedFiles` functions work on, and relative paths inside the workflow file (the formatter script, the project of `DProjPrintOutputFile`) are resolved against the directory of the workflow file first and the base directory second — never against the current directory.
+
+This matters when the caller and the project live in different checkouts, e.g. an AI agent whose shell sits in the main checkout and builds a project of a git worktree by its absolute path: DPT pre-processes the worktree, with the worktree's own `.DptAiWorkflow` and formatter script, and leaves the uncommitted files of the main checkout alone. The `Workflow file FOUND: …` line shows which checkout was chosen.
 
 ## File Format
 The file consists of guard blocks:
@@ -52,14 +57,14 @@ The guards use an internal expression parser with access to the current DPT stat
 | `GetExitCode()` | Returns the current exit code (0 if successful or the code set by a guard). |
 | `FixLineEndingsWindowsInGitModifiedFiles()` | Converts line endings of all uncommitted files in Git to CRLF (Windows), respecting active `IgnorePattern`. Returns `True` if any file was changed. |
 | `FixUtf8BomInGitModifiedFiles()` | Ensures all uncommitted files in Git are encoded in UTF-8 with BOM, respecting active `IgnorePattern`. Returns `True` if any file was changed. |
-| `GetLastFixedFiles()` | Returns a newline-separated list of files that were modified by the last executed Fix function. |
-| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern` and `IncludePattern`. Returns `True` if any file was changed. |
-| `GetLastFormattedFiles()` | Returns a newline-separated list of files that were modified by `FormatGitModifiedFiles`. |
+| `GetLastFixedFiles()` | Returns a newline-separated list of the full paths of the files that were modified by the last executed Fix function. |
+| `FormatGitModifiedFiles("Script.pas")` | Formats all uncommitted files using the provided DWS script, respecting active `IgnorePattern` and `IncludePattern`. A relative script path is looked up next to the workflow file, then in the base directory, then in the `Format` folder next to `DPT.exe` and next to `DPT.exe` itself. Returns `True` if any file was changed. |
+| `GetLastFormattedFiles()` | Returns a newline-separated list of the full paths of the files that were modified by `FormatGitModifiedFiles`. |
 | `IncludePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*.txt`, `*.md`) to the include list used by Fix and Format functions. If the include list is not empty, only files matching at least one pattern are processed. Always returns `True` for chaining. |
 | `ClearIncludePatterns()` | Clears the current list of include patterns. Always returns `True` for chaining. |
 | `IgnorePattern("P1", "P2", ...)` | Adds glob patterns (e.g. `*\MISC\*`, `*.dfm`) to the ignore list used by Fix and Format functions. Files matching these patterns are excluded, even if they match an `IncludePattern`. Always returns `True` for chaining. |
 | `ClearIgnorePatterns()` | Clears the current list of ignore patterns. Always returns `True` for chaining. |
-| `DProjPrintOutputFile("Project.dproj", ["Config"], ["Platform"])` | Parses the given `.dproj` file and returns the evaluated `DCC_ExeOutput` path (the executable path). Optional parameters `Config` (defaults to the project's default config) and `Platform` (defaults to `Win32`). |
+| `DProjPrintOutputFile("Project.dproj", ["Config"], ["Platform"])` | Parses the given `.dproj` file and returns the evaluated `DCC_ExeOutput` path (the executable path). A relative project path is resolved against the directory of the workflow file, then the base directory. Optional parameters `Config` (defaults to the project's default config) and `Platform` (defaults to `Win32`). |
 
 ## Example Workflow
 

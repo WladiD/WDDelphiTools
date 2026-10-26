@@ -48,6 +48,25 @@ type
     ///   is testable without a process command line.
     /// </remarks>
     class function IsSlimServerStart(const AParams: TArray<String>; out APort: Integer): Boolean; static;
+    /// <summary>
+    ///   Directory the workflow engine works from: for the project actions
+    ///   (<c>Build</c>, <c>Compile</c>, <c>BuildAndRun</c>, <c>CompileAndRun</c>)
+    ///   the directory of the project file argument, otherwise
+    ///   <paramref name="ACurrentDir"/>.
+    /// </summary>
+    /// <remarks>
+    ///   The project decides which checkout a build belongs to, not the
+    ///   caller's working directory. An AI agent typically sits in the main
+    ///   checkout and builds a project of a git worktree by its absolute path;
+    ///   resolving <c>.DptAiWorkflow</c> and the git-modified files from the
+    ///   working directory would pre-process the main checkout's uncommitted
+    ///   files instead of the worktree's. A relative project path is resolved
+    ///   against <paramref name="ACurrentDir"/>. Falls back to
+    ///   <paramref name="ACurrentDir"/> when the action takes no project file,
+    ///   the argument is missing or its directory does not exist.
+    ///   Pure function over <paramref name="AParams"/> (ParamStr(1..n)).
+    /// </remarks>
+    class function WorkflowBaseDir(const AParams: TArray<String>; const ACurrentDir: String): String; static;
     class procedure Run;
   end;
 
@@ -279,6 +298,40 @@ begin
     APort := 0;
 end;
 
+class function TDptApplication.WorkflowBaseDir(const AParams: TArray<String>; const ACurrentDir: String): String;
+var
+  ActionIdx   : Integer;
+  DummyVersion: TDelphiVersion;
+  ProjectDir  : String;
+  ProjectFile : String;
+begin
+  Result := ACurrentDir;
+
+  // The Delphi version is optional and precedes the action
+  ActionIdx := 0;
+  if (Length(AParams) > 0) and
+     (IsLatestVersionAlias(AParams[0]) or IsValidDelphiVersion(AParams[0], DummyVersion)) then
+    ActionIdx := 1;
+
+  if Length(AParams) < ActionIdx + 2 then
+    Exit;
+
+  if not (SameText(AParams[ActionIdx], 'Build') or SameText(AParams[ActionIdx], 'BuildAndRun') or
+          SameText(AParams[ActionIdx], 'Compile') or SameText(AParams[ActionIdx], 'CompileAndRun')) then
+    Exit;
+
+  ProjectFile := AParams[ActionIdx + 1];
+  if ProjectFile = '' then
+    Exit;
+
+  if (ExtractFileDrive(ProjectFile) = '') and not CharInSet(ProjectFile.Chars[0], ['\', '/']) then
+    ProjectFile := IncludeTrailingPathDelimiter(ACurrentDir) + ProjectFile;
+
+  ProjectDir := ExtractFileDir(ExpandFileName(ProjectFile));
+  if (ProjectDir <> '') and TDirectory.Exists(ProjectDir) then
+    Result := ProjectDir;
+end;
+
 class procedure TDptApplication.Run;
 begin
   SetConsoleOutputCP(CP_UTF8);
@@ -369,7 +422,7 @@ begin
           end;
           LAction := LArg;
 
-          WorkflowEngine := TDptWorkflowEngine.Create(LAction);
+          WorkflowEngine := TDptWorkflowEngine.Create(LAction, WorkflowBaseDir(LParams, GetCurrentDir));
           
           // Reset LCmdLine for Dispatcher
           LCmdLine.Free;
