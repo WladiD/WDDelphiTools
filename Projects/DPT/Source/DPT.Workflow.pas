@@ -45,6 +45,7 @@ type
     class var DiagnosticHook: TDptWorkflowDiagnosticProc; // For testing purposes
   private
     FAIMode                : TAIMode;
+    FBaseDir               : String;
     FBlocks                : IList<TDptWorkflowBlock>;
     FCurrentAction         : String;
     FCurrentProjectFile    : String;
@@ -85,14 +86,26 @@ type
     function  OnGetVariableCallback(Sender: TObject; const VarName: string; var Value: Variant): Boolean;
     procedure ParseBlocks(ALines: TStrings; var ACurrentLine: Integer; const ABlocks: IList<TDptWorkflowBlock>; AParentBlock: TDptWorkflowBlock);
     function  ProcessInstructions(AParser: TExprParser; const AStr: string): string;
+    function  ResolveWorkflowPath(const APath: string): string;
   public
-    constructor Create(const AAction: string);
+    /// <summary>
+    ///   Creates the engine for <paramref name="AAction"/> and loads the
+    ///   <c>.DptAiWorkflow</c> found upwards from <paramref name="ABaseDir"/>.
+    /// </summary>
+    /// <remarks>
+    ///   <paramref name="ABaseDir"/> is the directory the processed action is
+    ///   about -- for a build the directory of the project file. It also
+    ///   selects the git checkout whose modified files the Fix/Format
+    ///   functions process. Empty means the current directory.
+    /// </remarks>
+    constructor Create(const AAction: string; const ABaseDir: string = '');
     destructor  Destroy; override;
     function  CheckConditions(out AInstructions: string; AGuardType: TDptGuardType = gtBefore): TDptWorkflowAction;
     procedure SetCurrentProjectFile(const AFile: string);
     procedure SetExitCode(ACode: Integer);
     procedure SetLintTarget(const ATarget: string);
     procedure SetProjectFiles(const AFiles: TArray<string>);
+    property BaseDir: string read FBaseDir;
     property WorkflowFile: string read FWorkflowFile;
     property HostPID: DWORD read FHostPID;
     property ExitCode: Integer read FExitCode write SetExitCode;
@@ -133,7 +146,7 @@ end;
 
 { TDptWorkflowEngine }
 
-constructor TDptWorkflowEngine.Create(const AAction: string);
+constructor TDptWorkflowEngine.Create(const AAction: string; const ABaseDir: string);
 begin
   FBlocks := Collections.NewList<TDptWorkflowBlock>;
   FIgnorePatterns := TStringList.Create;
@@ -142,7 +155,12 @@ begin
   FLastFormattedFiles := TStringList.Create;
   FCurrentAction := AAction;
   FHostPID := GetCurrentProcessId;
-  
+
+  if ABaseDir <> '' then
+    FBaseDir := ExpandFileName(ABaseDir)
+  else
+    FBaseDir := GetCurrentDir;
+
   FAIMode := DetectAIMode(FHostPID);
   FWorkflowFile := FindWorkflowFile;
   for var i := 1 to ParamCount do
@@ -154,7 +172,7 @@ begin
     // construction, where the file is merely parsed into FBlocks.
     LoadWorkflow
   else if (FAIMode > amNone) and not FIsMcpDebugger then
-    EmitDiagnostic('Workflow file NOT found. Searched up from: ' + GetCurrentDir);
+    EmitDiagnostic('Workflow file NOT found. Searched up from: ' + FBaseDir);
 end;
 
 procedure TDptWorkflowEngine.EmitDiagnostic(const AText: String);
@@ -181,9 +199,9 @@ var
   Candidate: string;
 begin
   Result := '';
-  CurrentDir := GetCurrentDir;
-  
-  // 1. Search up from current directory
+  CurrentDir := FBaseDir;
+
+  // 1. Search up from the base directory
   while CurrentDir <> '' do
   begin
     Candidate := TPath.Combine(CurrentDir, WorkflowFileName);
@@ -206,6 +224,35 @@ begin
     if TFile.Exists(Candidate) then
       Result := Candidate;
   end;
+end;
+
+/// <summary>
+///   Resolves a path written in the workflow file to an existing file.
+///   A relative path refers to the directory of the workflow file first and
+///   to the base directory second -- never to the process' current directory,
+///   which belongs to the caller and may lie in a different checkout.
+///   Returns '' when no candidate exists; a rooted path is returned expanded,
+///   whether it exists or not.
+/// </summary>
+function TDptWorkflowEngine.ResolveWorkflowPath(const APath: string): string;
+var
+  Candidate: string;
+begin
+  if TPath.IsPathRooted(APath) then
+    Exit(ExpandFileName(APath));
+
+  if FWorkflowFile <> '' then
+  begin
+    Candidate := ExpandFileName(TPath.Combine(ExtractFilePath(FWorkflowFile), APath));
+    if TFile.Exists(Candidate) then
+      Exit(Candidate);
+  end;
+
+  Candidate := ExpandFileName(TPath.Combine(FBaseDir, APath));
+  if TFile.Exists(Candidate) then
+    Exit(Candidate);
+
+  Result := '';
 end;
 
 function TDptWorkflowEngine.IsFileIncluded(const AFileName: string): Boolean;
@@ -440,6 +487,7 @@ var
   FileName: string;
   Content: string;
   NewContent: string;
+  ScriptArg: string;
   ScriptFile: string;
   Formatter: TDptDwsFormatter;
   PTParser: TParseTreeParser;
@@ -450,39 +498,35 @@ begin
   Result := False;
 
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
-    ScriptFile := VarToStr(Args[0])
+    ScriptArg := VarToStr(Args[0])
   else
     Exit; // Script file is required
 
-  if not TFile.Exists(ScriptFile) then
+  // Relative to the workflow file (then the base directory) first, so a
+  // build of a worktree project runs the worktree's own formatter script
+  ScriptFile := ResolveWorkflowPath(ScriptArg);
+  if ScriptFile = '' then
   begin
-    // Try to find it relative to the workflow file
-    var Candidate := TPath.Combine(ExtractFilePath(FWorkflowFile), ScriptFile);
+    // Try Format subfolder next to EXE
+    var Candidate := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Format'), ScriptArg);
     if TFile.Exists(Candidate) then
       ScriptFile := Candidate
     else
     begin
-      // Try Format subfolder next to EXE
-      Candidate := TPath.Combine(TPath.Combine(ExtractFilePath(ParamStr(0)), 'Format'), ScriptFile);
+      // Try directly next to EXE
+      Candidate := TPath.Combine(ExtractFilePath(ParamStr(0)), ScriptArg);
       if TFile.Exists(Candidate) then
-        ScriptFile := Candidate
-      else
-      begin
-        // Try directly next to EXE
-        Candidate := TPath.Combine(ExtractFilePath(ParamStr(0)), ScriptFile);
-        if TFile.Exists(Candidate) then
-          ScriptFile := Candidate;
-      end;
+        ScriptFile := Candidate;
     end;
   end;
 
-  if not TFile.Exists(ScriptFile) then
+  if (ScriptFile = '') or not TFile.Exists(ScriptFile) then
   begin
-    Writeln('DPT Formatter: Script file not found! Searched for: ', ScriptFile);
+    Writeln('DPT Formatter: Script file not found! Searched for: ', ScriptArg);
     Exit;
   end;
 
-  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  ModifiedFiles := TDptGit.GetModifiedFiles(FBaseDir);
   if Length(ModifiedFiles) = 0 then Exit;
 
   Formatter := TDptDwsFormatter.Create;
@@ -532,7 +576,7 @@ begin
         if Content <> NewContent then
         begin
           TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
-          FLastFormattedFiles.Add(ExtractFileName(FileName));
+          FLastFormattedFiles.Add(FileName);
           Result := True;
         end;
       except
@@ -565,13 +609,13 @@ begin
   Result := '';
   if VarIsArray(Args) and (VarArrayHighBound(Args, 1) >= 0) and (not VarIsClear(Args[0])) then
   begin
-    ProjectFile := ExpandFileName(VarToStr(Args[0]));
+    ProjectFile := ResolveWorkflowPath(VarToStr(Args[0]));
     Config := '';
     Platform := '';
     if VarArrayHighBound(Args, 1) >= 1 then Config := VarToStr(Args[1]);
     if VarArrayHighBound(Args, 1) >= 2 then Platform := VarToStr(Args[2]);
 
-    if TFile.Exists(ProjectFile) then
+    if (ProjectFile <> '') and TFile.Exists(ProjectFile) then
     begin
       CheckAndExecutePreProcessor(ProjectFile);
       Analyzer := TDProjAnalyzer.Create(ProjectFile);
@@ -642,7 +686,7 @@ var
 begin
   FLastFixedFiles.Clear;
   Result := False;
-  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  ModifiedFiles := TDptGit.GetModifiedFiles(FBaseDir);
   for FileName in ModifiedFiles do
   begin
     if TFile.Exists(FileName) then
@@ -656,7 +700,7 @@ begin
         if Content <> NewContent then
         begin
           TFile.WriteAllText(FileName, NewContent, TEncoding.UTF8);
-          FLastFixedFiles.Add(ExtractFileName(FileName));
+          FLastFixedFiles.Add(FileName);
           Result := True;
         end;
       except
@@ -676,7 +720,7 @@ begin
   FLastFixedFiles.Clear;
   Result := False;
   BOM := TEncoding.UTF8.GetPreamble;
-  ModifiedFiles := TDptGit.GetModifiedFiles(GetCurrentDir);
+  ModifiedFiles := TDptGit.GetModifiedFiles(FBaseDir);
   for FileName in ModifiedFiles do
   begin
     if TFile.Exists(FileName) then
@@ -692,7 +736,7 @@ begin
         begin
           // Write back with UTF8 encoding which adds BOM
           TFile.WriteAllText(FileName, TFile.ReadAllText(FileName), TEncoding.UTF8);
-          FLastFixedFiles.Add(ExtractFileName(FileName));
+          FLastFixedFiles.Add(FileName);
           Result := True;
         end;
       except

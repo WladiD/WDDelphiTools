@@ -33,9 +33,13 @@ type
     FEngine: TDptWorkflowEngine;
     FOldGeminiVar: String;
     FDiagLines: TStringList;
+    FGitDirs: TStringList;
+    function CreateCheckout(const AName: String): String;
     function CreateTestFile(const AName, AContent: String; AEncoding: TEncoding = nil): String;
+    function HasUtf8Bom(const AFileName: String): Boolean;
     function MockGitRunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
     function CountDiag(const ASubstr: String): Integer;
+    function WriteFile(const AFileName, AContent: String): String;
   public
     [Setup]
     procedure Setup;
@@ -67,9 +71,32 @@ type
     procedure WorkflowFoundAnnouncedOnceWhenProcessed;
     [Test]
     procedure WorkflowFoundNotAnnouncedWhenNoBlocksToProcess;
+    // A build started from one checkout for a project of another checkout
+    // (an AI agent in the main checkout building a git worktree project):
+    // the workflow file, the git-modified files and the relative paths of the
+    // workflow must follow the engine's base directory, not the current dir.
+    [Test]
+    procedure BaseDir_DefaultsToCurrentDir;
+    [Test]
+    procedure WorkflowFile_SearchedUpFromBaseDir_NotFromCurrentDir;
+    [Test]
+    procedure FixFunctions_ProcessBaseDirCheckout_NotCurrentDirCheckout;
+    [Test]
+    procedure FormatGitModifiedFiles_FormatsBaseDirCheckoutWithItsOwnScript;
+    [Test]
+    procedure DProjPrintOutputFile_ResolvedRelativeToWorkflowFile;
+    [Test]
+    procedure ProcessedFiles_ReportedWithFullPath;
   end;
 
 implementation
+
+function TTestDptWorkflow.CreateCheckout(const AName: String): String;
+begin
+  Result := TPath.Combine(FTestDir, AName);
+  // An (empty) .git directory marks the checkout root for MockGitRunCommand
+  TDirectory.CreateDirectory(TPath.Combine(Result, '.git'));
+end;
 
 function TTestDptWorkflow.CreateTestFile(const AName, AContent: String; AEncoding: TEncoding = nil): String;
 begin
@@ -80,34 +107,70 @@ begin
     TFile.WriteAllText(Result, AContent, AEncoding);
 end;
 
+function TTestDptWorkflow.HasUtf8Bom(const AFileName: String): Boolean;
+var
+  Bytes: TBytes;
+begin
+  Bytes := TFile.ReadAllBytes(AFileName);
+  Result := (Length(Bytes) >= 3) and (Bytes[0] = $EF) and (Bytes[1] = $BB) and (Bytes[2] = $BF);
+end;
+
+/// <summary>
+///   Answers git like a real checkout would: <c>rev-parse --show-toplevel</c>
+///   yields the nearest directory above <paramref name="ADirectory"/> that
+///   holds a <c>.git</c> marker, <c>status</c> lists every file below that root
+///   as modified. Records each directory git is run in.
+/// </summary>
 function TTestDptWorkflow.MockGitRunCommand(const ACommand, ADirectory: String; out AOutput: String): Integer;
 var
   Files: TArray<string>;
   I: Integer;
+  Root: String;
 begin
+  FGitDirs.Add(ADirectory);
+  AOutput := '';
+
+  Root := ExcludeTrailingPathDelimiter(ADirectory);
+  while not TDirectory.Exists(TPath.Combine(Root, '.git')) do
+  begin
+    if (TPath.GetDirectoryName(Root) = '') or SameText(TPath.GetDirectoryName(Root), Root) then
+      Exit(128); // fatal: not a git repository
+    Root := TPath.GetDirectoryName(Root);
+  end;
+
   Result := 0;
   if Pos('rev-parse', ACommand) > 0 then
   begin
-    AOutput := FTestDir;
+    AOutput := Root;
   end
   else if Pos('status', ACommand) > 0 then
   begin
-    AOutput := '';
-    Files := TDirectory.GetFiles(FTestDir, '*.*', TSearchOption.soAllDirectories);
+    Files := TDirectory.GetFiles(Root, '*.*', TSearchOption.soAllDirectories);
     for I := 0 to High(Files) do
     begin
-      AOutput := AOutput + ' M ' + ExtractRelativePath(FTestDir + '\', Files[I]).Replace('\', '/') + sLineBreak;
+      AOutput := AOutput + ' M ' + ExtractRelativePath(Root + '\', Files[I]).Replace('\', '/') + sLineBreak;
     end;
   end;
+end;
+
+function TTestDptWorkflow.WriteFile(const AFileName, AContent: String): String;
+begin
+  Result := AFileName;
+  TDirectory.CreateDirectory(ExtractFilePath(AFileName));
+  // ASCII: neither a BOM nor a re-encoding of the content
+  TFile.WriteAllText(AFileName, AContent, TEncoding.ASCII);
 end;
 
 procedure TTestDptWorkflow.Setup;
 begin
   FTestDir := TPath.Combine(TPath.GetTempPath, 'DptWorkflowTest_' + TGUID.NewGuid.ToString);
   TDirectory.CreateDirectory(FTestDir);
+  // The test directory itself is a checkout for MockGitRunCommand
+  TDirectory.CreateDirectory(TPath.Combine(FTestDir, '.git'));
   FWorkflowFile := TPath.Combine(FTestDir, '.DptAiWorkflow');
   TFile.WriteAllText(FWorkflowFile, ''); // Empty workflow file needed for discovery
-  
+
+  FGitDirs := TStringList.Create;
   TDptGit.MockRunCommand := MockGitRunCommand;
 
   // Force AI Mode via Environment Variable
@@ -136,11 +199,14 @@ begin
   TDptWorkflowEngine.DiagnosticHook := nil;
   FEngine.Free;
   FreeAndNil(FDiagLines);
+  FreeAndNil(FGitDirs);
   if FOldGeminiVar <> '' then
     SetEnvironmentVariable('GEMINI_CLI', PChar(FOldGeminiVar))
   else
     SetEnvironmentVariable('GEMINI_CLI', nil);
 
+  // Leave the test directory, Windows refuses to delete the current directory
+  SetCurrentDir(TPath.GetTempPath);
   if TDirectory.Exists(FTestDir) then
     TDirectory.Delete(FTestDir, True);
 end;
@@ -377,7 +443,7 @@ begin
   Content := TFile.ReadAllText(FileToIgnore2);
   Assert.IsFalse(Content.Contains('{ Formatted }'), 'AlsoIgnore.pas should NOT be formatted');
 
-  Assert.IsTrue(Instructions.Contains('Formatted: ToFormat.pas'), 'Output should list ToFormat.pas');
+  Assert.IsTrue(Instructions.Contains('Formatted: ' + FileToFormat), 'Output should list ToFormat.pas with its full path. Actual: ' + Instructions);
   Assert.IsFalse(Instructions.Contains('ToIgnore.pas'), 'Output should NOT list ToIgnore.pas');
   Assert.IsFalse(Instructions.Contains('AlsoIgnore.pas'), 'Output should NOT list AlsoIgnore.pas');
 end;
@@ -677,6 +743,206 @@ begin
 
   Assert.AreEqual(0, CountDiag('Workflow file FOUND'),
     'FOUND must not be announced when the workflow has no blocks to process. Captured: ' + FDiagLines.Text);
+end;
+
+procedure TTestDptWorkflow.BaseDir_DefaultsToCurrentDir;
+begin
+  // Setup constructed the engine without a base directory
+  Assert.AreEqual(GetCurrentDir, FEngine.BaseDir, 'BaseDir should default to the current directory');
+  Assert.AreEqual(FWorkflowFile, FEngine.WorkflowFile, 'The workflow file should be found from the current directory');
+end;
+
+procedure TTestDptWorkflow.WorkflowFile_SearchedUpFromBaseDir_NotFromCurrentDir;
+var
+  MainDir: String;
+  WtDir  : String;
+begin
+  MainDir := CreateCheckout('main');
+  WtDir := CreateCheckout('wt');
+  WriteFile(TPath.Combine(MainDir, '.DptAiWorkflow'), '');
+  WriteFile(TPath.Combine(WtDir, '.DptAiWorkflow'), '');
+  TDirectory.CreateDirectory(TPath.Combine(WtDir, 'Src\Sub'));
+
+  // The caller sits in the main checkout, the project lives in the worktree
+  SetCurrentDir(MainDir);
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Build', TPath.Combine(WtDir, 'Src\Sub'));
+
+  Assert.AreEqual(TPath.Combine(WtDir, 'Src\Sub'), FEngine.BaseDir);
+  Assert.AreEqual(TPath.Combine(WtDir, '.DptAiWorkflow'), FEngine.WorkflowFile,
+    'The workflow file must be searched upwards from the base directory, not from the current directory');
+end;
+
+procedure TTestDptWorkflow.FixFunctions_ProcessBaseDirCheckout_NotCurrentDirCheckout;
+const
+  Dirty = 'unit Foo;'#10'implementation'#10'end.';
+  Workflow = '''
+    BeforeDptGuard: IsCurrentAction("Build") and IncludePattern("*.pas")
+    {
+      BeforeDptGuard: FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+
+      BeforeDptGuard: FixUtf8BomInGitModifiedFiles()
+      {
+        Bom: `GetLastFixedFiles()`
+      }
+    }
+    ''';
+var
+  Dir         : String;
+  Instructions: String;
+  MainDir     : String;
+  MainFoo     : String;
+  WtDir       : String;
+  WtFoo       : String;
+begin
+  // Main checkout and worktree carry the same uncommitted, unnormalized unit
+  MainDir := CreateCheckout('main');
+  WtDir := CreateCheckout('wt');
+  WriteFile(TPath.Combine(MainDir, '.DptAiWorkflow'), Workflow);
+  WriteFile(TPath.Combine(WtDir, '.DptAiWorkflow'), Workflow);
+  MainFoo := WriteFile(TPath.Combine(MainDir, 'Src\Foo.pas'), Dirty);
+  WtFoo := WriteFile(TPath.Combine(WtDir, 'Src\Foo.pas'), Dirty);
+
+  // The caller sits in the main checkout and builds a worktree project
+  SetCurrentDir(MainDir);
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Build', TPath.Combine(WtDir, 'Src'));
+  FGitDirs.Clear;
+
+  FEngine.CheckConditions(Instructions);
+
+  Assert.AreEqual('unit Foo;'#13#10'implementation'#13#10'end.', TFile.ReadAllText(WtFoo, TEncoding.UTF8),
+    'The worktree unit should be CRLF');
+  Assert.IsTrue(HasUtf8Bom(WtFoo), 'The worktree unit should have a BOM');
+
+  Assert.AreEqual(Dirty, TFile.ReadAllText(MainFoo, TEncoding.ASCII), 'The main checkout unit must stay untouched');
+  Assert.IsFalse(HasUtf8Bom(MainFoo), 'The main checkout unit must not get a BOM');
+
+  Assert.IsTrue(FGitDirs.Count > 0, 'git should have been queried');
+  for Dir in FGitDirs do
+    Assert.IsTrue(Dir.StartsWith(WtDir + '\', True), 'git must run in the worktree, but ran in: ' + Dir);
+
+  Assert.IsTrue(Instructions.Contains('Fixed: ' + WtFoo), 'Output should list the worktree unit. Actual: ' + Instructions);
+  Assert.IsFalse(Instructions.Contains(MainFoo), 'Output must not list the main checkout unit. Actual: ' + Instructions);
+end;
+
+procedure TTestDptWorkflow.FormatGitModifiedFiles_FormatsBaseDirCheckoutWithItsOwnScript;
+const
+  Unformatted = 'unit Foo; implementation end.';
+  Workflow = '''
+    BeforeDptGuard: IsCurrentAction("Build") and IncludePattern("*.pas") and IgnorePattern("*\Format\*")
+    {
+      BeforeDptGuard: FormatGitModifiedFiles("Format\Fmt.pas")
+      {
+        Formatted: `GetLastFormattedFiles()`
+      }
+    }
+    ''';
+
+  function FormatScript(const AMarker: String): String;
+  begin
+    Result :=
+      'procedure OnVisitUnitStart(AUnit: TCompilationUnitSyntax);' + sLineBreak +
+      'begin' + sLineBreak +
+      '  AddLeadingTrivia(GetUnitKeyword(AUnit), "' + AMarker + ' ");' + sLineBreak +
+      'end;';
+  end;
+
+var
+  Instructions: String;
+  MainDir     : String;
+  MainFoo     : String;
+  WtContent   : String;
+  WtDir       : String;
+  WtFoo       : String;
+begin
+  MainDir := CreateCheckout('main');
+  WtDir := CreateCheckout('wt');
+  WriteFile(TPath.Combine(MainDir, '.DptAiWorkflow'), Workflow);
+  WriteFile(TPath.Combine(WtDir, '.DptAiWorkflow'), Workflow);
+  // Each checkout ships its own formatter script under the same relative path
+  WriteFile(TPath.Combine(MainDir, 'Format\Fmt.pas'), FormatScript('{ Main }'));
+  WriteFile(TPath.Combine(WtDir, 'Format\Fmt.pas'), FormatScript('{ Worktree }'));
+  MainFoo := WriteFile(TPath.Combine(MainDir, 'Src\Foo.pas'), Unformatted);
+  WtFoo := WriteFile(TPath.Combine(WtDir, 'Src\Foo.pas'), Unformatted);
+
+  // The caller sits in the main checkout and builds a worktree project
+  SetCurrentDir(MainDir);
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Build', TPath.Combine(WtDir, 'Src'));
+
+  FEngine.CheckConditions(Instructions);
+
+  WtContent := TFile.ReadAllText(WtFoo);
+  Assert.IsTrue(WtContent.Contains('{ Worktree }'), 'The worktree unit should be formatted by the worktree script. Actual: ' + WtContent);
+  Assert.IsFalse(WtContent.Contains('{ Main }'), 'The main checkout script must not format the worktree unit');
+
+  Assert.AreEqual(Unformatted, TFile.ReadAllText(MainFoo, TEncoding.ASCII), 'The main checkout unit must stay untouched');
+
+  Assert.IsTrue(Instructions.Contains('Formatted: ' + WtFoo), 'Output should list the worktree unit. Actual: ' + Instructions);
+  Assert.IsFalse(Instructions.Contains(MainFoo), 'Output must not list the main checkout unit. Actual: ' + Instructions);
+end;
+
+procedure TTestDptWorkflow.DProjPrintOutputFile_ResolvedRelativeToWorkflowFile;
+var
+  Instructions: String;
+  MainDir     : String;
+  WtDir       : String;
+begin
+  MainDir := CreateCheckout('main');
+  WtDir := CreateCheckout('wt');
+  WriteFile(TPath.Combine(WtDir, 'Proj.dproj'), '''
+    <?xml version="1.0" encoding="utf-8"?>
+    <Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+      <PropertyGroup Condition="'$(Config)'=='Release'">
+        <DCC_ExeOutput>.\bin\Release</DCC_ExeOutput>
+      </PropertyGroup>
+    </Project>
+    ''');
+  WriteFile(TPath.Combine(WtDir, '.DptAiWorkflow'), '''
+    BeforeDptGuard: 1
+    {
+      Output File: `DProjPrintOutputFile("Proj.dproj", "Release", "Win32")`
+    }
+    ''');
+
+  // The current directory holds no Proj.dproj -- only the workflow's own checkout does
+  SetCurrentDir(MainDir);
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test', WtDir);
+
+  FEngine.CheckConditions(Instructions);
+
+  Assert.IsTrue(Instructions.Contains('Output File: ' + TPath.Combine(WtDir, 'bin\Release\Proj.exe')),
+    'The project path should be resolved relative to the workflow file. Actual: ' + Instructions);
+end;
+
+procedure TTestDptWorkflow.ProcessedFiles_ReportedWithFullPath;
+var
+  FileInSub   : String;
+  Instructions: String;
+begin
+  FileInSub := WriteFile(TPath.Combine(FTestDir, 'Sub\Unix.txt'), 'Line1'#10'Line2');
+
+  TFile.WriteAllText(FWorkflowFile, '''
+    BeforeDptGuard: 1
+    {
+      BeforeDptGuard: IncludePattern("*.txt") and FixLineEndingsWindowsInGitModifiedFiles()
+      {
+        Fixed: `GetLastFixedFiles()`
+      }
+    }
+    ''');
+  FEngine.Free;
+  FEngine := TDptWorkflowEngine.Create('Test');
+
+  FEngine.CheckConditions(Instructions);
+
+  // The full path tells which checkout was touched, a bare file name does not
+  Assert.IsTrue(Instructions.Contains('Fixed: ' + FileInSub), 'Output should list the full path. Actual: ' + Instructions);
 end;
 
 end.
